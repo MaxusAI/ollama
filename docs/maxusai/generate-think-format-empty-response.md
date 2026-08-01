@@ -1,7 +1,9 @@
 # `/api/generate` + `think` + `format` returned an empty response — root cause and fix
 
 MaxusAI-fork investigation and fix (2026-08-01). Companion to
-[ADR 0002](adr/0002-deferred-format-constraining.md). Fix branch:
+[ADR 0002](adr/0002-deferred-format-constraining.md) (the decision) and
+[SPEC: structured output combined with thinking](spec/structured-output-with-thinking.md)
+(the normative contract this behaviour must satisfy). Fix branch:
 `fix/generate-think-format-lazy-grammar` (off `main`), cherry-picked to
 `release/0.32.1-dynres`.
 
@@ -241,7 +243,7 @@ fork `main`+fix on b10091 runners, `release/0.32.1-dynres`+fix on b9888+002 runn
 
 qwen3.6 on fork `main` (b10091 runners) emits degenerate 4-token output with or
 without the fix and on `/api/chat` too — that is the known b10091 payload regression
-([amd-upgrade-gate.md](amd-upgrade-gate.md)), orthogonal to this bug.
+documented in `amd-upgrade-gate.md` on the main lineage, orthogonal to this bug.
 
 Ground-truth vision suite, think-on cells (`THINK=on NUM_PREDICT=4096`, suite as
 committed in `docs/maxusai/vision-suite/`, against `release/0.32.1-dynres`+fix,
