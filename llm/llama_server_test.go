@@ -1602,6 +1602,18 @@ func TestVisionServerArgs(t *testing.T) {
 			want: []string{"--image-min-tokens", "1024"},
 		},
 		{
+			// Loads as PROJECTOR_TYPE_QWEN3VL via handle_qwen35_like_clip()'s
+			// clip.projector_type = "qwen3vl_merger", so it needs the same floor.
+			name: "qwen35",
+			arch: "qwen35",
+			want: []string{"--image-min-tokens", "1024"},
+		},
+		{
+			name: "qwen35moe",
+			arch: "qwen35moe",
+			want: []string{"--image-min-tokens", "1024"},
+		},
+		{
 			// With llama/compat/002-llama-cpp-nemotron-dynres.patch the projector
 			// calls set_limit_image_tokens(256, 3328), so the flags are live. On an
 			// unpatched payload llama-server still parses them but the projector
