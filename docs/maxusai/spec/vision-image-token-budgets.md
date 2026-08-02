@@ -36,10 +36,12 @@ them, so the API does not advertise a knob that does nothing — with the delibe
 exception in B5.
 
 **B5 — Forward-compatible flags are permitted where a lineage patch makes them
-live.** `nemotron_h_omni` receives budget flags on every lineage: they are consumed
-where `llama/compat/002-llama-cpp-nemotron-dynres.patch` is applied and inert (a
-structural 256/image) where it is not. This is recorded in the arch table rather than
-silently tolerated.
+live.** `nemotron_h_omni` receives budget flags on every maintained lineage: both
+currently carry `llama/compat/002-llama-cpp-nemotron-dynres.patch`, which consumes
+them. Against a pristine `llama/` (upstream stock, or `main` between `5ad093b0` and
+`2487dd56`) llama-server still parses them but the projector ignores them and the cost
+is a structural 256/image. Whether the flags are live is therefore a property of the
+payload, not of the arch — recorded in the table rather than silently tolerated.
 
 ## 2. Per-architecture contract
 
@@ -85,15 +87,19 @@ Worked example (qwen3.6 `qwen35moe`, b9888 + 002, baseline 14):
 
 ## 4. Lineage rule
 
-The maintained lineages carry different llama.cpp payloads and therefore different
-*consumers* of these flags, while sharing the Go-side switch. Consequences:
+The maintained lineages pin different llama.cpp versions and patch them independently,
+so the *consumers* of these flags can differ even though the Go-side switch is shared.
+Consequences:
 
 - Arch entries MAY be backported freely between lineages; **assertions about a
   projector's behaviour MAY NOT**. A change that adds an arch and also asserts what a
   *different* arch's projector does must be split, taking only the arch-specific half.
+  (Concretely: `87cf1100` added the qwen floor *and* asserted `nemotron_h_omni` gets no
+  flags. The first half was portable; the second described only `main`'s
+  then-pristine `llama/` and was already false elsewhere.)
 - Every lineage MUST keep `TestVisionServerArgs` expectations consistent with its own
-  payload. `nemotron_h_omni` expectations legitimately differ: flags asserted on
-  dynres lineages, no flags where `llama/` is pristine.
+  payload, and MUST re-check them whenever that payload changes. Expectations agreeing
+  across lineages today is a coincidence of both carrying compat/002, not an invariant.
 
 ## 5. Conformance
 

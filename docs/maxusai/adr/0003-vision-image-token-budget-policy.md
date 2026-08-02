@@ -13,9 +13,11 @@
 `visionServerArgs()` switches on `modelArch` to decide which `--image-{min,max}-tokens`
 flags a llama-server launch receives. Arches absent from that switch get no flags and
 run at whatever their projector defaults to. The switch is shared by both maintained
-lineages, but the llama.cpp payloads that *consume* the flags are not: `main` tracks
-b10091 with a pristine `llama/`, while `release/0.32.1-dynres` carries b9888 plus
-`llama/compat/002-llama-cpp-nemotron-dynres.patch`.
+lineages, but the llama.cpp payloads that *consume* the flags are versioned
+independently: `main` tracks b10091 and `release/0.32.1-dynres` tracks b9888, and each
+carries its own copy of `llama/compat/002-llama-cpp-nemotron-dynres.patch`. A lineage
+can therefore gain or lose a consumer without the Go switch changing at all — `main`
+itself had a pristine `llama/` between `5ad093b0` and `2487dd56`.
 
 Two facts forced this decision:
 
@@ -29,11 +31,14 @@ Two facts forced this decision:
    cost 786 — all far under the threshold the projector itself asks for.
 
 2. **Backporting the fix wholesale would have broken the branch.** `87cf1100` also
-   adds a guard asserting `nemotron_h_omni` receives **no** budget flags — correct on
-   `main`, where `PROJECTOR_TYPE_NEMOTRON_V2_VL` never calls
-   `set_limit_image_tokens()` and the flags would advertise a dead knob. On the
-   release lineage compat/002 makes exactly those flags live, and the branch's own
-   tests assert they are passed.
+   adds a guard asserting `nemotron_h_omni` receives **no** budget flags. That was
+   correct on `main` *as it stood on 2026-07-30*, whose `llama/` was then pristine, so
+   `PROJECTOR_TYPE_NEMOTRON_V2_VL` never called `set_limit_image_tokens()` and the
+   flags would have advertised a dead knob. It was already false on the release
+   lineage, where compat/002 makes exactly those flags live and the branch's own tests
+   assert they are passed — and it is false on `main` too since `2487dd56` restored
+   compat/002 there. The assertion was payload-specific and short-lived; the arch
+   entry it travelled with was not.
 
 ## Decision
 
@@ -78,9 +83,12 @@ Two facts forced this decision:
 - Sub-1MP images on qwen3.6 now cost ~1026 visual tokens instead of 51–786: better
   grounding, more context consumed. Corpus-sized inputs are unchanged, so every vision
   measurement previously recorded on this lineage still stands.
-- `TestVisionServerArgs` expectations are lineage-specific for `nemotron_h_omni` by
-  design. A future unification of the lineages must reconcile them deliberately.
-- The lineages remain complementary rather than one being a superset: `main` has the
-  qwen floor and gemma4 budget but no dynres; the release branch now has all three.
-  Porting compat/002 forward to b10091 is separate work the AMD gate currently argues
-  against — see `amd-upgrade-gate.md` on the main lineage.
+- `TestVisionServerArgs` expectations are a function of the lineage's payload, not a
+  constant. They happen to agree today — both lineages carry compat/002 and assert
+  nemotron's flags — but any change to a lineage's `llama/` must be accompanied by a
+  re-check, in both directions.
+- Both maintained lineages now carry all three mechanisms (qwen floor, gemma4 budget,
+  nemotron dynres) and differ only in llama.cpp pin: `main` at b10091 since compat/002
+  was ported forward in `2487dd56`, `release/0.32.1-dynres` at b9888. Which payload may
+  ship to the gfx1151 host remains governed by
+  `amd-upgrade-gate.md` (main lineage), independently of this policy.
