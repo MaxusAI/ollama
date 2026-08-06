@@ -16,3 +16,8 @@ llama/build
 llama/vendor
 /ollama
 integration/testdata/models/
+
+# Ad-hoc local build outputs (e.g. ollama-dynres, ollama-test-routes). `/ollama`
+# above only covers the default binary name; a `go build -o ollama-<something>` lands
+# a ~50 MB artifact that `git add -A` will happily commit.
+/ollama-*
