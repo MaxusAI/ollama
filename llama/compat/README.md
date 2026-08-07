@@ -37,6 +37,10 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   measurably break `box_2d` vertical grounding (main:
   docs/maxusai/gemma4-bbox-investigation-findings.md). Makes
   `--image-min-tokens` a no-op for gemma4.
+- `005-llama-cpp-dynres-pinned-overshoot.patch` - shared dyn_size sizing: when
+  a pinned budget (min ~= max) makes the min_pixels ceil overshoot max_pixels,
+  floor just under min instead (nemotron pinned 3328 delivered 3388 pre-005).
+  The budget is a hard ceiling; affects only the infeasible pinned case.
 - `compat.cmake`, `apply-patch.cmake` - CMake glue and an idempotent applier
   (used by `llama/server/CMakeLists.txt`) that applies every `*.patch` under
   this directory by numeric filename order — the hooks patch plus each
