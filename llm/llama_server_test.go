@@ -1572,7 +1572,7 @@ func TestVisionServerArgs(t *testing.T) {
 		{
 			name: "gemma4 defaults (unset opts fall back)",
 			arch: "gemma4",
-			want: []string{"--image-min-tokens", "40", "--image-max-tokens", "1120"},
+			want: []string{"--image-min-tokens", "70", "--image-max-tokens", "1120"},
 		},
 		{
 			name: "gemma4 custom budget",

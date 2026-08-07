@@ -600,9 +600,15 @@ type Options struct {
 
 // Default Gemma 4 vision image-token budget (gemma4v projector). Exposed via
 // Runner.ImageMinTokens/ImageMaxTokens so callers can tune it per request.
+// With compat/004 in the payload (budget-fill sizing) these behave exactly as
+// main's ADR 0008 defaults: min is a no-op, the ceiling snaps to Gemma 4's
+// supported ladder {70,140,280,560,1120} and the image scales to fill it. The
+// constants are aligned with main so the intent is explicit; behaviour is
+// identical either way. 12B bbox workloads should pin image_max_tokens 560
+// per request (ADR 0008 recorded exception).
 const (
-	DefaultImageMinTokens = 40   // llama.cpp's documented gemma4v floor
-	DefaultImageMaxTokens = 1120 // raised from llama.cpp's 280 default ceiling
+	DefaultImageMinTokens = 70   // lowest rung on Gemma 4's documented ladder
+	DefaultImageMaxTokens = 1120 // vendor maximum; requires compat/004 — see main ADR 0008
 )
 
 // Runner options which must be set when the model is loaded into memory
