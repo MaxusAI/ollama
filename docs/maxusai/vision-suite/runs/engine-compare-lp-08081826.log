@@ -1,0 +1,815 @@
+##### MODEL gemma4:31b-mlx-bf16 tag=gemma4_31b-mlx-bf16 18:26:38 powermode=1
+--- scene_single [gemma4_31b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.966,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 535,
+ "total_duration": 201760762041,
+ "load_duration": 8955160250,
+ "prompt_eval_duration": 6389021958,
+ "eval_duration": 178525991959,
+ "gen_tps": 3.0,
+ "prefill_tps": 263.58
+}
+--- document_single [gemma4_31b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.711,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 400,
+ "total_duration": 143126705833,
+ "load_duration": 132279375,
+ "prompt_eval_duration": 5621857334,
+ "eval_duration": 133622951416,
+ "gen_tps": 2.99,
+ "prefill_tps": 257.39
+}
+--- multi_3img [gemma4_31b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1146,
+ "total_duration": 428669152083,
+ "load_duration": 143531458,
+ "prompt_eval_duration": 18873320125,
+ "eval_duration": 396860771334,
+ "gen_tps": 2.89,
+ "prefill_tps": 199.33
+}
+SUITE DONE gemma4_31b-mlx-bf16
+--- finetext [gemma4_31b-mlx-bf16] ---
+{
+ "tag": "gemma4_31b-mlx-bf16",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 263,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 3,
+ "total_found": 20
+}
+##### DONE gemma4:31b-mlx-bf16 18:41:15
+##### MODEL gemma4:26b-mlx-bf16 tag=gemma4_26b-mlx-bf16 18:41:16 powermode=1
+--- scene_single [gemma4_26b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.977,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 531,
+ "total_duration": 34527915209,
+ "load_duration": 5748558334,
+ "prompt_eval_duration": 1490108042,
+ "eval_duration": 23417057250,
+ "gen_tps": 22.68,
+ "prefill_tps": 1130.12
+}
+--- document_single [gemma4_26b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.756,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 498,
+ "total_duration": 27198917833,
+ "load_duration": 131527500,
+ "prompt_eval_duration": 1245802458,
+ "eval_duration": 22029633750,
+ "gen_tps": 22.61,
+ "prefill_tps": 1161.5
+}
+--- multi_3img [gemma4_26b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1011,
+ "total_duration": 59895985375,
+ "load_duration": 97491250,
+ "prompt_eval_duration": 3037450334,
+ "eval_duration": 45084026583,
+ "gen_tps": 22.42,
+ "prefill_tps": 1238.54
+}
+SUITE DONE gemma4_26b-mlx-bf16
+--- finetext [gemma4_26b-mlx-bf16] ---
+{
+ "tag": "gemma4_26b-mlx-bf16",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 263,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 3,
+ "total_found": 20
+}
+##### DONE gemma4:26b-mlx-bf16 18:43:37
+##### MODEL gemma4:31b-mxfp8 tag=gemma4_31b-mxfp8 18:43:37 powermode=1
+--- scene_single [gemma4_31b-mxfp8] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.959,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 534,
+ "total_duration": 132874922500,
+ "load_duration": 3753181417,
+ "prompt_eval_duration": 7905079000,
+ "eval_duration": 116949599875,
+ "gen_tps": 4.57,
+ "prefill_tps": 213.03
+}
+--- document_single [gemma4_31b-mxfp8] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.682,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 400,
+ "total_duration": 98909421000,
+ "load_duration": 78856625,
+ "prompt_eval_duration": 10092272667,
+ "eval_duration": 83482121958,
+ "gen_tps": 4.79,
+ "prefill_tps": 143.38
+}
+--- multi_3img [gemma4_31b-mxfp8] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1142,
+ "total_duration": 270781546958,
+ "load_duration": 110041375,
+ "prompt_eval_duration": 21406661875,
+ "eval_duration": 237331881250,
+ "gen_tps": 4.81,
+ "prefill_tps": 175.74
+}
+SUITE DONE gemma4_31b-mxfp8
+--- finetext [gemma4_31b-mxfp8] ---
+{
+ "tag": "gemma4_31b-mxfp8",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 263,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 1,
+ "recall_7px": 3,
+ "total_found": 20
+}
+##### DONE gemma4:31b-mxfp8 18:53:10
+##### MODEL gemma4:26b-mxfp8 tag=gemma4_26b-mxfp8 18:53:10 powermode=1
+--- scene_single [gemma4_26b-mxfp8] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.971,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 537,
+ "total_duration": 26245298917,
+ "load_duration": 3149603042,
+ "prompt_eval_duration": 1384124875,
+ "eval_duration": 17510149833,
+ "gen_tps": 30.67,
+ "prefill_tps": 1216.65
+}
+--- document_single [gemma4_26b-mxfp8] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.754,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 498,
+ "total_duration": 21279647958,
+ "load_duration": 139055875,
+ "prompt_eval_duration": 1311891458,
+ "eval_duration": 15910759208,
+ "gen_tps": 31.3,
+ "prefill_tps": 1102.99
+}
+--- multi_3img [gemma4_26b-mxfp8] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1095,
+ "total_duration": 51632277333,
+ "load_duration": 101278792,
+ "prompt_eval_duration": 3419579500,
+ "eval_duration": 36116018125,
+ "gen_tps": 30.32,
+ "prefill_tps": 1100.14
+}
+SUITE DONE gemma4_26b-mxfp8
+--- finetext [gemma4_26b-mxfp8] ---
+{
+ "tag": "gemma4_26b-mxfp8",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 263,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 3,
+ "total_found": 20
+}
+##### DONE gemma4:26b-mxfp8 18:55:06
+##### MODEL gemma4:31b-nvfp4 tag=gemma4_31b-nvfp4 18:55:06 powermode=1
+--- scene_single [gemma4_31b-nvfp4] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.958,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 529,
+ "total_duration": 80970851875,
+ "load_duration": 2653282583,
+ "prompt_eval_duration": 8481270375,
+ "eval_duration": 64824772958,
+ "gen_tps": 8.16,
+ "prefill_tps": 198.56
+}
+--- document_single [gemma4_31b-nvfp4] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.749,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 498,
+ "total_duration": 73155616042,
+ "load_duration": 95659834,
+ "prompt_eval_duration": 6681230625,
+ "eval_duration": 61598750542,
+ "gen_tps": 8.08,
+ "prefill_tps": 216.58
+}
+--- multi_3img [gemma4_31b-nvfp4] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1142,
+ "total_duration": 189913689250,
+ "load_duration": 83876958,
+ "prompt_eval_duration": 21196225291,
+ "eval_duration": 154503827541,
+ "gen_tps": 7.39,
+ "prefill_tps": 177.48
+}
+SUITE DONE gemma4_31b-nvfp4
+--- finetext [gemma4_31b-nvfp4] ---
+{
+ "tag": "gemma4_31b-nvfp4",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 263,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 2,
+ "total_found": 20
+}
+##### DONE gemma4:31b-nvfp4 19:01:40
+##### MODEL gemma4:26b-nvfp4 tag=gemma4_26b-nvfp4 19:01:40 powermode=1
+--- scene_single [gemma4_26b-nvfp4] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.965,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 547,
+ "total_duration": 23381859084,
+ "load_duration": 2348379834,
+ "prompt_eval_duration": 1389722334,
+ "eval_duration": 15158703667,
+ "gen_tps": 36.08,
+ "prefill_tps": 1211.75
+}
+--- document_single [gemma4_26b-nvfp4] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.816,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 498,
+ "total_duration": 19855409333,
+ "load_duration": 103384750,
+ "prompt_eval_duration": 1799804375,
+ "eval_duration": 13116044750,
+ "gen_tps": 37.97,
+ "prefill_tps": 803.98
+}
+--- multi_3img [gemma4_26b-nvfp4] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 939,
+ "total_duration": 42849486917,
+ "load_duration": 116156959,
+ "prompt_eval_duration": 3250435625,
+ "eval_duration": 26214551875,
+ "gen_tps": 35.82,
+ "prefill_tps": 1157.38
+}
+SUITE DONE gemma4_26b-nvfp4
+--- finetext [gemma4_26b-nvfp4] ---
+{
+ "tag": "gemma4_26b-nvfp4",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 263,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 3,
+ "total_found": 20
+}
+##### DONE gemma4:26b-nvfp4 19:03:22
+##### MODEL gemma4:31b-it-q4_K_M tag=gemma4_31b-it-q4_K_M 19:03:22 powermode=1
+--- scene_single [gemma4_31b-it-q4_K_M] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.963,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 530,
+ "total_duration": 92302673583,
+ "load_duration": 6215262292,
+ "prompt_eval_duration": 14886554000,
+ "eval_duration": 71174323000,
+ "gen_tps": 7.45,
+ "prefill_tps": 113.12
+}
+--- document_single [gemma4_31b-it-q4_K_M] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.712,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 499,
+ "total_duration": 81882299958,
+ "load_duration": 319466292,
+ "prompt_eval_duration": 14143158000,
+ "eval_duration": 67266558999,
+ "gen_tps": 7.42,
+ "prefill_tps": 102.31
+}
+--- multi_3img [gemma4_31b-it-q4_K_M] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1200,
+ "total_duration": 197004112458,
+ "load_duration": 298943667,
+ "prompt_eval_duration": 39798107000,
+ "eval_duration": 156729455000,
+ "gen_tps": 7.66,
+ "prefill_tps": 94.53
+}
+SUITE DONE gemma4_31b-it-q4_K_M
+--- finetext [gemma4_31b-it-q4_K_M] ---
+{
+ "tag": "gemma4_31b-it-q4_K_M",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 264,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 2,
+ "total_found": 20
+}
+##### DONE gemma4:31b-it-q4_K_M 19:10:22
+##### MODEL gemma4:26b-a4b-it-q4_K_M tag=gemma4_26b-a4b-it-q4_K_M 19:10:22 powermode=1
+--- scene_single [gemma4_26b-a4b-it-q4_K_M] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.97,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 532,
+ "total_duration": 24808010833,
+ "load_duration": 6475880958,
+ "prompt_eval_duration": 6561331000,
+ "eval_duration": 11744842000,
+ "gen_tps": 45.3,
+ "prefill_tps": 256.66
+}
+--- document_single [gemma4_26b-a4b-it-q4_K_M] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.754,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 499,
+ "total_duration": 17744798709,
+ "load_duration": 295177125,
+ "prompt_eval_duration": 6297030000,
+ "eval_duration": 11098905000,
+ "gen_tps": 44.96,
+ "prefill_tps": 229.79
+}
+--- multi_3img [gemma4_26b-a4b-it-q4_K_M] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1091,
+ "total_duration": 43996041584,
+ "load_duration": 295194875,
+ "prompt_eval_duration": 18803512000,
+ "eval_duration": 24807047000,
+ "gen_tps": 43.98,
+ "prefill_tps": 200.07
+}
+SUITE DONE gemma4_26b-a4b-it-q4_K_M
+--- finetext [gemma4_26b-a4b-it-q4_K_M] ---
+{
+ "tag": "gemma4_26b-a4b-it-q4_K_M",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 264,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 1,
+ "total_found": 20
+}
+##### DONE gemma4:26b-a4b-it-q4_K_M 19:12:06
+##### MODEL nemotron3:33b-q4_K_M tag=nemotron3_33b-q4_K_M 19:12:06 powermode=1
+--- scene_single [nemotron3_33b-q4_K_M] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.857,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": false,
+ "object_count": 6,
+ "prompt_eval_count": 2674,
+ "eval_count": 512,
+ "total_duration": 26628221500,
+ "load_duration": 9314156917,
+ "prompt_eval_duration": 6576443000,
+ "eval_duration": 10543141000,
+ "gen_tps": 48.56,
+ "prefill_tps": 406.6
+}
+--- document_single [nemotron3_33b-q4_K_M] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.32,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 2799,
+ "eval_count": 476,
+ "total_duration": 18515608250,
+ "load_duration": 161531250,
+ "prompt_eval_duration": 8505759000,
+ "eval_duration": 9826285000,
+ "gen_tps": 48.44,
+ "prefill_tps": 329.07
+}
+--- multi_3img [nemotron3_33b-q4_K_M] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 6203,
+ "eval_count": 1019,
+ "total_duration": 40083891958,
+ "load_duration": 161295292,
+ "prompt_eval_duration": 17961631000,
+ "eval_duration": 21749746000,
+ "gen_tps": 46.85,
+ "prefill_tps": 345.35
+}
+SUITE DONE nemotron3_33b-q4_K_M
+--- finetext [nemotron3_33b-q4_K_M] ---
+{
+ "tag": "nemotron3_33b-q4_K_M",
+ "json_valid": true,
+ "prompt_eval_count": 2496,
+ "eval_count": 278,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 2,
+ "recall_9px": 1,
+ "recall_7px": 0,
+ "total_found": 20
+}
+##### DONE nemotron3:33b-q4_K_M 19:13:51
+##### MODEL nemotron3:33b-q8 tag=nemotron3_33b-q8 19:13:51 powermode=1
+--- scene_single [nemotron3_33b-q8] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.844,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": false,
+ "object_count": 6,
+ "prompt_eval_count": 2674,
+ "eval_count": 512,
+ "total_duration": 30719494584,
+ "load_duration": 11597497459,
+ "prompt_eval_duration": 6753013000,
+ "eval_duration": 12173489000,
+ "gen_tps": 42.06,
+ "prefill_tps": 395.97
+}
+--- document_single [nemotron3_33b-q8] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.317,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 2799,
+ "eval_count": 475,
+ "total_duration": 20089438667,
+ "load_duration": 163813584,
+ "prompt_eval_duration": 8598470000,
+ "eval_duration": 11305627000,
+ "gen_tps": 42.01,
+ "prefill_tps": 325.52
+}
+--- multi_3img [nemotron3_33b-q8] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 6203,
+ "eval_count": 1010,
+ "total_duration": 43261504666,
+ "load_duration": 161450291,
+ "prompt_eval_duration": 17857310000,
+ "eval_duration": 25031289000,
+ "gen_tps": 40.35,
+ "prefill_tps": 347.36
+}
+SUITE DONE nemotron3_33b-q8
+--- finetext [nemotron3_33b-q8] ---
+{
+ "tag": "nemotron3_33b-q8",
+ "json_valid": true,
+ "prompt_eval_count": 2496,
+ "eval_count": 305,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 3,
+ "recall_9px": 0,
+ "recall_7px": 0,
+ "total_found": 20
+}
+##### DONE nemotron3:33b-q8 19:15:47
+##### MODEL nemotron3:33b-bf16 tag=nemotron3_33b-bf16 19:15:47 powermode=1
+--- scene_single [nemotron3_33b-bf16] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.846,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": false,
+ "object_count": 6,
+ "prompt_eval_count": 2674,
+ "eval_count": 512,
+ "total_duration": 46296009958,
+ "load_duration": 20430768792,
+ "prompt_eval_duration": 7170081000,
+ "eval_duration": 18501260000,
+ "gen_tps": 27.67,
+ "prefill_tps": 372.94
+}
+--- document_single [nemotron3_33b-bf16] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.319,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 2799,
+ "eval_count": 475,
+ "total_duration": 26828233542,
+ "load_duration": 164893375,
+ "prompt_eval_duration": 9358717000,
+ "eval_duration": 17276748000,
+ "gen_tps": 27.49,
+ "prefill_tps": 299.08
+}
+--- multi_3img [nemotron3_33b-bf16] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 6203,
+ "eval_count": 1010,
+ "total_duration": 57368903250,
+ "load_duration": 167980292,
+ "prompt_eval_duration": 19654514000,
+ "eval_duration": 37335189000,
+ "gen_tps": 27.05,
+ "prefill_tps": 315.6
+}
+SUITE DONE nemotron3_33b-bf16
+--- finetext [nemotron3_33b-bf16] ---
+{
+ "tag": "nemotron3_33b-bf16",
+ "json_valid": true,
+ "prompt_eval_count": 2496,
+ "eval_count": 287,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 3,
+ "recall_9px": 0,
+ "recall_7px": 0,
+ "total_found": 20
+}
+##### DONE nemotron3:33b-bf16 19:18:37
+ENGINE COMPARE DONE

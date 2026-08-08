@@ -26,7 +26,8 @@ MODELS="${MODELS:?set MODELS to the space-separated model list}"
 
 for m in $MODELS; do
   tag=$(printf '%s' "$m" | tr ':.' '__')
-  echo "##### MODEL $m tag=$tag $(date +%T)"
+  pmode=$( (pmset -g 2>/dev/null || true) | awk '/powermode/{print $2}')
+  echo "##### MODEL $m tag=$tag $(date +%T) powermode=${pmode:-n/a}"
   if [ -n "${RESTART_CMD:-}" ]; then
     sh -c "$RESTART_CMD"
     i=0

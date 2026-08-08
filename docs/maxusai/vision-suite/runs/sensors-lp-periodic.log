@@ -1,0 +1,40 @@
+=== 19:01:02 powermode=1
+CPU usage: 16.13% user, 11.11% sys, 72.75% idle 
+"Device Utilization %"=47
+loaded: gemma4:31b-nvfp4
+=== 19:03:04 powermode=1
+CPU usage: 20.8% user, 10.65% sys, 69.25% idle 
+"Device Utilization %"=65
+loaded: gemma4:26b-nvfp4
+=== 19:05:07 powermode=1
+CPU usage: 4.39% user, 7.17% sys, 88.42% idle 
+"Device Utilization %"=24
+loaded: gemma4:31b-it-q4_K_M
+=== 19:07:08 powermode=1
+CPU usage: 10.2% user, 8.85% sys, 81.12% idle 
+"Device Utilization %"=32
+loaded: gemma4:31b-it-q4_K_M
+=== 19:09:10 powermode=1
+CPU usage: 1.60% user, 5.54% sys, 92.84% idle 
+"Device Utilization %"=54
+loaded: gemma4:31b-it-q4_K_M
+=== 19:11:11 powermode=1
+CPU usage: 1.50% user, 5.38% sys, 93.10% idle 
+"Device Utilization %"=100
+loaded: gemma4:26b-a4b-it-q4_K_M
+=== 19:13:12 powermode=1
+CPU usage: 4.20% user, 6.81% sys, 88.98% idle 
+"Device Utilization %"=96
+loaded: nemotron3:33b-q4_K_M
+=== 19:15:13 powermode=1
+CPU usage: 3.17% user, 10.64% sys, 86.18% idle 
+"Device Utilization %"=93
+loaded: nemotron3:33b-q8
+=== 19:17:15 powermode=1
+CPU usage: 2.24% user, 5.66% sys, 92.9% idle 
+"Device Utilization %"=100
+loaded: nemotron3:33b-bf16
+=== 19:19:16 powermode=1
+CPU usage: 1.91% user, 5.82% sys, 92.26% idle 
+"Device Utilization %"=0
+loaded: nemotron3:33b-bf16

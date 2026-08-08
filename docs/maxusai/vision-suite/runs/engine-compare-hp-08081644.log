@@ -1,0 +1,71 @@
+##### MODEL gemma4:31b-mlx-bf16 tag=gemma4_31b-mlx-bf16 16:44:43 powermode=2
+--- scene_single [gemma4_31b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.966,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 535,
+ "total_duration": 86851050584,
+ "load_duration": 8060395500,
+ "prompt_eval_duration": 2041639792,
+ "eval_duration": 73760261666,
+ "gen_tps": 7.25,
+ "prefill_tps": 824.83
+}
+--- document_single [gemma4_31b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.711,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 400,
+ "total_duration": 60314832292,
+ "load_duration": 37582625,
+ "prompt_eval_duration": 2699574208,
+ "eval_duration": 55353203875,
+ "gen_tps": 7.23,
+ "prefill_tps": 536.01
+}
+--- multi_3img [gemma4_31b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1146,
+ "total_duration": 192057126084,
+ "load_duration": 69336875,
+ "prompt_eval_duration": 8172053125,
+ "eval_duration": 178497466667,
+ "gen_tps": 6.42,
+ "prefill_tps": 460.35
+}
+SUITE DONE gemma4_31b-mlx-bf16
+Traceback (most recent call last):
+  File "/opt/github/MaxusAI/ollama/docs/maxusai/vision-suite/finetext_probe.py", line 115, in <module>
+    run(sys.argv[1], sys.argv[2], sys.argv[3])
+    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/github/MaxusAI/ollama/docs/maxusai/vision-suite/finetext_probe.py", line 59, in run
+    gt = json.load(open(GT)) if os.path.exists(GT) else generate()
+                                                        ~~~~~~~~^^
+  File "/opt/github/MaxusAI/ollama/docs/maxusai/vision-suite/finetext_probe.py", line 31, in generate
+    from PIL import Image, ImageDraw, ImageFont
+ModuleNotFoundError: No module named 'PIL'
+FONT=Courier New (macOS regeneration 2026-08-08) — cross-campaign fine-text absolutes carry the font caveat

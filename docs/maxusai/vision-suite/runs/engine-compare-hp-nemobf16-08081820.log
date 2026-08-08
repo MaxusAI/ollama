@@ -1,0 +1,75 @@
+##### MODEL nemotron3:33b-bf16 tag=nemotron3_33b-bf16 18:20:54 powermode=2
+--- scene_single [nemotron3_33b-bf16] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.846,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": false,
+ "object_count": 6,
+ "prompt_eval_count": 2674,
+ "eval_count": 512,
+ "total_duration": 14360717583,
+ "load_duration": 3423200667,
+ "prompt_eval_duration": 2857626000,
+ "eval_duration": 7943378000,
+ "gen_tps": 64.46,
+ "prefill_tps": 935.74
+}
+--- document_single [nemotron3_33b-bf16] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.319,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 2799,
+ "eval_count": 475,
+ "total_duration": 11026007750,
+ "load_duration": 110051208,
+ "prompt_eval_duration": 3578796000,
+ "eval_duration": 7317253000,
+ "gen_tps": 64.92,
+ "prefill_tps": 782.11
+}
+--- multi_3img [nemotron3_33b-bf16] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 6203,
+ "eval_count": 1010,
+ "total_duration": 25229892583,
+ "load_duration": 132399041,
+ "prompt_eval_duration": 8760499000,
+ "eval_duration": 16172540000,
+ "gen_tps": 62.45,
+ "prefill_tps": 708.06
+}
+SUITE DONE nemotron3_33b-bf16
+--- finetext [nemotron3_33b-bf16] ---
+{
+ "tag": "nemotron3_33b-bf16",
+ "json_valid": true,
+ "prompt_eval_count": 2496,
+ "eval_count": 287,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 3,
+ "recall_9px": 0,
+ "recall_7px": 0,
+ "total_found": 20
+}
+##### DONE nemotron3:33b-bf16 18:22:00
+ENGINE COMPARE DONE

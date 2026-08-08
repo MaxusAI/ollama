@@ -1,0 +1,593 @@
+##### MODEL gemma4:31b-mlx-bf16 tag=gemma4_31b-mlx-bf16 16:51:49 powermode=2
+--- scene_single [gemma4_31b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.966,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 535,
+ "total_duration": 85727207708,
+ "load_duration": 6640081042,
+ "prompt_eval_duration": 2050824875,
+ "eval_duration": 73069996750,
+ "gen_tps": 7.32,
+ "prefill_tps": 821.13
+}
+--- document_single [gemma4_31b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.711,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 400,
+ "total_duration": 58137470291,
+ "load_duration": 49421958,
+ "prompt_eval_duration": 1949019042,
+ "eval_duration": 54682470125,
+ "gen_tps": 7.31,
+ "prefill_tps": 742.42
+}
+--- multi_3img [gemma4_31b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1146,
+ "total_duration": 169308940459,
+ "load_duration": 34172792,
+ "prompt_eval_duration": 7476715292,
+ "eval_duration": 157231076834,
+ "gen_tps": 7.29,
+ "prefill_tps": 503.16
+}
+SUITE DONE gemma4_31b-mlx-bf16
+--- finetext [gemma4_31b-mlx-bf16] ---
+{
+ "tag": "gemma4_31b-mlx-bf16",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 263,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 3,
+ "total_found": 20
+}
+##### DONE gemma4:31b-mlx-bf16 16:57:48
+##### MODEL gemma4:26b-mlx-bf16 tag=gemma4_26b-mlx-bf16 16:57:48 powermode=2
+--- scene_single [gemma4_26b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.977,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 531,
+ "total_duration": 18683737417,
+ "load_duration": 6436053750,
+ "prompt_eval_duration": 465534833,
+ "eval_duration": 10352179084,
+ "gen_tps": 51.29,
+ "prefill_tps": 3617.34
+}
+--- document_single [gemma4_26b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.756,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 498,
+ "total_duration": 14032739458,
+ "load_duration": 48550041,
+ "prompt_eval_duration": 589243834,
+ "eval_duration": 10899228625,
+ "gen_tps": 45.69,
+ "prefill_tps": 2455.69
+}
+--- multi_3img [gemma4_26b-mlx-bf16] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1011,
+ "total_duration": 30706067375,
+ "load_duration": 45288791,
+ "prompt_eval_duration": 1534165167,
+ "eval_duration": 23126010000,
+ "gen_tps": 43.72,
+ "prefill_tps": 2452.15
+}
+SUITE DONE gemma4_26b-mlx-bf16
+--- finetext [gemma4_26b-mlx-bf16] ---
+{
+ "tag": "gemma4_26b-mlx-bf16",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 263,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 3,
+ "total_found": 20
+}
+##### DONE gemma4:26b-mlx-bf16 16:59:03
+##### MODEL gemma4:31b-mxfp8 tag=gemma4_31b-mxfp8 16:59:03 powermode=2
+--- scene_single [gemma4_31b-mxfp8] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.959,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 534,
+ "total_duration": 60554028291,
+ "load_duration": 5639129125,
+ "prompt_eval_duration": 2600121375,
+ "eval_duration": 50679504334,
+ "gen_tps": 10.54,
+ "prefill_tps": 647.66
+}
+--- document_single [gemma4_31b-mxfp8] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.682,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 400,
+ "total_duration": 42624919125,
+ "load_duration": 52469125,
+ "prompt_eval_duration": 3627548833,
+ "eval_duration": 36687866334,
+ "gen_tps": 10.9,
+ "prefill_tps": 398.89
+}
+--- multi_3img [gemma4_31b-mxfp8] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1142,
+ "total_duration": 122277730208,
+ "load_duration": 38852875,
+ "prompt_eval_duration": 10179359583,
+ "eval_duration": 105946574708,
+ "gen_tps": 10.78,
+ "prefill_tps": 369.57
+}
+SUITE DONE gemma4_31b-mxfp8
+--- finetext [gemma4_31b-mxfp8] ---
+{
+ "tag": "gemma4_31b-mxfp8",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 263,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 1,
+ "recall_7px": 3,
+ "total_found": 20
+}
+##### DONE gemma4:31b-mxfp8 17:03:20
+##### MODEL gemma4:26b-mxfp8 tag=gemma4_26b-mxfp8 17:03:20 powermode=2
+--- scene_single [gemma4_26b-mxfp8] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.971,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 537,
+ "total_duration": 13646790708,
+ "load_duration": 3836281958,
+ "prompt_eval_duration": 420013875,
+ "eval_duration": 7856372375,
+ "gen_tps": 68.35,
+ "prefill_tps": 4009.39
+}
+--- document_single [gemma4_26b-mxfp8] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.754,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 498,
+ "total_duration": 10354952708,
+ "load_duration": 34764750,
+ "prompt_eval_duration": 656477291,
+ "eval_duration": 7626489500,
+ "gen_tps": 65.3,
+ "prefill_tps": 2204.19
+}
+--- multi_3img [gemma4_26b-mxfp8] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1095,
+ "total_duration": 24812377250,
+ "load_duration": 33770541,
+ "prompt_eval_duration": 1678017417,
+ "eval_duration": 17375816250,
+ "gen_tps": 63.02,
+ "prefill_tps": 2241.93
+}
+SUITE DONE gemma4_26b-mxfp8
+--- finetext [gemma4_26b-mxfp8] ---
+{
+ "tag": "gemma4_26b-mxfp8",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 263,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 3,
+ "total_found": 20
+}
+##### DONE gemma4:26b-mxfp8 17:04:19
+##### MODEL gemma4:31b-nvfp4 tag=gemma4_31b-nvfp4 17:04:19 powermode=2
+--- scene_single [gemma4_31b-nvfp4] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.958,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 529,
+ "total_duration": 38223388416,
+ "load_duration": 3838598166,
+ "prompt_eval_duration": 2747225625,
+ "eval_duration": 29822159500,
+ "gen_tps": 17.74,
+ "prefill_tps": 612.98
+}
+--- document_single [gemma4_31b-nvfp4] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.749,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 498,
+ "total_duration": 33903063041,
+ "load_duration": 42333000,
+ "prompt_eval_duration": 3391363875,
+ "eval_duration": 28033473667,
+ "gen_tps": 17.76,
+ "prefill_tps": 426.67
+}
+--- multi_3img [gemma4_31b-nvfp4] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1142,
+ "total_duration": 82964064417,
+ "load_duration": 38523750,
+ "prompt_eval_duration": 9741168666,
+ "eval_duration": 66335818375,
+ "gen_tps": 17.22,
+ "prefill_tps": 386.2
+}
+SUITE DONE gemma4_31b-nvfp4
+--- finetext [gemma4_31b-nvfp4] ---
+{
+ "tag": "gemma4_31b-nvfp4",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 263,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 2,
+ "total_found": 20
+}
+##### DONE gemma4:31b-nvfp4 17:07:17
+##### MODEL gemma4:26b-nvfp4 tag=gemma4_26b-nvfp4 17:07:17 powermode=2
+--- scene_single [gemma4_26b-nvfp4] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.965,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 547,
+ "total_duration": 11094641666,
+ "load_duration": 2736116500,
+ "prompt_eval_duration": 392435291,
+ "eval_duration": 6422872792,
+ "gen_tps": 85.16,
+ "prefill_tps": 4291.15
+}
+--- document_single [gemma4_26b-nvfp4] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.816,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 498,
+ "total_duration": 8874246875,
+ "load_duration": 36770125,
+ "prompt_eval_duration": 573255708,
+ "eval_duration": 6042099708,
+ "gen_tps": 82.42,
+ "prefill_tps": 2524.18
+}
+--- multi_3img [gemma4_26b-nvfp4] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 939,
+ "total_duration": 19779390709,
+ "load_duration": 36529792,
+ "prompt_eval_duration": 1559799334,
+ "eval_duration": 12002486667,
+ "gen_tps": 78.23,
+ "prefill_tps": 2411.85
+}
+SUITE DONE gemma4_26b-nvfp4
+--- finetext [gemma4_26b-nvfp4] ---
+{
+ "tag": "gemma4_26b-nvfp4",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 263,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 3,
+ "total_found": 20
+}
+##### DONE gemma4:26b-nvfp4 17:08:06
+##### MODEL gemma4:31b-it-q4_K_M tag=gemma4_31b-it-q4_K_M 17:08:06 powermode=2
+--- scene_single [gemma4_31b-it-q4_K_M] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.963,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 530,
+ "total_duration": 42276990500,
+ "load_duration": 5357888834,
+ "prompt_eval_duration": 5597578000,
+ "eval_duration": 31308693000,
+ "gen_tps": 16.93,
+ "prefill_tps": 300.84
+}
+--- document_single [gemma4_31b-it-q4_K_M] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.712,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 499,
+ "total_duration": 37052099459,
+ "load_duration": 199500709,
+ "prompt_eval_duration": 7165772000,
+ "eval_duration": 29581212000,
+ "gen_tps": 16.87,
+ "prefill_tps": 201.93
+}
+--- multi_3img [gemma4_31b-it-q4_K_M] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1200,
+ "total_duration": 100525010958,
+ "load_duration": 200164167,
+ "prompt_eval_duration": 20002986000,
+ "eval_duration": 80179485000,
+ "gen_tps": 14.97,
+ "prefill_tps": 188.07
+}
+SUITE DONE gemma4_31b-it-q4_K_M
+--- finetext [gemma4_31b-it-q4_K_M] ---
+{
+ "tag": "gemma4_31b-it-q4_K_M",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 264,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 2,
+ "total_found": 20
+}
+##### DONE gemma4:31b-it-q4_K_M 17:11:37
+##### MODEL gemma4:26b-a4b-it-q4_K_M tag=gemma4_26b-a4b-it-q4_K_M 17:11:37 powermode=2
+--- scene_single [gemma4_26b-a4b-it-q4_K_M] ---
+{
+ "json_valid": true,
+ "labels_found": 6,
+ "labels_total": 6,
+ "bbox_hits": 6,
+ "bbox_mean_iou": 0.97,
+ "bbox_space": "norm1000/xyxy",
+ "colors_right": 6,
+ "serial_found": true,
+ "object_count": 6,
+ "prompt_eval_count": 1684,
+ "eval_count": 532,
+ "total_duration": 13675195000,
+ "load_duration": 4575371958,
+ "prompt_eval_duration": 2582152000,
+ "eval_duration": 6501292000,
+ "gen_tps": 81.83,
+ "prefill_tps": 652.17
+}
+--- document_single [gemma4_26b-a4b-it-q4_K_M] ---
+{
+ "json_valid": true,
+ "invoice_no": true,
+ "items_found": 5,
+ "items_total": 5,
+ "qty_price_right": 5,
+ "total_right": true,
+ "name_bbox_hits": 4,
+ "name_bbox_mean_iou": 0.754,
+ "name_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 1447,
+ "eval_count": 499,
+ "total_duration": 10974328000,
+ "load_duration": 204103125,
+ "prompt_eval_duration": 4220933000,
+ "eval_duration": 6509512000,
+ "gen_tps": 76.66,
+ "prefill_tps": 342.82
+}
+--- multi_3img [gemma4_26b-a4b-it-q4_K_M] ---
+{
+ "json_valid": true,
+ "q1_right": true,
+ "q2_right": true,
+ "q4_bbox_hit": true,
+ "chart_values_found": 5,
+ "chart_total": 5,
+ "q4_bbox_space": "norm1000/xyxy",
+ "prompt_eval_count": 3762,
+ "eval_count": 1091,
+ "total_duration": 26953174417,
+ "load_duration": 378088375,
+ "prompt_eval_duration": 12437497000,
+ "eval_duration": 14026949000,
+ "gen_tps": 77.78,
+ "prefill_tps": 302.47
+}
+SUITE DONE gemma4_26b-a4b-it-q4_K_M
+--- finetext [gemma4_26b-a4b-it-q4_K_M] ---
+{
+ "tag": "gemma4_26b-a4b-it-q4_K_M",
+ "json_valid": true,
+ "prompt_eval_count": 1173,
+ "eval_count": 264,
+ "recall_22px": 4,
+ "recall_16px": 4,
+ "recall_12px": 4,
+ "recall_9px": 2,
+ "recall_7px": 1,
+ "total_found": 20
+}
+##### DONE gemma4:26b-a4b-it-q4_K_M 17:12:41
+ENGINE COMPARE DONE

@@ -26,7 +26,7 @@ def tag_for(model):
 def engine_for(model, engine_map):
     if model in engine_map:
         return engine_map[model]
-    return "MLX" if "nvfp4" in model else "GGUF"
+    return "MLX" if any(k in model for k in ("nvfp4", "mlx", "mxfp8")) else "GGUF"
 
 
 def load(path):
@@ -59,8 +59,8 @@ def main():
           "| Invoice (items · qty+price · total) | name_bbox hits |",
           "|---|---|---|---|---|---|---|"]
     t2 = ["| Model | Engine | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) "
-          "| Gen tok/s | Prefill tok/s |",
-          "|---|---|---|---|---|---|---|---|---|---|"]
+          "| Gen tok/s | Prefill tok/s | s/req | req/h |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|"]
 
     for model in args:
         tag = tag_for(model)
@@ -93,8 +93,16 @@ def main():
             multi = "❌ " + ", ".join(fails)
         gen = sc.get("gen_tps")
         pre = sc.get("prefill_tps")
+        # Unique-image steady state (baseline §4.2): decode + full prefill from
+        # the scene run's clean rates; req/h = 3600 / s_req, serial.
+        s_req = None
+        if gen and pre and sc.get("eval_count") and sc.get("prompt_eval_count"):
+            s_req = sc["eval_count"] / gen + sc["prompt_eval_count"] / pre
+        s_cell = f"{s_req:.1f}" if s_req else "—"
+        rh_cell = f"{3600 / s_req:.0f}" if s_req else "—"
         t2.append(f"| {model} | {eng_cell} | " + " | ".join(tiers) +
-                  f" | {multi} | {round(gen) if gen else '—'} | {round(pre) if pre else '—'} |")
+                  f" | {multi} | {round(gen) if gen else '—'} | {round(pre) if pre else '—'}"
+                  f" | {s_cell} | {rh_cell} |")
 
     print("## Scene grounding (six objects, norm-1000 boxes) + document extraction\n")
     print("\n".join(t1))

@@ -1,0 +1,18 @@
+=== sensor sample 2026-08-08 19:00:34 powermode=1 ===
+--- pmset therm (CPU speed/scheduler limits, %) ---
+Note: No thermal warning level has been recorded
+Note: No performance warning level has been recorded
+Note: No CPU power status has been recorded
+--- thermal pressure ---
+n/a
+--- CPU load (top 1-shot) ---
+Load Avg: 14.13, 8.13, 6.18 
+CPU usage: 19.15% user, 10.73% sys, 70.10% idle 
+--- GPU (ioreg PerformanceStatistics) ---
+"Renderer Utilization %"=18
+"Device Utilization %"=80
+"In use system memory"=21879455744
+--- bench process ---
+0.0% cpu 0.0% mem ./ollama
+0.0% cpu 0.0% mem /Applications/Ollama.app/Contents/Resources/ollama
+0.0% cpu 0.0% mem ./ollama
