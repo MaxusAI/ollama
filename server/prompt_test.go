@@ -604,3 +604,106 @@ func TestRenderPromptResolvesDynamicGemma4Renderer(t *testing.T) {
 		})
 	}
 }
+
+// TestImageTokenCostsInlineVisionArch is the regression test for the defect
+// this lineage carried: image cost was a flat 768 charged only when
+// ProjectorPaths was non-empty.
+//
+// nemotron_h_omni stores its vision tensors inline and has NO projector layer,
+// so ProjectorPaths is empty and images were charged ZERO context — while
+// llama/compat/002 makes them cost up to 3330. A multi-image chat could pass
+// the Go-side context-fit check and then overflow llama-server.
+func TestImageTokenCostsInlineVisionArch(t *testing.T) {
+	opts := api.DefaultOptions()
+	msgs := []api.Message{{Role: "user", Images: []api.ImageData{[]byte("not-a-decodable-image")}}}
+
+	tests := []struct {
+		name    string
+		model   Model
+		want    int
+		wantWhy string
+	}{
+		{
+			// The defect: no projector, so the old code charged nothing at all.
+			name:    "nemotron_h_omni with no projector is charged",
+			model:   Model{Config: model.ConfigV2{ModelFamily: "nemotron_h_omni"}},
+			want:    3330,
+			wantWhy: "002 dynres ceiling + markers; was 0 before the fix",
+		},
+		{
+			// Arch discovered through ModelFamilies rather than ModelFamily.
+			name:    "inline-vision arch found via ModelFamilies",
+			model:   Model{Config: model.ConfigV2{ModelFamily: "clip", ModelFamilies: []string{"clip", "nemotron_h_omni"}}},
+			want:    3330,
+			wantWhy: "families are searched when ModelFamily is not inline-vision",
+		},
+		{
+			// The under-charge: 004 budget-fills, so the real cost is ~1102.
+			name:    "gemma4 charges the 004 ladder ceiling, not 768",
+			model:   Model{Config: model.ConfigV2{ModelFamily: "gemma4"}},
+			want:    1122,
+			wantWhy: "ladder-snapped ceiling + markers; was 768 before the fix",
+		},
+		{
+			// Unknown arch with a projector keeps the historical estimate, so
+			// this change is not a blanket increase.
+			name:    "unknown arch with a projector keeps the 768 estimate",
+			model:   Model{Config: model.ConfigV2{ModelFamily: "llama"}, ProjectorPaths: []string{"vision"}},
+			want:    768,
+			wantWhy: "unchanged fallback",
+		},
+		{
+			// A text-only model must still be charged nothing.
+			name:    "text-only model is charged nothing",
+			model:   Model{Config: model.ConfigV2{ModelFamily: "llama"}},
+			want:    0,
+			wantWhy: "no projector and not an inline-vision arch",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := tt.model
+			got := imageTokenCosts(&m, &opts, msgs)
+			if len(got) != 1 {
+				t.Fatalf("imageTokenCosts returned %d entries, want 1", len(got))
+			}
+			if got[0] != tt.want {
+				t.Fatalf("imageTokenCosts = %d, want %d (%s)", got[0], tt.want, tt.wantWhy)
+			}
+		})
+	}
+}
+
+// TestChatPromptTruncatesInlineVisionImages proves the fix end to end: a
+// nemotron_h_omni chat whose images do not fit must now be truncated. Before
+// the fix its images cost zero, so nothing was ever trimmed and the overflow
+// happened downstream in llama-server.
+func TestChatPromptTruncatesInlineVisionImages(t *testing.T) {
+	tmpl, err := template.Parse(`
+{{- if .System }}{{ .System }} {{ end }}
+{{- if .Prompt }}{{ .Prompt }} {{ end }}
+{{- if .Response }}{{ .Response }} {{ end }}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No ProjectorPaths — exactly the shape that used to be charged zero.
+	m := Model{Template: tmpl, Config: model.ConfigV2{ModelFamily: "nemotron_h_omni"}}
+	msgs := []api.Message{
+		{Role: "user", Content: "You're a test, Harry!", Images: []api.ImageData{[]byte("something")}},
+		{Role: "assistant", Content: "I-I'm a what?"},
+		{Role: "user", Content: "A test. And a thumping good one at that, I'd wager.", Images: []api.ImageData{[]byte("somethingelse")}},
+	}
+
+	// Two images cost 2*3330 = 6660, so a 4096 window cannot hold both.
+	opts := api.Options{Runner: api.Runner{NumCtx: 4096}}
+	_, images, err := chatPrompt(t.Context(), &m, mockRunner{}.Tokenize, &opts, msgs, nil, &api.ThinkValue{Value: false}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(images) != 1 {
+		t.Fatalf("got %d images, want 1 — inline-vision images are not being charged against the context", len(images))
+	}
+}

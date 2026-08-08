@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"math/rand"
 	"net"
 	"net/http"
@@ -826,6 +827,36 @@ func hasLegacyQwenMTPDraft(arch string, tensors []*ggml.Tensor) bool {
 	}
 }
 
+// compatClipArches lists the Ollama-format architectures whose vision tensors
+// may live inline in the main GGUF blob with no separate projector layer, and
+// for which llama/compat carries a clip handler that can translate the two
+// views. NewLlamaServerRunner self-references --mmproj at the model file for
+// these; callers that gate image handling on ProjectorPaths must consider them
+// too (see InlineVisionArch).
+var compatClipArches = map[string]bool{
+	"gemma3":          true,
+	"gemma4":          true,
+	"qwen35":          true,
+	"qwen35moe":       true,
+	"qwen25vl":        true,
+	"qwen3vl":         true,
+	"qwen3vlmoe":      true,
+	"mistral3":        true,
+	"deepseekocr":     true,
+	"glmocr":          true,
+	"llama4":          true,
+	"nemotron_h_omni": true,
+	// Add entries as llama/compat grows clip handlers.
+}
+
+// InlineVisionArch reports whether modelArch stores its vision tensors inline
+// with no projector layer. Such a model has an empty ProjectorPaths even
+// though it processes images, so a ProjectorPaths-only gate silently charges
+// its images zero context — the defect this predicate exists to close.
+func InlineVisionArch(modelArch string) bool {
+	return compatClipArches[modelArch]
+}
+
 // NewLlamaServerRunner creates a new llama-server runner that wraps the upstream llama-server binary.
 func NewLlamaServerRunner(
 	gpus []ml.DeviceInfo,
@@ -849,22 +880,8 @@ func NewLlamaServerRunner(
 	// If we auto-enable --mmproj for an arch whose clip handler doesn't
 	// exist yet, upstream's clip loader sees un-translated Ollama tensors
 	// and aborts model load. So gate on an explicit allowlist that mirrors
-	// the compat layer's clip-side coverage in llama/compat/.
-	compatClipArches := map[string]bool{
-		"gemma3":          true,
-		"gemma4":          true,
-		"qwen35":          true,
-		"qwen35moe":       true,
-		"qwen25vl":        true,
-		"qwen3vl":         true,
-		"qwen3vlmoe":      true,
-		"mistral3":        true,
-		"deepseekocr":     true,
-		"glmocr":          true,
-		"llama4":          true,
-		"nemotron_h_omni": true,
-		// Add entries as llama/compat grows clip handlers.
-	}
+	// the compat layer's clip-side coverage in llama/compat/ — see the
+	// package-level compatClipArches.
 	if len(projectors) == 0 &&
 		len(f.Tensors().Items("v.")) > 0 &&
 		compatClipArches[arch] {
@@ -1089,6 +1106,204 @@ func nemotronImageTokenBudget(opts api.Options) (minTok, maxTok int) {
 	}
 	return minTok, maxTok
 }
+
+//
+// Per-image context cost for the server-side truncation heuristics.
+//
+// Backported from `main` for this lineage, which carries llama/compat 002, 004
+// and 005 but had no Go-side replication of what they cost: server/prompt.go
+// charged a flat 768 per image, gated on ProjectorPaths. Two consequences on a
+// b9888 + 002/004/005 payload:
+//
+//   - gemma4 under-charged. 004 budget-fills every image to the ladder, so a
+//     16:9 image at the 1120 rung costs 1102, not 768.
+//   - nemotron_h_omni charged ZERO. It has no projector layer, so
+//     ProjectorPaths is empty and the flat charge never applied at all, while
+//     002 makes its images cost up to 3330.
+//
+// Both let a chat pass the Go-side context-fit check and then overflow
+// llama-server. Only the arches visionServerArgs actually handles are
+// replicated here; everything else falls back to the flat worst case.
+//
+// Payload-version note: gemma4 and nemotron sizing is set by the fork's own
+// patches (004, 002), which are byte-identical on this lineage and on `main`,
+// so their numbers transfer exactly despite the b9888/b10091 split. The qwen
+// figures were measured on THIS lineage's payload (b9888 + 002) and match
+// `main`'s — 1026 at 896², 2042 at 1920×1080, 2403 at 1568² — see
+// docs/maxusai/vision-token-budget-measurements.md.
+
+const (
+	// imageMarkerTokens is the begin/end marker token pair mtmd wraps around
+	// each image's embeddings; measured prompt_eval_count is the embedding
+	// grid product plus this constant across the budgeted arches.
+	imageMarkerTokens = 2
+
+	// qwenVLImageMinTokens is the floor visionServerArgs passes for the qwen
+	// VL projector family, overriding set_limit_image_tokens(8, 4096)'s floor.
+	qwenVLImageMinTokens = 1024
+
+	// qwenVLImageMaxTokens is the structural ceiling from
+	// set_limit_image_tokens(8, 4096); it is not tunable via flags.
+	qwenVLImageMaxTokens = 4096
+
+	// gemma3ImageTokens is gemma3's structural per-image cost: the fixed-size
+	// preprocessor squashes every image to 896², giving (896/14)²/4² = 256.
+	gemma3ImageTokens = 256
+
+	// defaultImageTokensEstimate is the historical clip heuristic, still the
+	// fallback for arches with no known budget.
+	defaultImageTokensEstimate = 768
+)
+
+// Grid alignment (patch_size × merge pixels per token-grid cell) for the
+// arches whose preprocessing is replicated below.
+const (
+	qwen2VLImageAlign  = 28 // ViT patch 14 × spatial merge 2 (qwen2vl, qwen25vl)
+	qwen3VLImageAlign  = 32 // ViT patch 16 × spatial merge 2 (qwen3vl family, incl. qwen35 via qwen3vl_merger)
+	gemma4ImageAlign   = 48 // ViT patch 16 × pooling kernel 3
+	nemotronImageAlign = 32 // ViT patch 16 × pixel-shuffle merge 2
+)
+
+// MaxImageTokens returns a conservative worst-case cost of one image for
+// modelArch: the ceiling the projector enforces, resolved from opts exactly as
+// visionServerArgs resolves the flags it passes, plus the markers. Actual cost
+// is size-dependent and usually lower — use ImageTokensForSize when the
+// dimensions are known.
+func MaxImageTokens(modelArch string, opts api.Options) int {
+	switch modelArch {
+	case "qwen2vl", "qwen25vl", "qwen3vl", "qwen3vlmoe", "qwen35", "qwen35moe":
+		return qwenVLImageMaxTokens + imageMarkerTokens
+	case "gemma3":
+		return gemma3ImageTokens + imageMarkerTokens
+	case "gemma4":
+		// 004 snaps the requested ceiling down to the supported ladder, so the
+		// delivered maximum is the snapped value.
+		_, maxTok := gemma4ImageTokenBudget(opts)
+		return gemma4SnapBudget(maxTok) + imageMarkerTokens
+	case "nemotron_h_omni":
+		_, maxTok := nemotronImageTokenBudget(opts)
+		return maxTok + imageMarkerTokens
+	default:
+		return defaultImageTokensEstimate
+	}
+}
+
+// ImageTokensForSize returns the exact per-image cost when modelArch's
+// preprocessing is replicated here, reporting ok=false otherwise so callers
+// fall back to MaxImageTokens.
+func ImageTokensForSize(modelArch string, opts api.Options, width, height int) (n int, ok bool) {
+	if width <= 0 || height <= 0 {
+		return 0, false
+	}
+	switch modelArch {
+	case "qwen2vl", "qwen25vl":
+		return smartResizeTokens(width, height, qwen2VLImageAlign, qwenVLImageMinTokens, qwenVLImageMaxTokens) + imageMarkerTokens, true
+	case "qwen3vl", "qwen3vlmoe", "qwen35", "qwen35moe":
+		return smartResizeTokens(width, height, qwen3VLImageAlign, qwenVLImageMinTokens, qwenVLImageMaxTokens) + imageMarkerTokens, true
+	case "gemma4":
+		// 004 budget-fill: every image is scaled (up or down) to fill the
+		// ladder-snapped ceiling; the min bound is a no-op.
+		_, maxTok := gemma4ImageTokenBudget(opts)
+		return budgetFillTokens(width, height, gemma4ImageAlign, maxTok) + imageMarkerTokens, true
+	case "nemotron_h_omni":
+		minTok, maxTok := nemotronImageTokenBudget(opts)
+		return smartResizeTokens(width, height, nemotronImageAlign, minTok, maxTok) + imageMarkerTokens, true
+	default:
+		return 0, false
+	}
+}
+
+// smartResizeTokens replicates img_tool::calc_size_preserved_ratio (the
+// "smart_resize" in tools/mtmd/mtmd-image.cpp): aspect-preserving resize so
+// that minTokens ≤ pixels/align² ≤ maxTokens with both dimensions aligned to
+// align, and the token count is the resulting grid product. Like the original,
+// degenerate aspect ratios can exceed maxTokens: the per-dimension floor of
+// one align unit is applied after the pixel budget.
+func smartResizeTokens(width, height, align, minTokens, maxTokens int) int {
+	cols, rows := smartResizeGrid(width, height, align, minTokens, maxTokens)
+	return cols * rows
+}
+
+// smartResizeGrid is smartResizeTokens' underlying grid. Arithmetic mirrors
+// the C++ float32 operations so grid-boundary rounding matches llama-server.
+func smartResizeGrid(width, height, align, minTokens, maxTokens int) (cols, rows int) {
+	minPixels := minTokens * align * align
+	maxPixels := maxTokens * align * align
+
+	roundBy := func(x float32) int { return int(math.Round(float64(x/float32(align)))) * align }
+	ceilBy := func(x float32) int { return int(math.Ceil(float64(x/float32(align)))) * align }
+	floorBy := func(x float32) int { return int(math.Floor(float64(x/float32(align)))) * align }
+
+	hBar := max(align, roundBy(float32(height)))
+	wBar := max(align, roundBy(float32(width)))
+
+	if hBar*wBar > maxPixels {
+		beta := float32(math.Sqrt(float64(float32(height*width) / float32(maxPixels))))
+		hBar = max(align, floorBy(float32(height)/beta))
+		wBar = max(align, floorBy(float32(width)/beta))
+	} else if hBar*wBar < minPixels {
+		beta := float32(math.Sqrt(float64(float32(minPixels) / float32(height*width))))
+		hBar = ceilBy(float32(height) * beta)
+		wBar = ceilBy(float32(width) * beta)
+		// Mirrors compat/005: with pinned budgets (min ≈ max) the ceil can
+		// overshoot maxPixels; the budget is a hard ceiling, so floor just
+		// under min instead — keeping this estimate equal to what the patched
+		// payload delivers.
+		if hBar*wBar > maxPixels {
+			hBar = max(align, floorBy(float32(height)*beta))
+			wBar = max(align, floorBy(float32(width)*beta))
+		}
+	}
+
+	return wBar / align, hBar / align
+}
+
+// gemma4Ladder is Gemma 4's supported visual-token budget ladder
+// (ai.google.dev/gemma/docs/core/model_card_4).
+var gemma4Ladder = [...]int{70, 140, 280, 560, 1120}
+
+// gemma4SnapBudget snaps a requested ceiling DOWN to the nearest ladder rung;
+// requests below the lowest rung clamp up to it. Mirrors the snap in
+// llama/compat/004-llama-cpp-gemma4-budget-fill.patch exactly.
+func gemma4SnapBudget(maxTokens int) int {
+	budget := gemma4Ladder[0]
+	for _, rung := range gemma4Ladder {
+		if rung <= maxTokens {
+			budget = rung
+		}
+	}
+	return budget
+}
+
+// BudgetFillSize replicates img_tool::calc_size_budget_fill from 004: snap the
+// ceiling to the ladder, scale the image (up or down) by
+// sqrt(budget_px/source_px), floor each axis to a multiple of align, and shave
+// the long axis while the align clamp holds the grid over budget. float64
+// mirrors the C++ double arithmetic so grid boundaries match llama-server.
+func BudgetFillSize(width, height, align, maxTokens int) (int, int) {
+	budget := gemma4SnapBudget(maxTokens)
+	pxPerToken := align * align
+	factor := math.Sqrt(float64(budget*pxPerToken) / (float64(width) * float64(height)))
+	wBar := max(align, int(math.Floor(float64(width)*factor/float64(align)))*align)
+	hBar := max(align, int(math.Floor(float64(height)*factor/float64(align)))*align)
+	for (wBar/align)*(hBar/align) > budget {
+		if wBar >= hBar {
+			wBar -= align
+		} else {
+			hBar -= align
+		}
+	}
+	return wBar, hBar
+}
+
+func budgetFillTokens(width, height, align, maxTokens int) int {
+	wBar, hBar := BudgetFillSize(width, height, align, maxTokens)
+	return (wBar / align) * (hBar / align)
+}
+
+// Gemma4ImageAlign is the pixel edge of one gemma4 soft token
+// (ViT patch 16 × pooling kernel 3).
+const Gemma4ImageAlign = gemma4ImageAlign
 
 // Load waits for llama-server to finish loading the model. llama-server loads
 // the model at startup and auto-detects GPU layers, so this just waits for
