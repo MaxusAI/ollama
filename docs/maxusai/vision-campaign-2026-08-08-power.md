@@ -20,6 +20,7 @@ host — absolute tier recall is not comparable to campaigns using another font.
 | gemma4:31b-it-q4_K_M | GGUF | 0.963 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
 | gemma4:26b-a4b-it-q4_K_M | GGUF | 0.970 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
 | nemotron3:33b-q4_K_M | GGUF | 0.857 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 4 |
+| nemotron3:33b-q8 | GGUF | 0.844 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 4 |
 
 ## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
 
@@ -34,6 +35,12 @@ host — absolute tier recall is not comparable to campaigns using another font.
 | gemma4:31b-it-q4_K_M | GGUF | 4 | 4 | 4 | 2 | 2 | ✅ all Qs + bbox | 17 | 301 | 36.9 | 98 |
 | gemma4:26b-a4b-it-q4_K_M | GGUF | 4 | 4 | 4 | 2 | 1 | ✅ all Qs + bbox | 82 | 652 | 9.1 | 396 |
 | nemotron3:33b-q4_K_M | GGUF | 4 | 4 | 2 | 1 | 0 | ✅ all Qs + bbox | 112 | 1059 | 7.1 | 508 |
+| nemotron3:33b-q8 | GGUF | 4 | 4 | 3 | 0 | 0 | ✅ all Qs + bbox | 99 | 1059 | 7.7 | 469 |
+
+Nemotron quant note: q8 vs q4_K_M moved scene IoU −0.013 (noise floor) and doc IoU
++0.003 at a 12% decode cost — the scatter-limited quality floor is the model's, not
+quantization; q4_K_M remains the serving quant. Decode scaling (99 vs 112 tok/s for
+2× bytes) marks the hybrid arch compute-bound, unlike bandwidth-bound dense gemma4.
 
 ## Low Power Mode
 
@@ -41,4 +48,4 @@ host — absolute tier recall is not comparable to campaigns using another font.
 
 ## Pending additions
 
-- nemotron3:33b-bf16, nemotron3:33b-q8 (pull in progress 2026-08-08) — both power modes.
+- nemotron3:33b-bf16 (pull in progress 2026-08-08) — both power modes.
