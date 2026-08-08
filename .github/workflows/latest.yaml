@@ -1,11 +1,35 @@
 name: latest
+# MaxusAI fork note -- NOT upstream. This workflow builds and publishes from
+# `runs-on: linux` / `runs-on: windows`, SELF-HOSTED labels this fork has no
+# runners for (/actions/runners is empty at repo level, 0 at org level).
+#
+# These are NOT skipped on `vars.SELF_HOSTED_RUNNERS` the way the pull-request
+# workflows are (test.yaml, test-llamacpp-update.yaml). Those jobs only report, so
+# skipping loses nothing; these PRODUCE AND PUBLISH ARTIFACTS, and a silent skip
+# would let a release report success while shipping nothing -- worse than a hang.
+#
+# Instead they FAIL FAST: the guard below errors out in seconds when the variable
+# is unset, so an attempted release stops immediately with a readable reason
+# rather than queueing for 24h or quietly publishing an empty release.
+#
+# To release from this fork: register runners, then set `SELF_HOSTED_RUNNERS=true`.
 
 on:
   release:
     types: [released]
 
 jobs:
+  runner-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require self-hosted runners before updating latest
+        if: vars.SELF_HOSTED_RUNNERS != 'true'
+        run: |
+          echo "::error title=No self-hosted runners::update-latest uses runs-on: linux, a self-hosted label this fork has no runners for. Register runners and set SELF_HOSTED_RUNNERS=true. Failing now rather than queueing for 24h."
+          exit 1
+
   update-latest:
+    needs: runner-check
     environment: release
     runs-on: linux
     steps:
