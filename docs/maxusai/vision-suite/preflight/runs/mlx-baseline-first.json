@@ -1,0 +1,234 @@
+{
+  "meta": {
+    "host": "http://127.0.0.1:11436",
+    "platform": "apple-silicon-mlx",
+    "image_tag": "native-0982ab8a",
+    "started_utc": "20260808T114416",
+    "expectations_file": "expectations.toml",
+    "schema_version": 1,
+    "version": "0.32.5-maxusai-0982ab8a",
+    "profile": "apple-silicon-mlx",
+    "patchset": [],
+    "container": null
+  },
+  "results": [
+    {
+      "check": "version",
+      "arch": null,
+      "status": "PASS",
+      "summary": "0.32.5-maxusai-0982ab8a matches profile apple-silicon-mlx",
+      "expected": "^0\\.32\\.5-maxusai-[0-9a-f]{7,40}$",
+      "actual": "0.32.5-maxusai-0982ab8a"
+    },
+    {
+      "check": "image_tag",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "no container resolved (remote host?)",
+      "expected": "native-0982ab8a"
+    },
+    {
+      "check": "go_patch_marker",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "no container resolved; cannot grep the binary",
+      "expected": 1
+    },
+    {
+      "check": "text_baseline",
+      "arch": "gemma4",
+      "status": "PASS",
+      "summary": "in-image text prefix = 19 (calibrated on 256x144+512x288); text-only = 19",
+      "actual": 19
+    },
+    {
+      "check": "token_ladder",
+      "arch": "gemma4",
+      "status": "PASS",
+      "summary": "5/5 geometries within +/-2",
+      "expected": {
+        "256x144": 1102,
+        "512x288": 1102,
+        "1024x576": 1102,
+        "2048x1152": 1102,
+        "3072x1728": 1102
+      },
+      "actual": {
+        "256x144": 1102,
+        "512x288": 1102,
+        "1024x576": 1102,
+        "2048x1152": 1102,
+        "3072x1728": 1102
+      },
+      "rows": [
+        {
+          "size": "256x144",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "512x288",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "1024x576",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "2048x1152",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "3072x1728",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        }
+      ],
+      "shape": "flat",
+      "expected_shape": "flat"
+    },
+    {
+      "check": "payload_proof",
+      "arch": "gemma4",
+      "status": "SKIP",
+      "summary": "no container resolved; cannot read the load log"
+    },
+    {
+      "check": "think_format",
+      "arch": "gemma4",
+      "status": "SKIP",
+      "summary": "no think+format expectation recorded"
+    },
+    {
+      "check": "pinned_budget",
+      "arch": "gemma4",
+      "status": "SKIP",
+      "summary": "no pinned-budget expectation recorded for this arch",
+      "diagnosis": "Omitted deliberately: the 005 defect was found on nemotron and this arch's probe has not been measured. See README.md to add one."
+    },
+    {
+      "check": "text_baseline",
+      "arch": "gemma4_unified",
+      "status": "PASS",
+      "summary": "in-image text prefix = 19 (calibrated on 256x144+512x288); text-only = 19",
+      "actual": 19
+    },
+    {
+      "check": "token_ladder",
+      "arch": "gemma4_unified",
+      "status": "PASS",
+      "summary": "5/5 geometries within +/-2",
+      "expected": {
+        "256x144": 1102,
+        "512x288": 1102,
+        "1024x576": 1102,
+        "2048x1152": 1102,
+        "3072x1728": 1102
+      },
+      "actual": {
+        "256x144": 1102,
+        "512x288": 1102,
+        "1024x576": 1102,
+        "2048x1152": 1102,
+        "3072x1728": 1102
+      },
+      "rows": [
+        {
+          "size": "256x144",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "512x288",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "1024x576",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "2048x1152",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "3072x1728",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        }
+      ],
+      "shape": "flat",
+      "expected_shape": "flat"
+    },
+    {
+      "check": "payload_proof",
+      "arch": "gemma4_unified",
+      "status": "SKIP",
+      "summary": "no container resolved; cannot read the load log"
+    },
+    {
+      "check": "think_format",
+      "arch": "gemma4_unified",
+      "status": "SKIP",
+      "summary": "no think+format expectation recorded"
+    },
+    {
+      "check": "pinned_budget",
+      "arch": "gemma4_unified",
+      "status": "SKIP",
+      "summary": "no pinned-budget expectation recorded for this arch",
+      "diagnosis": "Omitted deliberately: the 005 defect was found on nemotron and this arch's probe has not been measured. See README.md to add one."
+    },
+    {
+      "check": "endpoint_exclusive",
+      "arch": null,
+      "status": "PASS",
+      "summary": "no contention detected (worst queue wait 0.0s)",
+      "expected": "queue wait <= 10.0s",
+      "actual": "0.0s",
+      "models_loaded": [
+        "gemma4:12b-nvfp4",
+        "gemma4:31b-mlx-bf16"
+      ]
+    }
+  ],
+  "summary": {
+    "PASS": 6,
+    "SKIP": 8
+  }
+}

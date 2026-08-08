@@ -1,8 +1,10 @@
 # ADR 0012: benchmark reports use three canonical templates, rendered by generators
 
-- **Status:** proposed, 2026-08-08 — awaiting maintainer acceptance. Nothing is
-  migrated until accepted; new reports should adopt it now, existing docs are
-  grandfathered.
+- **Status:** accepted, 2026-08-08 (maintainer directive "resolve the issues",
+  same day as proposal). Validated in practice before acceptance: the
+  2026-08-08 power campaign (PR #61/#62) was rendered exclusively through T1/T2
+  with the latency pair and powermode provenance. Existing docs stay
+  grandfathered; new reports use the templates.
 - **Related:** [ADR 0011](0011-preflight-expectations-are-versioned-code.md)
   (same philosophy: facts live in versioned code, prose links to them),
   [vision-benchmark-baseline.md](../vision-benchmark-baseline.md) (T3 instance

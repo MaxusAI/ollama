@@ -99,7 +99,7 @@ platform = "apple-silicon-mlx"
 # stack via --platform. Tighten this pattern to the exact stamp when the first
 # baseline is taken; a wider pattern is safe only while every expectation below
 # is unmeasured (NEEDS_BASELINE cannot false-pass).
-version_pattern = '^0\.3[2-9]\.[0-9]+-[a-z0-9]+-[0-9a-f]{7,40}$'
+version_pattern = '^0\.32\.5-maxusai-[0-9a-f]{7,40}$'  # tightened at first baseline (2026-08-08)
 patchset = []                     # llama.cpp compat patches do not apply to MLX
 reference_image = "native macOS build — no container"
 # The fork Go binary carries the --image-max-tokens flag either way; without a
@@ -295,44 +295,50 @@ reason = "Not yet measured on the arm64 image. See README.md, Adding an expectat
 # baseline and the quant sweep gets blocks as each variant is measured.
 
 [expect.apple-silicon-mlx.gemma4]
-status = "unmeasured"
-model = "gemma4:31b-mlx-bf16"
-reason = """
-Never measured — MLX vision only merged 2026-08-08 (7380a61f). What is known,
-and what this file refuses to assert without a measurement:
+status = "measured"
+measured_on = "2026-08-08"
+model = "gemma4:31b-mlx-bf16"    # bf16 anchors the baseline (quantisation and
+                                 # runner regressions must not be conflated)
+patch_stride = 48                # patch_size 16 * n_merge 3
+budget_min_tokens = 70           # ADR 0008 floor
+budget_max_tokens = 1120         # vendor maximum
+image_min_pixels = 161280        # 70 * 48^2
+image_max_pixels = 2580480       # 1120 * 48^2
 
-  * Store inventory, all Gemma4ForConditionalGeneration with the 27-layer
-    vision tower (verified from config blobs): 31b-mlx-bf16 (63.5 GB),
-    26b-mlx-bf16 (52.5 GB), 26b-mxfp8 (27.7 GB), 31b-nvfp4 (18.6 GB),
-    26b-nvfp4 (17.6 GB). The bf16 anchors the baseline: quantisation error and
-    runner regressions must not be conflated in the first measured row.
-  * MLX sizing goes through llm.BudgetFillSize — the same budget-fill
-    semantics 004 gives llama.cpp — so the ladder is EXPECTED flat at ~1102
-    with scaling = "flat". Expected is not measured; 004 itself moved numbers
-    the derivation said could not move.
-  * The +2 marker_allowance is a llama-server media-marker convention and has
-    NOT been verified on the MLX runner's token accounting. Do not assume it.
-  * think_format applies: constrained sampling (x/structured) and the
-    transition-metrics fix are both live on MLX as of the 2026-08-08 merges.
-
-Measure per README.md "Adding an expectation" against the MLX-store server
-(conventionally :11436), bf16 first, then fill a block per quant variant —
-26b-mlx-bf16, 26b-mxfp8, 31b-nvfp4, 26b-nvfp4 — before trusting any of them
-in a deploy gate.
-"""
+# MLX sizing goes through llm.BudgetFillSize — the same budget-fill semantics
+# 004 gives llama.cpp. Measured 2026-08-08 (probes.Ollama.image_prefix, B8
+# prefix trick; server 0.32.5-maxusai-0982ab8a, :11436): flat 1102 at all five
+# ladder geometries. prefix == text_only == 19 on this arch (no image-request
+# tokenisation offset), and 1102 = 44x25 grid + 2 — the +2 marker allowance IS
+# the MLX runner's convention too, previously unverified.
+#
+# Per-quant variants measured identically the same day, same method, same flat
+# 1102 ladder and prefix 19: 26b-mlx-bf16, 26b-mxfp8, 31b-mxfp8, 31b-nvfp4,
+# 26b-nvfp4. One block keyed on the bf16 anchor covers the lineage; a variant
+# drifting from it is a runner regression, not a quant property.
+scaling = "flat"
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]
 
 [expect.apple-silicon-mlx.gemma4_unified]
-status = "unmeasured"
+status = "measured"
+measured_on = "2026-08-08"
 model = "gemma4:12b-nvfp4"
-reason = """
-Different vision wiring from the standard lineage, so it is its own arch row:
-Gemma4UnifiedForConditionalGeneration has no vision tower — an early-fusion
-patch embedder (10 tensors, ~40 MB) with a 1120-slot learned position table
-and num_soft_tokens = 280 in vision_config. The ladder shape is genuinely
-unknown: budget-fill to ~1102 like the standard lineage, flat at ~280 soft
-tokens, or something else. Measure before setting `scaling`; the verdict
-logic must not inherit the standard-lineage row.
-"""
+patch_stride = 48                # unified: patch_size folded to 48, n_merge 1
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280
+image_max_pixels = 2580480
+
+# The open question in the unmeasured row — budget-fill to ~1102, flat at ~280
+# soft tokens, or something else — is answered by measurement: the unified
+# early-fusion arch budget-fills exactly like the standard lineage. Flat 1102
+# at all five geometries, prefix == text_only == 19, +2 marker allowance
+# verified (2026-08-08, server 0.32.5-maxusai-0982ab8a, :11436).
+scaling = "flat"
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]
+
 
 
 # =============================================================================
