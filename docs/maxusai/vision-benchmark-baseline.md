@@ -6,6 +6,7 @@
 | Scope | Local-inference vision quality and throughput: gemma4 family (stock / fork-unpatched / fork-patched), qwen3.6, nemotron3 |
 | Provenance | Fork commits `14dc92a1` (004 sizing patch) · `b282ca97` (ADR 0008) · `62f01182` (doc-IoU metric); merged via PR #40. Investigation: [gemma4-bbox-investigation-findings.md](gemma4-bbox-investigation-findings.md) |
 | Status | Living baseline — append re-measurements with date + config; never overwrite historical cells |
+| Related campaigns | [2026-08-08 MLX vs GGUF](vision-campaign-2026-08-08-mlx.md) · [2026-08-08 power modes](vision-campaign-2026-08-08-power.md) (MLX vision post-#51: quality power-invariant; LP retains 41–50% req/h; supersedes §6.3's "vision-blind" note for post-merge builds) |
 
 ---
 
@@ -31,8 +32,15 @@ do not compare tok/s between §4.1 and §4.5.
 | id | binary | llama.cpp payload | compat patches | gemma4 defaults |
 |---|---|---|---|---|
 | `stock` | ollama 0.32.6 (upstream, :11434) | b10242 | none | min 40 / max 280 (upstream) |
-| `unpatched` | fork 0.32.5 (:11435) | b10091 | 001–003 | 40 / 1120 (pre-ADR-0007) |
-| `patched` | fork `0.32.5-gemma4fill-dev` (:11436) | b10091 | 001–**004** | 70 / 1120 (ADR 0008); budget-fill sizing |
+| `unpatched` | fork 0.32.5 (:11435, historical — see note) | b10091 | 001–003 | 40 / 1120 (pre-ADR-0007) |
+| `patched` | fork `0.32.5-gemma4fill-dev` (:11436, historical — see note) | b10091 | 001–**004** | 70 / 1120 (ADR 0008); budget-fill sizing |
+
+> **Server topology since 2026-08-08:** production `:11435` runs
+> `0.32.5-maxusai-0982ab8a` (b10091 + 001–005, ADR 0008 defaults, MLX vision) —
+> promoted after the power campaign; acceptance cell reproduced (12B@560,
+> `prompt_eval` 1111). The `:11436` bench instance is retired; spin it up
+> per-campaign from the repo build. Historical rows above describe the servers
+> as they were when their cells were measured.
 | `dynres-rocm` | fork `0.32.1-dynres-35d9e58e` (gfx1151, :11434) | **b9888** | 001–**005** | 70 / 1120 (ADR 0008); budget-fill sizing |
 
 All servers `OLLAMA_NUM_PARALLEL=1`, no concurrent traffic during measurement.

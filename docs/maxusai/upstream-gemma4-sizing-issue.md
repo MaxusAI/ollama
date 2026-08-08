@@ -1,8 +1,13 @@
 # Draft upstream issue: gemma4 image sizing diverges from reference, breaking box_2d grounding
 
-Fork-internal draft for filing against **ggml-org/llama.cpp** (written 2026-08-07,
-against `b10091`; re-verify against master before filing — the gemma4 hparams
-branch was unchanged on master as of this date). File as one issue with two
+Fork-internal draft for filing against **ggml-org/llama.cpp** (written 2026-08-07
+against `b10091`; **re-verified against master 2026-08-08**: the gemma4v/gemma4uv
+hparams branch is unchanged — still no `image_resize_pad`, still
+`set_limit_image_tokens(40, 280)` with natural-grid sizing — and the
+`< min_pixels` branch still uses `ceil_by_factor`. Master has refactored
+`calc_size_preserved_ratio` to take an `opts` struct, so the attached patches
+need mechanical regeneration for master; the defects and the reproduction are
+unchanged). File as one issue with two
 defects; the fix for both is one patch:
 [`llama/compat/004-llama-cpp-gemma4-budget-fill.patch`](../../llama/compat/004-llama-cpp-gemma4-budget-fill.patch).
 
