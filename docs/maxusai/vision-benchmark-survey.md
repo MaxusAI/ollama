@@ -210,10 +210,11 @@ every harness above already encodes that way.
 
 `measure.py` read its geometry ladder from a `testimgs/` directory that **nothing in the repo
 generated** (`gen_scenes.py` writes `visimgs/`), so the token-budget protocol was not
-reproducible from a clean checkout — and because its `open()` sits outside the `try`, a missing
+reproducible from a clean checkout — and because its `open()` sat outside the `try`, a missing
 file surfaced as an uncaught traceback rather than a recorded error. Added
 [vision-suite/gen_geoms.py](vision-suite/gen_geoms.py) to render the eight geometries
-deterministically. `measure.py` still reports rather than asserts; the pass/fail gate is the Go
+deterministically; the missing-file path now exits with a message pointing at it. `measure.py`
+still reports rather than asserts; the pass/fail gate is the Go
 test in [§4](#4-recommended-per-release-regression-battery).
 
 ---
@@ -491,12 +492,12 @@ notice. It costs nothing, so run it on every build.
 Its limitation is that it pins the *Go-side replication*, not the *served payload*. Layer 2
 closes that.
 
-**Why `measure.py` is not this layer.** Its protocol is right — text-only `prompt_eval_count`
-baseline, then a delta per geometry — but it *reports* and never *asserts*: every result is
-printed and the script exits 0 whether nemotron returns the dynamic ladder or a flat 256. It
-also cannot run from a clean checkout (it reads `testimgs/`, which nothing generates, and its
-`open()` sits outside the `try`, so a missing file is an uncaught traceback rather than a
-recorded error), and its `image_max_tokens` probe is a *Runner* option, so that one request
+**Why `measure.py` is not this layer.** Its protocol is now right — a calibrated text prefix,
+then a delta per geometry — but it *reports* and never *asserts*: every result is
+printed and the script exits 0 whether nemotron returns the dynamic ladder or a flat 256. And
+"now right" is load-bearing: until 2026-08-08 it baselined with a different prompt than it
+probed with, so it silently reported every row 2 tokens high, and nothing in the script could
+have caught that. Its `image_max_tokens` probe is also a *Runner* option, so that one request
 forces a full reload of a 25.7 GiB blob. Treat it as the manual protocol it is; use the Go
 test as the gate.
 

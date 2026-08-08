@@ -55,7 +55,10 @@ first and prefer `nemotron3:33b-q4_K_M` (already in the host store) over `q8`.
 
 Method identical to [vision-token-budget-measurements.md](vision-token-budget-measurements.md):
 solid-colour PNGs, `/api/generate` with `num_predict: 1`, `prompt_eval_count` minus the
-text-only baseline (nemotron3 baseline: 18). Grid-quantised — do not read small deltas.
+text prefix **as that prefix tokenises inside an image-bearing request** — which on
+`nemotron_h_omni` is one token shorter than the same prompt sent text-only (20 vs 21 for
+`"Describe briefly."`). Do not substitute the text-only count; `measure.py` calibrates the
+prefix from a two-image difference instead. Grid-quantised — do not read small deltas.
 
 1. **Budget fingerprint at load:** the model-load log must print `image_min_pixels: 262144`
    and `image_max_pixels: 3407872`. Their absence means the payload is unpatched (the
@@ -90,23 +93,34 @@ text-only baseline (nemotron3 baseline: 18). Grid-quantised — do not read smal
 This validates the patch mechanics on the exact target GPU; the containerized
 `ollama-rocm-nemotron` run should reproduce these numbers (append below when run).
 
-Text-only baseline: 18. `visual+markers` = `prompt_eval_count` − 18. **VERDICT: the 256
-cap is lifted — mechanics behave exactly as specified.**
+**VERDICT: the 256 cap is lifted — mechanics behave exactly as specified.**
 
-| image | measured | expected | note |
-|---|---|---|---|
-| 320×240 | **270** | floor upscale | pre-patch: 256 flat |
-| 640×480 | **304** | ≈302 | |
-| 896×896 | **788** | ≈786 | |
-| 1568×1568 | **2,405** | ≈2,403 | 9.4× pre-patch |
-| 1920×1080 | **2,044** | ≈2,042 | PR author measured 2,040 visual on CUDA |
-| 2048×1664 | **3,332** | 3,330 | **exact 3,328 ceiling reached** |
-| 3000×2000 | **3,294** | ≈3,292 | 12.9× pre-patch |
-| 3200×32 (100:1) | **324** | bounded | no degenerate-aspect blowup at this ratio |
-| 1920×1080 @ `image_max_tokens=1024` | **1,012** | ≈1,010 | **knob live** (2,044 → 1,012); silently ignored pre-patch |
+> **Corrected 2026-08-08.** The `visual+markers` column originally read
+> `prompt_eval_count` − 18, where 18 was a text-only baseline taken with the prompt
+> `"Hi"` while the probes ran `"Describe briefly."`. The correct subtrahend is **20** —
+> the probe prompt's prefix as tokenised in an image-bearing request — so every row was
+> published **2 tokens high**. Raw `prompt_eval_count` is unchanged and now shown; all nine
+> rows — the eight geometries *and* the `image_max_tokens` knob — were re-measured on the
+> :11437 canary (`0.32.5-dynres-4987dd49`, `nemotron3:33b-q8`) and came back
+> byte-identical to this run, so only the subtraction was ever wrong. Corrected values
+> match `TestImageTokensForSize` on every row, including the exact-ceiling one.
+> See [vision-suite/measure.py](vision-suite/measure.py) for the calibration.
 
-- Every row sits a constant +2 above the pure grid+2 arithmetic — one extra token pair
-  from prompt assembly, grid-quantisation-level noise, consistent across all sizes.
+| image | `prompt_eval_count` | visual+markers | expected | note |
+|---|---|---|---|---|
+| 320×240 | 288 | **268** | 268, floor upscale | pre-patch: 256 flat |
+| 640×480 | 322 | **302** | 302 | |
+| 896×896 | 806 | **786** | 786 | |
+| 1568×1568 | 2,423 | **2,403** | 2,403 | 9.4× pre-patch |
+| 1920×1080 | 2,062 | **2,042** | 2,042 | PR author measured 2,040 visual on CUDA |
+| 2048×1664 | 3,350 | **3,330** | 3,330 | **exact 3,328 ceiling reached** |
+| 3000×2000 | 3,312 | **3,292** | 3,292 | 12.9× pre-patch |
+| 3200×32 (100:1) | 342 | **322** | bounded | no degenerate-aspect blowup at this ratio |
+| 1920×1080 @ `image_max_tokens=1024` | 1,030 | **1,010** | 1,010 | **knob live** (2,042 → 1,010); silently ignored pre-patch |
+
+- Every row lands on the grid product + 2 markers **exactly** — no residual, no slack to
+  attribute to "prompt assembly". The +2 that this table used to carry above that
+  arithmetic was the baseline error above, not quantisation noise.
 - Bicubic `resize_position_embeddings` exercised on ROCm at every non-512² grid
   (all counts correct, output coherent) — no fallback, no garbage.
 - Coherence smoke (`think:false`, solid-red 1920×1080): "The image is predominantly red
@@ -200,8 +214,9 @@ Suite + images: [`vision-suite/`](vision-suite/) (committed; ground truth embedd
 
 ### VERDICT — b9888+002 (2026-08-01, native build from `feat/nemotron-dynres-0321`)
 
-Token protocol: **byte-identical** to the b10091+002 runs (270…3,332 dynamic, exact
-ceiling at 2048×1664, knob 2,044→1,012) — the 002 patch behaves the same on b9888.
+Token protocol: **byte-identical** to the b10091+002 runs (268…3,330 dynamic, exact
+ceiling at 2048×1664, knob 2,042→1,010; all four corrected 2026-08-08 per the note
+above) — the 002 patch behaves the same on b9888.
 Ground-truth suite (`think:false`, cold):
 
 | test | b9888 stock (256 cap) | b10091+002 | **b9888+002** |
@@ -238,8 +253,8 @@ host-artifact image variant: ubuntu:24.04 final stage + the native build's paylo
 because the canonical almalinux toolchain pull was hours from completing; provenance in
 the image LABELs). Run with the isolated recipe above (port 11435, models `:ro`).
 **Every measurement byte-for-byte identical to the native run** — all eight geometries,
-the knob (2,044 → 1,012), and the coherence sample ("predominantly red with a thin black
-border", `think:false`). gfx1151 discovered from inside the container
+the knob (2,042 → 1,010, corrected 2026-08-08), and the coherence sample ("predominantly
+red with a thin black border", `think:false`). gfx1151 discovered from inside the container
 (`library=ROCm compute=gfx1151`, 96 GiB pool). Append the canonical all-target image's
 run here when its build lands; expect identical numbers.
 

@@ -22,9 +22,21 @@ about it.
 ## Method
 
 `prompt_eval_count` from `/api/generate` with `num_predict: 1`, minus that model's
-text-only baseline measured the same way. Baselines differ per model (gemma4 17,
+text baseline measured the same way. Baselines differ per model (gemma4 17,
 qwen3.5 11, nemotron3 18) and must be subtracted, or small-image numbers are badly
 distorted. Solid-colour PNGs: token cost is a function of geometry, not content.
+
+> **A baseline is only valid for the prompt it was measured with, and "text-only" is not
+> always the right subtrahend** (added 2026-08-08). The baselines above belong to the
+> prompt these runs used; re-measure before reusing them. Two failure modes, both
+> observed: baselining with one prompt and probing with another puts the text-length
+> difference into every row (this is what
+> [`vision-suite/measure.py`](vision-suite/measure.py) did until 2026-08-08, inflating the
+> nemotron table in [nemotron-test-image.md](nemotron-test-image.md#results) by 2); and on
+> some arches the prefix tokenises differently once an image is attached, so even a
+> matched-prompt text-only count is wrong — `nemotron3` reads 21 text-only but 20 in an
+> image request, while `gemma4:31b` reads 19 both ways. The gemma4 rows below are
+> unaffected and reconcile at grid+2 exactly.
 
 Counts are **grid-quantised** — they land on discrete cells, so nearby budget values
 produce identical results (e.g. `image_min_tokens` anywhere in 1056–1088 gives the same
