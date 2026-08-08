@@ -38,3 +38,47 @@ loaded: nemotron3:33b-bf16
 CPU usage: 1.91% user, 5.82% sys, 92.26% idle 
 "Device Utilization %"=0
 loaded: nemotron3:33b-bf16
+=== 19:21:17 powermode=1
+CPU usage: 1.71% user, 5.42% sys, 92.86% idle 
+"Device Utilization %"=0
+loaded: nemotron3:33b-bf16
+=== 19:23:18 powermode=1
+CPU usage: 10.60% user, 7.86% sys, 81.53% idle 
+"Device Utilization %"=0
+loaded: nemotron3:33b-bf16
+=== 19:25:19 powermode=1
+CPU usage: 4.25% user, 6.54% sys, 89.19% idle 
+"Device Utilization %"=0
+loaded: none
+=== 19:27:20 powermode=1
+CPU usage: 4.36% user, 6.78% sys, 88.84% idle 
+"Device Utilization %"=0
+loaded: none
+=== 19:29:21 powermode=1
+CPU usage: 4.7% user, 6.61% sys, 89.30% idle 
+"Device Utilization %"=0
+loaded: none
+=== 19:31:22 powermode=1
+CPU usage: 2.91% user, 5.77% sys, 91.31% idle 
+"Device Utilization %"=0
+loaded: none
+=== 19:33:22 powermode=1
+CPU usage: 3.7% user, 5.87% sys, 91.4% idle 
+"Device Utilization %"=0
+loaded: none
+=== 19:35:23 powermode=1
+CPU usage: 3.36% user, 5.91% sys, 90.72% idle 
+"Device Utilization %"=0
+loaded: none
+=== 19:37:24 powermode=1
+CPU usage: 3.4% user, 5.82% sys, 91.13% idle 
+"Device Utilization %"=0
+loaded: none
+=== 19:39:25 powermode=1
+CPU usage: 4.9% user, 7.7% sys, 88.83% idle 
+"Device Utilization %"=0
+loaded: none
+=== 19:41:26 powermode=1
+CPU usage: 8.15% user, 8.67% sys, 83.17% idle 
+"Device Utilization %"=0
+loaded: none

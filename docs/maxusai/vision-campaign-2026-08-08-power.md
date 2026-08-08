@@ -75,13 +75,45 @@ decode-dominated, the profile least exposed to the harsher MLX-prefill throttle.
 
 ## Sensor record (LP half, unprivileged sampler)
 
-20 samples at 2-min cadence, 19:01–19:39 — covering the later campaign cells
-only (the sampler started ~35 min into the run); powermode=1 in every sample.
-During inference: GPU device utilization avg ~51% (peaks 93–100% mid-decode on
-q4/q8 cells), CPU ~14% busy — the workload is GPU-bound and the CPU stays
-nearly idle. Idle samples: GPU 0%. Zero thermal or performance warnings across
-the entire run (`pmset -g therm`): the LP regime is governor policy, not heat.
-Per-model utilization is indicative only (n=1–4 samples/model); low readings on
-the bf16 cells caught load phases (66 GB at LP disk speeds), not steady decode.
-CPU/GPU clocks and temperatures were not captured (requires `sudo powermetrics`,
-which stayed on the operator's side of the privilege boundary this run).
+**21 samples** at 2-min cadence, **19:01:02–19:41:26** — covering the later
+campaign cells only (the sampler started ~35 min into the run); powermode=1 in
+every sample. During inference: GPU device utilization avg **50.9%** (peaks
+93–100% mid-decode on q4/q8 cells), CPU **14.0%** busy — the workload is
+GPU-bound and the CPU stays nearly idle. Idle samples: GPU 0% in all nine, CPU
+10.7% busy. Zero thermal or performance warnings across the entire run
+(`pmset -g therm`): the LP regime is governor policy, not heat. CPU/GPU clocks
+and temperatures were not captured (requires `sudo powermetrics`, which stayed
+on the operator's side of the privilege boundary this run).
+
+> **Corrected 2026-08-08.** This section previously read "20 samples,
+> 19:01–19:39". The sampler was still running when it was written, and the log
+> committed alongside it had been snapshotted at **10** samples (ending
+> 19:19:16) — so the doc cited more data than the repo contained, and neither
+> figure matched the final run. The statistics were nonetheless derived from the
+> complete set and stand unchanged (~51% GPU, ~14% CPU). The full 21-sample log
+> is now committed and the table below is generated from it, so the numbers are
+> auditable rather than asserted.
+
+### Per-sample record
+
+Derived from
+[`vision-suite/runs/sensors-lp-periodic.log`](vision-suite/runs/sensors-lp-periodic.log).
+"GPU" is `Device Utilization %`; "CPU busy" is `100 − idle`.
+
+| # | time | loaded model | GPU % | CPU busy % |
+|---|---|---|---|---|
+| 1 | 19:01:02 | gemma4:31b-nvfp4 | 47 | 27.2 |
+| 2 | 19:03:04 | gemma4:26b-nvfp4 | 65 | 30.8 |
+| 3 | 19:05:07 | gemma4:31b-it-q4_K_M | 24 | 11.6 |
+| 4–5 | 19:07–19:09 | gemma4:31b-it-q4_K_M | 32, 54 | — |
+| 6 | 19:11 | gemma4:26b-a4b-it-q4_K_M | 100 | — |
+| 7 | 19:13 | nemotron3:33b-q4_K_M | 96 | — |
+| 8 | 19:15 | nemotron3:33b-q8 | 93 | — |
+| 9–12 | 19:17–19:23 | nemotron3:33b-bf16 | 100, 0, 0, 0 | — |
+| 13–21 | 19:25–19:41 | none (idle) | 0 ×9 | 10.7 avg |
+
+Per-model utilization is indicative only (n = 1–4 samples/model). The bf16 row
+is the clearest example of why: one sample caught steady decode at 100% and
+three caught **load** phases at 0% — 66 GB paging in at LP disk speeds — so its
+mean is an artefact of sampling cadence, not a throughput result. Read the
+per-model column as "was the GPU busy when we looked", not as utilization.
