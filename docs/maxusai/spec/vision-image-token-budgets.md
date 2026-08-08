@@ -87,6 +87,15 @@ Build `0.32.1-dynres-35d9e58e` (payload b9888 + 002/004/005), gfx1151/ROCm, depl
 baseline minus 16 per image — the text figure is model-specific, so do not reuse another
 model's:
 
+> **Unverified against B8 — the nemotron rows below are suspect.** Two subtrahends are
+> applied here and B8 questions both. The text-only baseline is the wrong one if this
+> payload behaves like the main lineage's, and the flat **16** is `gemma4`'s marker count:
+> `nemotron_h_omni` carries **2** markers per image, not 16, so subtracting 16 from a
+> nemotron count reads ~14 low. Re-derive the prefix per §3 step 1 and the per-arch marker
+> count on **this lineage's own build** before relying on the nemotron cells; the gemma4
+> cells are internally consistent (both grids satisfy B7). Not corrected here because §4
+> forbids importing another lineage's measurements.
+
 | model | case | grid / tokens | conforms |
 |---|---|---|---|
 | gemma4:31b @1120 | 1920×1080 scene | 1100 = 20×55 | ✓ `1100 ≤ 1120 < 21×56` |
@@ -103,20 +112,36 @@ shared `dyn_size` sizing that the Qwen path does not reach.
 Adding an arch to the switch MUST be accompanied by an empirical check, because B4
 cannot be established by reading the Go side.
 
+**B8 — Image-token measurements MUST cancel the text prefix, and MUST NOT take it from
+a text-only request.** Every probe in the procedure below MUST send one identical
+prompt; a baseline measured with a different prompt puts the text-length difference
+into every result. Beyond that, the prefix can tokenise *differently once an image is
+attached*, so the text-only count is the wrong subtrahend even when the prompt matches.
+Measured on the **main** lineage (`0.32.5-dynres-4987dd49`, 2026-08-08),
+`"Describe briefly."` costs 21 tokens text-only but 20 inside an image-bearing request
+on `nemotron_h_omni`, while `gemma4:31b` costs 19 both ways. Per §4 that measurement
+does not port to this lineage as a *value* — only the requirement ports. Derive the
+offset per model and per payload; never assume it, and never carry it across lineages.
+
 Procedure — the fingerprint method:
 
-1. Measure a text-only request with `num_predict: 1`; record `prompt_eval_count` as
-   the baseline.
-2. Measure the same request with a **sub-budget** image (small enough that the
+1. Calibrate the prefix from a two-image difference, which cancels it without assuming
+   a grid: for one fixed prompt and two images A and B,
+   `prefix = count(A) + count(B) − count(A, B)`, where `count` is `prompt_eval_count`
+   at `num_predict: 1`. (Each of the three terms carries the prefix exactly once, twice
+   summed minus once.) `vision-suite/measure.py` on the main lineage implements this.
+2. Measure the same prompt with a **sub-budget** image (small enough that the
    proposed floor would bind, or large enough that a ceiling would). Image tokens are
-   `prompt_eval_count − baseline`.
+   `prompt_eval_count − prefix`.
 3. Repeat with the flag applied. The count MUST change in the predicted direction. If
    it does not, the projector is ignoring the flag and the arch MUST NOT be added
    (B4).
 4. Re-measure at corpus-representative sizes to confirm the change is confined to the
    intended range.
 
-Worked example (qwen3.6 `qwen35moe`, b9888 + 002, baseline 14):
+Worked example (qwen3.6 `qwen35moe`, b9888 + 002, baseline 14). This one predates B8 but
+survives it: its rows land on grid + 2 exactly (28×28 + 2 = 786, 49×49 + 2 = 2,403), which
+is only possible if 14 was also the in-image prefix — so `qwen35moe`'s offset is 0.
 
 | image | without floor | with `--image-min-tokens 1024` |
 |---|---|---|
