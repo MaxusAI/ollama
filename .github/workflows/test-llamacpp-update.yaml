@@ -1,4 +1,16 @@
 name: test-llamacpp-update
+# MaxusAI fork note -- NOT upstream. Jobs with `runs-on: linux` / `runs-on: windows`
+# target SELF-HOSTED runners. This fork has none registered (verified via
+# /actions/runners at both repo and org level), so those jobs queue forever and are
+# cancelled or time out after 24h -- they never start, `runner` is empty and zero
+# steps execute. They are not required checks, so they never blocked a merge; they
+# just buried the real signal.
+#
+# `vars.SELF_HOSTED_RUNNERS` gates them. Unset (the current state) => they skip
+# cleanly. If runners are ever registered, set the repository variable to 'true'
+# and they come back with no further edits.
+#
+# Keep this guard when syncing from upstream; upstream has runners and we do not.
 
 # PR validation artifacts from this workflow are intentionally unsigned and not
 # notarized. They are for llama.cpp update testing only and must not be
@@ -70,6 +82,7 @@ jobs:
   # filesystem artifacts below. This preserves parallelism without Docker
   # registry credentials or oversized GitHub layer caches.
   linux-payloads:
+    if: vars.SELF_HOSTED_RUNNERS == 'true'
     runs-on: ${{ matrix.arch == 'arm64' && 'linux-arm64' || 'linux' }}
     needs: setup-environment
     strategy:
@@ -135,6 +148,7 @@ jobs:
           compression-level: 0
 
   linux-go:
+    if: vars.SELF_HOSTED_RUNNERS == 'true'
     runs-on: ${{ matrix.arch == 'arm64' && 'linux-arm64' || 'linux' }}
     needs: setup-environment
     strategy:
@@ -287,6 +301,7 @@ jobs:
           compression-level: 0
 
   windows-depends:
+    if: vars.SELF_HOSTED_RUNNERS == 'true'
     needs: setup-environment
     strategy:
       fail-fast: false
@@ -463,6 +478,7 @@ jobs:
           compression-level: 0
 
   windows-build:
+    if: vars.SELF_HOSTED_RUNNERS == 'true'
     runs-on: windows
     needs: setup-environment
     env:

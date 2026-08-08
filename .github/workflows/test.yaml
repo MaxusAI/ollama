@@ -1,4 +1,16 @@
 name: test
+# MaxusAI fork note -- NOT upstream. Jobs with `runs-on: linux` / `runs-on: windows`
+# target SELF-HOSTED runners. This fork has none registered (verified via
+# /actions/runners at both repo and org level), so those jobs queue forever and are
+# cancelled or time out after 24h -- they never start, `runner` is empty and zero
+# steps execute. They are not required checks, so they never blocked a merge; they
+# just buried the real signal.
+#
+# `vars.SELF_HOSTED_RUNNERS` gates them. Unset (the current state) => they skip
+# cleanly. If runners are ever registered, set the repository variable to 'true'
+# and they come back with no further edits.
+#
+# Keep this guard when syncing from upstream; upstream has runners and we do not.
 
 concurrency:
   # For PRs, later CI runs preempt previous ones. e.g. a force push on a PR
@@ -77,7 +89,7 @@ jobs:
 
   linux:
     needs: [changes]
-    if: needs.changes.outputs.changed == 'True'
+    if: needs.changes.outputs.changed == 'True' && vars.SELF_HOSTED_RUNNERS == 'true'
     strategy:
       matrix:
         include:
@@ -171,7 +183,7 @@ jobs:
           test -x "$RUNNER_TEMP/ollama-local/lib/ollama/llama-quantize"
   windows:
     needs: [changes]
-    if: needs.changes.outputs.changed == 'True'
+    if: needs.changes.outputs.changed == 'True' && vars.SELF_HOSTED_RUNNERS == 'true'
     strategy:
       matrix:
         include:
