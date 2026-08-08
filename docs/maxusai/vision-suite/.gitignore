@@ -1,0 +1,3 @@
+# Compiled Python from the preflight harness and any suite scripts placed here.
+__pycache__/
+*.pyc
