@@ -1,5 +1,9 @@
 # Draft upstream issue: gemma4 image sizing diverges from reference, breaking box_2d grounding
 
+> **PARKED 2026-08-08** by maintainer decision — draft is final and re-verified
+> against master, but do not file without an explicit go-ahead. If master's
+> mtmd sizing changes before filing, re-run the re-verify first.
+
 Fork-internal draft for filing against **ggml-org/llama.cpp** (written 2026-08-07
 against `b10091`; **re-verified against master 2026-08-08**: the gemma4v/gemma4uv
 hparams branch is unchanged — still no `image_resize_pad`, still
