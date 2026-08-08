@@ -225,6 +225,68 @@ The stop-split needs only stop strings + `stopping_word` + `cache_prompt` — fe
 b9888 and b10091 both have — and fixes `"json"` and schema formats identically. Full
 trade-off record in [ADR 0002](adr/0002-deferred-format-constraining.md).
 
+## The fix v2 — routes-layer double request (2026-08-02)
+
+The mechanism moved from the runner to `server/routes.go`
+([ADR 0004](adr/0004-routes-layer-think-format-double-request.md)): upstream
+fixed chat at the routes layer (#12460) and the open generate port
+([#14288](https://github.com/ollama/ollama/pull/14288)) mirrors it, so that is
+the architecture upstream will accept — and it covers every engine, not just
+the llama-server runner. The fork's version is a **superset of #14288**: same
+state machine, plus the three hardenings the upstream PR lacks.
+
+**GenerateHandler** loops chat-style over up to two completion requests:
+
+1. When the model's think-close marker is known — `parsers.ImplicitThinkingParser`
+   (`nemotron-3-nano`, `qwen3.5`) or the generic thinking parser with a
+   prefilled opening tag — **pass one strips `format` and injects the marker as
+   a stop string** (per-request `Options.Stop` copy; `PreservedTokens` already
+   keeps the marker textual). On `done_reason:"stop"` with no parsed content,
+   the handler feeds the held-back content plus the marker through the parser
+   (thinking closes exactly where it would have), then continues with
+   `prompt + raw pass-one output + marker` and the format applied — the same
+   textual continuation as v1, now built at the routes layer. An EOS still
+   inside thinking takes the same path (recovery the v1 split left to the
+   reclassify net); `length` ends honestly with no continuation.
+2. Models without a marker (harmony/explicit thinking) use exactly upstream's
+   flow: cancel at the thinking→content transition, re-render via `chatPrompt`
+   with the thinking as an assistant message (+ the harmony final-channel
+   prefill), rerun constrained.
+
+**ChatHandler** keeps its accepted double request and gains the marker stop on
+pass one — the fix for the measured qwen3.6 chat runaway (a model that never
+closes thinking has no thinking→content transition to trigger on, so pass one
+burned to `num_predict`: eval pinned at 16000, empty response, ~16k reported as
+`prompt_eval_count`). Tools requests keep the transition flow: a stop at the
+marker would preempt a tool call that follows `</think>`.
+
+**Hardenings, both handlers** (carried from v1, now engine-agnostic):
+
+- Continuation pre-checked with `Tokenize` against the **loaded runner's
+  `ContextLength()`** (request options may still hold `0` = auto — using them
+  raw would trip the check on every request); if the thinking filled the
+  window, the request ends `done_reason:"length"` with the streamed thinking
+  preserved instead of a 500.
+- Final metrics count each token once: pass one's `prompt_eval_count`, summed
+  `eval_count`/durations. On chat this fixes the 16,181-vs-~888 inflation. The
+  cancel-path (no pass-one final) originally kept upstream's raw forwarding —
+  `eval_count` omitted the whole reasoning span (gemma4:12b-nvfp4 live:
+  eval 5 with ~300 reasoning tokens) — until 2026-08-08, when the transition
+  restart began reconstructing pass-one metrics in the textual form
+  (`transitionPassMetrics`, [ADR 0010](adr/0010-transition-flow-metrics-reconstruction.md)):
+  the request's own prompt and the raw pass-one stream tokenized, durations
+  split at the first streamed chunk, fed through the same pass-one summing as
+  the marker flow. Refined the same day for vision requests:
+  `prompt_eval_count` is derived from pass two's cache-inclusive prefill
+  minus the pure-text continuation delta, restoring the image-embedding
+  tokens the textual count cannot see (~2042/image on nemotron3, 256+ on
+  gemma4); the textual count remains the context-full/degenerate fallback.
+
+The runner-layer split was removed in the follow-up commit (routes stopped
+passing `ThinkCloseTag`, making it unreachable; then the field and machinery
+went away, −367 lines). `reclassifyConstrainedThinking` remains as the net for
+flows the double request does not cover.
+
 ## Validation
 
 Functional matrix (temperature 0, `num_predict` 512, both fixed builds:
