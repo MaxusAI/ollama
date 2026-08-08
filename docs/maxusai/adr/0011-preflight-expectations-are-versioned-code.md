@@ -25,9 +25,13 @@
 ## Context
 
 Every new image build was verified by re-running the same checks by hand, and the
-checks drifted. GitHub Actions is not available yet: the matrix spans CUDA, ROCm
-and Apple Silicon — partly shared assertions, partly platform-specific — on
-self-hosted machines.
+checks drifted. GitHub Actions cannot run the matrix: it spans CUDA, ROCm and
+Apple Silicon — partly shared assertions, partly platform-specific — on hosts with
+real GPUs, and this fork has no self-hosted runners registered at all.
+
+That is a limit on running the *probes*, not on enforcing the *data*. The
+consistency of `expectations.toml` needs no GPU and no server, and is enforced in
+CI — see the last consequence below.
 
 The vision suite already had the *probes* (`vision_suite.py`, `measure.py`,
 `extbench.py`) plus a no-GPU formula gate (`TestImageTokensForSize`) — **on `main`;
@@ -61,16 +65,33 @@ rule was written down as data.
 Measured 2026-08-08 against the reference canary
 (`maxusai/ollama:4987dd49-dynres`, `0.32.5-dynres-4987dd49`, payload 001+002+004+005):
 13 checks pass, 1 skipped deliberately. The ladder reproduces the recorded values
-exactly on both arches — nemotron 265/265/577/2305/3269, gemma4 flat 1102 — and the
-pinned probe reads 3269 against a 3328 ceiling.
+exactly on both arches — nemotron **266/266/578/2306/3270**, gemma4 flat 1102 — and
+the pinned probe reads 3270 against a 3328 ceiling. (Measured on CUDA/b10091; this
+lineage's own rows are unmeasured, see the profile.)
 
-One method note, recorded because it produced a convincing false regression:
-`measure.py` (on `main`) takes its text-only baseline with the
-prompt `"Hi"` but probes images with `"Describe briefly."`, so its reported deltas
-carry the difference in *prompt* length — 18 vs 21 tokens on `nemotron3:33b-q8`, a
-constant +3 on every row. Inheriting that method made all five ladder rows read +3
-and look like a payload regression. **Baseline and probe must use the same prompt**
-so the subtraction cancels the text.
+**Getting the subtrahend right took two corrections, and the first one alone looked
+sufficient.** Both are worth recording, because each produced a convincing false
+regression before it was understood:
+
+1. **Mismatched prompts.** `measure.py` (on `main`) baselines with `"Hi"` but probes
+   images with `"Describe briefly."`, so its deltas carry the difference in *prompt*
+   length — 18 vs 21 tokens on `nemotron3:33b-q8`, a constant +3 on every row.
+2. **The text prefix is not the text-only count.** Matching the prompt does not
+   finish the job: attaching an image changes how the template renders the
+   surrounding text. Same prompt, same model — text-only 21, prefix inside an image
+   request 20 — so a matched-prompt text-only baseline reads every nemotron image
+   exactly 1 token *low*. `gemma4:31b` measures 19 both ways, so the offset is
+   arch-specific and cannot be hardcoded.
+
+Correction (1) alone is why this ADR originally recorded the ladder as
+`265/265/577/2305/3269`. That row was uniformly 1 low, and the discrepancy was
+briefly dismissed as grid quantisation — wrongly, since quantisation does not land
+deterministically one low on every rung. The internal contradiction was visible at
+the time: the ladder's 2048×1152 entry read 2305 while the pinned check's unpinned
+control read 2306 for the same geometry. The harness now recovers the prefix from a
+two-image difference, `count(A) + count(B) − count(A,B)`, which cancels it without
+trusting a text-only probe or assuming a grid. Normative in
+[SPEC B8](../spec/vision-image-token-budgets.md).
 
 ## Decision
 
@@ -127,6 +148,15 @@ Normative rules:
   equals `max_tokens × S²`, every `scaling` field agrees with the ladder beside it,
   every `unmeasured` block carries a reason. Editing a ladder to flat without
   updating `scaling` fails there, in milliseconds, with no GPU.
+- **That guard runs in CI**, via `.github/workflows/preflight-expectations.yaml`.
+  It is a separate workflow because `test.yaml` excludes `docs/**`, so a pull
+  request touching only `preflight/` otherwise runs no checks at all — and a
+  docs-only diff is exactly what "adding an expectation" looks like. It triggers
+  unconditionally and scopes itself internally rather than filtering on paths,
+  because a path-filtered workflow can never be a *required* check: GitHub waits
+  forever for a report that never comes on unrelated pull requests. On this
+  lineage its second pass — the suite against a `preflight/`-only tree — is not a
+  hypothetical; it is what this lineage is.
 - The ROCm and Apple Silicon profiles ship **declared but unmeasured**. Those hosts
   exit 4 until someone measures them. That is the intended state, not a gap to paper
   over.

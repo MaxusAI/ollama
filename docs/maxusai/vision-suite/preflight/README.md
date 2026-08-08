@@ -83,6 +83,12 @@ That last set is the guard on the maintenance path: editing a ladder to flat
 without updating `scaling` is exactly how the verdict logic would silently
 invert, and the test fails on it.
 
+**`test_verdicts.py` also runs in CI** — `.github/workflows/preflight-expectations.yaml`,
+on every pull request, plus a second pass against a copy carrying `preflight/`
+alone. On this lineage that second pass is the real configuration, not a
+hypothetical. You do not have to remember to run it; you do have to keep it
+passing.
+
 This harness covers what neither can: that the built *image* actually carries the
 payload and behaves as measured.
 
