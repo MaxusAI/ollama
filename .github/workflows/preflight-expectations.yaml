@@ -1,0 +1,62 @@
+name: preflight-expectations
+
+# Guards the pre-deploy regression harness's own logic and, more importantly, the
+# internal consistency of its expectations file.
+#
+# This is a SEPARATE workflow rather than a job in test.yaml on purpose. test.yaml
+# triggers on `'**/*'` minus `'!docs/**'`, so a pull request that touches only
+# docs/maxusai/vision-suite/preflight/ runs no checks at all — verified on #49,
+# which changed one file under docs/ and reported "no checks". That is precisely
+# the maintenance path described in preflight/README.md ("Adding an expectation"):
+# when a compat patch moves a measured value, the change to expectations.toml is
+# a docs-only diff.
+#
+# Re-including the directory in test.yaml's paths would work, but would run the
+# full Go matrix on three operating systems to gate a stdlib-only test that
+# finishes in milliseconds.
+
+on:
+  pull_request:
+    paths:
+      - 'docs/maxusai/vision-suite/preflight/**'
+      - '.github/workflows/preflight-expectations.yaml'
+  push:
+    branches:
+      - main
+      - 'release/**'
+    paths:
+      - 'docs/maxusai/vision-suite/preflight/**'
+      - '.github/workflows/preflight-expectations.yaml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  expectations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # tomllib is stdlib from 3.11; the harness needs nothing else.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify verdict logic and expectations.toml consistency
+        working-directory: docs/maxusai/vision-suite/preflight
+        run: python3 test_verdicts.py
+
+      # The harness is cherry-picked to lineages that carry preflight/ without the
+      # rest of the vision suite (release/0.32.1-dynres). Its tests must pass there
+      # too — they previously did not, because four of them only passed where
+      # vision_suite.py happened to sit next to preflight/ (fixed in #49). Running
+      # against an isolated copy keeps that from regressing on main.
+      - name: Verify the tests pass on a tree carrying preflight/ alone
+        run: |
+          mkdir -p "$RUNNER_TEMP/suiteless/vision-suite"
+          cp -r docs/maxusai/vision-suite/preflight \
+                "$RUNNER_TEMP/suiteless/vision-suite/preflight"
+          rm -rf "$RUNNER_TEMP/suiteless/vision-suite/preflight/__pycache__"
+          cd "$RUNNER_TEMP/suiteless/vision-suite/preflight"
+          python3 test_verdicts.py
