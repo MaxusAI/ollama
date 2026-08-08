@@ -3760,9 +3760,12 @@ func TestApplyCompletionFormat(t *testing.T) {
 // for this lineage, not copied from `main`:
 //
 //   - qwen35 1026 / 2042 / 2403 are the b9888 figures in
-//     docs/maxusai/vision-token-budget-measurements.md.
+//     `main`'s docs/maxusai/vision-token-budget-measurements.md, measured on
+//     b9888 — this lineage's own payload.
 //   - nemotron 302 / 2042 / 2403 and the 3330 ceiling are the values
-//     docs/maxusai/nemotron-dynres-patch.md predicts for a 002 payload.
+//     `main`'s docs/maxusai/nemotron-dynres-patch.md predicts for a 002
+//     payload. Neither doc exists on this lineage; see
+//     docs/maxusai/spec/vision-image-token-budgets.md here.
 //   - gemma4 is set by compat/004, which is byte-identical here and on `main`:
 //     1102 = 44×25+2 at 16:9, 1091 = 33×33+2 at 1:1.
 //

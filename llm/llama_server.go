@@ -1130,7 +1130,8 @@ func nemotronImageTokenBudget(opts api.Options) (minTok, maxTok int) {
 // so their numbers transfer exactly despite the b9888/b10091 split. The qwen
 // figures were measured on THIS lineage's payload (b9888 + 002) and match
 // `main`'s — 1026 at 896², 2042 at 1920×1080, 2403 at 1568² — see
-// docs/maxusai/vision-token-budget-measurements.md.
+// docs/maxusai/spec/vision-image-token-budgets.md. (The measurement doc those
+// figures come from lives on `main`; this lineage carries only the SPEC.)
 
 const (
 	// imageMarkerTokens is the begin/end marker token pair mtmd wraps around
