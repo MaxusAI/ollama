@@ -43,6 +43,30 @@ them. Against a pristine `llama/` (upstream stock, or `main` between `5ad093b0` 
 is a structural 256/image. Whether the flags are live is therefore a property of the
 payload, not of the arch — recorded in the table rather than silently tolerated.
 
+**B9 — Truncation MUST charge the payload's real per-image cost, and MUST NOT gate
+that charge on `ProjectorPaths`.** The Go-side context-fit check exists to guarantee
+that a request which passes it cannot overflow llama-server. A flat constant breaks
+that guarantee in both directions once a lineage carries budget patches:
+
+- Gating on `ProjectorPaths` charges **zero** for arches whose vision tensors live
+  inline with no projector layer — `nemotron_h_omni` most importantly. Use
+  `llm.InlineVisionArch` to recognise them by architecture instead.
+- A flat 768 **under-charges** `gemma4` on a `compat/004` payload, which budget-fills
+  every image to the ladder (≈1102 at the 1120 rung for 16:9).
+
+Implementations MUST charge `llm.ImageTokensForSize` when the image header decodes
+and the arch's preprocessing is replicated, and `llm.MaxImageTokens` — the resolved
+ceiling plus markers — otherwise, so an unknown format over-trims rather than
+overflows. **Every truncation path must do this**: on this lineage that is both
+`chatPrompt()` (`server/prompt.go`) and `truncateNativeChatMessages()`
+(`server/routes.go`), which each carried their own copy of the flat charge.
+
+The replicated values are payload-specific and MUST be re-derived per lineage, not
+copied across (§4). On this lineage they are verified as: `gemma4` 1102 / 1091 at
+1920×1080 / 1568² (set by `compat/004`, byte-identical to `main`'s), `nemotron_h_omni`
+302 / 2042 / 2403 with a 3330 ceiling, and the qwen family 1026 / 2042 / 2403 —
+the last measured on **b9888**, this lineage's own payload.
+
 ## 2. Per-architecture contract
 
 | `modelArch` | flags | effective budget | consumed by |
@@ -174,6 +198,14 @@ Consequences:
 ## 5. Conformance
 
 - `TestVisionServerArgs` — the §2 table, per lineage per §4.
+- `TestImageTokensForSize` / `TestMaxImageTokens` (`llm`) — B9's replicated costs and
+  the worst-case bound, pinned to this lineage's payload. `TestMaxImageTokens` also
+  asserts the worst case is never below the size-aware cost, since a worst case that
+  under-bounds would defeat the guarantee B9 exists to provide.
+- `TestImageTokenCostsInlineVisionArch` / `TestChatPromptTruncatesInlineVisionImages` /
+  `TestTruncateNativeChatMessagesChargesImages` (`server`) — B9's "not gated on
+  `ProjectorPaths`" clause, on both truncation paths. These were verified to fail
+  against the pre-fix behaviour rather than merely to pass against the fixed one.
 - `TestImageTokensForSize` — the replicated cost model for non-budgeted compat arches.
 - The §3 fingerprint procedure, recorded in
   `vision-token-budget-measurements.md` (main lineage) when

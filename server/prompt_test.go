@@ -9,6 +9,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/ollama/ollama/api"
+	"github.com/ollama/ollama/llm"
 	"github.com/ollama/ollama/template"
 	"github.com/ollama/ollama/types/model"
 )
@@ -600,6 +601,181 @@ func TestRenderPromptResolvesDynamicGemma4Renderer(t *testing.T) {
 
 			if diff := cmp.Diff(got, tt.want); diff != "" {
 				t.Fatalf("rendered prompt mismatch (-got +want):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestImageTokenCostsInlineVisionArch is the regression test for the defect
+// this lineage carried: image cost was a flat 768 charged only when
+// ProjectorPaths was non-empty.
+//
+// nemotron_h_omni stores its vision tensors inline and has NO projector layer,
+// so ProjectorPaths is empty and images were charged ZERO context — while
+// llama/compat/002 makes them cost up to 3330. A multi-image chat could pass
+// the Go-side context-fit check and then overflow llama-server.
+func TestImageTokenCostsInlineVisionArch(t *testing.T) {
+	opts := api.DefaultOptions()
+	msgs := []api.Message{{Role: "user", Images: []api.ImageData{[]byte("not-a-decodable-image")}}}
+
+	tests := []struct {
+		name    string
+		model   Model
+		want    int
+		wantWhy string
+	}{
+		{
+			// The defect: no projector, so the old code charged nothing at all.
+			name:    "nemotron_h_omni with no projector is charged",
+			model:   Model{Config: model.ConfigV2{ModelFamily: "nemotron_h_omni"}},
+			want:    3330,
+			wantWhy: "002 dynres ceiling + markers; was 0 before the fix",
+		},
+		{
+			// Arch discovered through ModelFamilies rather than ModelFamily.
+			name:    "inline-vision arch found via ModelFamilies",
+			model:   Model{Config: model.ConfigV2{ModelFamily: "clip", ModelFamilies: []string{"clip", "nemotron_h_omni"}}},
+			want:    3330,
+			wantWhy: "families are searched when ModelFamily is not inline-vision",
+		},
+		{
+			// The under-charge: 004 budget-fills, so the real cost is ~1102.
+			name:    "gemma4 charges the 004 ladder ceiling, not 768",
+			model:   Model{Config: model.ConfigV2{ModelFamily: "gemma4"}},
+			want:    1122,
+			wantWhy: "ladder-snapped ceiling + markers; was 768 before the fix",
+		},
+		{
+			// Unknown arch with a projector keeps the historical estimate, so
+			// this change is not a blanket increase.
+			name:    "unknown arch with a projector keeps the 768 estimate",
+			model:   Model{Config: model.ConfigV2{ModelFamily: "llama"}, ProjectorPaths: []string{"vision"}},
+			want:    768,
+			wantWhy: "unchanged fallback",
+		},
+		{
+			// A text-only model must still be charged nothing.
+			name:    "text-only model is charged nothing",
+			model:   Model{Config: model.ConfigV2{ModelFamily: "llama"}},
+			want:    0,
+			wantWhy: "no projector and not an inline-vision arch",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := tt.model
+			got := imageTokenCosts(&m, &opts, msgs)
+			if len(got) != 1 {
+				t.Fatalf("imageTokenCosts returned %d entries, want 1", len(got))
+			}
+			if got[0] != tt.want {
+				t.Fatalf("imageTokenCosts = %d, want %d (%s)", got[0], tt.want, tt.wantWhy)
+			}
+		})
+	}
+}
+
+// TestChatPromptTruncatesInlineVisionImages proves the fix end to end: a
+// nemotron_h_omni chat whose images do not fit must now be truncated. Before
+// the fix its images cost zero, so nothing was ever trimmed and the overflow
+// happened downstream in llama-server.
+func TestChatPromptTruncatesInlineVisionImages(t *testing.T) {
+	tmpl, err := template.Parse(`
+{{- if .System }}{{ .System }} {{ end }}
+{{- if .Prompt }}{{ .Prompt }} {{ end }}
+{{- if .Response }}{{ .Response }} {{ end }}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No ProjectorPaths — exactly the shape that used to be charged zero.
+	m := Model{Template: tmpl, Config: model.ConfigV2{ModelFamily: "nemotron_h_omni"}}
+	msgs := []api.Message{
+		{Role: "user", Content: "You're a test, Harry!", Images: []api.ImageData{[]byte("something")}},
+		{Role: "assistant", Content: "I-I'm a what?"},
+		{Role: "user", Content: "A test. And a thumping good one at that, I'd wager.", Images: []api.ImageData{[]byte("somethingelse")}},
+	}
+
+	// Two images cost 2*3330 = 6660, so a 4096 window cannot hold both.
+	opts := api.Options{Runner: api.Runner{NumCtx: 4096}}
+	_, images, err := chatPrompt(t.Context(), &m, mockRunner{}.Tokenize, &opts, msgs, nil, &api.ThinkValue{Value: false}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(images) != 1 {
+		t.Fatalf("got %d images, want 1 — inline-vision images are not being charged against the context", len(images))
+	}
+}
+
+// TestTruncateNativeChatMessagesChargesImages covers the SECOND truncation
+// path. server/routes.go had its own copy of the flat 768 charge gated on
+// ProjectorPaths, so fixing chatPrompt alone left the native chat path (the
+// one used when llama-server applies the chat template) still under-counting
+// gemma4 and charging inline-vision arches nothing.
+func TestTruncateNativeChatMessagesChargesImages(t *testing.T) {
+	runner := &mockRunner{Template: "{{ .Prompt }}"}
+
+	msgs := []api.Message{
+		{Role: "user", Content: "You're a test, Harry!", Images: []api.ImageData{[]byte("something")}},
+		{Role: "assistant", Content: "I-I'm a what?"},
+		{Role: "user", Content: "A test. And a thumping good one at that, I'd wager.", Images: []api.ImageData{[]byte("somethingelse")}},
+	}
+
+	tests := []struct {
+		name     string
+		model    Model
+		numCtx   int
+		wantMsgs int
+		why      string
+	}{
+		{
+			// No projector layer: previously charged 0, so nothing was ever
+			// trimmed however small the window.
+			name:     "inline-vision nemotron is truncated",
+			model:    Model{Config: model.ConfigV2{ModelFamily: "nemotron_h_omni"}},
+			numCtx:   4096,
+			wantMsgs: 2,
+			why:      "both images cost 2*3330 and cannot fit; dropping the first leaves one image at 3330, which does. Pre-fix this charged 0 and kept all 3",
+		},
+		{
+			// Below one image's cost, so only the mandatory last message survives.
+			name:     "inline-vision nemotron trims to the last message",
+			model:    Model{Config: model.ConfigV2{ModelFamily: "nemotron_h_omni"}},
+			numCtx:   3000,
+			wantMsgs: 1,
+			why:      "even a single 3330-token image exceeds 3000",
+		},
+		{
+			// Comfortably above 2*3330 plus the rendered text.
+			name:     "inline-vision nemotron fits a large window",
+			model:    Model{Config: model.ConfigV2{ModelFamily: "nemotron_h_omni"}},
+			numCtx:   32768,
+			wantMsgs: 3,
+			why:      "everything fits, nothing is trimmed",
+		},
+		{
+			// A text-only model must be unaffected by this change.
+			name:     "text-only model is not charged for images",
+			model:    Model{Config: model.ConfigV2{ModelFamily: "llama"}},
+			numCtx:   4096,
+			wantMsgs: 3,
+			why:      "no image input path, so images cost nothing",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := tt.model
+			opts := api.Options{Runner: api.Runner{NumCtx: tt.numCtx}}
+			got, err := truncateNativeChatMessages(t.Context(), &m, runner, &opts,
+				llm.ChatRequest{Messages: msgs}, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != tt.wantMsgs {
+				t.Fatalf("got %d messages, want %d (%s)", len(got), tt.wantMsgs, tt.why)
 			}
 		})
 	}

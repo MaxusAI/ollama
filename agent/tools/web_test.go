@@ -9,7 +9,33 @@ import (
 
 	coreagent "github.com/ollama/ollama/agent"
 	"github.com/ollama/ollama/api"
+	"github.com/ollama/ollama/envconfig"
 )
+
+// enableCloudForTest makes the cloud policy hermetic.
+//
+// WebFetch.Execute is gated on internalcloud.Disabled() -> envconfig.NoCloud(),
+// which reads OLLAMA_NO_CLOUD *and* ~/.ollama/server.json. Without this, these
+// tests inherit whatever the host machine happens to have configured: on a box
+// where cloud is disabled they fail with "ollama cloud is disabled: web fetch
+// is unavailable" before reaching the behaviour under test. That is how this
+// surfaced on the windows-latest runner while passing on macOS and Ubuntu.
+//
+// USERPROFILE matters as much as HOME — os.UserHomeDir() reads it on Windows,
+// so setting only HOME leaves the real profile in play there. Mirrors
+// internal/cloud's setTestHome.
+func enableCloudForTest(t *testing.T) {
+	t.Helper()
+	home := t.TempDir() // no .ollama/server.json, so nothing disables cloud
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("OLLAMA_NO_CLOUD", "")
+	envconfig.ReloadServerConfig()
+	// t.Setenv restores the environment, but the parsed config is cached
+	// package-globally — reload again so the temp home does not leak into
+	// later tests.
+	t.Cleanup(envconfig.ReloadServerConfig)
+}
 
 func TestWebToolsRequireApproval(t *testing.T) {
 	if !coreagent.ToolRequiresApproval((&WebSearch{}), map[string]any{"query": "ollama"}) {
@@ -21,6 +47,11 @@ func TestWebToolsRequireApproval(t *testing.T) {
 }
 
 func TestWebFetchRejectsUnsupportedScheme(t *testing.T) {
+	// Without this the cloud gate short-circuits Execute and every case returns
+	// the same "cloud is disabled" error — which still satisfies wantErr, so the
+	// scheme assertions would pass while testing nothing.
+	enableCloudForTest(t)
+
 	tests := []struct {
 		name    string
 		url     string
@@ -50,6 +81,8 @@ func TestWebFetchRejectsUnsupportedScheme(t *testing.T) {
 }
 
 func TestWebFetchBoundsContentBeforeReturning(t *testing.T) {
+	enableCloudForTest(t)
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/experimental/web_fetch" {
 			t.Fatalf("path = %q, want /api/experimental/web_fetch", r.URL.Path)

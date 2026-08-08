@@ -3752,3 +3752,100 @@ func TestApplyCompletionFormat(t *testing.T) {
 		})
 	}
 }
+
+// TestImageTokensForSize pins the per-image context cost on THIS lineage's
+// payload (b9888 + llama/compat 002, 004, 005).
+//
+// Every expectation below is corroborated by a measurement already recorded
+// for this lineage, not copied from `main`:
+//
+//   - qwen35 1026 / 2042 / 2403 are the b9888 figures in
+//     `main`'s docs/maxusai/vision-token-budget-measurements.md, measured on
+//     b9888 — this lineage's own payload.
+//   - nemotron 302 / 2042 / 2403 and the 3330 ceiling are the values
+//     `main`'s docs/maxusai/nemotron-dynres-patch.md predicts for a 002
+//     payload. Neither doc exists on this lineage; see
+//     docs/maxusai/spec/vision-image-token-budgets.md here.
+//   - gemma4 is set by compat/004, which is byte-identical here and on `main`:
+//     1102 = 44×25+2 at 16:9, 1091 = 33×33+2 at 1:1.
+//
+// If a LLAMA_CPP_VERSION bump changes preprocessing, re-measure and update
+// these together with the docs.
+func TestImageTokensForSize(t *testing.T) {
+	opts := api.DefaultOptions()
+
+	tests := []struct {
+		name   string
+		arch   string
+		w, h   int
+		want   int
+		wantOK bool
+	}{
+		// gemma4 under 004: every image is scaled to FILL the ladder-snapped
+		// ceiling, so a thumbnail costs the same as a 5 MP photo at one aspect.
+		{name: "gemma4 1920x1080", arch: "gemma4", w: 1920, h: 1080, want: 1102, wantOK: true},
+		{name: "gemma4 1568x1568", arch: "gemma4", w: 1568, h: 1568, want: 1091, wantOK: true},
+		{name: "gemma4 640x480", arch: "gemma4", w: 640, h: 480, want: 1066, wantOK: true},
+		// Budget-fill upscales: same 16:9 aspect as 1920x1080, same cost.
+		{name: "gemma4 thumbnail fills the budget 256x144", arch: "gemma4", w: 256, h: 144, want: 1102, wantOK: true},
+		// nemotron under 002: dynamic resolution, 256…3328.
+		{name: "nemotron 1920x1080", arch: "nemotron_h_omni", w: 1920, h: 1080, want: 2042, wantOK: true},
+		{name: "nemotron 1568x1568", arch: "nemotron_h_omni", w: 1568, h: 1568, want: 2403, wantOK: true},
+		{name: "nemotron 640x480", arch: "nemotron_h_omni", w: 640, h: 480, want: 302, wantOK: true},
+		// qwen with the 1024 floor.
+		{name: "qwen35 896x896", arch: "qwen35", w: 896, h: 896, want: 1026, wantOK: true},
+		{name: "qwen35 1920x1080", arch: "qwen35", w: 1920, h: 1080, want: 2042, wantOK: true},
+		{name: "qwen35 1568x1568", arch: "qwen35", w: 1568, h: 1568, want: 2403, wantOK: true},
+		// Not replicated here: callers fall back to MaxImageTokens.
+		{name: "gemma3 is size-independent", arch: "gemma3", w: 640, h: 480, wantOK: false},
+		{name: "unknown arch", arch: "llama", w: 640, h: 480, wantOK: false},
+		{name: "non-positive dimensions", arch: "gemma4", w: 0, h: 480, wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := ImageTokensForSize(tt.arch, opts, tt.w, tt.h)
+			if ok != tt.wantOK || (ok && got != tt.want) {
+				t.Fatalf("ImageTokensForSize(%q, %d, %d) = (%d, %v), want (%d, %v)",
+					tt.arch, tt.w, tt.h, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
+
+// TestMaxImageTokens pins the worst-case charge. It must never be below what
+// ImageTokensForSize can return for the same arch, or truncation could pass a
+// request that then overflows llama-server.
+func TestMaxImageTokens(t *testing.T) {
+	opts := api.DefaultOptions()
+
+	tests := []struct {
+		name string
+		arch string
+		want int
+	}{
+		{name: "gemma4 snaps to the ladder", arch: "gemma4", want: 1122},
+		{name: "nemotron dynres ceiling", arch: "nemotron_h_omni", want: 3330},
+		{name: "qwen structural ceiling", arch: "qwen35", want: 4098},
+		{name: "gemma3 fixed size", arch: "gemma3", want: 258},
+		{name: "unknown arch falls back", arch: "llama", want: 768},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := MaxImageTokens(tt.arch, opts); got != tt.want {
+				t.Fatalf("MaxImageTokens(%q) = %d, want %d", tt.arch, got, tt.want)
+			}
+		})
+	}
+
+	// The worst case must bound the size-aware cost for every arch it covers.
+	for _, arch := range []string{"gemma4", "nemotron_h_omni", "qwen35"} {
+		worst := MaxImageTokens(arch, opts)
+		for _, d := range [][2]int{{1920, 1080}, {1568, 1568}, {640, 480}, {256, 144}, {4000, 3000}} {
+			if n, ok := ImageTokensForSize(arch, opts, d[0], d[1]); ok && n > worst {
+				t.Errorf("%s %dx%d: ImageTokensForSize=%d exceeds MaxImageTokens=%d", arch, d[0], d[1], n, worst)
+			}
+		}
+	}
+}

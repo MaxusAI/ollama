@@ -3546,11 +3546,14 @@ func truncateNativeChatMessages(ctx context.Context, m *Model, r llm.LlamaServer
 			return nil, err
 		}
 
+		// Same per-arch, per-size accounting as chatPrompt. A flat charge gated
+		// on ProjectorPaths under-counts gemma4 (004 budget-fills to the
+		// ladder) and charges inline-vision arches such as nemotron_h_omni
+		// nothing at all, letting a request pass this check and then overflow
+		// llama-server.
 		ctxLen := len(tokens)
-		if m != nil && m.ProjectorPaths != nil {
-			for _, msg := range renderReq.Messages {
-				ctxLen += 768 * len(msg.Images)
-			}
+		for _, t := range imageTokenCosts(m, opts, renderReq.Messages) {
+			ctxLen += t
 		}
 
 		if ctxLen <= opts.NumCtx {
