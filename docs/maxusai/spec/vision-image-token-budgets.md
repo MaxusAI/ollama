@@ -106,20 +106,36 @@ per-size sweep and `run_budget_sweep.sh` for the harness.
 Adding an arch to the switch MUST be accompanied by an empirical check, because B4
 cannot be established by reading the Go side.
 
+**B8 — Image-token measurements MUST cancel the text prefix, and MUST NOT take it from
+a text-only request.** Every probe in the procedure below MUST send one identical
+prompt; a baseline measured with a different prompt puts the text-length difference
+into every result. Beyond that, the prefix can tokenise *differently once an image is
+attached*, so the text-only count is the wrong subtrahend even when the prompt matches:
+measured 2026-08-08 on `nemotron_h_omni` (`nemotron3:33b-q8`, `0.32.5-dynres-4987dd49`),
+`"Describe briefly."` costs 21 tokens text-only but 20 inside an image-bearing request,
+while `gemma4:31b` costs 19 both ways. The offset is arch-specific and MUST be derived
+per model, never assumed or carried over.
+
 Procedure — the fingerprint method:
 
-1. Measure a text-only request with `num_predict: 1`; record `prompt_eval_count` as
-   the baseline.
-2. Measure the same request with a **sub-budget** image (small enough that the
+1. Calibrate the prefix from a two-image difference, which cancels it without assuming
+   a grid: for one fixed prompt and two images A and B,
+   `prefix = count(A) + count(B) − count(A, B)`, where `count` is `prompt_eval_count`
+   at `num_predict: 1`. (Each of the three terms carries the prefix exactly once, twice
+   summed minus once.) `vision-suite/measure.py` implements this.
+2. Measure the same prompt with a **sub-budget** image (small enough that the
    proposed floor would bind, or large enough that a ceiling would). Image tokens are
-   `prompt_eval_count − baseline`.
+   `prompt_eval_count − prefix`.
 3. Repeat with the flag applied. The count MUST change in the predicted direction. If
    it does not, the projector is ignoring the flag and the arch MUST NOT be added
    (B4).
 4. Re-measure at corpus-representative sizes to confirm the change is confined to the
    intended range.
 
-Worked example (qwen3.6 `qwen35moe`, b9888 + 002, baseline 14):
+Worked example (qwen3.6 `qwen35moe`, b9888 + 002, baseline 14). This one predates B8 but
+survives it: its rows land on grid + 2 exactly (28×28 + 2 = 786, 49×49 + 2 = 2,403), which
+is only possible if 14 was also the in-image prefix — so `qwen35moe`'s offset is 0, as
+`gemma4`'s is. `nemotron_h_omni` remains the only arch measured with a non-zero offset.
 
 | image | without floor | with `--image-min-tokens 1024` |
 |---|---|---|

@@ -192,7 +192,11 @@ Build-time (done on this branch): `002` applies after `001` on pristine `b10091`
 Runtime (required before the deploy gate, on the ROCm host, per the A/B discipline in
 [gemma4-budget-image.md](gemma4-budget-image.md)):
 
-1. **Token counts** via `prompt_eval_count` minus the 18-token text baseline: expect
+1. **Token counts** via `prompt_eval_count` minus the probe prompt's text prefix — take it
+   from [`vision-suite/measure.py`](vision-suite/measure.py)'s two-image calibration, not
+   from a text-only request (for `"Describe briefly."` on nemotron3 that is **20**, where
+   the text-only count is 21 and the long-standing "18" was a different prompt entirely;
+   subtracting either inflates every row). Expect
    ≈ grid product + 2, e.g. 640×480 → 20×15 + 2 = **302**, 1920×1080 → **≈2,042**,
    1568×1568 → 49×49 + 2 = **2,403**, 3000×2000 → 70×47 + 2 = **≈3,292** (the 32px
    floor-alignment lands most shapes a little under the 3,328 ceiling; the ceiling is

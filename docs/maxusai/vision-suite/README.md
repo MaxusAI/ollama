@@ -39,11 +39,22 @@ Reproducible ground-truth benchmarks behind the measured tables in
   (deterministic noise + gridlines + corner markers, so the payload size is realistic and
   letterboxing is visible). Run it before `measure.py`; needs Pillow.
 - `measure.py <host> [model]` — the token-budget protocol: `prompt_eval_count` with
-  `num_predict:1` minus the text-only baseline, over 8 geometries + the
+  `num_predict:1` minus the calibrated text prefix, over 8 geometries + the
   `image_max_tokens` knob check. Flat 256 on nemotron = unpatched payload. It *reports*
   rather than asserts — for a pass/fail gate on the same formulas with no GPU and no server,
   use `go test ./llm/ -run TestImageTokensForSize`. Note the `image_max_tokens` probe is a
   Runner option, so it forces a full model reload.
+
+  > **Method corrected 2026-08-08 — pre-correction output was wrong.** The script used to
+  > baseline with the prompt `"Hi"` and probe with `"Describe briefly."`, so the text-length
+  > difference landed in every row. It now uses one prompt throughout *and* derives the
+  > baseline from a two-image difference
+  > (`count(A) + count(B) − count(A,B)` cancels the prefix), because the text-only count is
+  > itself the wrong subtrahend on some arches — see the two traps documented at the top of
+  > the script. Verified on the :11437 canary: all eight geometries now reproduce
+  > `TestImageTokensForSize` exactly, including the ceiling-exact 2048×1664 → 3,330.
+  > Any figure taken from this script before 2026-08-08 is suspect; the one published set
+  > is corrected in [nemotron-test-image.md](../nemotron-test-image.md#results).
 - `extbench.py <host> <tag> [model] [benchmark]` — slices of four external benchmarks
   (`ocrbench`, `countbenchqa`, `chartqa`, `refcoco`) pulled from the HF datasets-server REST
   API (stdlib only, no `datasets`, no HF token) and scored locally: contains-match, integer
@@ -107,8 +118,12 @@ is a no-op there; the MLX runner did not enforce format until x/structured
   > almost immediately, so it is far slower — not a hang. Same run: stock 21 s for all
   > three tests, fork on Metal ~7 min, fork on the CPU container ~39 min. Raise
   > `HTTP_TIMEOUT` for CPU think-on runs.
-- Subtract each model's text-only baseline when reading `prompt_eval_count`
-  (nemotron3: 18); counts are grid-quantised — ignore ±2.
+- Subtract each model's text baseline when reading `prompt_eval_count`, measured with
+  **the same prompt as the probe** — a baseline taken with a different prompt puts the
+  text-length difference into every row. Beware also that the prefix can tokenise
+  differently once an image is attached: `nemotron3` reads 21 text-only but 20 inside an
+  image request for the same prompt (`gemma4:31b`: 19 both ways), so prefer `measure.py`'s
+  two-image calibration over any text-only number. Counts are grid-quantised — ignore ±2.
 - Bbox scoring is dual-space: models emit their trained coordinate conventions
   regardless of prompt instructions — qwen3.6 answers in 0-1000 normalized (IoU ~0.95
   once decoded; near-perfect grounding), nemotron3 with reasoning answers in pixels
