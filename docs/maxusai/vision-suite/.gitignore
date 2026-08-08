@@ -1,5 +1,17 @@
 # Generated inputs and run outputs — regenerate with gen_scenes.py / gen_geoms.py.
-visimgs/
+#
+# Exception: the fine-text probe's assets are COMMITTED. They are nominally
+# regenerable (`finetext_probe.py gen`), but generation needs a DejaVuSansMono
+# binary at a hardcoded Linux path, and a different font *version* rasterises the
+# 7-12px tiers differently — which silently makes fine-text scores non-comparable
+# between hosts. Ship the bytes so every host scores the same input.
+visimgs/*
+!visimgs/scene_hd.png
+!visimgs/document.png
+!visimgs/chart.png
+!visimgs/ground_truth.json
+!visimgs/finetext.png
+!visimgs/finetext_gt.json
 testimgs/
 extimgs/
 resp_*.json
