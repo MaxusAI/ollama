@@ -1,4 +1,18 @@
 name: release
+# MaxusAI fork note -- NOT upstream. This workflow's build/publish jobs use
+# `runs-on: linux` / `runs-on: windows`, which are SELF-HOSTED labels. This fork
+# has no runners registered (/actions/runners is empty at repo level and returns 0
+# at org level), so those jobs will QUEUE, never start, and be cancelled or time
+# out after 24h. A release attempted today produces nothing.
+#
+# They are deliberately NOT gated on `vars.SELF_HOSTED_RUNNERS` the way the
+# pull-request workflows are (test.yaml, test-llamacpp-update.yaml). Those jobs
+# only report; these PRODUCE AND PUBLISH ARTIFACTS. Skipping them silently would
+# let a release report success while shipping nothing, which is worse than a
+# visible hang.
+#
+# Before releasing from this fork, either register runners and set
+# `vars.SELF_HOSTED_RUNNERS`, or decide explicitly how these jobs should behave.
 
 on:
   push:
