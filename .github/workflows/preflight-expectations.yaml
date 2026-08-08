@@ -3,30 +3,31 @@ name: preflight-expectations
 # Guards the pre-deploy regression harness's own logic and, more importantly, the
 # internal consistency of its expectations file.
 #
-# This is a SEPARATE workflow rather than a job in test.yaml on purpose. test.yaml
-# triggers on `'**/*'` minus `'!docs/**'`, so a pull request that touches only
-# docs/maxusai/vision-suite/preflight/ runs no checks at all — verified on #49,
-# which changed one file under docs/ and reported "no checks". That is precisely
-# the maintenance path described in preflight/README.md ("Adding an expectation"):
-# when a compat patch moves a measured value, the change to expectations.toml is
-# a docs-only diff.
+# WHY THIS RUNS ON EVERY PULL REQUEST RATHER THAN FILTERING ON PATHS.
 #
-# Re-including the directory in test.yaml's paths would work, but would run the
-# full Go matrix on three operating systems to gate a stdlib-only test that
-# finishes in milliseconds.
+# It has to, to be usable as a REQUIRED check. GitHub blocks a pull request until
+# every required check reports, and a path-filtered workflow never reports on a
+# pull request whose paths do not match — the check sits at "Expected — waiting
+# for status to be reported" forever. Requiring a path-filtered workflow wedges
+# every unrelated pull request in the repository.
+#
+# So the trigger is unconditional and the scoping happens inside: the job always
+# runs and always reports, but does the real work only when the harness actually
+# changed. The diff uses the same merge-base form as test.yaml's `changes` job.
+#
+# WHY IT IS A SEPARATE WORKFLOW AT ALL. test.yaml triggers on '**/*' minus
+# '!docs/**', so a pull request touching only docs/maxusai/vision-suite/preflight/
+# runs no checks — verified on #49, which changed one file under docs/ and
+# reported "no checks". That is precisely the maintenance path in
+# preflight/README.md: when a compat patch moves a measured value, the change to
+# expectations.toml is a docs-only diff.
 
 on:
   pull_request:
-    paths:
-      - 'docs/maxusai/vision-suite/preflight/**'
-      - '.github/workflows/preflight-expectations.yaml'
   push:
     branches:
       - main
       - 'release/**'
-    paths:
-      - 'docs/maxusai/vision-suite/preflight/**'
-      - '.github/workflows/preflight-expectations.yaml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -37,22 +38,46 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: scope
+        name: Did the harness change?
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" | tee -a $GITHUB_OUTPUT
+            exit 0
+          fi
+          MERGE_BASE=$(git merge-base \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}")
+          if git diff --name-only "$MERGE_BASE" \
+               "${{ github.event.pull_request.head.sha }}" \
+             | grep -qE '^(docs/maxusai/vision-suite/preflight/|\.github/workflows/preflight-expectations\.yaml$)'; then
+            echo "run=true" | tee -a $GITHUB_OUTPUT
+          else
+            echo "run=false" | tee -a $GITHUB_OUTPUT
+            echo "No changes under docs/maxusai/vision-suite/preflight/ — nothing to verify."
+          fi
 
       # tomllib is stdlib from 3.11; the harness needs nothing else.
       - uses: actions/setup-python@v5
+        if: steps.scope.outputs.run == 'true'
         with:
           python-version: '3.12'
 
       - name: Verify verdict logic and expectations.toml consistency
+        if: steps.scope.outputs.run == 'true'
         working-directory: docs/maxusai/vision-suite/preflight
         run: python3 test_verdicts.py
 
       # The harness is cherry-picked to lineages that carry preflight/ without the
-      # rest of the vision suite (release/0.32.1-dynres). Its tests must pass there
-      # too — they previously did not, because four of them only passed where
-      # vision_suite.py happened to sit next to preflight/ (fixed in #49). Running
-      # against an isolated copy keeps that from regressing on main.
+      # rest of the vision suite. On release/0.32.1-dynres that is not a
+      # hypothetical — it IS that lineage. Four tests once passed only where
+      # vision_suite.py happened to sit beside preflight/ (#49); this keeps that
+      # from regressing.
       - name: Verify the tests pass on a tree carrying preflight/ alone
+        if: steps.scope.outputs.run == 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/suiteless/vision-suite"
           cp -r docs/maxusai/vision-suite/preflight \

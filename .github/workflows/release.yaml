@@ -5,14 +5,17 @@ name: release
 # at org level), so those jobs will QUEUE, never start, and be cancelled or time
 # out after 24h. A release attempted today produces nothing.
 #
-# They are deliberately NOT gated on `vars.SELF_HOSTED_RUNNERS` the way the
-# pull-request workflows are (test.yaml, test-llamacpp-update.yaml). Those jobs
-# only report; these PRODUCE AND PUBLISH ARTIFACTS. Skipping them silently would
-# let a release report success while shipping nothing, which is worse than a
-# visible hang.
+# They are NOT skipped on `vars.SELF_HOSTED_RUNNERS` the way the pull-request
+# workflows are (test.yaml, test-llamacpp-update.yaml). Those jobs only report, so
+# skipping loses nothing; these PRODUCE AND PUBLISH ARTIFACTS, and a silent skip
+# would let a release report success while shipping nothing — worse than a hang.
 #
-# Before releasing from this fork, either register runners and set
-# `vars.SELF_HOSTED_RUNNERS`, or decide explicitly how these jobs should behave.
+# Instead they FAIL FAST: the first step below errors out in seconds when the
+# variable is unset, so an attempted release stops immediately with a readable
+# reason rather than queueing for 24h or quietly publishing an empty release.
+#
+# To release from this fork: register runners, then set the repository variable
+# `SELF_HOSTED_RUNNERS=true`.
 
 on:
   push:
@@ -32,6 +35,11 @@ jobs:
       VERSION: ${{ steps.goflags.outputs.VERSION }}
       vendorsha: ${{ steps.goflags.outputs.vendorsha }}
     steps:
+      - name: Require self-hosted runners before building a release
+        if: vars.SELF_HOSTED_RUNNERS != 'true'
+        run: |
+          echo "::error title=No self-hosted runners::This workflow builds and publishes from self-hosted runners (runs-on: linux / windows), and this fork has none registered. Register runners and set the repository variable SELF_HOSTED_RUNNERS=true, or this release produces nothing. Failing now rather than queueing for 24h."
+          exit 1
       - uses: actions/checkout@v4
       - name: Set environment
         id: goflags
