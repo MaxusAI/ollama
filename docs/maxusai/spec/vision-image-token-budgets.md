@@ -87,13 +87,17 @@ Build `0.32.1-dynres-35d9e58e` (payload b9888 + 002/004/005), gfx1151/ROCm, depl
 baseline minus 16 per image — the text figure is model-specific, so do not reuse another
 model's:
 
-> **Unverified against B8 — the nemotron rows below are suspect.** Two subtrahends are
-> applied here and B8 questions both. The text-only baseline is the wrong one if this
-> payload behaves like the main lineage's, and the flat **16** is `gemma4`'s marker count:
-> `nemotron_h_omni` carries **2** markers per image, not 16, so subtracting 16 from a
-> nemotron count reads ~14 low. Re-derive the prefix per §3 step 1 and the per-arch marker
-> count on **this lineage's own build** before relying on the nemotron cells; the gemma4
-> cells are internally consistent (both grids satisfy B7). Not corrected here because §4
+> **The "grid / tokens" column does not mean the same thing on every row.** The flat
+> **16** subtracted here is `gemma4`'s marker count; `nemotron_h_omni` carries **2**. So
+> the gemma4 cells are the grid exactly (1100 = 20×55, 1089 = 33×33) while the nemotron
+> cells land **14 below** their grid — 2026 against a grid of 2040, 3254 against 3268.
+> The numbers are not wrong under the stated convention, but they are not comparable to
+> the grid-based cells beside them, and MUST NOT be read as grids or transplanted into a
+> grid+2 context. Converted, they are `+16` → **2042** and **3270** visual+markers, which
+> agree with the main lineage. Separately unverified: whether this lineage's text-only
+> baseline equals its in-image prefix (B8) — if it does not, every cell here moves by
+> that offset too. Prefer re-measuring per §3 over converting; the preflight harness's
+> `expectations.toml` records the same mismatch from the other direction. Not corrected here because §4
 > forbids importing another lineage's measurements.
 
 | model | case | grid / tokens | conforms |
