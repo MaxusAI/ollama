@@ -47,15 +47,56 @@ payload, not of the arch — recorded in the table rather than silently tolerate
 
 | `modelArch` | flags | effective budget | consumed by |
 |---|---|---|---|
-| `gemma4` | min/max from `api.Options`, defaults 40 / 1120 | 40 … 1,120 | gemma4v projector, `set_limit_image_tokens(40, 280)` with the ceiling raised |
+| `gemma4` | min/max from `api.Options`, defaults **70 / 1120** | 70 … 1,120, **budget-fill** (compat/004) | gemma4v projector, `set_limit_image_tokens(40, 280)` with the ceiling raised |
 | `qwen2vl`, `qwen25vl`, `qwen3vl`, `qwen3vlmoe`, `qwen35`, `qwen35moe` | `--image-min-tokens 1024` | 1,024 … 4,096 | `PROJECTOR_TYPE_QWEN3VL`, `set_limit_image_tokens(8, 4096)` with the floor raised |
-| `nemotron_h_omni` | min/max from `api.Options`, defaults 256 / 3328 | 256 … 3,328 with compat/002; exactly 256, flags inert, without it | `PROJECTOR_TYPE_NEMOTRON_V2_VL` as patched (ADR 0001) |
+| `nemotron_h_omni` | min/max from `api.Options`, defaults 256 / 3328 | 256 … 3,328 with compat/002; exactly 256, flags inert, without it. A pinned budget no longer overshoots the ceiling (compat/005) | `PROJECTOR_TYPE_NEMOTRON_V2_VL` as patched (ADR 0001) |
 | `mistral3`, `glmocr`, `llama4`, `deepseekocr`, all others | none | projector default / structural | — |
 
 `qwen35` and `qwen35moe` are in the Qwen row because `llama/compat`'s
 `handle_qwen35_like_clip()` sets `clip.projector_type = "qwen3vl_merger"`, so they
 load as `PROJECTOR_TYPE_QWEN3VL` — the branch that emits the "requires at minimum
 1024 image tokens" warning.
+
+### 2.1 gemma4 budget-fill sizing (compat/004, on this lineage since `5f6e7fdc`)
+
+**This changes what `min` means for gemma4.** Without 004 the minimum is a *floor* — a small
+image is never enlarged, so it costs whatever its native grid costs and the budget goes
+unused. With 004 the image is scaled **up or down** so its 48-aligned patch grid *fills* the
+budget, snapped down to Gemma 4's supported ladder, and resized with `PAD_NONE` rather than
+letterboxed.
+
+- Supported ladder: **{70, 140, 280, 560, 1120}**. `DefaultImageMinTokens = 70` is the lowest
+  rung, which makes `min` effectively a no-op at defaults; the ceiling does the work.
+- Conformance (SPEC B7): every gemma4 grid must satisfy
+  `cols·rows ≤ B < (cols+1)·(rows+1)` for a supported budget `B`. An off-ladder grid is a
+  sizing defect — it measurably degrades `box_2d` vertical grounding, which is why 004 exists.
+- 12B `box_2d` workloads should pin `image_max_tokens 560` per request (recorded exception,
+  main ADR 0008).
+
+### 2.2 Pinned-budget overshoot (compat/005, since `593fc3b1`)
+
+When a pinned budget (`min ≈ max`) made the `min_pixels` ceil exceed `max_pixels`, sizing
+floored just *above* the ceiling — nemotron pinned to 3328 delivered **3388**. 005 floors
+just under `min` instead. The budget is a hard ceiling. Affects only the infeasible pinned
+case; unpinned sizing is unchanged.
+
+### 2.3 Measured on this lineage
+
+Build `0.32.1-dynres-35d9e58e` (payload b9888 + 002/004/005), gfx1151/ROCm, deployed
+2026-08-08. Image tokens are `prompt_eval_count` minus the model's **own** text-only
+baseline minus 16 per image — the text figure is model-specific, so do not reuse another
+model's:
+
+| model | case | grid / tokens | conforms |
+|---|---|---|---|
+| gemma4:31b @1120 | 1920×1080 scene | 1100 = 20×55 | ✓ `1100 ≤ 1120 < 21×56` |
+| gemma4:31b @1120 | 1568² document | 1089 = 33×33 | ✓ `1089 ≤ 1120 < 34×34` |
+| nemotron3:33b | defaults | 2026 | — |
+| nemotron3:33b | pinned 3328 | **3254** | ✓ ≤ ceiling (was 3388 pre-005) |
+
+`qwen35`/`qwen35moe` are unaffected by 004 and 005 — measured byte-identical before and
+after (`prompt_eval` 2615 scene / 2743 document) — since 004 is gemma4-only and 005 touches
+shared `dyn_size` sizing that the Qwen path does not reach.
 
 ## 3. Verifying that a flag binds
 

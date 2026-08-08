@@ -2,6 +2,13 @@
 
 - **Status:** accepted 2026-08-02, with the qwen gap closed on the release lineage
   (`a4788474` on `release/0.32.1-dynres`, backporting the qwen half of `87cf1100`).
+  **Amended 2026-08-08:** this lineage now also carries compat **004** (gemma4 budget-fill
+  sizing, `5f6e7fdc`) and **005** (pinned-budget overshoot, `593fc3b1`), with gemma4
+  defaults moved 40/1120 → **70/1120** (`35d9e58e`, aligning with main ADR 0008). Those
+  three commits shipped without updating this ADR or the SPEC — the drift is corrected in
+  [SPEC §2.1–2.3](../spec/vision-image-token-budgets.md). The policy is unchanged: budgets
+  stay opt-in and empirically verified, and backports still take only the arch-specific
+  half. Built and deployed as `0.32.1-dynres-35d9e58e` on gfx1151.
 - **Date:** 2026-08-02
 - **Deciders:** MaxusAI fork maintainers
 - **Related:** ADR 0001, nemotron dynamic resolution
