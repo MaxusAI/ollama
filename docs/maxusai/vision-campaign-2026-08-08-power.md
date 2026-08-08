@@ -5,7 +5,7 @@ fork `0.32.5-maxusai-0982ab8a` (:11436, cold server per model, payload b10091+00
 chat endpoint, think off, temp 0. Fine-text page regenerated with Courier New on this
 host — absolute tier recall is not comparable to campaigns using another font.
 
-## High Power Mode (`pmset` powermode=2, verified per model in run log)
+## High Power Mode (`pmset` powermode=2, verified per model in run logs)
 
 ## Scene grounding (six objects, norm-1000 boxes) + document extraction
 
@@ -19,6 +19,7 @@ host — absolute tier recall is not comparable to campaigns using another font.
 | gemma4:26b-nvfp4 | **MLX** | **0.965** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
 | gemma4:31b-it-q4_K_M | GGUF | 0.963 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
 | gemma4:26b-a4b-it-q4_K_M | GGUF | 0.970 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| nemotron3:33b-q4_K_M | GGUF | 0.857 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 4 |
 
 ## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
 
@@ -32,7 +33,12 @@ host — absolute tier recall is not comparable to campaigns using another font.
 | gemma4:26b-nvfp4 | **MLX** | 4 | 4 | 4 | 2 | 3 | ✅ all Qs + bbox | 85 | 4291 | 6.8 | 528 |
 | gemma4:31b-it-q4_K_M | GGUF | 4 | 4 | 4 | 2 | 2 | ✅ all Qs + bbox | 17 | 301 | 36.9 | 98 |
 | gemma4:26b-a4b-it-q4_K_M | GGUF | 4 | 4 | 4 | 2 | 1 | ✅ all Qs + bbox | 82 | 652 | 9.1 | 396 |
+| nemotron3:33b-q4_K_M | GGUF | 4 | 4 | 2 | 1 | 0 | ✅ all Qs + bbox | 112 | 1059 | 7.1 | 508 |
 
 ## Low Power Mode
 
 **PENDING** — awaiting host power-mode flip; identical model set and method.
+
+## Pending additions
+
+- nemotron3:33b-bf16, nemotron3:33b-q8 (pull in progress 2026-08-08) — both power modes.
