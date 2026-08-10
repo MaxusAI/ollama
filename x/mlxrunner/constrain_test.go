@@ -13,9 +13,7 @@ import (
 // padded position past the tokenizer vocab), yet sampling returns the one
 // grammar-legal token.
 func TestConstraintBiasForcesAllowedToken(t *testing.T) {
-	if err := mlx.CheckInit(); err != nil {
-		t.Skipf("MLX not available: %v", err)
-	}
+	skipIfNoMLX(t)
 
 	// Vocab pieces "5","6","7","8" (ids 0-3); grammar {"enum":[7]} allows
 	// only "7" (id 2) at the start state.

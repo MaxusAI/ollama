@@ -16,6 +16,16 @@ func (d Device) LogValue() slog.Value {
 	return slog.StringValue(C.GoString(C.mlx_string_data(str)))
 }
 
+// The default device is a process-wide singleton in MLX (mlx/device.cpp), but
+// the default stream is thread-local (mlx/stream.cpp) and the Metal command
+// encoder behind it lives in a thread_local map. Caching a stream here is
+// therefore only sound while one permanently pinned goroutine owns MLX, which
+// is what ClaimOSThread establishes; it also clears this cache whenever a new
+// goroutine takes ownership, so the next resolve happens on the new thread.
+//
+// These are read on every operation, so they stay plain fields rather than
+// atomics or mutex-guarded state: the single-owner invariant means only the
+// owning goroutine ever touches them.
 var (
 	defaultDevice    Device
 	defaultDeviceSet bool
@@ -69,6 +79,12 @@ func (s Stream) LogValue() slog.Value {
 
 func DefaultStream() Stream {
 	if !defaultStreamSet {
+		// Resolving the default stream makes this goroutine an MLX owner, so
+		// pin it before the stream is cached. This is the package's own safety
+		// net for callers that never claimed a thread during setup; the fast
+		// path below stays a plain field read.
+		ClaimOSThread()
+
 		s := C.mlx_stream_new()
 		C.mlx_get_default_stream(&s, DefaultDevice().ctx)
 		defaultStream = Stream{s}

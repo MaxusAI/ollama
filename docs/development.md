@@ -155,6 +155,28 @@ cmake -B build . -DOLLAMA_MLX_BACKENDS=cuda_v13
 cmake --build build --parallel 8
 ```
 
+### MLX threading
+
+MLX keeps each device's default stream in thread-local storage and the Metal
+command encoder behind it in a `thread_local` map, and every array records the
+stream it was built on. An array can therefore only be evaluated on the OS thread
+that built it. A goroutine is not an OS thread, so anything driving MLX must call
+`mlx.ClaimOSThread()` once during setup — it pins the goroutine for life and gives
+it its own stream. `x/mlxrunner` and `ollama create` already do this in their
+worker init.
+
+Two rules follow when writing MLX tests:
+
+- Every test goroutine that touches MLX must claim a thread. The `skipIfNoMLX`
+  helpers do it for you.
+- `t.Run` subtests are separate goroutines, so build MLX arrays **inside** the
+  subtest. Fixtures built in the parent and evaluated in a subtest will panic with
+  `There is no Stream(gpu, N) in current thread`.
+
+A panic aborts the test process and hides every later test, so when chasing one,
+sweep per test (`-run '^Name$'` in a loop) rather than trusting a single package
+run. See [ADR 0017](maxusai/adr/0017-mlx-work-runs-on-a-permanently-claimed-os-thread.md).
+
 ## Docker
 
 ```shell

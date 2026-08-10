@@ -1,7 +1,6 @@
 package gemma4
 
 import (
-	"runtime"
 	"testing"
 
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
@@ -10,7 +9,6 @@ import (
 func useMLXTestThread(t *testing.T) {
 	t.Helper()
 
-	runtime.LockOSThread()
 	initialized := false
 	t.Cleanup(func() {
 		if initialized {
@@ -20,12 +18,16 @@ func useMLXTestThread(t *testing.T) {
 				mlx.SetDefaultDeviceGPU()
 			}
 		}
-		runtime.UnlockOSThread()
 	})
 
 	if err := mlx.CheckInit(); err != nil {
 		t.Skipf("MLX not available: %v", err)
 	}
+	// Takes the OS thread for the rest of this test goroutine's life. The lock
+	// is not released on cleanup: MLX marks the thread as its owner, and a
+	// thread returned to the runtime's pool still carrying that mark would let
+	// a later, unpinned goroutine skip claiming one of its own.
+	mlx.ClaimOSThread()
 	initialized = true
 	if mlx.GPUIsAvailable() {
 		mlx.SetDefaultDeviceGPU()

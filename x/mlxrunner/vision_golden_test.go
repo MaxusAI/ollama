@@ -82,6 +82,7 @@ func TestVisionGoldenParity(t *testing.T) {
 		if err := mlx.CheckInit(); err != nil {
 			return err
 		}
+		mlx.ClaimOSThread()
 		if mlx.GPUIsAvailable() {
 			mlx.SetDefaultDeviceGPU()
 		}
