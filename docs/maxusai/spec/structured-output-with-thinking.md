@@ -113,6 +113,12 @@ additionally requires that a runner client deliver no further chunks once the
 handler cancels the request context — buffered pass-one content past the
 cancellation would leak into the constrained response.
 
+A `format` that is absent, JSON `null`, or the empty string is not a format
+(§1) and MUST leave generation unconstrained on every backend. The routes
+layer forwards the request's value verbatim, so each runner applies that test
+itself; a backend that treats `""` as a constraint fails R9 by rejecting a
+request its twin serves.
+
 ## 4. Defensive reclassification
 
 For flows the double request does not cover, a non-streaming generate response
@@ -142,6 +148,14 @@ Automated (`server/routes_generate_test.go`):
   fallback.
 - `Test{Nemotron3Nano,Qwen35}Parser*ThinkingCloseMarker` — marker exposure (R4).
 - `TestReclassifyConstrainedThinking` — §4.
+
+Runner-side (`x/mlxrunner/client_format_test.go`):
+
+- `TestRequestCompileFormat` — absent, `null`, and the empty string all leave
+  the MLX runner unconstrained, over the real wire values (§3, R9). The Go
+  literal `""` is a *zero-length* `json.RawMessage`, not the two-byte value
+  `{"format":""}` decodes to; testing only the former is what let the empty
+  string 400 on MLX while the llama-server path served it.
 
 Manual probe (any implicit-open model, temperature 0): `/api/generate` with
 `think:true` and `format:"json"` must return reasoning in `thinking` and parseable
