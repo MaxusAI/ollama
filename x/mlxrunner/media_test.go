@@ -1,6 +1,7 @@
 package mlxrunner
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -97,6 +98,25 @@ func TestExpandMediaSaltsDifferByContent(t *testing.T) {
 	}
 	if a[0] == a[1] {
 		t.Fatal("salts must vary by position")
+	}
+}
+
+func TestExpandMediaSaltsDifferByBudget(t *testing.T) {
+	small := mediaSalts([]byte("image-a"), 4)
+	large := mediaSalts([]byte("image-a"), 6)
+
+	// The same image at two budgets is two different encodings: the salt
+	// sequences must share no prefix at all, so a lower-budget request can
+	// never restore KV captured at a higher one.
+	for i := range small {
+		if small[i] == large[i] {
+			t.Fatalf("salt[%d] shared across budgets: %d", i, small[i])
+		}
+	}
+
+	same := mediaSalts([]byte("image-a"), 4)
+	if !slices.Equal(small, same) {
+		t.Fatalf("equal budgets must share every key: %v != %v", small, same)
 	}
 }
 
