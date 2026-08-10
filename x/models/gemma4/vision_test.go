@@ -501,13 +501,17 @@ func unifiedTestModel() *Model {
 		ModelType: "gemma4_unified_vision", MMEmbedDim: 16, MMPosembSize: 1120,
 		ModelPatchSize: 48, PatchSize: 16, PoolingKernelSize: 3, RMSNormEps: 1e-6,
 	}
-	return &Model{TextConfig: &TextConfig{}, VisionCfg: cfg,
-		MMTokens: multimodalTokens{BOI: 255999, EOI: 258882, Image: 258880}}
+	return &Model{
+		TextConfig: &TextConfig{}, VisionCfg: cfg,
+		MMTokens: multimodalTokens{BOI: 255999, EOI: 258882, Image: 258880},
+	}
 }
 
 func towerTestModel() *Model {
-	return &Model{TextConfig: &TextConfig{}, VisionCfg: towerTestConfig(2),
-		MMTokens: multimodalTokens{BOI: 255999, EOI: 258882, Image: 258880}}
+	return &Model{
+		TextConfig: &TextConfig{}, VisionCfg: towerTestConfig(2),
+		MMTokens: multimodalTokens{BOI: 255999, EOI: 258882, Image: 258880},
+	}
 }
 
 func TestNewVisionInputUnifiedLayout(t *testing.T) {
@@ -576,8 +580,8 @@ func alphaTestImagePNG(t *testing.T) []byte {
 	t.Helper()
 	const w, h = 480, 336
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			img.SetNRGBA(x, y, color.NRGBA{R: uint8(x % 256), G: uint8(y % 256), B: uint8((x + y) % 256), A: 255})
 		}
 	}

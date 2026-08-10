@@ -61,8 +61,8 @@ func mediaSalts(data []byte, n int) []uint32 {
 // encode is segment tokenization; addBOS applies to the first emitted
 // segment only, mirroring the text-only path.
 func expandMedia(prompt string, media []llm.MediaData, vm base.VisionModel, opts api.Options,
-	encode func(text string, addBOS bool) []int32, addBOS bool) (*expandedPrompt, error) {
-
+	encode func(text string, addBOS bool) []int32, addBOS bool,
+) (*expandedPrompt, error) {
 	byID := make(map[int]llm.MediaData, len(media))
 	for _, m := range media {
 		byID[m.ID] = m
