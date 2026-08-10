@@ -1079,14 +1079,18 @@ const (
 
 // nemotronImageTokenBudget resolves the nemotron_h_omni image-token budget
 // from opts. The shared ImageMinTokens/ImageMaxTokens options arrive carrying
-// the gemma4-shaped DefaultOptions values (40/1120) whenever the caller left
-// them alone; at this layer those are not distinguishable from an explicit
-// request (server/routes.go's hasOption pattern could tell them apart if that
-// ever matters), so treat them, like <= 0, as unset and substitute this
-// arch's native bounds. Consequences: explicit 40/1120 are not expressible
-// for this arch, and a client that explicitly sends 256/3328 stores different
-// option values than the sentinels, forcing a runner reload for identical
-// flags. Min is clamped down to max like gemma4's resolver.
+// the gemma4-shaped DefaultOptions values whenever the caller left them
+// alone; at this layer those are not distinguishable from an explicit request
+// (server/routes.go's hasOption pattern could tell them apart if that ever
+// matters), so treat them, like <= 0, as unset and substitute this arch's
+// native bounds. The sentinel is the api.Default* constants themselves, not
+// literals, so it tracks the gemma4 default as ADRs move it — currently
+// 70/1120 (ADR 0008; it was 40/1120 before ADR 0007). Consequence: an
+// explicit 70 or 1120 is not expressible for this arch — pick an adjacent
+// value. A client that explicitly sends 256/3328 no longer forces a reload
+// against an unset request: ResolvedImageTokenBudget normalizes both to the
+// flags they launch before the scheduler compares them. Min is clamped down
+// to max like gemma4's resolver.
 func nemotronImageTokenBudget(opts api.Options) (minTok, maxTok int) {
 	minTok, maxTok = opts.ImageMinTokens, opts.ImageMaxTokens
 	if minTok <= 0 || minTok == api.DefaultImageMinTokens {
@@ -1300,6 +1304,46 @@ func BudgetFillSize(width, height, align, maxTokens int) (int, int) {
 func budgetFillTokens(width, height, align, maxTokens int) int {
 	wBar, hBar := BudgetFillSize(width, height, align, maxTokens)
 	return (wBar / align) * (hBar / align)
+}
+
+// ResolvedImageTokenBudget reports the image-token bounds visionServerArgs
+// will actually pass for modelArch under opts, and whether those flags derive
+// from opts at all.
+//
+// The budget options are arch-agnostic but carry gemma4's defaults, so equal
+// flags do not imply equal options: on nemotron the unset sentinel and an
+// explicit 256/3328 launch the identical runner. Resolving before comparing
+// is what lets the scheduler tell "same launch" from "same request".
+// derived is false for arches whose vision flags ignore the options (a fixed
+// floor, or none at all), where the bounds cannot affect the launch.
+func ResolvedImageTokenBudget(modelArch string, opts api.Options) (minTok, maxTok int, derived bool) {
+	switch modelArch {
+	case "gemma4":
+		minTok, maxTok = gemma4ImageTokenBudget(opts)
+		return minTok, maxTok, true
+	case "nemotron_h_omni":
+		minTok, maxTok = nemotronImageTokenBudget(opts)
+		return minTok, maxTok, true
+	default:
+		return 0, 0, false
+	}
+}
+
+// NormalizeImageTokenBudget rewrites r's image-token bounds in place to the
+// values modelArch will launch with, so two requests that produce identical
+// llama-server flags compare equal. Arches that do not derive their flags
+// from these options have both bounds zeroed, since no value can change the
+// launch.
+func NormalizeImageTokenBudget(modelArch string, r *api.Runner) {
+	if r == nil {
+		return
+	}
+	minTok, maxTok, derived := ResolvedImageTokenBudget(modelArch, api.Options{Runner: *r})
+	if !derived {
+		r.ImageMinTokens, r.ImageMaxTokens = 0, 0
+		return
+	}
+	r.ImageMinTokens, r.ImageMaxTokens = minTok, maxTok
 }
 
 // Gemma4ImageAlign is the pixel edge of one gemma4 soft token
