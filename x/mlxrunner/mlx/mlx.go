@@ -11,6 +11,19 @@ package mlx
 //
 // static __thread char _mlx_last_error_msg[1024] = {0};
 // static __thread int  _mlx_last_error_flag = 0;
+// static __thread int  _mlx_thread_owned = 0;
+//
+// // _mlx_thread_owned marks an OS thread that a goroutine has claimed for MLX.
+// // Go has no goroutine-local storage, but the Go runtime only ever schedules
+// // a locked goroutine on its own thread, so "this thread is claimed" is
+// // equivalent to "this goroutine already claimed it".
+// static int mlx_thread_owned(void) {
+//     return _mlx_thread_owned;
+// }
+//
+// static void mlx_thread_take_ownership(void) {
+//     _mlx_thread_owned = 1;
+// }
 //
 // static void _mlx_capture_error_handler(const char* msg, void* data) {
 //     (void)data;
@@ -54,11 +67,43 @@ func Version() string {
 	return C.GoString(C.mlx_string_data(str))
 }
 
-// mlxCall locks the goroutine to its OS thread so the thread-local error state
-// is read from the same thread that executed fn.
-func mlxCall(fallback string, fn func() C.int) error {
+// ClaimOSThread binds the calling goroutine to its current OS thread for the
+// rest of the goroutine's life and makes that thread this process's MLX owner.
+// Call it once, during setup, from the goroutine that will drive MLX — before
+// its first MLX operation.
+//
+// MLX keeps its default streams in thread-local storage (mlx/stream.cpp) and
+// the Metal command encoders backing them in a thread_local map
+// (mlx/backend/metal/device.cpp), and an array records the stream it was built
+// on. That state spans calls, so pinning around a single call is not enough: an
+// unpinned goroutine can be rescheduled onto a different OS thread between two
+// MLX operations, and evaluating there fails with
+// "There is no Stream(gpu, 0) in current thread."
+//
+// The lock is deliberately never released — the thread-local state outlives any
+// single call, so the thread belongs to this goroutine until it exits. Repeated
+// calls are no-ops, so the runtime's LockOSThread nesting counter cannot run
+// away on a long-lived worker.
+func ClaimOSThread() {
+	if C.mlx_thread_owned() != 0 {
+		return
+	}
+
+	// Order matters: the goroutine may still migrate between the check above
+	// and the lock, so mark the thread only once it can no longer change.
 	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+	C.mlx_thread_take_ownership()
+
+	// The cached stream belongs to whichever thread resolved it, so a new owner
+	// must resolve its own.
+	resetDefaultStreamCache()
+}
+
+// mlxCall claims the OS thread so the thread-local error state is read from the
+// same thread that executed fn, and so the goroutine cannot migrate away from
+// the streams its arrays were built on.
+func mlxCall(fallback string, fn func() C.int) error {
+	ClaimOSThread()
 
 	C.mlx_clear_last_error()
 	if fn() != 0 {

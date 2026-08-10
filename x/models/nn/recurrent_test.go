@@ -147,26 +147,32 @@ func TestCausalConv1DPaddedRowParity(t *testing.T) {
 // state and a non-zero one (so the wrapper is shown to thread the prior through,
 // not just handle the zero path).
 func TestGatedDeltaDelegatesToKernel(t *testing.T) {
-	skipIfNoMLX(t)
 	B, L, nK, nV, dK, dV := 1, 2, 1, 1, 4, 4
-	q := ones(mlx.DTypeFloat32, B, L, nK, dK)
-	k := ones(mlx.DTypeFloat32, B, L, nK, dK)
-	v := ones(mlx.DTypeFloat32, B, L, nV, dV)
-	gDecay := ones(mlx.DTypeFloat32, B, L, nV)
-	beta := ones(mlx.DTypeFloat32, B, L, nV)
 
+	// Every subtest runs on its own goroutine, and each of those owns a
+	// separate MLX thread, so the tensors are built inside the subtest rather
+	// than shared down from the parent: an array can only be evaluated on the
+	// thread whose stream it was built on.
 	cases := []struct {
 		name  string
-		prior *mlx.Array
+		prior func() *mlx.Array
 	}{
-		{"zero", mlx.Zeros(mlx.DTypeFloat32, B, nV, dV, dK)},
-		{"non-zero", mlx.MulScalar(ones(mlx.DTypeFloat32, B, nV, dV, dK), 3)},
+		{"zero", func() *mlx.Array { return mlx.Zeros(mlx.DTypeFloat32, B, nV, dV, dK) }},
+		{"non-zero", func() *mlx.Array { return mlx.MulScalar(ones(mlx.DTypeFloat32, B, nV, dV, dK), 3) }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			outA, statesA := GatedDelta(&batch.Batch{}, q, k, v, gDecay, beta, WithRecurrentState(nil, tc.prior))
+			skipIfNoMLX(t)
+			q := ones(mlx.DTypeFloat32, B, L, nK, dK)
+			k := ones(mlx.DTypeFloat32, B, L, nK, dK)
+			v := ones(mlx.DTypeFloat32, B, L, nV, dV)
+			gDecay := ones(mlx.DTypeFloat32, B, L, nV)
+			beta := ones(mlx.DTypeFloat32, B, L, nV)
+			prior := tc.prior()
+
+			outA, statesA := GatedDelta(&batch.Batch{}, q, k, v, gDecay, beta, WithRecurrentState(nil, prior))
 			stateA := lastState(statesA)
-			outB, stateB := mlx.FastGatedDelta(q, k, v, gDecay, beta, tc.prior, nil)
+			outB, stateB := mlx.FastGatedDelta(q, k, v, gDecay, beta, prior, nil)
 			mlx.Eval(outA, stateA, outB, stateB)
 
 			gotOut, wantOut := outA.Floats(), outB.Floats()

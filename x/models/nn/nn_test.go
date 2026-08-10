@@ -12,6 +12,9 @@ func skipIfNoMLX(t *testing.T) {
 	if err := mlx.CheckInit(); err != nil {
 		t.Skipf("MLX not available: %v", err)
 	}
+	// Each test runs on its own goroutine, so each one that drives MLX directly
+	// has to take ownership of an OS thread before its first operation.
+	mlx.ClaimOSThread()
 }
 
 func approxEqual(a, b, tol float32) bool {

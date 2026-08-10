@@ -19,7 +19,23 @@ import (
 // applier's gather composing the caller's logical mask back into
 // storage order) must equal the logical-order reference.
 func TestRotatingKVCacheDecodeParity(t *testing.T) {
-	skipIfNoMLX(t)
+	// Every subtest runs on its own goroutine, and each of those owns a
+	// separate MLX thread, so the whole fixture is rebuilt inside the subtest
+	// rather than shared down from the parent: an array can only be evaluated
+	// on the thread whose stream it was built on.
+	for _, mode := range []string{"zero", "causal-at-L1", "array"} {
+		t.Run(mode, func(t *testing.T) {
+			skipIfNoMLX(t)
+			rotatingDecodeParity(t, mode)
+		})
+	}
+}
+
+// rotatingDecodeParity drives the rotating cache past its wrap point under the
+// named caller mask and compares the decode against the logical-order
+// reference.
+func rotatingDecodeParity(t *testing.T, mode string) {
+	t.Helper()
 	const H, D = 1, 4
 	const window = 4
 	const totalWrites = 7 // past wrap (window=4); last write is the L=1 decode
@@ -80,45 +96,59 @@ func TestRotatingKVCacheDecodeParity(t *testing.T) {
 	maskVals := []float32{0.1, -0.3, 0.7, -0.2}
 	logicalMask := mlx.FromValues(maskVals, 1, 1, 1, window)
 
-	cases := []struct {
-		name  string
-		model nn.AttentionMask
-		// reference mask uses the same coordinates the model mask
-		// represents; for ArrayMask it's the same tensor (since the
-		// reference K/V is in logical order).
-		refMode string
-		refMask *mlx.Array
-	}{
-		{"zero", nn.AttentionMask{}, "", nil},
-		{"causal-at-L1", nn.CausalMask(), "", nil},
-		{"array", nn.ArrayMask(logicalMask), "array", logicalMask},
+	// The reference mask uses the same coordinates the model mask represents;
+	// for ArrayMask it's the same tensor (since the reference K/V is in
+	// logical order).
+	var model nn.AttentionMask
+	var refMode string
+	var refMask *mlx.Array
+	switch mode {
+	case "zero":
+		model = nn.AttentionMask{}
+	case "causal-at-L1":
+		model = nn.CausalMask()
+	case "array":
+		model, refMode, refMask = nn.ArrayMask(logicalMask), "array", logicalMask
+	default:
+		t.Fatalf("unknown mask mode %q", mode)
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := nn.ScaledDotProductAttention(b, q, scale,
-				nn.WithKVHistory(history),
-				nn.WithMask(tc.model))
+	got := nn.ScaledDotProductAttention(b, q, scale,
+		nn.WithKVHistory(history),
+		nn.WithMask(model))
 
-			want := mlx.FastScaledDotProductAttention(q, kLogical, vLogical, scale,
-				tc.refMode, tc.refMask)
+	want := mlx.FastScaledDotProductAttention(q, kLogical, vLogical, scale,
+		refMode, refMask)
 
-			mlx.Eval(got, want)
-			gs, ws := got.Floats(), want.Floats()
-			for i := range ws {
-				if math.Abs(float64(gs[i]-ws[i])) > 1e-5 {
-					t.Fatalf("index %d: got %v, want %v", i, gs[i], ws[i])
-				}
-			}
-		})
+	mlx.Eval(got, want)
+	gs, ws := got.Floats(), want.Floats()
+	for i := range ws {
+		if math.Abs(float64(gs[i]-ws[i])) > 1e-5 {
+			t.Fatalf("index %d: got %v, want %v", i, gs[i], ws[i])
+		}
 	}
 }
 
 func TestAssistantSharedHistoryL1MasksMatchNoMask(t *testing.T) {
-	skipIfNoMLX(t)
-	if !mlx.MetalIsAvailable() {
-		t.Skip("MLX Metal not available")
+	// Every subtest runs on its own goroutine, and each of those owns a
+	// separate MLX thread, so the caches are rebuilt inside the subtest rather
+	// than shared down from the parent: an array can only be evaluated on the
+	// thread whose stream it was built on.
+	for _, mode := range []string{"full", "sliding"} {
+		t.Run(mode, func(t *testing.T) {
+			skipIfNoMLX(t)
+			if !mlx.MetalIsAvailable() {
+				t.Skip("MLX Metal not available")
+			}
+			sharedHistoryL1MatchesNoMask(t, mode)
+		})
 	}
+}
+
+// sharedHistoryL1MatchesNoMask checks that a causal mask over the named cache's
+// L=1 history is a no-op, since every in-window key precedes the single query.
+func sharedHistoryL1MatchesNoMask(t *testing.T, mode string) {
+	t.Helper()
 	const H, D = 1, 4
 	const window = 4
 	const total = 7
@@ -143,28 +173,25 @@ func TestAssistantSharedHistoryL1MasksMatchNoMask(t *testing.T) {
 	}
 
 	b := newKVBatch(total-1, 1)
-	cases := []struct {
-		name string
-		h    *nn.KVHistory
-		mask nn.AttentionMask
-	}{
-		{name: "full", h: full.View(b), mask: nn.CausalMask()},
-		{name: "sliding", h: sliding.View(b), mask: nn.CausalMask()},
+	var h *nn.KVHistory
+	switch mode {
+	case "full":
+		h = full.View(b)
+	case "sliding":
+		h = sliding.View(b)
+	default:
+		t.Fatalf("unknown cache mode %q", mode)
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := nn.ScaledDotProductAttention(b, q, scale, nn.WithKVHistory(tc.h), nn.WithMask(tc.mask))
-			want := mlx.FastScaledDotProductAttention(q, tc.h.K(), tc.h.V(), scale, "", nil)
+	got := nn.ScaledDotProductAttention(b, q, scale, nn.WithKVHistory(h), nn.WithMask(nn.CausalMask()))
+	want := mlx.FastScaledDotProductAttention(q, h.K(), h.V(), scale, "", nil)
 
-			mlx.Eval(got, want)
-			gs, ws := got.Floats(), want.Floats()
-			for i := range ws {
-				if math.Abs(float64(gs[i]-ws[i])) > 1e-5 {
-					t.Fatalf("index %d: got %v, want %v", i, gs[i], ws[i])
-				}
-			}
-		})
+	mlx.Eval(got, want)
+	gs, ws := got.Floats(), want.Floats()
+	for i := range ws {
+		if math.Abs(float64(gs[i]-ws[i])) > 1e-5 {
+			t.Fatalf("index %d: got %v, want %v", i, gs[i], ws[i])
+		}
 	}
 }
 
@@ -173,23 +200,9 @@ func TestAssistantSharedHistoryL1MasksMatchNoMask(t *testing.T) {
 // matches a reference computed from the same K/V with the model mask
 // and window restriction composed manually.
 func TestRotatingKVCachePrefillParity(t *testing.T) {
-	skipIfNoMLX(t)
 	const H, L, D = 1, 6, 4
 	const window = 4
 	const scale = 1.0
-
-	qVals := make([]float32, 1*H*L*D)
-	kVals := make([]float32, 1*H*L*D)
-	vVals := make([]float32, 1*H*L*D)
-	for i := range qVals {
-		qVals[i] = 0.5 + 0.05*float32(i)
-		kVals[i] = -0.3 + 0.07*float32(i)
-		vVals[i] = 0.3 + 0.03*float32(i)
-	}
-	q := mlx.FromValues(qVals, 1, H, L, D)
-	k := mlx.FromValues(kVals, 1, H, L, D)
-	v := mlx.FromValues(vVals, 1, H, L, D)
-	b := newKVBatch(0, L)
 
 	cases := []struct {
 		name string
@@ -206,6 +219,23 @@ func TestRotatingKVCachePrefillParity(t *testing.T) {
 	negInf := float32(math.Inf(-1))
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Built inside the subtest: each subtest goroutine owns its own
+			// MLX thread, and an array can only be evaluated on the thread
+			// whose stream it was built on.
+			skipIfNoMLX(t)
+			qVals := make([]float32, 1*H*L*D)
+			kVals := make([]float32, 1*H*L*D)
+			vVals := make([]float32, 1*H*L*D)
+			for i := range qVals {
+				qVals[i] = 0.5 + 0.05*float32(i)
+				kVals[i] = -0.3 + 0.07*float32(i)
+				vVals[i] = 0.3 + 0.03*float32(i)
+			}
+			q := mlx.FromValues(qVals, 1, H, L, D)
+			k := mlx.FromValues(kVals, 1, H, L, D)
+			v := mlx.FromValues(vVals, 1, H, L, D)
+			b := newKVBatch(0, L)
+
 			c := NewRotatingKVCache(window)
 			history := c.Update(b, k, v)
 
