@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +20,35 @@ import (
 	"github.com/ollama/ollama/ml"
 	"github.com/ollama/ollama/types/model"
 )
+
+// schedTestTimeout scales a scheduler test's wall-clock budget on platforms
+// where the runner, not the code under test, decides whether it is met.
+//
+// Every deadline in this file guards a channel receive and ends in
+// t.Fatal("timeout"); none of them assert that a deadline fires. On Windows
+// two effects compound against budgets in the 20ms-1s range: hosted Windows
+// CI runners are roughly an order of magnitude slower than Linux for `go
+// test` (actions/runner-images#7320), and Windows' ~15.6ms timer granularity
+// makes short context deadlines non-deterministic relative to time.Timer
+// (golang/go#44608, closed without a fix). The result is that different
+// scheduler tests time out on different runs for reasons unrelated to the
+// scheduler.
+//
+// Scaling costs nothing when a test passes — the receive returns immediately
+// and the deadline is never reached — so this only widens the window before
+// failure is declared. The trade is deliberate and worth stating: these tests
+// assert ordering and wiring, not latency, so a real regression that made a
+// load 10x slower would still pass here. Latency belongs in a benchmark.
+//
+// The durable fix is testing/synctest (stable in Go 1.25), which replaces the
+// wall clock with a fake one and removes the race entirely; that is a rewrite
+// of upstream's tests and belongs upstream.
+func schedTestTimeout(d time.Duration) time.Duration {
+	if runtime.GOOS == "windows" {
+		return 10 * d
+	}
+	return d
+}
 
 func TestMain(m *testing.M) {
 	os.Setenv("OLLAMA_DEBUG", "1")
@@ -37,7 +67,7 @@ func TestSchedInit(t *testing.T) {
 }
 
 func TestSchedLoad(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(20*time.Millisecond))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -131,7 +161,7 @@ func TestSchedLoad(t *testing.T) {
 }
 
 func TestSchedLoadStoresEffectiveContextLength(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 
 	s := InitScheduler(ctx)
@@ -152,7 +182,7 @@ func TestSchedLoadStoresEffectiveContextLength(t *testing.T) {
 }
 
 func TestSchedLoadStoresEffectiveExplicitContextLength(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 
 	s := InitScheduler(ctx)
@@ -172,7 +202,7 @@ func TestSchedLoadStoresEffectiveExplicitContextLength(t *testing.T) {
 }
 
 func TestSchedVisionContextFloor(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 
 	visionModel := &Model{
@@ -276,7 +306,7 @@ func getSystemInfoFn() ml.SystemInfo {
 }
 
 func TestSchedRequestsSameModelSameRequest(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -319,7 +349,7 @@ func TestSchedRequestsSameModelSameRequest(t *testing.T) {
 }
 
 func TestSchedRequestsSimpleReloadSameModel(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 5000*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(5000*time.Millisecond))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -382,7 +412,7 @@ func TestSchedRequestsSimpleReloadSameModel(t *testing.T) {
 
 func TestSchedRequestsMultipleLoadedModels(t *testing.T) {
 	slog.Info("TestRequestsMultipleLoadedModels")
-	ctx, done := context.WithTimeout(t.Context(), 1000*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(1000*time.Millisecond))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -511,7 +541,7 @@ closeWait:
 }
 
 func TestSchedGetRunner(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 3*time.Second)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(3*time.Second))
 	defer done()
 
 	a := newScenarioRequest(t, ctx, "ollama-model-1a", 10, &api.Duration{Duration: 2 * time.Millisecond}, nil)
@@ -565,7 +595,7 @@ func TestSchedGetRunner(t *testing.T) {
 }
 
 func TestSchedGetRunnerUsesDigestKeyWhenModelPathEmpty(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
 	s := InitScheduler(ctx)
@@ -594,7 +624,7 @@ func TestSchedGetRunnerUsesDigestKeyWhenModelPathEmpty(t *testing.T) {
 }
 
 func TestSchedGetRunnerReusesSameDigestWhenModelPathEmpty(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
 	s := InitScheduler(ctx)
@@ -715,7 +745,7 @@ func TestSchedExpireRunner(t *testing.T) {
 
 // TODO - add one scenario that triggers the bogus finished event with positive ref count
 func TestSchedPrematureExpired(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 1000*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(1000*time.Millisecond))
 	defer done()
 
 	// Same model, same request
@@ -759,7 +789,7 @@ func TestSchedPrematureExpired(t *testing.T) {
 }
 
 func TestSchedUseLoadedRunner(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	req := &LlmRequest{
 		ctx:             ctx,
 		opts:            api.DefaultOptions(),
@@ -786,7 +816,7 @@ func TestSchedUseLoadedRunner(t *testing.T) {
 }
 
 func TestSchedUpdateFreeSpace(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 	gpus := []ml.DeviceInfo{
 		{
@@ -830,7 +860,7 @@ func TestSchedUpdateFreeSpace(t *testing.T) {
 }
 
 func TestSchedFindRunnerToUnload(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
 	r1 := &runnerRef{refCount: 1, sessionDuration: 1, numParallel: 1}
@@ -851,7 +881,7 @@ func TestSchedFindRunnerToUnload(t *testing.T) {
 }
 
 func TestSchedNeedsReload(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
 	llm := &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}}
@@ -927,7 +957,7 @@ func TestResolveContextShift(t *testing.T) {
 }
 
 func TestSchedNeedsReloadIgnoresAutomaticNumCtxClamp(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
 	llm := &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}}
@@ -955,7 +985,7 @@ func TestSchedNeedsReloadIgnoresAutomaticNumCtxClamp(t *testing.T) {
 }
 
 func TestSchedNeedsReloadUsesEffectiveAutomaticContextShift(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
 	llm := &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}}
@@ -984,7 +1014,7 @@ func TestSchedNeedsReloadUsesEffectiveAutomaticContextShift(t *testing.T) {
 }
 
 func TestSchedNeedsReloadUsesEffectiveExplicitContext(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
 	llm := &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}}
@@ -1012,7 +1042,7 @@ func TestSchedNeedsReloadUsesEffectiveExplicitContext(t *testing.T) {
 }
 
 func TestSchedNeedsReloadIgnoresAutomaticNumBatchDerivation(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
 	llm := &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}}
@@ -1040,7 +1070,7 @@ func TestSchedNeedsReloadIgnoresAutomaticNumBatchDerivation(t *testing.T) {
 }
 
 func TestSchedNeedsReloadIgnoresAutomaticUseMMapDefault(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
 	llm := &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}}
@@ -1156,7 +1186,7 @@ func TestAutomaticGenerationBatch(t *testing.T) {
 }
 
 func TestSchedUnloadAllRunners(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
 	llm1 := &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}}
@@ -1189,7 +1219,7 @@ func TestSchedUnload(t *testing.T) {
 }
 
 func TestSchedAlreadyCanceled(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 	dctx, done2 := context.WithCancel(ctx)
 	done2()
@@ -1221,7 +1251,7 @@ func hasLoadedRunner(s *Scheduler) bool {
 func TestSchedLlamaServerEvictsWhenVRAMInsufficient(t *testing.T) {
 	// When a llama-server model is predicted to exceed available VRAM,
 	// the scheduler should signal eviction before spawning
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -1257,7 +1287,7 @@ func TestSchedLlamaServerEvictsWhenVRAMInsufficient(t *testing.T) {
 }
 
 func TestSchedLlamaServerExplicitPartialNumGPUSkipsFullFitEviction(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -1298,7 +1328,7 @@ func TestSchedLlamaServerExplicitPartialNumGPUSkipsFullFitEviction(t *testing.T)
 func TestSchedLlamaServerFitsAlongside(t *testing.T) {
 	// When a llama-server model is predicted to fit in remaining VRAM,
 	// it should load without evicting existing models
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -1333,7 +1363,7 @@ func TestSchedLlamaServerFitsAlongside(t *testing.T) {
 }
 
 func TestSchedLlamaServerPredictionUsesTotalParallelContext(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 	t.Setenv("OLLAMA_NUM_PARALLEL", "2")
 
@@ -1743,7 +1773,7 @@ func TestDisableMmapForHostPressure(t *testing.T) {
 // Load() OOM while other models are resident signals evict-all-and-retry
 // on the first attempt, but fails fast on the second attempt.
 func TestSchedLoadCrashTriggersEvictAllAndRetry(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -1798,7 +1828,7 @@ func TestSchedLoadCrashTriggersEvictAllAndRetry(t *testing.T) {
 }
 
 func TestSchedLoadOOMReducesAutomaticContextBeforeRetry(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -1857,7 +1887,7 @@ func TestSchedLoadOOMReducesAutomaticContextBeforeRetry(t *testing.T) {
 }
 
 func TestSchedLoadOOMKeepsExplicitContextBeforeRetry(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -1899,7 +1929,7 @@ func TestSchedLoadOOMKeepsExplicitContextBeforeRetry(t *testing.T) {
 }
 
 func TestSchedFirstLoadOOMReducesAutomaticContextAndRetries(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), time.Second)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(time.Second))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -1942,7 +1972,7 @@ func TestSchedFirstLoadOOMReducesAutomaticContextAndRetries(t *testing.T) {
 // TestSchedLoadCrashNoOtherModelsFailsFast verifies that a Load() crash with
 // no other resident models reports the error immediately (no retry).
 func TestSchedLoadCrashNoOtherModelsFailsFast(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -1975,7 +2005,7 @@ func TestSchedLoadCrashNoOtherModelsFailsFast(t *testing.T) {
 }
 
 func TestSchedLoadNonOOMWithOtherModelsFailsFast(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
@@ -2161,7 +2191,7 @@ func (s *mockLlm) ContextLength() int                                 { return s
 // TestImageGenRunnerCanBeEvicted verifies that an image generation model
 // loaded in the scheduler can be evicted when idle.
 func TestImageGenRunnerCanBeEvicted(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 
 	s := InitScheduler(ctx)
@@ -2195,7 +2225,7 @@ func TestImageGenRunnerCanBeEvicted(t *testing.T) {
 // TestImageGenSchedulerCoexistence verifies that image generation models
 // can coexist with language models in the scheduler and VRAM is tracked correctly.
 func TestImageGenSchedulerCoexistence(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
 	defer done()
 
 	s := InitScheduler(ctx)
@@ -2249,7 +2279,7 @@ func TestImageGenSchedulerCoexistence(t *testing.T) {
 }
 
 func TestSchedNeedsReloadImageTokenBudget(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
 	// The image-token bounds are shared options carrying gemma4's defaults, so
