@@ -1623,8 +1623,10 @@ func TestVisionServerArgs(t *testing.T) {
 			want: []string{"--image-min-tokens", "256", "--image-max-tokens", "3328"},
 		},
 		{
-			// The gemma4-shaped DefaultOptions values (40/1120) mean "untouched" and
-			// must map to the nemotron-native bounds, not be forwarded literally.
+			// The gemma4-shaped DefaultOptions values (70/1120 today) mean
+			// "untouched" and must map to the nemotron-native bounds, not be
+			// forwarded literally. Asserted through the constants, so the case
+			// keeps holding when an ADR moves the gemma4 default again.
 			name: "nemotron_h_omni DefaultOptions values treated as unset",
 			arch: "nemotron_h_omni",
 			opts: api.Options{Runner: api.Runner{ImageMinTokens: api.DefaultImageMinTokens, ImageMaxTokens: api.DefaultImageMaxTokens}},
@@ -3847,5 +3849,66 @@ func TestMaxImageTokens(t *testing.T) {
 				t.Errorf("%s %dx%d: ImageTokensForSize=%d exceeds MaxImageTokens=%d", arch, d[0], d[1], n, worst)
 			}
 		}
+	}
+}
+
+func TestResolvedImageTokenBudget(t *testing.T) {
+	sentinel := api.Options{Runner: api.Runner{
+		ImageMinTokens: api.DefaultImageMinTokens,
+		ImageMaxTokens: api.DefaultImageMaxTokens,
+	}}
+
+	for _, tc := range []struct {
+		name        string
+		arch        string
+		opts        api.Options
+		wantMin     int
+		wantMax     int
+		wantDerived bool
+	}{
+		{
+			name: "gemma4 sentinel resolves to its own defaults",
+			arch: "gemma4", opts: sentinel,
+			wantMin: api.DefaultImageMinTokens, wantMax: api.DefaultImageMaxTokens, wantDerived: true,
+		},
+		{
+			// The sentinel means "untouched" here, so it must resolve to the
+			// same bounds an explicit 256/3328 does — that equality is what
+			// keeps the scheduler from reloading for identical flags.
+			name: "nemotron sentinel resolves to native bounds",
+			arch: "nemotron_h_omni", opts: sentinel,
+			wantMin: 256, wantMax: 3328, wantDerived: true,
+		},
+		{
+			name:    "nemotron explicit native bounds resolve identically",
+			arch:    "nemotron_h_omni",
+			opts:    api.Options{Runner: api.Runner{ImageMinTokens: 256, ImageMaxTokens: 3328}},
+			wantMin: 256, wantMax: 3328, wantDerived: true,
+		},
+		{
+			name: "qwen flags ignore the bounds",
+			arch: "qwen3vl", opts: sentinel,
+			wantMin: 0, wantMax: 0, wantDerived: false,
+		},
+		{
+			name: "arch with no vision flags",
+			arch: "llama", opts: sentinel,
+			wantMin: 0, wantMax: 0, wantDerived: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			minTok, maxTok, derived := ResolvedImageTokenBudget(tc.arch, tc.opts)
+			if minTok != tc.wantMin || maxTok != tc.wantMax || derived != tc.wantDerived {
+				t.Errorf("ResolvedImageTokenBudget(%q) = %d, %d, %v; want %d, %d, %v",
+					tc.arch, minTok, maxTok, derived, tc.wantMin, tc.wantMax, tc.wantDerived)
+			}
+
+			r := tc.opts.Runner
+			NormalizeImageTokenBudget(tc.arch, &r)
+			if r.ImageMinTokens != tc.wantMin || r.ImageMaxTokens != tc.wantMax {
+				t.Errorf("NormalizeImageTokenBudget(%q) = %d/%d, want %d/%d",
+					tc.arch, r.ImageMinTokens, r.ImageMaxTokens, tc.wantMin, tc.wantMax)
+			}
+		})
 	}
 }

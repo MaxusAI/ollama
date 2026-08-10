@@ -25,8 +25,13 @@ the same model and image. Measurements taken through one endpoint are valid for 
 `/api/generate` and `/api/chat`.)
 
 **B3 — Budget options are Runner options.** `ImageMinTokens` / `ImageMaxTokens`
-changes reload the runner. Clients MUST expect a reload when they vary them per
-request.
+changes reload the runner **when they change the flags it is launched with**.
+Clients MUST expect a reload when they vary the *effective* budget per request,
+and MUST NOT rely on one otherwise: the scheduler compares the resolved bounds
+(`llm.ResolvedImageTokenBudget`), so naming an arch's own defaults explicitly —
+which for a non-gemma4 arch is what the unset sentinel already resolves to — or
+varying the options on an arch whose vision flags ignore them keeps the loaded
+runner. See [ADR 0016](../adr/0016-reload-on-resolved-vision-flags.md).
 
 **B4 — Two sides must agree.** A flag only has effect if the loaded projector calls
 `set_limit_image_tokens()` and consumes it. Adding an arch to `visionServerArgs`
