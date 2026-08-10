@@ -8,7 +8,8 @@ abandoned. For how the fork behaves today, see [`docs/maxusai/`](../maxusai/).
   original `image_min_tokens` / `image_max_tokens` plan, written against the Go-native
   inference runner that upstream has since deleted. Records the Google visual-token ladder,
   the scheduler-reload requirement, and the option-naming rationale. The shipped feature
-  works differently and uses different defaults (40 / 1120, not 70 / 560).
+  works differently and uses different defaults (70 / 1120 today, not this plan's
+  70 / 560 — see ADR 0007 and ADR 0008 for how the ceiling moved).
 - [Gemma 4 vision token budgets — upstream rebase & forward-port notes](gemma4-vision-token-budgets-upstream-rebase.md)
   — **historical.** Why the feature was rebased onto `f63eea3d` (the last upstream commit
   with the Go runner still wired) instead of forward-ported, which of the two upstream PRs
