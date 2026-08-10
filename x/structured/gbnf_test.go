@@ -1,6 +1,9 @@
 package structured
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // compileRules builds a grammar from GBNF rule bodies keyed by name, rooted
 // at "root", failing the test on parse errors.
@@ -119,6 +122,64 @@ func TestGBNFGroupsAndAlternation(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"x", "yz", "xyzx", "!"} {
+		if accepts(g, bad) {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestGBNFRepetitionThreshold(t *testing.T) {
+	// Repetitions expand to one copy of the body per repetition, so an
+	// unbounded count is a memory-exhaustion lever. Parity with llama.cpp:
+	// a single count over MAX_REPETITION_THRESHOLD is rejected, and so is a
+	// count whose product with the rules the unit already generated reaches
+	// it — the guard that stops nested repetitions from multiplying out.
+	cases := []struct {
+		name string
+		body string
+		ok   bool
+	}{
+		{"just under the threshold", `[a]{0,1999}`, true},
+		{"at the threshold", `[a]{0,2000}`, false},
+		{"max far over", `[a]{0,300000000}`, false},
+		{"min far over", `[a]{300000000,}`, false},
+		{"exact count over", `[a]{300000000}`, false},
+		{"alternation is not a repetition", `("x" | "y"){0,100}`, true},
+		{"nested repetitions multiply", `("x"{0,1000}){0,10}`, false},
+	}
+	for _, c := range cases {
+		_, err := gbnfToGrammar(map[string]string{"root": c.body}, "root")
+		if c.ok && err != nil {
+			t.Errorf("%s: %s: unexpected error: %v", c.name, c.body, err)
+		}
+		if !c.ok {
+			if err == nil {
+				t.Errorf("%s: %s: expected an error", c.name, c.body)
+			} else if !strings.Contains(err.Error(), "repetition") {
+				t.Errorf("%s: %s: error %q does not mention repetitions", c.name, c.body, err)
+			}
+		}
+	}
+}
+
+func TestGBNFCanonicalizeMergesEqualRules(t *testing.T) {
+	// Rules that differ only in name compile to distinct rules, and keeping
+	// both alive forks the stack set for no reason; equal rules are merged
+	// and the duplicate alternatives they leave behind are dropped.
+	g := compileRules(t, map[string]string{
+		"root": `rep | rep2`,
+		"rep":  `"a"* "b"`,
+		"rep2": `"a"* "b"`,
+	})
+	if got := len(g.rules[g.root].alts); got != 1 {
+		t.Errorf("root has %d alternatives, want 1 after merging equal rules", got)
+	}
+	for _, ok := range []string{"b", "ab", "aaab"} {
+		if !accepts(g, ok) {
+			t.Errorf("%q rejected", ok)
+		}
+	}
+	for _, bad := range []string{"", "a", "ba"} {
 		if accepts(g, bad) {
 			t.Errorf("%q accepted", bad)
 		}

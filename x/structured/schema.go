@@ -1,6 +1,7 @@
 package structured
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"regexp"
@@ -356,6 +357,8 @@ type schemaConverter struct {
 	rules             map[string]string
 	refs              map[string]*jval
 	refsBeingResolved map[string]bool
+	refNames          map[string]string // $ref pointer -> rule name
+	refNameOwners     map[string]string // rule name -> $ref pointer that claimed it
 	errors            []string
 	doc               *jval
 }
@@ -370,6 +373,8 @@ func schemaGrammar(schema []byte) (*Grammar, error) {
 		rules:             map[string]string{"space": spaceRule},
 		refs:              make(map[string]*jval),
 		refsBeingResolved: make(map[string]bool),
+		refNames:          make(map[string]string),
+		refNameOwners:     make(map[string]string),
 		doc:               doc,
 	}
 	c.resolveRefs(doc)
@@ -382,6 +387,12 @@ func schemaGrammar(schema []byte) (*Grammar, error) {
 		// A parse failure here means the converter emitted something the
 		// GBNF subset cannot express; surface it rather than guessing.
 		return nil, fmt.Errorf("JSON schema conversion failed: %w", err)
+	}
+	if len(g.NewMatcher().stacks) == 0 {
+		// Every derivation from the root recurses without ever reaching a
+		// byte, so the grammar matches nothing at all. Reject it rather
+		// than hand the sampler a state in which no token is legal.
+		return nil, errors.New("JSON schema conversion failed: schema matches nothing (a $ref cycle that never consumes input)")
 	}
 	return g, nil
 }
@@ -478,12 +489,35 @@ func (c *schemaConverter) resolveRefs(node *jval) {
 	}
 }
 
-func (c *schemaConverter) resolveRef(ref string) string {
+// refRuleName maps a $ref pointer to the rule name that stands for it.
+// Collapsing every character outside [a-zA-Z0-9-] to '-' is not injective —
+// "#/$defs/a.b" and "#/$defs/a-b" spell the same name — so the mapping is
+// memoized per pointer and a name already claimed by another pointer gets a
+// counter suffix, the same disambiguation addRule uses. The first pointer
+// to claim a name keeps it, so ordinary schemas keep the names they had.
+func (c *schemaConverter) refRuleName(ref string) string {
+	if name, ok := c.refNames[ref]; ok {
+		return name
+	}
 	fragment := ref
 	if i := strings.Index(ref, "#"); i >= 0 {
 		fragment = ref[i+1:]
 	}
-	refName := "ref" + invalidRuleChars.ReplaceAllString(fragment, "-")
+	base := "ref" + invalidRuleChars.ReplaceAllString(fragment, "-")
+	name := base
+	for i := 0; ; i++ {
+		if _, taken := c.refNameOwners[name]; !taken {
+			break
+		}
+		name = base + strconv.Itoa(i)
+	}
+	c.refNames[ref] = name
+	c.refNameOwners[name] = ref
+	return name
+}
+
+func (c *schemaConverter) resolveRef(ref string) string {
+	refName := c.refRuleName(ref)
 	if _, defined := c.rules[refName]; !defined && !c.refsBeingResolved[ref] {
 		c.refsBeingResolved[ref] = true
 		resolved, ok := c.refs[ref]

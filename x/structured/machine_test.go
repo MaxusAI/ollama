@@ -1,6 +1,7 @@
 package structured
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -200,6 +201,30 @@ func TestWhitespaceStateIsStable(t *testing.T) {
 		if k := m.StateKey(); k != key {
 			t.Fatalf("whitespace state changed after %d bytes", i+1)
 		}
+	}
+}
+
+func TestAmbiguousRecursionKeepsStateSetSmall(t *testing.T) {
+	// Two anyOf branches of the same shape compile to distinct rules. If
+	// both stay live, every level of the recursion doubles the stack set —
+	// and Vocab.Mask pays that for every token — so nesting depth must not
+	// grow the state at all once equal rules are merged.
+	g := compileSchema(t, `{"$defs":{"n":{"anyOf":[{"type":"array","items":{"$ref":"#/$defs/n"}},{"type":"array","items":{"$ref":"#/$defs/n"}}]}},"$ref":"#/$defs/n"}`)
+	m := g.NewMatcher()
+	for depth := 1; depth <= 64; depth++ {
+		if !m.AdvanceByte('[') {
+			t.Fatalf("depth %d: '[' rejected", depth)
+		}
+		if n := len(m.stacks); n > 64 {
+			t.Fatalf("depth %d: %d live stacks", depth, n)
+		}
+	}
+	// The nesting must still close, i.e. merging did not lose the language.
+	if !m.Advance([]byte(strings.Repeat("]", 64))) {
+		t.Error("nesting could not be closed")
+	}
+	if !m.CanComplete() {
+		t.Error("CanComplete() = false after a balanced nesting")
 	}
 }
 
