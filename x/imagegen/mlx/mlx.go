@@ -16,9 +16,19 @@ package mlx
 // Forward declare cpu_stream
 static mlx_stream cpu_stream();
 
-// Cached default GPU stream for all ops
-static mlx_stream _default_stream = {0};
-static mlx_stream _cpu_stream = {0};
+// Cached default streams, one set per OS thread.
+//
+// mlx_default_gpu_stream_new() and mlx_default_cpu_stream_new() resolve
+// mlx::core::default_stream(), which MLX keeps in thread-local storage
+// (mlx/stream.cpp), and the command encoder behind a stream lives in a
+// thread_local map (mlx/backend/{metal,cpu}). A stream is therefore only usable
+// on the thread that resolved it. Caching one in a process-global handed the
+// first thread's stream to every later thread, whose eval then failed and left
+// an unevaluated array — surfacing as a SIGSEGV inside mlx_array_data_*, since
+// this binding installs no error-capturing handler. Keeping the cache in
+// thread-local storage lets each thread resolve its own.
+static __thread mlx_stream _default_stream = {0};
+static __thread mlx_stream _cpu_stream = {0};
 
 static inline mlx_stream default_stream() {
     if (_default_stream.ctx == NULL) {
@@ -27,6 +37,8 @@ static inline mlx_stream default_stream() {
     return _default_stream;
 }
 
+// Sets this thread's cached stream. mlx_set_default_stream is itself
+// thread-local, so the two now agree about scope.
 static inline void set_default_stream(mlx_stream s) {
     _default_stream = s;
 }

@@ -36,6 +36,42 @@ func useMLXTestThread(t *testing.T) {
 	})
 }
 
+// TestDefaultStreamIsPerThread runs the same build/eval/read sequence on two
+// distinct OS threads in turn. Each goroutine locks a thread and then exits, so
+// the runtime tears that thread down and the second goroutine is guaranteed a
+// different one.
+//
+// The default stream is resolved lazily and cached. MLX keeps default streams,
+// and the command encoders behind them, in thread-local storage, so a
+// process-global cache would hand thread one's stream to thread two: the second
+// eval fails, leaves the array unevaluated, and reading it faults inside MLX
+// rather than returning an error.
+func TestDefaultStreamIsPerThread(t *testing.T) {
+	for i := range 2 {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			runtime.LockOSThread()
+
+			a := NewArrayFloat32([]float32{1, 2}, []int32{2})
+			b := NewArrayFloat32([]float32{3, 4}, []int32{2})
+			result := Add(a, b)
+			Keep(result)
+			Eval(result)
+
+			if !result.Valid() {
+				t.Errorf("thread %d: kept result was freed", i)
+				return
+			}
+			data := result.Data()
+			if len(data) < 2 || data[0] != 4 || data[1] != 6 {
+				t.Errorf("thread %d: expected [4 6], got %v", i, data)
+			}
+		}()
+		<-done
+	}
+}
+
 // TestBasicCleanup verifies non-kept arrays are freed and kept arrays survive.
 func TestBasicCleanup(t *testing.T) {
 	useMLXTestThread(t)

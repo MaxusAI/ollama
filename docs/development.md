@@ -157,25 +157,41 @@ cmake --build build --parallel 8
 
 ### MLX threading
 
-MLX keeps each device's default stream in thread-local storage and the Metal
-command encoder behind it in a `thread_local` map, and every array records the
-stream it was built on. An array can therefore only be evaluated on the OS thread
-that built it. A goroutine is not an OS thread, so anything driving MLX must call
-`mlx.ClaimOSThread()` once during setup — it pins the goroutine for life and gives
-it its own stream. `x/mlxrunner` and `ollama create` already do this in their
-worker init.
+MLX keeps each device's default stream in thread-local storage and the command
+encoder behind it in a `thread_local` map, and every array records the stream it
+was built on. An array can therefore only be evaluated on the OS thread that built
+it. A goroutine is not an OS thread, so anything driving MLX has to stay on one —
+and a stream must never be cached anywhere that outlives the thread that resolved
+it.
+
+The repo has two independent MLX bindings, which meet that requirement differently:
+
+- **`x/mlxrunner/mlx`** — call `mlx.ClaimOSThread()` once during setup. It pins the
+  goroutine for life and resets the Go-side stream cache so the new owner resolves
+  its own. `x/mlxrunner` and `ollama create` do this in their worker init. Go has
+  no goroutine-local storage, which is why the cache has to be tied to an explicit
+  claim.
+- **`x/imagegen/mlx`** — no claim call. Its cached streams are `__thread` in the
+  cgo preamble, so each OS thread resolves its own; callers still pin (`InitMLX`
+  locks the main goroutine).
 
 Two rules follow when writing MLX tests:
 
-- Every test goroutine that touches MLX must claim a thread. The `skipIfNoMLX`
-  helpers do it for you.
+- Every test goroutine that touches MLX must be on a pinned thread. In
+  `x/mlxrunner` and the model packages the `skipIfNoMLX` helpers claim for you.
 - `t.Run` subtests are separate goroutines, so build MLX arrays **inside** the
-  subtest. Fixtures built in the parent and evaluated in a subtest will panic with
+  subtest. Fixtures built in the parent and evaluated in a subtest will fail with
   `There is no Stream(gpu, N) in current thread`.
 
-A panic aborts the test process and hides every later test, so when chasing one,
-sweep per test (`-run '^Name$'` in a loop) rather than trusting a single package
-run. See [ADR 0017](maxusai/adr/0017-mlx-work-runs-on-a-permanently-claimed-os-thread.md).
+Failure modes differ by binding, which matters when you are chasing one:
+`x/mlxrunner/mlx` installs an error-capturing handler and panics with that
+message, while `x/imagegen/mlx` has none, so a failed eval leaves an unevaluated
+array and faults with a SIGSEGV inside `mlx_array_data_*` instead. Either way the
+process dies and every later test is hidden, so sweep per test (`-run '^Name$'` in
+a loop) rather than trusting a single package run.
+
+See [ADR 0017](maxusai/adr/0017-mlx-work-runs-on-a-permanently-claimed-os-thread.md)
+and [ADR 0018](maxusai/adr/0018-imagegen-caches-mlx-streams-per-thread.md).
 
 ## Docker
 
