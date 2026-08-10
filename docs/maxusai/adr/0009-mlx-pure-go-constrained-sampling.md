@@ -1,6 +1,10 @@
 # ADR 0009: Constrain MLX generation with a pure-Go JSON grammar, reject what it cannot constrain
 
-- **Status:** accepted (2026-08-07)
+- **Status:** accepted (2026-08-07). Scope of schema support amended
+  2026-08-10 by
+  [ADR 0013](0013-grammar-repetition-bounded-at-llama-cpp-parity.md)
+  (repetition bounds over llama.cpp's threshold, and grammars that consume
+  no input, are now rejected rather than materialized).
 - **Date:** 2026-08-07
 - **Deciders:** MaxusAI fork maintainers
 

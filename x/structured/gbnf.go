@@ -6,6 +6,13 @@ import (
 	"unicode/utf8"
 )
 
+// maxRepetitionThreshold mirrors llama.cpp's MAX_REPETITION_THRESHOLD
+// (src/llama-grammar.cpp), so both engines accept the same language. A
+// repetition is expanded into one copy of its body per repetition, so an
+// unbounded count is a remote memory-exhaustion lever: this is the single
+// tuning knob for how much grammar one request may materialize.
+const maxRepetitionThreshold = 2000
+
 // gbnfToGrammar compiles a set of named GBNF rule bodies into a Grammar
 // rooted at root. Only the subset emitted by the schema converter and the
 // grammarJSON constant is supported: literals, character classes, groups,
@@ -36,6 +43,7 @@ func gbnfToGrammar(rules map[string]string, root string) (*Grammar, error) {
 		}
 		b.define(ids[name], alts...)
 	}
+	b.g.canonicalize()
 	return b.g, nil
 }
 
@@ -45,6 +53,9 @@ type gbnfParser struct {
 	src  string
 	rule string
 	pos  int
+	// nPrevRules tracks how many rules the unit a postfix operator would
+	// apply to has already generated, mirroring llama.cpp's n_prev_rules.
+	nPrevRules int
 }
 
 func (p *gbnfParser) errf(format string, args ...any) error {
@@ -88,6 +99,7 @@ func (p *gbnfParser) parseAlternates() ([]seq, error) {
 
 func (p *gbnfParser) parseSequence() (seq, error) {
 	out := seq{}
+	p.nPrevRules = 1
 	for {
 		p.skipSpace()
 		if p.pos >= len(p.src) {
@@ -101,6 +113,7 @@ func (p *gbnfParser) parseSequence() (seq, error) {
 			if err != nil {
 				return nil, err
 			}
+			p.nPrevRules = 1
 			if out, err = p.appendWithPostfix(out, unit); err != nil {
 				return nil, err
 			}
@@ -109,11 +122,13 @@ func (p *gbnfParser) parseSequence() (seq, error) {
 			if err != nil {
 				return nil, err
 			}
+			p.nPrevRules = 1
 			var err2 error
 			if out, err2 = p.appendWithPostfix(out, seq{e}); err2 != nil {
 				return nil, err2
 			}
 		case c == '(':
+			before := len(p.b.g.rules)
 			p.pos++
 			alts, err := p.parseAlternates()
 			if err != nil {
@@ -126,9 +141,14 @@ func (p *gbnfParser) parseSequence() (seq, error) {
 			p.pos++
 			var unit seq
 			if len(alts) == 1 {
+				// llama.cpp always synthesizes a rule for a group; this
+				// parser inlines single-alternative ones, so count the
+				// rule it did not need to keep the guard in step with it.
 				unit = alts[0]
+				p.nPrevRules = len(p.b.g.rules) - before + 1
 			} else {
 				unit = seq{p.b.group(alts...)}
+				p.nPrevRules = max(1, len(p.b.g.rules)-before)
 			}
 			if out, err = p.appendWithPostfix(out, unit); err != nil {
 				return nil, err
@@ -143,6 +163,7 @@ func (p *gbnfParser) parseSequence() (seq, error) {
 			if !ok {
 				return nil, p.errf("reference to undefined rule %q", name)
 			}
+			p.nPrevRules = 1
 			var err error
 			if out, err = p.appendWithPostfix(out, seq{ref(id)}); err != nil {
 				return nil, err
@@ -153,6 +174,26 @@ func (p *gbnfParser) parseSequence() (seq, error) {
 	}
 }
 
+// checkRepetition ports llama.cpp's handle_repetitions budget: a repetition
+// may not multiply the rules the preceding unit already generated past
+// maxRepetitionThreshold. Without the cumulative half, nested repetitions
+// (an array of bounded strings) multiply out even though each bound on its
+// own looks reasonable. maxCount < 0 means unbounded.
+func (p *gbnfParser) checkRepetition(minCount, maxCount int) error {
+	totalRules := 1
+	switch {
+	case maxCount > 0:
+		totalRules = maxCount
+	case maxCount < 0 && minCount > 0:
+		totalRules = minCount
+	}
+	if p.nPrevRules*totalRules >= maxRepetitionThreshold {
+		return p.errf("number of rules that are going to be repeated multiplied by the new repetition exceeds sane defaults, please reduce the number of repetitions or rule complexity")
+	}
+	p.nPrevRules *= totalRules
+	return nil
+}
+
 // appendWithPostfix applies any ? * + {n,m} operator following the just
 // parsed unit, then concatenates it onto out.
 func (p *gbnfParser) appendWithPostfix(out, unit seq) (seq, error) {
@@ -161,12 +202,21 @@ func (p *gbnfParser) appendWithPostfix(out, unit seq) (seq, error) {
 		switch p.src[p.pos] {
 		case '?':
 			p.pos++
+			if err := p.checkRepetition(0, 1); err != nil {
+				return nil, err
+			}
 			return append(out, p.b.opt(unit)), nil
 		case '*':
 			p.pos++
+			if err := p.checkRepetition(0, -1); err != nil {
+				return nil, err
+			}
 			return append(out, p.b.star(unit)), nil
 		case '+':
 			p.pos++
+			if err := p.checkRepetition(1, -1); err != nil {
+				return nil, err
+			}
 			return append(out, p.b.plus(unit)), nil
 		case '{':
 			p.pos++
@@ -192,6 +242,12 @@ func (p *gbnfParser) appendWithPostfix(out, unit seq) (seq, error) {
 			p.pos++
 			if maxCount >= 0 && maxCount < minCount {
 				return nil, p.errf("repetition max %d < min %d", maxCount, minCount)
+			}
+			if minCount > maxRepetitionThreshold || maxCount > maxRepetitionThreshold {
+				return nil, p.errf("number of repetitions exceeds sane defaults, please reduce the number of repetitions")
+			}
+			if err := p.checkRepetition(minCount, maxCount); err != nil {
+				return nil, err
 			}
 			return append(out, p.b.repeat(unit, minCount, maxCount)), nil
 		}

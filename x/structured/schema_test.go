@@ -2,8 +2,10 @@ package structured
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func compileSchema(t *testing.T, schema string) *Grammar {
@@ -258,6 +260,84 @@ func TestSchemaUnsupportedRejected(t *testing.T) {
 			t.Errorf("Compile(%s): error %q does not mention %q", c.schema, err, c.mention)
 		}
 	}
+}
+
+func TestSchemaRepetitionBoundsRejected(t *testing.T) {
+	// minItems/maxItems/minLength/maxLength expand literally, so one
+	// unauthenticated request could otherwise make the runner materialize
+	// tens of gigabytes of grammar before a token is produced.
+	for _, schema := range []string{
+		`{"type":"string","maxLength":300000000}`,
+		`{"type":"string","minLength":300000000}`,
+		`{"type":"array","items":{"type":"integer"},"maxItems":300000000}`,
+		`{"type":"array","items":{"type":"integer"},"minItems":300000000}`,
+		// Neither bound is outrageous alone; their product is.
+		`{"type":"array","maxItems":1999,"items":{"type":"string","maxLength":1999}}`,
+	} {
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		_, err := Compile([]byte(schema))
+		runtime.ReadMemStats(&after)
+		if err == nil {
+			t.Errorf("Compile(%s): expected error", schema)
+			continue
+		}
+		// The point of the guard is that the rejection is cheap: a rejected
+		// schema must not have been expanded first.
+		if grew := (after.TotalAlloc - before.TotalAlloc) / (1 << 20); grew > 32 {
+			t.Errorf("Compile(%s): allocated %d MB before rejecting", schema, grew)
+		}
+	}
+
+	// Bounds within the threshold still compile and still constrain.
+	g := compileSchema(t, `{"type":"array","items":{"type":"string","maxLength":4},"maxItems":2}`)
+	checkAccepts(t, g,
+		[]string{`[]`, `["ab"]`, `["ab","cd"]`, `["abcd"]`},
+		[]string{`["abcde"]`, `["a","b","c"]`})
+}
+
+func TestSchemaUnproductiveRefCycleRejected(t *testing.T) {
+	// Every derivation recurses through $defs/x without ever consuming a
+	// byte. ε-expansion is depth-bounded but was not breadth-bounded, so
+	// this 121-byte schema used to hang Grammar.NewMatcher exploring one
+	// path per combination of alternatives.
+	const schema = `{"anyOf":[{"$ref":"#/$defs/x"},{"$ref":"#/$defs/x"}],"$defs":{"x":{"anyOf":[{"$ref":"#/$defs/x"},{"$ref":"#/$defs/x"}]}}}`
+	done := make(chan error, 1)
+	go func() {
+		g, err := Compile([]byte(schema))
+		if err == nil {
+			g.NewMatcher() // where the expansion used to disappear
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected an error for a $ref cycle that never consumes input")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("compiling the schema did not return")
+	}
+
+	// A recursive $ref that can still terminate is not degenerate and must
+	// keep compiling; TestSchemaRefRecursion covers the structural case.
+	g := compileSchema(t, `{"$ref":"#/$defs/a","$defs":{"a":{"anyOf":[{"$ref":"#/$defs/a"},{"type":"integer"}]}}}`)
+	checkAccepts(t, g, []string{`4`, `-17`}, []string{`"s"`, `true`})
+}
+
+func TestSchemaRefNamesDoNotAlias(t *testing.T) {
+	// "$defs/a.b" and "$defs/a-b" both sanitize to the rule name
+	// "ref-defs-a-b"; the second $ref used to find that name already
+	// defined, skip resolution, and silently take the first target's shape.
+	g := compileSchema(t, `{"type":"object","properties":{"p":{"$ref":"#/$defs/a.b"},"q":{"$ref":"#/$defs/a-b"}},"required":["p","q"],`+
+		`"$defs":{"a.b":{"type":"object","properties":{"i":{"type":"integer"}},"required":["i"]},`+
+		`"a-b":{"type":"object","properties":{"s":{"type":"string"}},"required":["s"]}}}`)
+	checkAccepts(t, g,
+		[]string{`{"p":{"i":1},"q":{"s":"x"}}`},
+		[]string{
+			`{"p":{"i":1},"q":{"i":1}}`, // q must not inherit a.b's shape
+			`{"p":{"s":"x"},"q":{"s":"x"}}`,
+		})
 }
 
 func TestSchemaPropertyNameEscaping(t *testing.T) {

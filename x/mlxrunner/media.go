@@ -31,8 +31,20 @@ type expandedPrompt struct {
 // mediaSalts derives one nonzero cache-salt word per soft token from the
 // payload digest, position-mixed so distinct images diverge at their first
 // soft token and identical images share every key.
+//
+// The soft-token count is digested alongside the payload: it is the resolved
+// token budget, so the same image encoded at two budgets holds different
+// embeddings and must share no key prefix. Salting by position alone would
+// make the smaller budget's salts a prefix of the larger one's, letting a
+// request that lowered image_max_tokens — which does not reload the runner —
+// restore KV from the other encoding.
 func mediaSalts(data []byte, n int) []uint32 {
-	sum := sha256.Sum256(data)
+	h := sha256.New()
+	h.Write(data)
+	var budget [8]byte
+	binary.BigEndian.PutUint64(budget[:], uint64(n))
+	h.Write(budget[:])
+	sum := h.Sum(nil)
 	var words [8]uint32
 	for i := range words {
 		words[i] = binary.BigEndian.Uint32(sum[i*4:])
@@ -49,8 +61,8 @@ func mediaSalts(data []byte, n int) []uint32 {
 // encode is segment tokenization; addBOS applies to the first emitted
 // segment only, mirroring the text-only path.
 func expandMedia(prompt string, media []llm.MediaData, vm base.VisionModel, opts api.Options,
-	encode func(text string, addBOS bool) []int32, addBOS bool) (*expandedPrompt, error) {
-
+	encode func(text string, addBOS bool) []int32, addBOS bool,
+) (*expandedPrompt, error) {
 	byID := make(map[int]llm.MediaData, len(media))
 	for _, m := range media {
 		byID[m.ID] = m

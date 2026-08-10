@@ -501,13 +501,17 @@ func unifiedTestModel() *Model {
 		ModelType: "gemma4_unified_vision", MMEmbedDim: 16, MMPosembSize: 1120,
 		ModelPatchSize: 48, PatchSize: 16, PoolingKernelSize: 3, RMSNormEps: 1e-6,
 	}
-	return &Model{TextConfig: &TextConfig{}, VisionCfg: cfg,
-		MMTokens: multimodalTokens{BOI: 255999, EOI: 258882, Image: 258880}}
+	return &Model{
+		TextConfig: &TextConfig{}, VisionCfg: cfg,
+		MMTokens: multimodalTokens{BOI: 255999, EOI: 258882, Image: 258880},
+	}
 }
 
 func towerTestModel() *Model {
-	return &Model{TextConfig: &TextConfig{}, VisionCfg: towerTestConfig(2),
-		MMTokens: multimodalTokens{BOI: 255999, EOI: 258882, Image: 258880}}
+	return &Model{
+		TextConfig: &TextConfig{}, VisionCfg: towerTestConfig(2),
+		MMTokens: multimodalTokens{BOI: 255999, EOI: 258882, Image: 258880},
+	}
 }
 
 func TestNewVisionInputUnifiedLayout(t *testing.T) {
@@ -567,6 +571,89 @@ func TestNewVisionInputTowerLayout(t *testing.T) {
 		if got := vi.patches[base+c]; !close32(got, want, 1e-3) {
 			t.Fatalf("tower patch value[ch=%d] = %v, want %v", c, got, want)
 		}
+	}
+}
+
+// alphaTestImagePNG is testImagePNG's 480×336 gradient with two non-opaque
+// pixels: (0,0) fully transparent and (1,0) at half alpha.
+func alphaTestImagePNG(t *testing.T) []byte {
+	t.Helper()
+	const w, h = 480, 336
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			img.SetNRGBA(x, y, color.NRGBA{R: uint8(x % 256), G: uint8(y % 256), B: uint8((x + y) % 256), A: 255})
+		}
+	}
+	img.SetNRGBA(0, 0, color.NRGBA{R: 10, G: 20, B: 30, A: 0})
+	img.SetNRGBA(1, 0, color.NRGBA{R: 200, G: 100, B: 50, A: 128})
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// overWhite composites one straight-alpha channel over white, the reference's
+// convert_to_rgb; c and a are bytes, the result stays in byte scale.
+func overWhite(c, a float64) float64 { return (c*a + 255*(255-a)) / 255 }
+
+// TestNewVisionInputCompositesAlphaOverWhite pins convert_to_rgb's semantics:
+// transparency composites over white, never over the black an alpha-
+// premultiplied buffer would leave behind. At budget 70 the 480×336 fixture
+// resizes by exactly 1.0, so patch values are the composited pixels.
+func TestNewVisionInputCompositesAlphaOverWhite(t *testing.T) {
+	data := alphaTestImagePNG(t)
+	opts := api.Options{}
+	opts.ImageMaxTokens = 70
+
+	// pixel reads one channel of source pixel (x,y) back out of the patches.
+	pixel := func(vi *visionInput, p, x, y, c int) float32 {
+		i := (y/p)*int(vi.gridW) + x/p
+		return vi.patches[i*int(vi.patchDim)+((y%p)*p+(x%p))*3+c]
+	}
+
+	tests := []struct {
+		name   string
+		model  *Model
+		p      int
+		encode func(float64) float32 // composited byte → patch value
+	}{
+		{"unified", unifiedTestModel(), 48, func(v float64) float32 { return float32(v / 255) }},
+		{"tower", towerTestModel(), 16, func(v float64) float32 { return float32(2*v/255 - 1) }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in, err := tc.model.NewVisionInput(data, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			vi := in.(*visionInput)
+
+			// Fully transparent: pure white, not the stored (10,20,30).
+			for c := range 3 {
+				want := tc.encode(255)
+				if got := pixel(vi, tc.p, 0, 0, c); !close32(got, want, 1e-3) {
+					t.Errorf("transparent pixel[ch=%d] = %v, want %v", c, got, want)
+				}
+			}
+			// Half alpha: blended toward white. The tolerance absorbs the
+			// compositor's integer rounding; the premultiplied-over-black bug
+			// misses by more than 0.39 on every channel.
+			for c, src := range []float64{200, 100, 50} {
+				want := tc.encode(overWhite(src, 128))
+				if got := pixel(vi, tc.p, 1, 0, c); !close32(got, want, 0.02) {
+					t.Errorf("half-alpha pixel[ch=%d] = %v, want %v", c, got, want)
+				}
+			}
+			// An opaque pixel of the same image must be untouched.
+			for c, src := range []float64{101, 55, 156} {
+				want := tc.encode(src)
+				if got := pixel(vi, tc.p, 101, 55, c); !close32(got, want, 1e-3) {
+					t.Errorf("opaque pixel[ch=%d] = %v, want %v", c, got, want)
+				}
+			}
+		})
 	}
 }
 

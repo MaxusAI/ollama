@@ -1422,6 +1422,14 @@ func (runner *runnerRef) needsReload(ctx context.Context, req *LlmRequest) bool 
 		optsExisting.NumGPU = -1
 		optsNew.NumGPU = -1
 	}
+	// The image-token bounds are arch-agnostic options carrying gemma4's
+	// defaults, so unequal values do not imply a different runner: on an arch
+	// that substitutes its own bounds for the sentinel, an unset request and
+	// one that names those bounds explicitly launch identical flags. Compare
+	// what the runner would be started with, not what the caller happened to
+	// send, or the second request reloads the model for nothing.
+	llm.NormalizeImageTokenBudget(req.model.Config.ModelFamily, &optsExisting)
+	llm.NormalizeImageTokenBudget(req.model.Config.ModelFamily, &optsNew)
 
 	contextShift := req.contextShift
 	if req.model.ModelPath != "" {

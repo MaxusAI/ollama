@@ -95,8 +95,8 @@ func (c *prefixCache) ensureRoot() {
 // salts, when non-nil, perturb the trie key at each aligned position —
 // media requests salt their image-token runs with digest-derived words so
 // identical placeholder ids never collide across different images, while
-// identical images still share their prefix. restoreFloor rejects partial
-// matches that end before it (media requests pass the last image span's
+// identical images still share their prefix. restoreFloor rejects any
+// restore that resumes before it (media requests pass the last image span's
 // end): a restore inside or before a bidirectional block would resume
 // prefill mid-block, and the block masks only compose from position zero.
 func (c *prefixCache) begin(inputs []int32, salts []uint32, restoreFloor int) *cacheSession {
@@ -124,6 +124,17 @@ func (c *prefixCache) begin(inputs []int32, salts []uint32, restoreFloor int) *c
 
 	// switchToPath aligns caches to a common offset
 	prefix := c.minCacheOffset()
+
+	// Prefill resumes from prefix, not from matched: a cache that refuses its
+	// page-in (e.g. a rotating cache asked for a mid-window restore) drags the
+	// alignment down to a shallower node. Re-check the floor against the offset
+	// actually reached, or the restore lands inside a bidirectional block.
+	if prefix > 0 && prefix < restoreFloor {
+		matchPath, matched = findBestMatch(c.root, keys[:0])
+		c.switchToPath(matchPath, matched)
+		prefix = c.minCacheOffset()
+	}
+
 	remaining := inputs[prefix:]
 
 	session := &cacheSession{

@@ -1248,11 +1248,64 @@ func TestPrefixCacheMediaRestoreFloor(t *testing.T) {
 	inputsA, saltsA, spanEndA := mediaPrompt(4, "image-a")
 	runSalted(t, env.pc, inputsA, saltsA, spanEndA)
 
-	// The same image at a larger budget shares its first four salted keys —
-	// the match would land inside the new request's longer image block. The
-	// floor must reject it and re-prefill from zero.
+	// The same image at a larger budget is a different encoding: its salts
+	// diverge at the first soft token, so the match stops at the text prefix
+	// before the image block. That match falls below the floor, which must
+	// reject it and re-prefill from zero.
 	inputsL, saltsL, spanEndL := mediaPrompt(6, "image-a")
 	if left := runSalted(t, env.pc, inputsL, saltsL, spanEndL); left != len(inputsL) {
 		t.Fatalf("mid-span restore not rejected: left = %d, want full %d", left, len(inputsL))
+	}
+}
+
+// TestPrefixCacheRestoreFloorUsesResumeOffset checks the floor against the
+// offset prefill actually resumes from, not the trie match depth. Page-in can
+// stop short of the match — here the sliding window refuses a mid-window
+// restore — and the alignment that follows drags every cache back to a
+// shallower node, which for a media prompt lands inside the image block the
+// floor exists to protect.
+func TestPrefixCacheRestoreFloorUsesResumeOffset(t *testing.T) {
+	// Page-in of [3,8) at target 6 is refused by the sliding window, so the
+	// caches align at the [0,3) node even though the trie matched 6 tokens.
+	const aligned = 3
+
+	cases := []struct {
+		name  string
+		floor int
+		want  int // resume offset after begin
+	}{
+		{"floor past the aligned offset", 5, 0},
+		{"floor at the aligned offset", aligned, aligned},
+		{"no floor", 0, aligned},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newSlidingWindowEnv()
+			t.Cleanup(func() {
+				checkSnapshotLeaks(t, env.tracker, env.pc.root)
+			})
+
+			// Seed the trie: the snapshot at aligned splits the path into
+			// [0,3) and [3,8).
+			first := []int32{1, 2, 3, 4, 5, 6, 7, 8, 9}
+			simulateRequest(t, env.pc, first, nil, aligned)
+
+			// Shares six tokens, then diverges — a partial match that clears
+			// the floor on trie depth alone.
+			second := []int32{1, 2, 3, 4, 5, 6, 70, 80, 90}
+			if _, matched := findBestMatch(env.pc.root, env.pc.key(second, nil)); matched < tt.floor {
+				t.Fatalf("matched = %d, want >= floor %d so only the resume offset rejects", matched, tt.floor)
+			}
+
+			session := env.pc.begin(second, nil, tt.floor)
+			if got := env.pc.minCacheOffset(); got != tt.want {
+				t.Fatalf("resume offset = %d, want %d", got, tt.want)
+			}
+			if want := len(second) - tt.want; len(session.remaining) != want {
+				t.Fatalf("remaining = %d, want %d", len(session.remaining), want)
+			}
+			assertCacheOffsetAlignment(t, env.pc, "after begin")
+		})
 	}
 }

@@ -24,11 +24,71 @@ func prefillChunkSize() int {
 	return 2 << 10
 }
 
+// prefillChunkLen returns how many tokens the next prefill chunk takes
+// starting at position, never more than limit. Bidirectional image blocks
+// must never straddle a chunk boundary, and the model's overlay treats a
+// carrying chunk's own keys as the complete key set — so only a chunk
+// starting at position zero may carry one, and the opening chunk of a media
+// prompt grows to cover every block still left to prefill. Boundaries
+// further in snap clear of a block's interior. spans is empty for text-only
+// prompts, where the nominal chunk always wins.
+func prefillChunkLen(position, limit, chunk int, spans [][2]int32) int {
+	n := min(chunk, limit)
+	for _, s := range spans {
+		start, end := int(s[0]), int(s[1])
+		if end <= position {
+			continue // already prefilled
+		}
+		switch {
+		case position == 0:
+			// The opening chunk carries every block, whole. limit always
+			// leaves the seed token after the last block's closing eoi, so
+			// the clamp below never splits one.
+			n = max(n, end)
+		case start > position && start < position+n:
+			// A block ahead of this chunk opens the next one instead.
+			n = start - position
+		}
+	}
+	return min(max(n, 1), limit)
+}
+
+// visionPrefillMaskBudget caps the dense attention mask a media prompt may
+// materialize during prefill, in bytes.
+//
+// Only a chunk starting at position zero may carry a bidirectional image
+// block, so the opening chunk has to span every block: a prompt whose last
+// image sits late forces an opening chunk that long. gemma4 then builds a
+// dense L×L float32 additive mask over it once per attention window, and
+// both are held for the whole forward — 8L² bytes. At 1 GiB the ceiling is
+// ~11.6k tokens before the last image's end, which is far past any real
+// vision prompt and still leaves the runner alive. Refusing beats letting
+// the subprocess OOM mid-prefill, and the ceiling rises on its own once
+// gemma4's mask becomes offset-aware and blocks can ride a mid-prompt chunk.
+const visionPrefillMaskBudget = 1 << 30
+
+// checkVisionPrefillBudget rejects a media prompt whose image blocks end so
+// late that the opening prefill chunk's mask would exceed the budget.
+func checkVisionPrefillBudget(spans [][2]int32) error {
+	if len(spans) == 0 {
+		return nil
+	}
+	opening := int64(spans[len(spans)-1][1])
+	if want := 8 * opening * opening; want > visionPrefillMaskBudget {
+		return fmt.Errorf("prompt places its last image %d tokens in, which needs a %d MB attention mask (limit %d MB); move the image earlier or shorten the text before it",
+			opening, want>>20, int64(visionPrefillMaskBudget)>>20)
+	}
+	return nil
+}
+
 // compileFormat populates request.Constraint from request.Format. An
 // unsupported format is an error — the fork never silently drops a
-// constraint the caller asked for.
+// constraint the caller asked for. An absent format, JSON null, and the
+// empty string all mean unconstrained, matching the llama-server path and
+// the routes layer.
 func (request *Request) compileFormat() error {
-	if len(request.Format) == 0 || string(request.Format) == "null" {
+	switch string(request.Format) {
+	case "", `null`, `""`:
 		return nil
 	}
 	g, err := structured.Compile(request.Format)
@@ -79,6 +139,10 @@ func (r *Runner) Prepare(request *Request) error {
 
 	if len(tokens) >= r.contextLength {
 		return fmt.Errorf("input length (%d tokens) exceeds the model's maximum context length (%d tokens)", len(tokens), r.contextLength)
+	}
+
+	if err := checkVisionPrefillBudget(request.VisionSpans); err != nil {
+		return err
 	}
 
 	// Cap generation to stay within the model's context length
@@ -187,11 +251,14 @@ func (r *Runner) prefill(ctx context.Context, session *cacheSession, spec *specu
 	tokens := session.remaining
 	caches := session.caches
 	prefillChunk := prefillChunkSize()
+
+	// Media prompts stay chunked — a single pass over the whole prompt makes
+	// the bidirectional mask quadratic in the prompt, not in the blocks — but
+	// their chunk boundaries are snapped so an image block is always
+	// processed in one pass.
+	var spans [][2]int32
 	if vision != nil {
-		// Bidirectional image blocks must never straddle a chunk boundary;
-		// media prompts prefill in one pass, mirroring the reference's
-		// no_chunked_prefill.
-		prefillChunk = len(inputs)
+		spans = vision.spans
 	}
 
 	// Request periodic snapshots during prefill and near the end of the
@@ -228,7 +295,7 @@ func (r *Runner) prefill(ctx context.Context, session *cacheSession, spec *specu
 			return nil, 0, 0, err
 		}
 
-		n := min(prefillChunk, total-processed-1)
+		n := prefillChunkLen(position, total-processed-1, prefillChunk, spans)
 
 		chunkIDs := mlx.FromValues(tokens[processed:processed+n], 1, n)
 		b := &batch.Batch{

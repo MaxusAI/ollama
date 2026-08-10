@@ -2148,6 +2148,7 @@ func (s *mockLlm) Close() error {
 	s.closeCalled = true
 	return s.closeResp
 }
+
 func (s *mockLlm) MemorySize() (uint64, uint64)                       { return s.totalSize, s.vramSize }
 func (s *mockLlm) VRAMByGPU(id ml.DeviceID) uint64                    { return s.vramByGPU[id] }
 func (s *mockLlm) Pid() int                                           { return -1 }
@@ -2245,4 +2246,72 @@ func TestImageGenSchedulerCoexistence(t *testing.T) {
 	// Free memory should be reduced by both models
 	expectedFree := uint64(24*format.GigaByte) - uint64(8*format.GigaByte) - uint64(4*format.GigaByte)
 	require.Equal(t, expectedFree, gpus[0].FreeMemory)
+}
+
+func TestSchedNeedsReloadImageTokenBudget(t *testing.T) {
+	ctx, done := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer done()
+
+	// The image-token bounds are shared options carrying gemma4's defaults, so
+	// an arch that substitutes its own native bounds for the sentinel launches
+	// identical flags whether the caller left them alone or named them. Only a
+	// budget that changes the flags may reload the runner.
+	for _, tc := range []struct {
+		name       string
+		family     string
+		minTok     int
+		maxTok     int
+		wantReload bool
+	}{
+		{
+			name:   "nemotron explicit native bounds match the unset sentinel",
+			family: "nemotron_h_omni",
+			minTok: 256, maxTok: 3328,
+			wantReload: false,
+		},
+		{
+			name:   "nemotron genuinely different ceiling reloads",
+			family: "nemotron_h_omni",
+			minTok: 256, maxTok: 512,
+			wantReload: true,
+		},
+		{
+			name:   "gemma4 explicit defaults do not reload",
+			family: "gemma4",
+			minTok: api.DefaultImageMinTokens, maxTok: api.DefaultImageMaxTokens,
+			wantReload: false,
+		},
+		{
+			name:   "gemma4 lower ceiling reloads",
+			family: "gemma4",
+			minTok: api.DefaultImageMinTokens, maxTok: 560,
+			wantReload: true,
+		},
+		{
+			name:   "arch without a budget ignores the bounds",
+			family: "llama",
+			minTok: 1, maxTok: 7,
+			wantReload: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			do := api.DefaultOptions()
+			runner := &runnerRef{
+				model:       &Model{Config: model.ConfigV2{ModelFamily: tc.family}},
+				Options:     &do,
+				llama:       &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}},
+				numParallel: 1,
+			}
+			req := &LlmRequest{
+				model: &Model{Config: model.ConfigV2{ModelFamily: tc.family}},
+				opts:  api.DefaultOptions(),
+			}
+			req.opts.ImageMinTokens, req.opts.ImageMaxTokens = tc.minTok, tc.maxTok
+
+			if got := runner.needsReload(ctx, req); got != tc.wantReload {
+				t.Errorf("needsReload with %s %d/%d = %v, want %v",
+					tc.family, tc.minTok, tc.maxTok, got, tc.wantReload)
+			}
+		})
+	}
 }

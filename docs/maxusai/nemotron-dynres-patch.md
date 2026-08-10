@@ -102,9 +102,11 @@ Keeping the 128×128 grid through the compat layer and interpolating from it wou
 
 - Defaults **256 / 3328** (the model's native bounds).
 - The shared `ImageMinTokens`/`ImageMaxTokens` options arrive as the gemma4-shaped
-  DefaultOptions values (40/1120) when the caller left them alone; those exact values are
-  treated as unset for this arch. Consequence: **explicitly requesting 40 or 1120 on
-  nemotron is not expressible** — pick an adjacent value (41, 1119, 1121…). Any other
+  DefaultOptions values when the caller left them alone; those exact values are treated
+  as unset for this arch. The sentinel is `api.DefaultImageMin/MaxTokens` themselves, so
+  it moves with the gemma4 default — **70 / 1120** today (ADR 0008; 40/1120 before
+  ADR 0007). Consequence: **explicitly requesting the current gemma4 defaults on
+  nemotron is not expressible** — pick an adjacent value (71, 1119, 1121…). Any other
   value passes through; min clamps down to max.
 - Values above 3328 are passed through, but exceed the model's training distribution —
   the reference never produces more than 13,312 patches. Don't raise the ceiling; only
@@ -127,7 +129,7 @@ For `modelArch == "nemotron_h_omni"` on a payload carrying the 002 patch:
 |---|---|
 | flags | `visionServerArgs()` always passes `--image-min-tokens` / `--image-max-tokens` |
 | defaults | **256 / 3328** (= the model's 1024/13312 pre-merge patch bounds ÷ 4) |
-| option resolution | `ImageMinTokens`/`ImageMaxTokens` ≤ 0 **or exactly equal to the gemma4-shaped DefaultOptions values (40/1120)** are treated as unset; min clamps down to max; both are **Runner** options — changing either reloads the runner |
+| option resolution | `ImageMinTokens`/`ImageMaxTokens` ≤ 0 **or exactly equal to the gemma4-shaped DefaultOptions values (`api.DefaultImageMin/MaxTokens`, 70/1120 today)** are treated as unset; min clamps down to max; both are **Runner** options — changing either reloads the runner, but only when it changes the *resolved* flags (`llm.ResolvedImageTokenBudget`), so naming 256/3328 explicitly no longer reloads against an unset request |
 | per-image cost | `round(w/32) × round(h/32)` post-resize grid cells **+ 2** marker tokens (`<img>`/`</img>`), where the resize maps the image, aspect-preserved, into 262,144…3,407,872 px; small images are **upscaled** to the floor |
 | bounds | floor 256, ceiling 3,328 visual tokens; the 32px floor-alignment lands most shapes slightly under the ceiling (3000×2000 → 3,290), which is exact only when scaled dims hit multiples of 32 (2048×1664 → 3,328) |
 | ceiling caveat | the pixel budget is enforced before the per-dimension 32px minimum clamp, so **degenerate aspect ratios (≈100:1 and beyond) can exceed it** — e.g. a 4,000,000×1 input targets ~118 MPx and would exhaust memory. Inherited `dyn_size`-family behavior (qwen/kimivl/dots_ocr share it; nemotron was previously immune only because it squashed everything to 512²). Reject absurd-aspect images upstream of Ollama |

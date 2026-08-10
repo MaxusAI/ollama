@@ -26,9 +26,10 @@ visual tokens and pixels-per-token — plus the routing policy that follows, see
 > (<https://ai.google.dev/gemma/docs/core/model_card_4>) states: *"The supported
 > token budgets are: 70, 140, 280, 560, and 1120."* So gemma4's knob is not a free
 > integer — 280 is llama.cpp's default rung and 1120 is the vendor maximum. The fork
-> ships **70 / 560** ([ADR 0007](adr/0007-gemma4-default-budget-560.md), 2026-08-07;
-> previously 40 / 1120). Higher rungs preserve detail for OCR, lower rungs suit
-> classification and video.
+> ships **70 / 1120** ([ADR 0008](adr/0008-gemma4-budget-fill-restores-1120.md),
+> 2026-08-08, which restores the ceiling ADR 0007 had lowered to 560 as a coordinate-bug
+> mitigation; 40 / 1120 before ADR 0007). Higher rungs preserve detail for OCR, lower
+> rungs suit classification and video.
 >
 > The ceiling sits at 560 rather than the vendor maximum as a **mitigation** for a
 > llama.cpp vertical coordinate error that grows with patch rows — not because the
@@ -43,7 +44,7 @@ visual tokens and pixels-per-token — plus the routing policy that follows, see
 
 | `modelArch` | flags ollama passes | effective budget | set by |
 |---|---|---|---|
-| `gemma4` | `--image-min-tokens` / `--image-max-tokens`, defaults **70 / 560** (ADR 0007; was 40/1120 before 2026-08-07) | 70 … 560 tokens | `set_limit_image_tokens(40, 280)`, ceiling raised by our flags |
+| `gemma4` | `--image-min-tokens` / `--image-max-tokens`, defaults **70 / 1120** (ADR 0008; ADR 0007's 560 mitigation superseded, 40/1120 before that) | 70 … 1120 tokens | `set_limit_image_tokens(40, 280)`, ceiling raised by our flags |
 | `qwen2vl`, `qwen25vl`, `qwen3vl`, `qwen3vlmoe`, `qwen35`, `qwen35moe` | `--image-min-tokens 1024` (fixed) | 1,024 … 4,096 tokens | `set_limit_image_tokens(8, 4096)`, floor raised by our flag |
 | **`nemotron_h_omni`** | `--image-min-tokens` / `--image-max-tokens`, defaults **256 / 3328** | 256 … 3,328 with the 002 patch; **exactly 256 (flags inert) on an unpatched payload** | `set_limit_image_tokens(256, 3328)` added by `llama/compat/002-llama-cpp-nemotron-dynres.patch` |
 | `mistral3` | none | 8 … 1,024 **grid** tokens; per-image cost is grid + rows (see below), worst case **2,048** | `set_limit_image_tokens(8, 1024)` (pixtral projector) |

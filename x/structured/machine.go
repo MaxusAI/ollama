@@ -12,6 +12,7 @@ package structured
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"slices"
 	"sort"
@@ -192,6 +193,18 @@ type normalizer struct {
 	g     *Grammar
 	out   []*frame
 	alloc func(parent *frame, ruleIdx, alt, idx int32) *frame
+
+	steps int                  // ε-expansion steps in the current normalize
+	seen  map[normPos]struct{} // positions already expanded, once over budget
+}
+
+// normPos identifies an ε-expansion position. Expanding one is a pure
+// function of the position, so a position reached twice can be skipped.
+type normPos struct {
+	parent *frame
+	rule   int32
+	alt    int32
+	idx    int32
 }
 
 func (n *normalizer) add(f *frame) {
@@ -210,6 +223,17 @@ func (n *normalizer) add(f *frame) {
 // shrink the accepted language of an already-degenerate grammar.
 const normalizeDepthLimit = 4096
 
+// normalizeWorkBudget is how many ε-expansion steps one normalize may take
+// before it starts remembering the positions it has expanded. The depth
+// limit bounds how deep expansion goes but not how wide: a grammar whose
+// cycle is made of tail references allocates no frame and never reaches
+// n.add, so its child-alternative loop explores one path per combination —
+// exponentially many. Memoizing collapses those paths to the (finite) set
+// of distinct positions without changing what is expanded, and staying off
+// the map until the budget is spent keeps the per-token mask walk, where
+// real grammars finish in a few dozen steps, allocation-free.
+const normalizeWorkBudget = 1024
+
 // normalize expands the position (parent, rule, alt, idx) until every
 // resulting stack is stable: past-the-end positions pop to the parent,
 // rule references descend into each alternative. Frames are only
@@ -219,12 +243,24 @@ const normalizeDepthLimit = 4096
 // byte, so states never repeat, mask caching never hits, and long
 // generations slow down quadratically.
 func (n *normalizer) normalize(parent *frame, ruleIdx, alt, idx int32) {
+	n.steps = 0
 	n.normalizeAt(parent, ruleIdx, alt, idx, 0)
 }
 
 func (n *normalizer) normalizeAt(parent *frame, ruleIdx, alt, idx int32, depth int) {
 	if depth > normalizeDepthLimit {
 		return
+	}
+	n.steps++
+	if n.steps > normalizeWorkBudget {
+		p := normPos{parent: parent, rule: ruleIdx, alt: alt, idx: idx}
+		if _, done := n.seen[p]; done {
+			return
+		}
+		if n.seen == nil {
+			n.seen = make(map[normPos]struct{})
+		}
+		n.seen[p] = struct{}{}
 	}
 	s := n.g.rules[ruleIdx].alts[alt]
 	if int(idx) >= len(s) {
@@ -392,6 +428,111 @@ func (b *builder) repeat(x seq, minCount, maxCount int) elem {
 	return b.group(out)
 }
 
+// canonicalizePasses bounds the merge sweeps. A pass that merges nothing
+// stops the loop, and stopping early only leaves rules unmerged, so the cap
+// can slow convergence but never changes the accepted language.
+const canonicalizePasses = 32
+
+// canonicalize merges rules whose bodies agree element for element and then
+// drops duplicate alternatives. Converters name every subschema separately,
+// so the two branches of {"anyOf":[T,T]} compile to distinct rules with the
+// same shape; if both stay live, each level of a recursion through them
+// doubles the stack set, and Vocab.Mask pays that for every token. Merging
+// is language-preserving: two rules are only merged once their alternatives
+// match under the merges already made, and a reference back to the rule
+// being keyed is encoded as "self", so the star rules that repetitions
+// expand into (r ::= x r | ε) still compare equal to their twins.
+func (g *Grammar) canonicalize() {
+	rep := make([]int32, len(g.rules))
+	for i := range rep {
+		rep[i] = int32(i)
+	}
+	find := func(i int32) int32 {
+		for rep[i] != i {
+			rep[i] = rep[rep[i]]
+			i = rep[i]
+		}
+		return i
+	}
+
+	var buf []byte
+	for range canonicalizePasses {
+		byBody := make(map[string]int32, len(g.rules))
+		merged := false
+		for i := range g.rules {
+			if find(int32(i)) != int32(i) {
+				continue
+			}
+			buf = appendRuleKey(buf[:0], &g.rules[i], find, int32(i))
+			if j, dup := byBody[string(buf)]; dup {
+				rep[i] = j
+				merged = true
+				continue
+			}
+			byBody[string(buf)] = int32(i)
+		}
+		if !merged {
+			break
+		}
+	}
+
+	for ri := range g.rules {
+		r := &g.rules[ri]
+		for _, alt := range r.alts {
+			for k := range alt {
+				if alt[k].kind == elemRef {
+					alt[k].ref = find(alt[k].ref)
+				}
+			}
+		}
+		if len(r.alts) < 2 {
+			continue
+		}
+		seen := make(map[string]bool, len(r.alts))
+		kept := r.alts[:0]
+		for _, alt := range r.alts {
+			buf = appendSeqKey(buf[:0], alt, find, -1)
+			if seen[string(buf)] {
+				continue
+			}
+			seen[string(buf)] = true
+			kept = append(kept, alt)
+		}
+		r.alts = kept
+	}
+	g.root = find(g.root)
+}
+
+// appendRuleKey appends a self-delimiting encoding of r's alternatives, so
+// rules compare by value as map keys. self is the rule's own representative
+// (-1 for none); references to it encode as "self" rather than as an id.
+func appendRuleKey(buf []byte, r *rule, find func(int32) int32, self int32) []byte {
+	for _, alt := range r.alts {
+		buf = append(buf, '|')
+		buf = appendSeqKey(buf, alt, find, self)
+	}
+	return buf
+}
+
+func appendSeqKey(buf []byte, s seq, find func(int32) int32, self int32) []byte {
+	for _, e := range s {
+		if e.kind == elemBytes {
+			buf = append(buf, 'b')
+			for _, w := range e.set {
+				buf = binary.LittleEndian.AppendUint64(buf, w)
+			}
+			continue
+		}
+		if target := find(e.ref); target == self {
+			buf = append(buf, 's')
+		} else {
+			buf = append(buf, 'r')
+			buf = binary.LittleEndian.AppendUint32(buf, uint32(target))
+		}
+	}
+	return buf
+}
+
 func ref(id int32) elem { return elem{kind: elemRef, ref: id} }
 
 // cls builds a byte element from inclusive ranges, e.g. cls('a','z','0','9').
@@ -502,5 +643,6 @@ func jsonGrammar() *Grammar {
 		b.opt(seq{chars('e', 'E'), b.opt(seq{chars('-', '+')}), b.plus(seq{digit})}),
 	})
 
+	b.g.canonicalize()
 	return b.g
 }
