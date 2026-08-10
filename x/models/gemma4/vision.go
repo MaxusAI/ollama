@@ -466,11 +466,11 @@ func (m *Model) VisionTokens() (int32, int32, int32) {
 }
 
 // NewVisionInput decodes and preprocesses one image per the reference
-// pipeline pinned to ADR 0008 sizing: convert to RGB, bicubic-resize to the
-// budget-fill target (always a 48-multiple on both axes), rescale by 1/255
-// with no mean/std normalization, and patchify channel-fastest. The tower
-// lineage additionally maps values to 2x−1, which its reference applies
-// inside _patchify. Pure Go — safe off the MLX thread.
+// pipeline pinned to ADR 0008 sizing: convert to RGB over white, bicubic-
+// resize to the budget-fill target (always a 48-multiple on both axes),
+// rescale by 1/255 with no mean/std normalization, and patchify channel-
+// fastest. The tower lineage additionally maps values to 2x−1, which its
+// reference applies inside _patchify. Pure Go — safe off the MLX thread.
 func (m *Model) NewVisionInput(data []byte, opts api.Options) (base.VisionInput, error) {
 	if m.VisionCfg == nil {
 		return nil, errors.New("model has no vision configuration")
@@ -482,6 +482,18 @@ func (m *Model) NewVisionInput(data []byte, opts api.Options) (base.VisionInput,
 	bounds := img.Bounds()
 	_, maxTok := llm.Gemma4ImageBudget(opts)
 	tw, th := llm.BudgetFillSize(bounds.Dx(), bounds.Dy(), llm.Gemma4ImageAlign, maxTok)
+
+	// The reference's convert_to_rgb composites transparency over white before
+	// the resize; scaling straight into an alpha-premultiplied buffer would
+	// instead composite over black, so transparent regions must be flattened
+	// first. Opaque images — nearly all of them — skip this and reach the
+	// scaler byte-for-byte unchanged.
+	if op, ok := img.(interface{ Opaque() bool }); !ok || !op.Opaque() {
+		flat := image.NewRGBA(bounds)
+		xdraw.Draw(flat, bounds, image.White, image.Point{}, xdraw.Src)
+		xdraw.Draw(flat, bounds, img, bounds.Min, xdraw.Over)
+		img = flat
+	}
 
 	// CatmullRom is the Keys a=-0.5 cubic — the same family as PIL's BICUBIC
 	// resample (processor_config resample=3).
