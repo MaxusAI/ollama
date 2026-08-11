@@ -75,3 +75,32 @@ type MediaModel interface {
 	// once its expansion is evaluated.
 	EncodeMedia(item *PreparedItem, data *mlx.Array) *mlx.Array
 }
+
+// MediaBudgetModel is a MediaModel that honours the per-request image-token
+// budget (api.Options.ImageMinTokens / ImageMaxTokens).
+//
+// Fork-local. Upstream's PrepareMedia takes no options, so a budget sent with a
+// request has nowhere to arrive; adding a second interface rather than changing
+// MediaModel keeps upstream's shape intact, so a future merge conflicts on this
+// block alone instead of on every media model.
+//
+// Two contracts widen relative to PrepareMedia:
+//
+//   - Determinism is per (segments, budget), not per segments alone. The budget
+//     must therefore reach cache identity — both PreparedItem.Dims and the
+//     expansion length carry it — so two budgets over identical bytes never
+//     share a prefix. Restoring KV captured at another budget is a correctness
+//     bug, not a cache-efficiency one.
+//   - A model keeps its own ceiling as its default. A value equal to the shared
+//     default counts as unset, matching how llm/llama_server.go resolves the
+//     same options for nemotron and qwen-VL, so handing glimmer gemma4's 1120
+//     does not silently discard detail it deliberately keeps.
+//
+// The budget is named per media kind on purpose: a Segment may be text, an image
+// or audio, and only images carry a token-rung budget today. If a second kind
+// ever needs one, collapse the pair into a struct rather than growing the list.
+type MediaBudgetModel interface {
+	MediaModel
+
+	PrepareMediaWithBudget(segments []Segment, imageMinTokens, imageMaxTokens int) (*PreparedRequest, error)
+}

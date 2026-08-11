@@ -173,7 +173,7 @@ func (m *requestMedia) close() {
 // expandMedia tokenizes the [img-N]-tagged prompt into segments, expands
 // them in a single PrepareMedia call, and validates the authored items
 // before keying cache identity on them.
-func (r *Runner) expandMedia(mm base.MediaModel, prompt string, media []llm.MediaData) (*base.PreparedRequest, []mediaItem, error) {
+func (r *Runner) expandMedia(mm base.MediaModel, prompt string, media []llm.MediaData, imageMinTokens, imageMaxTokens int) (*base.PreparedRequest, []mediaItem, error) {
 	matches := imgTagPattern.FindAllStringSubmatch(prompt, -1)
 	parts := imgTagPattern.Split(prompt, -1)
 
@@ -206,7 +206,19 @@ func (r *Runner) expandMedia(mm base.MediaModel, prompt string, media []llm.Medi
 		}
 	}
 
-	prepared, err := mm.PrepareMedia(segments)
+	// A model that honours the image-token budget gets it; one that does not
+	// would silently drop it, which ADR 0009 forbids. Every MLX media model
+	// implements the budget interface, so the fallback is for upstream models
+	// added between merges rather than a supported state.
+	var prepared *base.PreparedRequest
+	var err error
+	if bm, ok := mm.(base.MediaBudgetModel); ok {
+		prepared, err = bm.PrepareMediaWithBudget(segments, imageMinTokens, imageMaxTokens)
+	} else {
+		slog.Warn("model does not honour the image-token budget; using its own defaults",
+			"image_min_tokens", imageMinTokens, "image_max_tokens", imageMaxTokens)
+		prepared, err = mm.PrepareMedia(segments)
+	}
 	if err != nil {
 		return nil, nil, err
 	}

@@ -72,7 +72,8 @@ func (r *Runner) Prepare(request *Request) error {
 			}
 			return fmt.Errorf("this model does not support %s input", kind)
 		}
-		prepared, bound, err := r.expandMedia(mm, request.Prompt, request.Media)
+		prepared, bound, err := r.expandMedia(mm, request.Prompt, request.Media,
+			request.Options.ImageMinTokens, request.Options.ImageMaxTokens)
 		if err != nil {
 			return err
 		}

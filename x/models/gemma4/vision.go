@@ -472,6 +472,21 @@ func (m *Model) VisionTokens() (int32, int32, int32) {
 // fastest. The tower lineage additionally maps values to 2x−1, which its
 // reference applies inside _patchify. Pure Go — safe off the MLX thread.
 func (m *Model) NewVisionInput(data []byte, opts api.Options) (base.VisionInput, error) {
+	minTok, maxTok := llm.Gemma4ImageBudget(opts)
+	return m.newVisionInput(data, minTok, maxTok)
+}
+
+// newVisionInput is NewVisionInput's body with the budget already resolved, so
+// the base.MediaModel path (media.go) and the legacy base.VisionModel path share
+// one preprocessing implementation rather than drifting apart.
+//
+// Only the ceiling participates in sizing today: BudgetFillSize scales the image
+// to fill maxTok on gemma4's 48-pixel alignment. minTok is carried for symmetry
+// with the API and with llm/llama_server.go's resolution, and because a future
+// ladder rung could floor the target.
+func (m *Model) newVisionInput(data []byte, minTok, maxTok int) (*visionInput, error) {
+	_ = minTok
+
 	if m.VisionCfg == nil {
 		return nil, errors.New("model has no vision configuration")
 	}
@@ -480,7 +495,6 @@ func (m *Model) NewVisionInput(data []byte, opts api.Options) (base.VisionInput,
 		return nil, fmt.Errorf("decode image: %w", err)
 	}
 	bounds := img.Bounds()
-	_, maxTok := llm.Gemma4ImageBudget(opts)
 	tw, th := llm.BudgetFillSize(bounds.Dx(), bounds.Dy(), llm.Gemma4ImageAlign, maxTok)
 
 	// The reference's convert_to_rgb composites transparency over white before
