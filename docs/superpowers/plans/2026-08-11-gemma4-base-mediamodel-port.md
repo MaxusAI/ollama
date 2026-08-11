@@ -7,7 +7,43 @@
 
 ---
 
-## What's already true (verified 2026-08-11, not assumed)
+## What's already true (re-verified against `upstream/main` = `400164d4`, 2026-08-11)
+
+**Re-grounding result:** every claim below still holds at the new tip. Upstream moved two commits
+(`bb7bba88 mlx: implement Nemotron 3 Nano Omni`, `400164d4 parsers: ...`). Nemotron Omni landed as
+`x/models/nemotron_h` and does **not** implement `base.MediaModel` and carries no audio or vision
+path, so it adds no second media kind and does not disturb the `imageMinTokens`/`imageMaxTokens`
+naming. `base.MediaModel` is byte-identical, no model sets `Causal: false`, glimmer still pins
+`maxImageTokens = 4096`, and the budget fields are still fork-only. What *did* go stale is the merge
+base: those commits touch `pipeline.go`, `prefix_cache.go`, `prefix_cache_test.go`, `cache_trie.go`,
+`mtp_test.go` and `nn/recurrent*.go`, so the WIP merge needs bringing forward before phase 1 starts.
+
+**Upstream has independently hit ADR 0017's bug and shipped a partial fix.** New in `v0.32.7`:
+`x/internal/mlxtest` with `Setup(t)`, whose comment reads "The thread pin is load-bearing, not
+defensive: MLX's default stream cache is thread-local, and anything that migrates the goroutine
+mid-test ... otherwise panics with *There is no Stream(gpu, 0) in current thread*." Same bug, same
+message, found independently.
+
+It is **weaker than ours in a way that matters**, and this is a resolution decision for the merge,
+not a curiosity:
+
+- `mlxtest.Setup` pairs `runtime.LockOSThread()` with `t.Cleanup(runtime.UnlockOSThread)`. Releasing
+  the pin hands a thread back to the runtime's pool with MLX's thread-local stream state still on it
+  — the precise hazard ADR 0017 documents and the direct cause of the `x/imagegen` SIGSEGV in ADR
+  0018, where every test passed alone and any two in sequence crashed.
+- Upstream still carries **both** root causes, verified at `400164d4`: `mlxCall` still takes
+  `LockOSThread`/`defer UnlockOSThread` around a single call, and `DefaultStream()` still caches the
+  thread-local stream in a process-global. There is no permanent claim or ownership flag anywhere.
+  So `Setup` suppresses only intra-test migration; across tests the global cache still hands one
+  thread's stream to another, and passes only when the scheduler reuses a thread.
+
+**Decided convergence:** adopt upstream's `x/internal/mlxtest` as the shared seam — every fork test
+helper calls `mlxtest.Setup(t)` instead of its own `skipIfNoMLX` body — but implement `Setup` with
+`mlx.ClaimOSThread()` and **no** unlock. That keeps upstream's API so future merges stay clean,
+collapses the fork's ten hand-rolled helpers into one place, and keeps the stronger guarantee.
+`ClaimOSThread` is idempotent, so repeated calls cannot run the runtime's lock counter away.
+
+## Originally verified 2026-08-11 (unchanged unless noted above)
 
 **The target interface** — `x/mlxrunner/model/base/media.go` on the merged tree:
 
@@ -90,6 +126,21 @@ block starting — they block finishing phase 4.
 ## Phases
 
 Each phase ends with a **runnable** gate. Do not advance on "it compiles".
+
+### Phase 0 — bring the merge forward and converge the test seam
+
+Re-merge `upstream/main` at `400164d4` onto the WIP merge branch (an incremental merge of two
+commits; last attempt produced seven small conflicts: `server/images.go`, `images_test.go`,
+`model_list_cache.go`, `x/mlxrunner/mtp_test.go`, `prefix_cache_test.go`, `x/models/nn/nn_test.go`,
+`recurrent_test.go`). Apply the convergence above: rewrite `x/internal/mlxtest.Setup` to use
+`mlx.ClaimOSThread()` with no unlock, and resolve every conflicting `skipIfNoMLX` toward
+`mlxtest.Setup(t)`.
+
+> **Gate:** `go build ./x/... ./server/... ./llm/...` clean, and `go test -p 1 -count=1 ./x/...`
+> no worse than the WIP baseline. Note the WIP's known test-build break
+> (`client_format_test.go` calling the deleted `prefillChunkLen` /
+> `checkVisionPrefillBudget`) is phase 5's to resolve, not phase 0's — do not delete those tests
+> here just to get green.
 
 ### Phase 1 — gemma4 becomes a `base.MediaModel`, with the budget threaded through
 
