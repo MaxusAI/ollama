@@ -280,7 +280,7 @@ func writeTestModelManifest(t *testing.T, name, digest, tmpl string) {
 	}
 
 	layers := []manifest.Layer{modelLayer, templateLayer}
-	configLayer, err := createConfigLayer(layers, model.ConfigV2{
+	configLayer, err := createConfigLayer(model.ConfigV2{
 		ModelFormat:   "gguf",
 		ModelFamily:   "llama",
 		ModelFamilies: []string{"llama"},
@@ -516,7 +516,20 @@ func TestModelCapabilities(t *testing.T) {
 			expectedCaps: []model.Capability{model.CapabilityCompletion, model.CapabilityVision},
 		},
 		{
-			name: "gemma4 small safetensors suppresses audio",
+			name: "nemotron3 safetensors suppresses vision and audio but keeps thinking",
+			model: Model{
+				Config: model.ConfigV2{
+					ModelFormat:  "safetensors",
+					Parser:       "nemotron-3-nano",
+					Renderer:     "nemotron-3-nano",
+					Capabilities: []string{"completion", "vision", "audio"},
+				},
+				Template: chatTemplate,
+			},
+			expectedCaps: []model.Capability{model.CapabilityCompletion, model.CapabilityTools, model.CapabilityThinking},
+		},
+		{
+			name: "gemma4 small safetensors keeps vision, suppresses audio",
 			model: Model{
 				Config: model.ConfigV2{
 					ModelFormat:  "safetensors",
@@ -528,7 +541,7 @@ func TestModelCapabilities(t *testing.T) {
 			expectedCaps: []model.Capability{model.CapabilityVision},
 		},
 		{
-			name: "gemma4 large safetensors suppresses audio",
+			name: "gemma4 large safetensors keeps vision, suppresses audio",
 			model: Model{
 				Config: model.ConfigV2{
 					ModelFormat:  "safetensors",
@@ -540,7 +553,7 @@ func TestModelCapabilities(t *testing.T) {
 			expectedCaps: []model.Capability{model.CapabilityVision},
 		},
 		{
-			name: "default gemma4 safetensors suppresses audio",
+			name: "default gemma4 safetensors keeps vision, suppresses audio",
 			model: Model{
 				Config: model.ConfigV2{
 					ModelFormat:  "safetensors",

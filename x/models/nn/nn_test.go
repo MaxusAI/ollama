@@ -4,17 +4,13 @@ import (
 	"math"
 	"testing"
 
+	"github.com/ollama/ollama/x/internal/mlxtest"
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
 )
 
 func skipIfNoMLX(t *testing.T) {
 	t.Helper()
-	if err := mlx.CheckInit(); err != nil {
-		t.Skipf("MLX not available: %v", err)
-	}
-	// Each test runs on its own goroutine, so each one that drives MLX directly
-	// has to take ownership of an OS thread before its first operation.
-	mlx.ClaimOSThread()
+	mlxtest.Setup(t)
 }
 
 func approxEqual(a, b, tol float32) bool {
@@ -169,7 +165,7 @@ func TestQuantizedLinearMXFP4MatchesDequantizedWeight(t *testing.T) {
 		t.Fatalf("mxfp4 qbiases = %v, want nil", ql.QBiases)
 	}
 
-	dequantizedWeight := mlx.Dequantize(ql.Weight, ql.Scales, ql.QBiases, 32, 4, "mxfp4")
+	dequantizedWeight := mlx.Dequantize(ql.Weight, ql.Scales, ql.QBiases, 32, 4, "mxfp4", nil)
 	mlx.Eval(dequantizedWeight)
 
 	qOut := ql.Forward(input).AsType(mlx.DTypeFloat32)

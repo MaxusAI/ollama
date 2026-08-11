@@ -516,29 +516,25 @@ func towerTestModel() *Model {
 
 func TestNewVisionInputUnifiedLayout(t *testing.T) {
 	png := testImagePNG(t, 480, 336)
-	opts := api.Options{}
-	opts.ImageMaxTokens = 70
-
-	in, err := unifiedTestModel().NewVisionInput(png, opts)
+	in, err := unifiedTestModel().newVisionInput(png, 0, 70)
 	if err != nil {
 		t.Fatal(err)
 	}
-	vi := in.(*visionInput)
-	if in.SoftTokens() != 70 {
-		t.Fatalf("SoftTokens = %d, want 70", in.SoftTokens())
+	if in.soft != 70 {
+		t.Fatalf("SoftTokens = %d, want 70", in.soft)
 	}
-	if vi.n != 70 || vi.patchDim != 6912 || vi.gridW != 10 || vi.gridH != 7 {
-		t.Fatalf("unified geometry wrong: n=%d patchDim=%d grid=%dx%d", vi.n, vi.patchDim, vi.gridW, vi.gridH)
+	if in.n != 70 || in.patchDim != 6912 || in.gridW != 10 || in.gridH != 7 {
+		t.Fatalf("unified geometry wrong: n=%d patchDim=%d grid=%dx%d", in.n, in.patchDim, in.gridW, in.gridH)
 	}
 	// Patch (px=2, py=1), inner pixel (dx=5, dy=7) → source pixel (101, 55):
 	// channel-fastest layout, values pixel/255 with no further scaling.
 	i := 1*10 + 2
-	if vi.xs[i] != 2 || vi.ys[i] != 1 {
-		t.Fatalf("positions[%d] = (%d,%d), want (2,1)", i, vi.xs[i], vi.ys[i])
+	if in.xs[i] != 2 || in.ys[i] != 1 {
+		t.Fatalf("positions[%d] = (%d,%d), want (2,1)", i, in.xs[i], in.ys[i])
 	}
 	base := i*6912 + (7*48+5)*3
 	for c, want := range []float32{101.0 / 255, 55.0 / 255, 156.0 / 255} {
-		if got := vi.patches[base+c]; !close32(got, want, 1e-3) {
+		if got := in.patches[base+c]; !close32(got, want, 1e-3) {
 			t.Fatalf("unified patch value[ch=%d] = %v, want %v", c, got, want)
 		}
 	}
@@ -546,29 +542,25 @@ func TestNewVisionInputUnifiedLayout(t *testing.T) {
 
 func TestNewVisionInputTowerLayout(t *testing.T) {
 	png := testImagePNG(t, 480, 336)
-	opts := api.Options{}
-	opts.ImageMaxTokens = 70
-
-	in, err := towerTestModel().NewVisionInput(png, opts)
+	in, err := towerTestModel().newVisionInput(png, 0, 70)
 	if err != nil {
 		t.Fatal(err)
 	}
-	vi := in.(*visionInput)
-	if in.SoftTokens() != 70 {
-		t.Fatalf("SoftTokens = %d, want 70 (48px soft-token grid)", in.SoftTokens())
+	if in.soft != 70 {
+		t.Fatalf("SoftTokens = %d, want 70 (48px soft-token grid)", in.soft)
 	}
-	if vi.n != 630 || vi.patchDim != 768 || vi.gridW != 30 || vi.gridH != 21 {
-		t.Fatalf("tower geometry wrong: n=%d patchDim=%d grid=%dx%d", vi.n, vi.patchDim, vi.gridW, vi.gridH)
+	if in.n != 630 || in.patchDim != 768 || in.gridW != 30 || in.gridH != 21 {
+		t.Fatalf("tower geometry wrong: n=%d patchDim=%d grid=%dx%d", in.n, in.patchDim, in.gridW, in.gridH)
 	}
 	// Patch (px=3, py=2), inner pixel (dx=4, dy=9) → source pixel (52, 41):
 	// tower patches carry 2x−1 values.
 	i := 2*30 + 3
-	if vi.xs[i] != 3 || vi.ys[i] != 2 {
-		t.Fatalf("positions[%d] = (%d,%d), want (3,2)", i, vi.xs[i], vi.ys[i])
+	if in.xs[i] != 3 || in.ys[i] != 2 {
+		t.Fatalf("positions[%d] = (%d,%d), want (3,2)", i, in.xs[i], in.ys[i])
 	}
 	base := i*768 + (9*16+4)*3
 	for c, want := range []float32{2*52.0/255 - 1, 2*41.0/255 - 1, 2*93.0/255 - 1} {
-		if got := vi.patches[base+c]; !close32(got, want, 1e-3) {
+		if got := in.patches[base+c]; !close32(got, want, 1e-3) {
 			t.Fatalf("tower patch value[ch=%d] = %v, want %v", c, got, want)
 		}
 	}
@@ -604,9 +596,6 @@ func overWhite(c, a float64) float64 { return (c*a + 255*(255-a)) / 255 }
 // resizes by exactly 1.0, so patch values are the composited pixels.
 func TestNewVisionInputCompositesAlphaOverWhite(t *testing.T) {
 	data := alphaTestImagePNG(t)
-	opts := api.Options{}
-	opts.ImageMaxTokens = 70
-
 	// pixel reads one channel of source pixel (x,y) back out of the patches.
 	pixel := func(vi *visionInput, p, x, y, c int) float32 {
 		i := (y/p)*int(vi.gridW) + x/p
@@ -624,16 +613,15 @@ func TestNewVisionInputCompositesAlphaOverWhite(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			in, err := tc.model.NewVisionInput(data, opts)
+			in, err := tc.model.newVisionInput(data, 0, 70)
 			if err != nil {
 				t.Fatal(err)
 			}
-			vi := in.(*visionInput)
 
 			// Fully transparent: pure white, not the stored (10,20,30).
 			for c := range 3 {
 				want := tc.encode(255)
-				if got := pixel(vi, tc.p, 0, 0, c); !close32(got, want, 1e-3) {
+				if got := pixel(in, tc.p, 0, 0, c); !close32(got, want, 1e-3) {
 					t.Errorf("transparent pixel[ch=%d] = %v, want %v", c, got, want)
 				}
 			}
@@ -642,14 +630,14 @@ func TestNewVisionInputCompositesAlphaOverWhite(t *testing.T) {
 			// misses by more than 0.39 on every channel.
 			for c, src := range []float64{200, 100, 50} {
 				want := tc.encode(overWhite(src, 128))
-				if got := pixel(vi, tc.p, 1, 0, c); !close32(got, want, 0.02) {
+				if got := pixel(in, tc.p, 1, 0, c); !close32(got, want, 0.02) {
 					t.Errorf("half-alpha pixel[ch=%d] = %v, want %v", c, got, want)
 				}
 			}
 			// An opaque pixel of the same image must be untouched.
 			for c, src := range []float64{101, 55, 156} {
 				want := tc.encode(src)
-				if got := pixel(vi, tc.p, 101, 55, c); !close32(got, want, 1e-3) {
+				if got := pixel(in, tc.p, 101, 55, c); !close32(got, want, 1e-3) {
 					t.Errorf("opaque pixel[ch=%d] = %v, want %v", c, got, want)
 				}
 			}
@@ -659,22 +647,22 @@ func TestNewVisionInputCompositesAlphaOverWhite(t *testing.T) {
 
 func TestNewVisionInputSizing(t *testing.T) {
 	png := testImagePNG(t, 640, 480)
-	in, err := unifiedTestModel().NewVisionInput(png, api.Options{})
+	in, err := unifiedTestModel().newVisionInput(png, api.DefaultImageMinTokens, api.DefaultImageMaxTokens)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Default ceiling 1120: 640×480 budget-fills to 1824×1344 = 38×28 = 1064.
-	if in.SoftTokens() != 1064 {
-		t.Fatalf("SoftTokens = %d, want 1064", in.SoftTokens())
+	if in.soft != 1064 {
+		t.Fatalf("SoftTokens = %d, want 1064", in.soft)
 	}
 	tw, th := llm.BudgetFillSize(640, 480, llm.Gemma4ImageAlign, api.DefaultImageMaxTokens)
-	if in.SoftTokens() != (tw/48)*(th/48) {
-		t.Fatalf("SoftTokens = %d disagrees with llm.BudgetFillSize %dx%d", in.SoftTokens(), tw, th)
+	if in.soft != (tw/48)*(th/48) {
+		t.Fatalf("SoftTokens = %d disagrees with llm.BudgetFillSize %dx%d", in.soft, tw, th)
 	}
 }
 
 func TestNewVisionInputRejectsJunk(t *testing.T) {
-	if _, err := unifiedTestModel().NewVisionInput([]byte("not an image"), api.Options{}); err == nil {
+	if _, err := unifiedTestModel().newVisionInput([]byte("not an image"), api.DefaultImageMinTokens, api.DefaultImageMaxTokens); err == nil {
 		t.Fatal("expected decode error for junk bytes")
 	}
 }
@@ -699,11 +687,18 @@ func close32(a, b, tol float32) bool {
 func TestVisionChunkMask(t *testing.T) {
 	useMLXTestThread(t)
 
+	// The bidirectional span now comes from the batch's media manifest rather
+	// than BidiSpans, so build the item that yields [1, 4): softRun starts one
+	// past Pos to skip BOI, and runs for the image's soft-token count.
 	b := &batch.Batch{
 		InputIDs:     mlx.Zeros(mlx.DTypeInt32, 1, 6),
 		SeqOffsets:   []int32{0},
 		SeqQueryLens: []int32{6},
-		BidiSpans:    [][2]int32{{1, 4}},
+		Media: []batch.MediaItem{{
+			Seq:    0,
+			Pos:    0,
+			Opaque: &visionInput{soft: 3},
+		}},
 	}
 	mask := visionChunkMask(b, 6, 2, mlx.DTypeFloat32)
 	arr := mask.AsArray(b, 6, mlx.DTypeFloat32)

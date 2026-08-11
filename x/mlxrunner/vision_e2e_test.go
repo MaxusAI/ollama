@@ -110,11 +110,12 @@ func TestVisionEndToEnd(t *testing.T) {
 		if err := r.Prepare(&request); err != nil {
 			t.Fatalf("Prepare: %v", err)
 		}
-		if len(request.VisionInputs) != 1 || len(request.VisionSpans) != 1 {
-			t.Fatalf("expected 1 vision input/span, got %d/%d", len(request.VisionInputs), len(request.VisionSpans))
+		if len(request.MediaItems) != 1 {
+			t.Fatalf("expected 1 media item, got %d", len(request.MediaItems))
 		}
-		t.Logf("prompt tokens: %d, soft tokens: %d, span: %v",
-			len(request.Tokens), request.VisionInputs[0].SoftTokens(), request.VisionSpans[0])
+		item := request.MediaItems[0]
+		t.Logf("prompt tokens: %d, expansion: [%d, %d) (%d soft tokens + BOI/EOI)",
+			len(request.Tokens), item.pos, item.pos+item.length, item.length-2)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()

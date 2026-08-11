@@ -28,12 +28,10 @@ import (
 
 	xdraw "golang.org/x/image/draw"
 
-	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/llm"
 	"github.com/ollama/ollama/x/mlxrunner/batch"
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
 	"github.com/ollama/ollama/x/mlxrunner/model"
-	"github.com/ollama/ollama/x/mlxrunner/model/base"
 	"github.com/ollama/ollama/x/models/nn"
 )
 
@@ -465,13 +463,17 @@ func (m *Model) VisionTokens() (int32, int32, int32) {
 	return m.MMTokens.BOI, m.MMTokens.Image, m.MMTokens.EOI
 }
 
-// NewVisionInput decodes and preprocesses one image per the reference
-// pipeline pinned to ADR 0008 sizing: convert to RGB over white, bicubic-
-// resize to the budget-fill target (always a 48-multiple on both axes),
-// rescale by 1/255 with no mean/std normalization, and patchify channel-
-// fastest. The tower lineage additionally maps values to 2x−1, which its
-// reference applies inside _patchify. Pure Go — safe off the MLX thread.
-func (m *Model) NewVisionInput(data []byte, opts api.Options) (base.VisionInput, error) {
+// newVisionInput is NewVisionInput's body with the budget already resolved, so
+// PrepareMediaWithBudget and the preprocessing tests share one implementation
+// rather than drifting apart.
+//
+// Only the ceiling participates in sizing today: BudgetFillSize scales the image
+// to fill maxTok on gemma4's 48-pixel alignment. minTok is carried for symmetry
+// with the API and with llm/llama_server.go's resolution, and because a future
+// ladder rung could floor the target.
+func (m *Model) newVisionInput(data []byte, minTok, maxTok int) (*visionInput, error) {
+	_ = minTok
+
 	if m.VisionCfg == nil {
 		return nil, errors.New("model has no vision configuration")
 	}
@@ -480,7 +482,6 @@ func (m *Model) NewVisionInput(data []byte, opts api.Options) (base.VisionInput,
 		return nil, fmt.Errorf("decode image: %w", err)
 	}
 	bounds := img.Bounds()
-	_, maxTok := llm.Gemma4ImageBudget(opts)
 	tw, th := llm.BudgetFillSize(bounds.Dx(), bounds.Dy(), llm.Gemma4ImageAlign, maxTok)
 
 	// The reference's convert_to_rgb composites transparency over white before
@@ -533,34 +534,6 @@ func (m *Model) NewVisionInput(data []byte, opts api.Options) (base.VisionInput,
 	}, nil
 }
 
-// EncodeVision embeds one preprocessed image into text hidden space,
-// returning [1, SoftTokens, hidden]. MLX thread only.
-func (m *Model) EncodeVision(in base.VisionInput) *mlx.Array {
-	vi := in.(*visionInput)
-	x := mlx.FromValues(vi.patches, 1, int(vi.n), int(vi.patchDim)).AsType(mlx.DTypeBFloat16)
-	var h *mlx.Array
-	if m.VisionEmbedder != nil {
-		h = m.VisionEmbedder.Forward(x, vi.xs, vi.ys)
-	} else {
-		h = m.VisionTower.Forward(x, vi.xs, vi.ys, vi.gridW, vi.gridH, m.VisionCfg)
-	}
-	return m.projectVision(h)
-}
-
-// MergedEmbeddings returns the embed-scaled token embeddings for inputIDs
-// with vision features spliced over spans — the reference's masked_scatter,
-// specialized to the runner's known half-open span layout. Features replace
-// the placeholder embeddings unscaled, matching get_input_embeddings.
-func (m *Model) MergedEmbeddings(inputIDs *mlx.Array, features []*mlx.Array, spans [][2]int32) *mlx.Array {
-	h := mlx.MulScalar(m.EmbedTokens.Forward(inputIDs), m.EmbedScale)
-	for i, f := range features {
-		h = h.SliceUpdate(f.AsType(h.DType()), mlx.Slice(), mlx.Slice(int(spans[i][0]), int(spans[i][1])), mlx.Slice())
-	}
-	return h
-}
-
-var _ base.VisionModel = (*Model)(nil)
-
 // visionMaskKey memoizes the vision chunk mask per window size on the
 // batch, so sibling layers of the same type share one tensor.
 type visionMaskKey struct{ window int32 }
@@ -582,30 +555,7 @@ func visionChunkMask(b *batch.Batch, K, window int, dtype mlx.DType) nn.Attentio
 		off = int(b.SeqOffsets[0])
 	}
 	L := b.InputIDs.Dim(1)
-	inSpan := func(p int32) int {
-		for si, s := range b.BidiSpans {
-			if p >= s[0] && p < s[1] {
-				return si
-			}
-		}
-		return -1
-	}
-
-	neg := float32(math.Inf(-1))
-	data := make([]float32, L*K)
-	for qi := 0; qi < L; qi++ {
-		q := off + qi
-		qs := inSpan(int32(q))
-		for k := 0; k < K; k++ {
-			allowed := k <= q && (window <= 0 || q-k < window)
-			if !allowed && qs >= 0 && inSpan(int32(k)) == qs {
-				allowed = true
-			}
-			if !allowed {
-				data[qi*K+k] = neg
-			}
-		}
-	}
+	data := visionMaskData(bidiSpans(b), off, L, K, window)
 	mask := nn.ArrayMask(mlx.FromValues(data, 1, 1, L, K).AsType(dtype))
 	b.Memo.Put(key, mask)
 	return mask

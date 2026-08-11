@@ -27,7 +27,6 @@ import (
 	"github.com/ollama/ollama/logutil"
 	"github.com/ollama/ollama/x/mlxrunner/cache"
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
-	"github.com/ollama/ollama/x/mlxrunner/model/base"
 )
 
 const maxPagedOutBytes int64 = 8 << 30 // 8 GiB eviction threshold for paged-out snapshot memory
@@ -53,10 +52,10 @@ type pendingSnapshot struct {
 // Callers should append generated tokens to outputs and
 // defer close to save the cache state.
 type cacheSession struct {
-	cache   *prefixCache
-	inputs  []int32
-	salts   []uint32 // per-input trie key salts; nil for text-only prompts
-	outputs []int32
+	cache     *prefixCache
+	inputs    []int32
+	effInputs []uint32 // inputs' key alphabet, media folds applied
+	outputs   []int32
 
 	caches    []cache.Cache
 	remaining []int32
@@ -67,17 +66,9 @@ type cacheSession struct {
 	pendingSnapshots []pendingSnapshot
 }
 
-func newPrefixCache(m base.Model) *prefixCache {
-	c := &prefixCache{}
-	if cacheFactory, ok := m.(interface{ NewCaches() []cache.Cache }); ok {
-		c.caches = cacheFactory.NewCaches()
-		return c
-	}
-	c.caches = make([]cache.Cache, m.NumLayers())
-	for i := range c.caches {
-		c.caches[i] = cache.NewKVCache()
-	}
-	return c
+// newPrefixCache manages the given cache slots for the model's life.
+func newPrefixCache(caches []cache.Cache) *prefixCache {
+	return &prefixCache{caches: caches}
 }
 
 func (c *prefixCache) ensureRoot() {
@@ -92,17 +83,13 @@ func (c *prefixCache) ensureRoot() {
 // begin prepares caches for a new request. It finds the nearest
 // matching cache or creates new caches if none match.
 //
-// salts, when non-nil, perturb the trie key at each aligned position —
-// media requests salt their image-token runs with digest-derived words so
-// identical placeholder ids never collide across different images, while
-// identical images still share their prefix. restoreFloor rejects any
-// restore that resumes before it (media requests pass the last image span's
-// end): a restore inside or before a bidirectional block would resume
-// prefill mid-block, and the block masks only compose from position zero.
-func (c *prefixCache) begin(inputs []int32, salts []uint32, restoreFloor int) *cacheSession {
+// items are the request's media expansions: they key the trie (see
+// effectiveKeyTokens) and set the restore floor (see mediaRestoreFloor).
+func (c *prefixCache) begin(inputs []int32, items []mediaItem) *cacheSession {
 	c.ensureRoot()
 
-	keys := c.key(inputs, salts)
+	effInputs := effectiveKeyTokens(inputs, items)
+	keys := c.key(effInputs)
 	matchPath, matched := findBestMatch(c.root, keys)
 	originalMatched := matched
 
@@ -112,10 +99,12 @@ func (c *prefixCache) begin(inputs []int32, salts []uint32, restoreFloor int) *c
 		matchPath, matched = findBestMatch(c.root, keys[:matched-1])
 	}
 
-	// All-or-nothing for bidirectional prompts: a match that stops short of
-	// the floor (e.g. one image's soft tokens matching as a prefix of the
-	// same image at a larger budget) re-prefills from zero instead.
-	if matched < restoreFloor {
+	floor := mediaRestoreFloor(items)
+
+	// All-or-nothing for bidirectional expansions: a match that stops short
+	// of the floor (e.g. a snapshot node whose edge ends inside an image
+	// block) re-prefills from zero instead.
+	if matched < floor {
 		matchPath, matched = findBestMatch(c.root, keys[:0])
 	}
 
@@ -129,7 +118,7 @@ func (c *prefixCache) begin(inputs []int32, salts []uint32, restoreFloor int) *c
 	// page-in (e.g. a rotating cache asked for a mid-window restore) drags the
 	// alignment down to a shallower node. Re-check the floor against the offset
 	// actually reached, or the restore lands inside a bidirectional block.
-	if prefix > 0 && prefix < restoreFloor {
+	if prefix > 0 && prefix < floor {
 		matchPath, matched = findBestMatch(c.root, keys[:0])
 		c.switchToPath(matchPath, matched)
 		prefix = c.minCacheOffset()
@@ -140,7 +129,7 @@ func (c *prefixCache) begin(inputs []int32, salts []uint32, restoreFloor int) *c
 	session := &cacheSession{
 		cache:     c,
 		inputs:    inputs,
-		salts:     salts,
+		effInputs: effInputs,
 		caches:    c.caches,
 		remaining: remaining,
 	}
@@ -160,38 +149,79 @@ func (c *prefixCache) begin(inputs []int32, salts []uint32, restoreFloor int) *c
 	return session
 }
 
-// key converts tokens to trie keys, one per restorable cache offset. A model
-// that drafts through MTP-style draft caches pairs each cache slot with the
-// token after it, so slot i is reusable only if token i+1 also matched. The
-// key for offset i then packs (token i, token i+1): matching k keys verifies
-// k+1 tokens, making every match a valid restore point.
-//
-// salts, when non-nil, XOR into each aligned token's key word: repeated
-// media placeholder ids become content-distinct without touching the tokens
-// the model sees. Positions past len(salts) — generated outputs — are
-// unsalted.
-func (c *prefixCache) key(tokens []int32, salts []uint32) []trieKey {
-	salted := func(i int) uint32 {
-		w := uint32(tokens[i])
-		if i < len(salts) {
-			w ^= salts[i]
-		}
-		return w
+// effectiveKeyTokens returns the per-position key alphabet: the token ID
+// outside media expansions, the item's fold value across each expansion's
+// whole range.
+func effectiveKeyTokens(tokens []int32, items []mediaItem) []uint32 {
+	eff := make([]uint32, len(tokens))
+	for i, t := range tokens {
+		eff[i] = uint32(t)
 	}
+	for _, item := range items {
+		for i := item.pos; i < item.pos+item.length; i++ {
+			eff[i] = item.fold
+		}
+	}
+	return eff
+}
+
+// mediaRestoreFloor is the offset below which a restore must not resume,
+// unless it resumes from zero: the end of the request's last bidirectional
+// (non-causal) media expansion.
+//
+// Prefill after a restore starts at the resume offset, and a bidirectional
+// expansion is only correct when one forward covers all of it — chunking
+// guards a chunk's end (see requestMedia.extendChunk) but nothing guards
+// where a restore begins. A trie node whose edge ends inside an expansion
+// (a periodic prefill snapshot, or a shorter encoding of the same media
+// matching as a prefix of a longer one) would otherwise let prefill resume
+// mid-block and evaluate only its tail. Causal expansions may be split, so
+// they do not raise the floor; text-only requests floor at zero.
+func mediaRestoreFloor(items []mediaItem) int {
+	floor := 0
+	for i := range items {
+		// A zero mediaItem has no prepared item; treat it as bidirectional,
+		// the conservative side of this guard.
+		if items[i].item != nil && items[i].item.Causal {
+			continue
+		}
+		floor = max(floor, items[i].pos+items[i].length)
+	}
+	return floor
+}
+
+// key packs (token i, token i+1) per restorable offset: draft caches
+// pair each slot with the next token, so matching k keys verifies k+1
+// tokens and every match is a valid restore point.
+func (c *prefixCache) key(tokens []uint32) []trieKey {
 	keys := make([]trieKey, max(len(tokens)-c.draftLookahead, 0))
 	switch c.draftLookahead {
 	case 0:
-		for i := range tokens {
-			keys[i] = trieKey(salted(i))
+		for i, t := range tokens {
+			keys[i] = trieKey(t)
 		}
 	case 1:
 		for i := range keys {
-			keys[i] = trieKey(salted(i))<<32 | trieKey(salted(i+1))
+			keys[i] = trieKey(tokens[i])<<32 | trieKey(tokens[i+1])
 		}
 	default:
 		panic(fmt.Sprintf("prefixCache: unsupported draft look-ahead %d", c.draftLookahead))
 	}
 	return keys
+}
+
+// storedKeys keys the session's evaluated stream: the prompt's effective
+// tokens plus generated tokens, which are never media.
+func (s *cacheSession) storedKeys() []trieKey {
+	eff := s.effInputs
+	if len(s.outputs) > 0 {
+		eff = make([]uint32, 0, len(s.effInputs)+len(s.outputs))
+		eff = append(eff, s.effInputs...)
+		for _, t := range s.outputs {
+			eff = append(eff, uint32(t))
+		}
+	}
+	return s.cache.key(eff)
 }
 
 // switchToPath transitions from the current active path to a new path,
@@ -226,7 +256,7 @@ func (c *prefixCache) switchToPath(newPath []*trieNode, matched int) {
 	leafNeedsRewind := matched < c.activePath[leaf].endOffset
 	if leafDiverges || leafNeedsRewind {
 		node := c.activePath[leaf]
-		if !node.hasAllSnapshots() {
+		if !hasAllSnapshots(node, c.caches) {
 			fromOffset := node.startOffset()
 			snaps := make([]cache.Snapshot, len(c.caches))
 			for j, kv := range c.caches {
@@ -430,7 +460,7 @@ func (s *cacheSession) attachPrefillSnapshots() {
 	// no captured state. Skip it rather than materialize a node whose edge
 	// claims tokens the cache never wrote. Closing its (nil) row is a no-op.
 	reached := c.minCacheOffset()
-	stored := c.key(append(s.inputs, s.outputs...), s.salts)
+	stored := s.storedKeys()
 	for i, p := range pending {
 		if p.offset > reached {
 			// Never crossed by a write, so the row is nil; close any entry
@@ -560,7 +590,7 @@ func (s *cacheSession) close() {
 	// The caches never advance past the stored keys; anything more
 	// means positions desynced.
 	c := s.cache
-	stored := c.key(append(s.inputs, s.outputs...), s.salts)
+	stored := s.storedKeys()
 	if offset > len(stored) {
 		panic(fmt.Sprintf("cache: offset %d exceeds %d stored keys", offset, len(stored)))
 	}
@@ -682,7 +712,7 @@ func (c *prefixCache) dumpTree() {
 		if n.user {
 			flags = append(flags, "user")
 		}
-		if n.hasAllSnapshots() {
+		if hasAllSnapshots(n, c.caches) {
 			snapshotCount++
 			flags = append(flags, "snap")
 		}

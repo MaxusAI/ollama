@@ -1006,15 +1006,13 @@ func (m *Model) LoadWeights(tensors map[string]*mlx.Array) error {
 	return nil
 }
 
-func (m *Model) Forward(b *batch.Batch, caches []cache.Cache) *mlx.Array {
+func (m *Model) Forward(b *batch.Batch, caches []cache.Cache) (hidden, auxHidden *mlx.Array) {
 	dims := b.InputIDs.Dims()
 	B, L := int32(dims[0]), int32(dims[1])
 	positions := mlx.FromValues(b.SeqOffsets, len(b.SeqOffsets))
-	h := b.InputsEmbeds
-	if h == nil {
-		h = m.EmbedTokens.Forward(b.InputIDs)
-		h = mlx.MulScalar(h, m.EmbedScale)
-	}
+	h := mlx.MulScalar(m.EmbedTokens.Forward(b.InputIDs), m.EmbedScale)
+	// Splice this chunk's image features over their placeholder rows.
+	h = m.scatterMedia(h, b)
 
 	// Compute PLE inputs if configured.
 	var perLayerInputs *mlx.Array
@@ -1058,7 +1056,8 @@ func (m *Model) Forward(b *batch.Batch, caches []cache.Cache) *mlx.Array {
 		}
 	}
 
-	return mlx.RMSNormFn(h, m.NormScaled, m.RMSNormEps)
+	out := mlx.RMSNormFn(h, m.NormScaled, m.RMSNormEps)
+	return out, out
 }
 
 func (m *Model) Unembed(x *mlx.Array) *mlx.Array {
@@ -1103,10 +1102,6 @@ func suppressTokenLogits(logits, bias *mlx.Array) *mlx.Array {
 	}
 
 	return logits.Add(bias.AsType(logits.DType()))
-}
-
-func (m *Model) NumLayers() int {
-	return len(m.Layers)
 }
 
 func (m *Model) MaxContextLength() int {
@@ -1266,7 +1261,13 @@ func (a *Attention) Forward(x *mlx.Array, b *batch.Batch, c cache.Cache, positio
 	// vision mask. Routing through the cache history would let the sliding
 	// applier re-add the window over relaxed image blocks, which the
 	// reference overlay explicitly overrides.
-	bidi := len(b.BidiSpans) > 0 && L > 1 && len(b.SeqOffsets) > 0 && b.SeqOffsets[0] == 0
+	// The offset-zero requirement is load-bearing, not vestigial: this path
+	// attends over the chunk's own k/v (above), so the mask's key axis is the
+	// chunk's keys. Only at offset zero are those the complete key set, which
+	// is what makes chunk-relative and absolute positions coincide. The runner
+	// re-establishes the guarantee by growing the opening chunk to cover every
+	// bidirectional expansion (requestMedia.extendChunk).
+	bidi := len(b.Media) > 0 && L > 1 && len(b.SeqOffsets) > 0 && b.SeqOffsets[0] == 0
 
 	kv := donor
 	if kv == nil {

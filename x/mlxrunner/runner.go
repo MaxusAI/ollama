@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/x/internal/mlxthread"
+	"github.com/ollama/ollama/x/mlxrunner/cache"
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
 	"github.com/ollama/ollama/x/mlxrunner/model"
 	"github.com/ollama/ollama/x/mlxrunner/model/base"
@@ -32,13 +34,9 @@ type Request struct {
 
 	Ctx         context.Context //nolint:containedctx // Queued requests carry caller cancellation to the runner.
 	Tokens      []int32
+	MediaItems  []mediaItem
+	Layout      any // opaque PrepareMedia layout state, stamped on every batch
 	SamplerOpts sample.Options
-
-	// Media state populated by Prepare: preprocessed images, their
-	// soft-token spans within Tokens, and per-token prefix-cache salts.
-	VisionInputs []base.VisionInput
-	VisionSpans  [][2]int32
-	CacheSalts   []uint32
 
 	// Constraint is the compiled format grammar, nil when the request
 	// carries no format. Populated by Prepare.
@@ -124,13 +122,23 @@ func (r *Runner) Load(modelName string) error {
 	r.Model = m
 	r.Tokenizer = m.Tokenizer()
 	r.contextLength = m.MaxContextLength()
-	r.cache = newPrefixCache(m)
+	caches := m.NewCaches()
+	draftCaches := newDraftCaches(draftModel)
+	r.cache = newPrefixCache(slices.Concat(caches, draftCaches))
 	r.Sampler = sample.New(r.contextLength)
-	r.spec = newSpeculation(r, draftModel)
+	r.spec = newSpeculation(r, draftModel, caches, draftCaches)
 
 	mlx.EnableCompile()
 
 	return nil
+}
+
+// newDraftCaches returns nil when the model ships no draft.
+func newDraftCaches(draft base.DraftModel) []cache.Cache {
+	if draft == nil {
+		return nil
+	}
+	return draft.NewCaches()
 }
 
 func configureWiredMemory() {

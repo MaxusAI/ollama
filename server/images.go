@@ -455,11 +455,34 @@ func (m *Model) filterUnsupportedCapabilities(capabilities []model.Capability, m
 			return c == model.CapabilityAudio
 		})
 	}
+	if suppressVisionCapability(m) {
+		capabilities = slices.DeleteFunc(capabilities, func(c model.Capability) bool {
+			return c == model.CapabilityVision
+		})
+	}
+
 	return capabilities
+}
+
+func suppressVisionCapability(m *Model) bool {
+	// gemma4 safetensors serves vision again: it implements base.MediaModel, so
+	// the runner accepts image requests rather than rejecting them. Upstream
+	// suppresses it because upstream's gemma4 has no media path; keeping that
+	// here would leave vision working in the runner but invisible to clients.
+
+	// The current MLX Nemotron path is text-only. Do not advertise vision for
+	// safetensors manifests until the runner can load and serve that modality.
+	return isNemotron3NanoSafetensors(m)
 }
 
 func suppressAudioCapability(m *Model, arch string) bool {
 	if isGemma4Renderer(m.Config.Renderer) && m.Config.ModelFormat == "safetensors" {
+		return true
+	}
+	if m.Config.ModelFormat == "safetensors" && m.Config.Renderer == "glimmer" {
+		return true
+	}
+	if isNemotron3NanoSafetensors(m) {
 		return true
 	}
 
@@ -471,6 +494,18 @@ func suppressAudioCapability(m *Model, arch string) bool {
 	}
 
 	return false
+}
+
+func isNemotron3NanoSafetensors(m *Model) bool {
+	return isNemotron3NanoSafetensorsConfig(m.Config)
+}
+
+func isNemotron3NanoSafetensorsConfig(cfg model.ConfigV2) bool {
+	return cfg.ModelFormat == "safetensors" &&
+		(cfg.Parser == "nemotron-3-nano" ||
+			cfg.Renderer == "nemotron-3-nano" ||
+			cfg.ModelFamily == "nemotron_h_omni" ||
+			slices.Contains(cfg.ModelFamilies, "nemotron_h_omni"))
 }
 
 func projectorHasAudio(f *gguf.File) bool {

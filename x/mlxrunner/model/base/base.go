@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/x/mlxrunner/batch"
 	"github.com/ollama/ollama/x/mlxrunner/cache"
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
@@ -16,73 +15,58 @@ import (
 
 // Model is the interface that model implementations must satisfy.
 type Model interface {
-	Forward(b *batch.Batch, cache []cache.Cache) *mlx.Array
-	Unembed(x *mlx.Array) *mlx.Array
-	NumLayers() int
-	Tokenizer() *tokenizer.Tokenizer
-	MaxContextLength() int
-
 	// LoadWeights receives all tensors loaded from the manifest and assigns
 	// them to model fields. Model-specific logic (MLA absorption, expert
 	// stacking, quantized layer creation) happens here.
 	LoadWeights(tensors map[string]*mlx.Array) error
+
+	// NewCaches builds the cache slots this model's layers need.
+	NewCaches() []cache.Cache
+
+	// Forward returns the hidden state to unembed and the state a draft
+	// model conditions on; plain models return the final hidden for both.
+	Forward(b *batch.Batch, cache []cache.Cache) (hidden, auxHidden *mlx.Array)
+	Unembed(x *mlx.Array) *mlx.Array
+
+	Tokenizer() *tokenizer.Tokenizer
+	MaxContextLength() int
 }
 
 // DraftModel is an auxiliary model alongside a target that proposes speculative
 // tokens.
 type DraftModel interface {
-	// Draft fuses b.Hidden (the target hidden state) into its own forward and
-	// returns the head's hidden plus the projected hidden seeding the next step.
-	Draft(b *batch.Batch, caches []cache.Cache) (hidden, projected *mlx.Array)
+	// LoadWeights assigns manifest tensors to the draft model's fields. An
+	// inline head has nothing to do here; its weights load with the target's.
+	LoadWeights(tensors map[string]*mlx.Array) error
+
+	// NewCaches builds the cache slots this draft model writes, or nil
+	// when it keeps no KV.
+	NewCaches() []cache.Cache
+
+	// Forward consumes b.Hidden (the draft-conditioning state) and returns
+	// its hidden plus the aux hidden that seeds the next step. targetCaches
+	// is read-only, for drafts that attend over the target's history.
+	Forward(b *batch.Batch, targetCaches, draftCaches []cache.Cache) (hidden, auxHidden *mlx.Array)
 
 	// Unembed projects a hidden state to vocabulary logits.
 	Unembed(x *mlx.Array) *mlx.Array
+}
 
-	// DraftCaches selects the draft model's own KV caches from the full
-	// per-request slice — any subset, or nil when the draft keeps no KV.
-	DraftCaches(caches []cache.Cache) []cache.Cache
+// BlockDraft is a DraftModel that drafts a whole block per forward (block
+// diffusion), conditioned on features tapped from target layers rather than
+// the final hidden state.
+type BlockDraft interface {
+	DraftModel
 
-	// LoadWeights assigns manifest tensors to the draft head's fields.
-	LoadWeights(tensors map[string]*mlx.Array) error
+	// BlockParams returns the trained block length and the mask token
+	// standing in for undrafted positions.
+	BlockParams() (blockSize int, maskToken int32)
 }
 
 // SelfDraft is implemented by models whose draft head ships inline with the
 // target weights; it returns the head, or nil when the checkpoint shipped none.
 type SelfDraft interface {
 	SelfDraft() DraftModel
-}
-
-// VisionInput is one preprocessed image ready for encoding.
-type VisionInput interface {
-	// SoftTokens is the number of image placeholder tokens this input
-	// expands to in the prompt.
-	SoftTokens() int
-}
-
-// VisionModel is implemented by models that accept image input. The runner
-// discovers it by type assertion, mirroring SelfDraft.
-type VisionModel interface {
-	// SupportsVision reports whether this checkpoint actually shipped a
-	// vision path; the interface may be implemented by a package whose
-	// text-only checkpoints share the model type.
-	SupportsVision() bool
-
-	// VisionTokens returns the ids bracketing one image's soft tokens in
-	// the prompt: begin-of-image, the repeated placeholder, end-of-image.
-	VisionTokens() (boi, image, eoi int32)
-
-	// NewVisionInput decodes and preprocesses one image per the model's
-	// pipeline. Pure Go — safe to call off the MLX thread.
-	NewVisionInput(data []byte, opts api.Options) (VisionInput, error)
-
-	// EncodeVision embeds a preprocessed image into text hidden space,
-	// returning [1, SoftTokens, hidden]. MLX thread only.
-	EncodeVision(in VisionInput) *mlx.Array
-
-	// MergedEmbeddings returns the scaled token embeddings for inputIDs with
-	// features spliced over spans (half-open [start, end) positions).
-	// MLX thread only.
-	MergedEmbeddings(inputIDs *mlx.Array, features []*mlx.Array, spans [][2]int32) *mlx.Array
 }
 
 var (
