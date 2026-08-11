@@ -47,16 +47,30 @@ merge — preserving the fork's complete pre-upstream state:
 
 Per ADR 0006 it is never merged into `main`; fixes flow one way, cherry-picked.
 
-**This supersedes ADR 0019 and its branch `release/imagegen-mlx`.** That lineage was cut from the
-same commit and preserves the same tree, but its ADR framed it as imagegen-only, which understates
-what it protects and would let a reader conclude vision was unprotected. One lineage, correctly
-described, is better than two identical ones. `release/imagegen-mlx` should be deleted once this
-branch is confirmed.
+**Two lineages, with different jobs. `release/imagegen-mlx` (ADR 0019) is kept, not superseded.**
+The two are byte-identical today apart from their ADRs, which makes the second look redundant. It
+is not, because only one of them is going to stand still:
+
+- **`release/imagegen-mlx` is frozen.** It stays at `a8a25886` — the last known-good pre-upstream
+  fork, with imagegen and the vision line both working and the whole `./x/...` suite green. It takes
+  no fixes and no upstream alignment. Its value is that it does not move: a restore point that is
+  still true a year from now.
+- **`release/mlx-vision` is maintained.** It carries the same starting tree but will take fixes and,
+  as the gemma4 `base.MediaModel` port lands, alignment with upstream's media APIs. It is the branch
+  from which vision work continues, and it will drift from `a8a25886` on purpose.
+
+An earlier revision of this ADR proposed deleting `release/imagegen-mlx` on the grounds that
+nothing would ever make the two diverge. That was wrong: the gemma4 port is precisely what makes
+them diverge, and it is already planned
+(`docs/superpowers/plans/2026-08-11-gemma4-base-mediamodel-port.md`). Collapsing to one branch would
+have traded a stable restore point for a moving one at the exact moment the moving one starts taking
+risk.
 
 ## Alternatives considered
 
-- **Keep both lineages.** They are byte-identical apart from their ADR, so the second buys nothing
-  and invites drift between two branches nobody has decided how to maintain differently.
+- **Collapse to one lineage.** Tempting while the two are byte-identical, and rejected: the branch
+  that keeps moving cannot also be the branch you fall back to. Once the gemma4 port starts
+  rewriting the media path, a single lineage would be carrying both the restore point and the risk.
 - **Rely on `release/imagegen-mlx` alone.** It does preserve everything, but only by accident of
   having been cut from `main`. A future reader searching for the vision decision finds an ADR about
   image generation and reasonably concludes vision was not considered.
@@ -68,6 +82,11 @@ branch is confirmed.
 
 - Positive: nothing the fork built is lost when `main` follows upstream, and the record says which
   branch holds what and why.
+- Positive: because `release/imagegen-mlx` stays frozen, this lineage is free to take risk. The
+  gemma4 port can rewrite the media path here without putting the restore point in play.
+- Negative: two lineages to reason about, and the cost lands the moment they diverge — a fix that
+  belongs in both has to be applied twice, and the frozen branch will not receive it at all unless
+  someone decides it is worth unfreezing for. That is the trade being bought deliberately.
 - Negative: this lineage ages against `main` from the moment upstream lands, and the gap is
   precisely the media rework it cannot absorb without the gemma4 port.
 - Negative: as with ADR 0019, `main` carries no record of what it gave up. Accepted; the pointer is
