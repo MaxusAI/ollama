@@ -170,6 +170,50 @@ func (m *requestMedia) close() {
 	}
 }
 
+// visionPrefillMaskBudget bounds the dense attention mask a bidirectional media
+// request can force a model to allocate (ADR 0014).
+//
+// A non-causal expansion cannot be served by a plain causal mask, so the model
+// materializes a dense [chunkLen, keyCount] float32 overlay. keyCount is the
+// cache length, which grows with the prompt, so the cost is chunk × context —
+// not chunk². At the 2 KiB prefill chunk that is 0.25 GiB at a 32k prompt and
+// 1 GiB at 128k, and extendChunk can grow the chunk to cover a whole expansion,
+// doubling it again. Without an admission check a single long prompt with a
+// trailing image is an unauthenticated allocation of several GiB.
+//
+// This replaces the pre-merge check that keyed on request.VisionSpans. Phase 3
+// removed the position-zero chunk requirement it was written alongside, but the
+// dense overlay it guarded is unchanged, so the ceiling still earns its keep.
+const visionPrefillMaskBudget = 1 << 30 // 1 GiB
+
+// checkVisionPrefillBudget refuses a request whose bidirectional expansions
+// would force a dense mask past the budget. Causal media (glimmer, qwen3.5)
+// needs no overlay and is not charged.
+func checkVisionPrefillBudget(items []mediaItem, promptLen int) error {
+	chunk := 0
+	for _, it := range items {
+		if it.item.Causal {
+			continue
+		}
+		// extendChunk grows a chunk to cover a whole atomic expansion, so the
+		// widest mask row count is the larger of the base chunk and the
+		// longest expansion.
+		chunk = max(chunk, max(prefillChunkSize(), it.length))
+	}
+	if chunk == 0 {
+		return nil
+	}
+
+	const bytesPerEntry = 4 // float32 mask entries
+	if bytes := int64(chunk) * int64(promptLen) * bytesPerEntry; bytes > visionPrefillMaskBudget {
+		return fmt.Errorf(
+			"image request needs a %.1f GiB attention mask (%d-token prompt); "+
+				"reduce the prompt length or the image-token budget",
+			float64(bytes)/(1<<30), promptLen)
+	}
+	return nil
+}
+
 // expandMedia tokenizes the [img-N]-tagged prompt into segments, expands
 // them in a single PrepareMedia call, and validates the authored items
 // before keying cache identity on them.

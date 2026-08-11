@@ -89,6 +89,11 @@ func (r *Runner) Prepare(request *Request) error {
 		return fmt.Errorf("input length (%d tokens) exceeds the model's maximum context length (%d tokens)", len(tokens), r.contextLength)
 	}
 
+	// Refuse at admission rather than OOM mid-prefill (ADR 0014).
+	if err := checkVisionPrefillBudget(items, len(tokens)); err != nil {
+		return err
+	}
+
 	// Cap generation to stay within the model's context length
 	maxGenerate := r.contextLength - len(tokens)
 	if request.Options.NumPredict <= 0 {

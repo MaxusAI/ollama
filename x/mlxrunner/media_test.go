@@ -189,3 +189,63 @@ func TestFoldValueSeparatesBudgets(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckVisionPrefillBudget restores ADR 0014's conformance coverage, which
+// was lost with the pre-merge implementation. Phase 3 removed the position-zero
+// chunk requirement, but the dense [chunk, keys] overlay the ceiling guarded is
+// unchanged, so the guard is still load-bearing.
+func TestCheckVisionPrefillBudget(t *testing.T) {
+	bidi := func(length int) mediaItem {
+		return mediaItem{length: length, item: &base.PreparedItem{Causal: false}}
+	}
+	causal := func(length int) mediaItem {
+		return mediaItem{length: length, item: &base.PreparedItem{Causal: true}}
+	}
+
+	// The mask is chunk x prompt x 4 bytes; the chunk is at least the prefill
+	// chunk size, so the budget is hit by prompt length alone.
+	overLen := visionPrefillMaskBudget/(int64(prefillChunkSize())*4) + 1
+
+	for _, tc := range []struct {
+		name      string
+		items     []mediaItem
+		promptLen int
+		wantErr   bool
+	}{
+		{"no media is never charged", nil, int(overLen), false},
+		{"causal media needs no dense overlay", []mediaItem{causal(4096)}, int(overLen), false},
+		{"short bidi prompt fits", []mediaItem{bidi(256)}, 8192, false},
+		{"bidi prompt past the ceiling is refused", []mediaItem{bidi(256)}, int(overLen), true},
+		{
+			"a long expansion widens the chunk and so the mask",
+			[]mediaItem{bidi(1 << 16)}, 16384, true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkVisionPrefillBudget(tc.items, tc.promptLen)
+			if tc.wantErr && err == nil {
+				t.Fatal("want an admission error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("want admission, got %v", err)
+			}
+		})
+	}
+}
+
+// TestVisionPrefillBudgetBoundsTheAllocation measures the bound rather than
+// asserting it by eye: whatever the check admits must fit the budget.
+func TestVisionPrefillBudgetBoundsTheAllocation(t *testing.T) {
+	items := []mediaItem{{length: 4096, item: &base.PreparedItem{Causal: false}}}
+	for _, promptLen := range []int{1024, 8192, 32768, 131072, 1 << 20} {
+		err := checkVisionPrefillBudget(items, promptLen)
+		chunk := max(prefillChunkSize(), 4096)
+		bytes := int64(chunk) * int64(promptLen) * 4
+		if err == nil && bytes > visionPrefillMaskBudget {
+			t.Fatalf("admitted a %d-token prompt needing %.2f GiB", promptLen, float64(bytes)/(1<<30))
+		}
+		if err != nil && bytes <= visionPrefillMaskBudget {
+			t.Fatalf("refused a %d-token prompt needing only %.2f GiB", promptLen, float64(bytes)/(1<<30))
+		}
+	}
+}
