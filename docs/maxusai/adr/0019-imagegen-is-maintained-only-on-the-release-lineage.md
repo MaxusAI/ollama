@@ -39,14 +39,20 @@ upstream will no longer fix, review, or test.
 
 ## Decision
 
-1. **`release/imagegen-mlx` is a maintained lineage** carrying the MLX image
-   generation engine, branched from `main` at `a8a25886` — the merge of PR #71,
-   so it includes ADR 0018's thread-local stream fix and a green `x/imagegen`.
+1. **`release/imagegen-mlx` is the frozen lineage.** It stays at `a8a25886` — the
+   merge of PR #71 — carrying the MLX image generation engine, ADR 0018's
+   thread-local stream fix, the fork's MLX vision line, and a `./x/...` suite that
+   is green including `x/imagegen`. It takes **no** fixes and **no** upstream
+   alignment. Its whole value is that it does not move: a restore point that is
+   still true long after `main` and the maintained lineage have drifted.
 2. **`main` returns to following `upstream/main`**, which means taking
    ollama/ollama#16615 and dropping `x/imagegen` from `main`.
-3. **Following ADR 0006, this lineage is never merged into `main`.** Fixes flow
-   one way: `main` → lineage, cherry-picked when they apply.
-4. This ADR is committed **only to this lineage**, per the same rule.
+3. **Following ADR 0006, this lineage is never merged into `main`.**
+4. **Ongoing vision work happens on `release/mlx-vision` (ADR 0020), not here.**
+   That branch starts from this same tree but will take fixes and upstream media
+   alignment as the gemma4 `base.MediaModel` port lands. The two lineages exist
+   because the branch that keeps moving cannot also be the branch you fall back to.
+5. This ADR is committed **only to this lineage**, per the same rule.
 
 ## Alternatives considered
 
@@ -76,8 +82,11 @@ upstream will no longer fix, review, or test.
   is this branch's existence.
 - Negative: ADR 0018 remains on `main` describing code `main` no longer has, until
   the upstream merge lands and removes it there too.
-- Negative: this lineage inherits the usual cost — it ages against `main`, and any
-  MLX-layer fix that also applies here has to be cherry-picked.
+- Negative: being frozen, this lineage ages against `main` from day one and will
+  never receive a fix found later — including security-relevant ones. That is the
+  price of a restore point you can trust: the moment it starts taking patches it
+  stops being one. If a fix is important enough to want here, the decision is to
+  unfreeze deliberately and say so, not to cherry-pick quietly.
 
 ## Conformance
 
