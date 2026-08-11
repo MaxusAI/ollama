@@ -2,165 +2,190 @@ package mlxrunner
 
 import (
 	"slices"
-	"strings"
 	"testing"
 
-	"github.com/ollama/ollama/api"
-	"github.com/ollama/ollama/llm"
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
 	"github.com/ollama/ollama/x/mlxrunner/model/base"
 )
 
-// fakeVisionModel expands every image to a fixed soft-token count.
-type fakeVisionModel struct {
-	soft    int
-	decoded [][]byte
-}
+func TestEffectiveKeyTokens(t *testing.T) {
+	tokens := []int32{10, 20, 500, 500, 500, 30}
+	items := []mediaItem{{pos: 2, length: 3, fold: foldValue([]byte("img"), []int{1})}}
 
-type fakeVisionInput struct{ soft int }
-
-func (f *fakeVisionInput) SoftTokens() int { return f.soft }
-
-func (f *fakeVisionModel) SupportsVision() bool                { return true }
-func (f *fakeVisionModel) VisionTokens() (int32, int32, int32) { return 9001, 9002, 9003 }
-func (f *fakeVisionModel) NewVisionInput(data []byte, _ api.Options) (base.VisionInput, error) {
-	f.decoded = append(f.decoded, data)
-	return &fakeVisionInput{soft: f.soft}, nil
-}
-func (f *fakeVisionModel) EncodeVision(base.VisionInput) *mlx.Array { return nil }
-func (f *fakeVisionModel) MergedEmbeddings(*mlx.Array, []*mlx.Array, [][2]int32) *mlx.Array {
-	return nil
-}
-
-// runeEncode tokenizes one rune per token; addBOS prepends 1.
-func runeEncode(s string, addBOS bool) []int32 {
-	var toks []int32
-	if addBOS {
-		toks = append(toks, 1)
+	eff := effectiveKeyTokens(tokens, items)
+	want := []uint32{10, 20, items[0].fold, items[0].fold, items[0].fold, 30}
+	if !slices.Equal(eff, want) {
+		t.Fatalf("got %v, want %v", eff, want)
 	}
-	for _, r := range s {
-		toks = append(toks, int32(r))
-	}
-	return toks
-}
 
-func TestExpandMediaSingleImage(t *testing.T) {
-	vm := &fakeVisionModel{soft: 3}
-	exp, err := expandMedia("ab[img-0]cd", []llm.MediaData{{Data: []byte("payload"), ID: 0, Kind: llm.MediaKindImage}},
-		vm, api.Options{}, runeEncode, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// BOS a b boi img img img eoi c d
-	want := []int32{1, 'a', 'b', 9001, 9002, 9002, 9002, 9003, 'c', 'd'}
-	if len(exp.Tokens) != len(want) {
-		t.Fatalf("tokens = %v, want %v", exp.Tokens, want)
-	}
-	for i := range want {
-		if exp.Tokens[i] != want[i] {
-			t.Fatalf("tokens[%d] = %d, want %d (%v)", i, exp.Tokens[i], want[i], exp.Tokens)
+	// Text-only streams never alias a media stream: folds carry bit 31.
+	for _, e := range effectiveKeyTokens(tokens, nil) {
+		if e&(1<<31) != 0 {
+			t.Fatalf("token key %d has bit 31 set", e)
 		}
 	}
-	if len(exp.Spans) != 1 || exp.Spans[0] != [2]int32{4, 7} {
-		t.Fatalf("spans = %v, want [[4 7]]", exp.Spans)
-	}
-	if len(exp.Salts) != len(exp.Tokens) {
-		t.Fatalf("salts length %d != tokens length %d", len(exp.Salts), len(exp.Tokens))
-	}
-	for i, s := range exp.Salts {
-		inSpan := i >= 4 && i < 7
-		if inSpan && s == 0 {
-			t.Fatalf("salt[%d] = 0 inside image span", i)
-		}
-		if !inSpan && s != 0 {
-			t.Fatalf("salt[%d] = %d outside image span", i, s)
-		}
-	}
-	if len(exp.Inputs) != 1 || exp.Inputs[0].SoftTokens() != 3 {
-		t.Fatalf("inputs = %v", exp.Inputs)
-	}
-	if string(vm.decoded[0]) != "payload" {
-		t.Fatalf("payload not forwarded: %q", vm.decoded[0])
-	}
 }
 
-func TestExpandMediaSaltsDifferByContent(t *testing.T) {
-	a := mediaSalts([]byte("image-a"), 4)
-	b := mediaSalts([]byte("image-b"), 4)
-	if a[0] == b[0] {
-		t.Fatal("different images must diverge at the first soft token")
+func TestExtendChunk(t *testing.T) {
+	m := &requestMedia{
+		items: []mediaItem{
+			{pos: 10, length: 4, item: &base.PreparedItem{}},
+			{pos: 40, length: 8, item: &base.PreparedItem{Causal: true}},
+			{pos: 96, length: 4, item: &base.PreparedItem{}},
+		},
+		inputLen: 100,
 	}
-	a2 := mediaSalts([]byte("image-a"), 4)
-	for i := range a {
-		if a[i] != a2[i] {
-			t.Fatal("identical images must produce identical salts")
-		}
-	}
-	if a[0] == a[1] {
-		t.Fatal("salts must vary by position")
-	}
-}
 
-func TestExpandMediaSaltsDifferByBudget(t *testing.T) {
-	small := mediaSalts([]byte("image-a"), 4)
-	large := mediaSalts([]byte("image-a"), 6)
-
-	// The same image at two budgets is two different encodings: the salt
-	// sequences must share no prefix at all, so a lower-budget request can
-	// never restore KV captured at a higher one.
-	for i := range small {
-		if small[i] == large[i] {
-			t.Fatalf("salt[%d] shared across budgets: %d", i, small[i])
+	cases := []struct{ pos, n, want int }{
+		{0, 10, 10}, // ends at the expansion start: not inside
+		{0, 12, 10}, // expansion starts inside: cut so it begins the next chunk
+		{0, 14, 14}, // ends at the expansion end: not inside
+		{10, 2, 4},  // chunk starts at the expansion: extend to its end
+		{12, 1, 2},  // resume mid-expansion: extend to its end
+		{38, 6, 6},  // causal expansion: ending inside is legal
+		{42, 4, 4},  // causal expansion at chunk start: no extension
+		{90, 7, 6},  // trailing expansion starts inside: cut before it
+		{96, 2, 3},  // trailing expansion at chunk start: clip one short of the prompt
+	}
+	for _, c := range cases {
+		if got := m.extendChunk(c.pos, c.n); got != c.want {
+			t.Errorf("extendChunk(%d, %d) = %d, want %d", c.pos, c.n, got, c.want)
 		}
 	}
 
-	same := mediaSalts([]byte("image-a"), 4)
-	if !slices.Equal(small, same) {
-		t.Fatalf("equal budgets must share every key: %v != %v", small, same)
+	var nilMedia *requestMedia
+	if got := nilMedia.extendChunk(0, 12); got != 12 {
+		t.Errorf("nil extendChunk = %d, want 12", got)
 	}
 }
 
-func TestExpandMediaMultipleImagesAndPrefixMarker(t *testing.T) {
-	vm := &fakeVisionModel{soft: 2}
-	exp, err := expandMedia("[img-0] x [img-1]", []llm.MediaData{
-		{Data: []byte("first"), ID: 0, Kind: llm.MediaKindImage},
-		{Data: []byte("second"), ID: 1, Kind: llm.MediaKindImage},
-	}, vm, api.Options{}, runeEncode, true)
-	if err != nil {
-		t.Fatal(err)
+// encodeCountingModel counts EncodeMedia calls and returns a real array so
+// the pin/release lifecycle runs against live handles.
+type encodeCountingModel struct {
+	stubMediaModel
+	calls *int
+}
+
+func (m encodeCountingModel) EncodeMedia(item *base.PreparedItem, data *mlx.Array) *mlx.Array {
+	*m.calls++
+	return mlx.Zeros(mlx.DTypeFloat32, item.Range[1]-item.Range[0], 4)
+}
+
+func TestBatchMediaLifecycle(t *testing.T) {
+	skipIfNoMLX(t)
+
+	calls := 0
+	prepared := &base.PreparedItem{
+		Range:     [2]int{2, 6},
+		MediaData: []float32{1, 2},
+		Dims:      []int{2},
+		Opaque:    7,
 	}
-	// Marker-first prompt: no text before the first image, so BOS is never
-	// emitted by a text segment. boi img img eoi ' ' 'x' ' ' boi img img eoi
-	want := []int32{9001, 9002, 9002, 9003, ' ', 'x', ' ', 9001, 9002, 9002, 9003}
-	if len(exp.Tokens) != len(want) {
-		t.Fatalf("tokens = %v, want %v", exp.Tokens, want)
+	r := &Runner{Model: encodeCountingModel{calls: &calls}}
+	request := Request{
+		Tokens:     make([]int32, 8),
+		MediaItems: []mediaItem{{pos: 2, length: 4, item: prepared}},
 	}
-	for i := range want {
-		if exp.Tokens[i] != want[i] {
-			t.Fatalf("tokens[%d] = %d, want %d", i, exp.Tokens[i], want[i])
+
+	m := r.openMedia(request)
+	if m == nil {
+		t.Fatal("openMedia returned nil for a media request")
+	}
+	if m.manifest[0].Pos != 2 || m.manifest[0].Opaque != 7 {
+		t.Fatalf("manifest = %+v", m.manifest[0])
+	}
+
+	if items := m.batchMedia(0, 2); items[0].Features != nil || calls != 0 {
+		t.Fatal("non-overlapping chunk encoded features")
+	}
+	if items := m.batchMedia(0, 4); items[0].Features == nil || calls != 1 {
+		t.Fatalf("overlap did not encode once (calls=%d)", calls)
+	}
+	if items := m.batchMedia(4, 2); items[0].Features == nil || calls != 1 {
+		t.Fatalf("second overlap re-encoded (calls=%d)", calls)
+	}
+
+	m.release(4)
+	if m.manifest[0].Features == nil {
+		t.Fatal("release dropped features before the expansion was evaluated")
+	}
+	m.release(6)
+	if m.manifest[0].Features != nil {
+		t.Fatal("release kept features past the expansion end")
+	}
+	m.close()
+
+	if r.openMedia(Request{Tokens: make([]int32, 8)}) != nil {
+		t.Fatal("openMedia returned non-nil for a text-only request")
+	}
+}
+
+// Two prompts that differ only in their image diverge at the expansion's
+// first key — one position earlier under bigram packing — and prompts with
+// the same image share keys through the whole expansion.
+func TestKeyFoldDivergence(t *testing.T) {
+	prompt := func(fold uint32) []uint32 {
+		tokens := []int32{1, 2, 900, 900, 900, 3, 4}
+		return effectiveKeyTokens(tokens, []mediaItem{{pos: 2, length: 3, fold: fold}})
+	}
+	imgA := foldValue([]byte("a"), []int{1})
+	imgB := foldValue([]byte("b"), []int{1})
+	if imgA != foldValue([]byte("a"), []int{1}) {
+		t.Fatal("fold not deterministic")
+	}
+	if imgA == foldValue([]byte("a"), []int{2}) {
+		t.Fatal("different dims produced the same fold under identical bytes")
+	}
+
+	for _, lookahead := range []int{0, 1} {
+		pc := &prefixCache{draftLookahead: lookahead}
+		keysA := pc.key(prompt(imgA))
+		keysB := pc.key(prompt(imgB))
+		keysA2 := pc.key(prompt(imgA))
+
+		if !slices.Equal(keysA, keysA2) {
+			t.Fatalf("lookahead %d: same image produced different keys", lookahead)
+		}
+
+		// Bigram packing pulls the divergence one position early: the key
+		// before the expansion packs (token, fold). Keys re-converge in value
+		// after the expansion (shared trailing text), which is fine — the trie
+		// paths forked at the first difference.
+		divergeAt, convergeAt := 2-lookahead, 5
+		for i := range keysA {
+			same := keysA[i] == keysB[i]
+			if i < divergeAt && !same {
+				t.Fatalf("lookahead %d: keys diverge at %d, before the expansion", lookahead, i)
+			}
+			if i >= divergeAt && i < convergeAt && same {
+				t.Fatalf("lookahead %d: keys agree at %d, inside the expansion", lookahead, i)
+			}
 		}
 	}
-	if len(exp.Spans) != 2 || exp.Spans[0] != [2]int32{1, 3} || exp.Spans[1] != [2]int32{8, 10} {
-		t.Fatalf("spans = %v", exp.Spans)
-	}
-	if exp.Salts[1] == exp.Salts[8] {
-		t.Fatal("different images share a salt at their first soft token")
-	}
 }
 
-func TestExpandMediaUnknownID(t *testing.T) {
-	vm := &fakeVisionModel{soft: 2}
-	_, err := expandMedia("a[img-7]b", []llm.MediaData{{Data: []byte("x"), ID: 0}}, vm, api.Options{}, runeEncode, false)
-	if err == nil || !strings.Contains(err.Error(), "img-7") {
-		t.Fatalf("expected unknown-id error, got %v", err)
+// The resolved image token budget is part of cache identity (ADR 0003): the
+// same image preprocessed at two budgets holds different embeddings, so a
+// request that lowered image_max_tokens — which does not reload the runner —
+// must not restore KV captured at the higher budget. The budget reaches the
+// key through the preprocessing dims, which pin the feature geometry, and
+// through the expansion length; this pins both.
+func TestFoldValueSeparatesBudgets(t *testing.T) {
+	data := []byte("image-a")
+	small := foldValue(data, []int{4, 256})
+	large := foldValue(data, []int{6, 256})
+	if small == large {
+		t.Fatal("the same image at two budgets folded to one key")
 	}
-}
 
-func TestExpandMediaRejectsAudio(t *testing.T) {
-	vm := &fakeVisionModel{soft: 2}
-	_, err := expandMedia("a[img-0]", []llm.MediaData{{Data: []byte("RIFFxxxxWAVE"), ID: 0, Kind: llm.MediaKindAudio}},
-		vm, api.Options{}, runeEncode, false)
-	if err == nil || !strings.Contains(err.Error(), "audio") {
-		t.Fatalf("expected audio rejection, got %v", err)
+	// The shorter expansion's key stream must share nothing with the longer
+	// one's from the expansion's first position on: no prefix of the
+	// low-budget stream may match inside the high-budget encoding.
+	keysSmall := effectiveKeyTokens([]int32{1, 500, 500, 500, 500, 2}, []mediaItem{{pos: 1, length: 4, fold: small}})
+	keysLarge := effectiveKeyTokens([]int32{1, 500, 500, 500, 500, 500, 500, 2}, []mediaItem{{pos: 1, length: 6, fold: large}})
+	for i := 1; i < min(len(keysSmall), len(keysLarge)); i++ {
+		if keysSmall[i] == keysLarge[i] {
+			t.Fatalf("key %d shared across budgets: %d", i, keysSmall[i])
+		}
 	}
 }

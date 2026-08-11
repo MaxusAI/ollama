@@ -382,19 +382,6 @@ func newManifestWriter(opts CreateOptions, capabilities []string, parserName, re
 			return fmt.Errorf("invalid model name: %s", modelName)
 		}
 
-		// TODO: find a better way to detect image input support
-		// For now, hardcode Flux2KleinPipeline as supporting vision (image input)
-		caps := capabilities
-		modelIndex := filepath.Join(opts.ModelDir, "model_index.json")
-		if data, err := os.ReadFile(modelIndex); err == nil {
-			var cfg struct {
-				ClassName string `json:"_class_name"`
-			}
-			if json.Unmarshal(data, &cfg) == nil && cfg.ClassName == "Flux2KleinPipeline" {
-				caps = append(caps, "vision")
-			}
-		}
-
 		// Create config blob with version requirement.
 		configData := model.ConfigV2{}
 		if opts.BaseConfig != nil {
@@ -404,7 +391,7 @@ func newManifestWriter(opts CreateOptions, capabilities []string, parserName, re
 		if opts.Quantize != "" || configData.FileType == "" {
 			configData.FileType = strings.ToLower(strings.TrimSpace(opts.Quantize))
 		}
-		configData.Capabilities = caps
+		configData.Capabilities = capabilities
 		configData.Requires = MinOllamaVersion
 		if opts.Modelfile != nil && opts.Modelfile.Requires != "" {
 			configData.Requires = opts.Modelfile.Requires
@@ -529,13 +516,14 @@ func detectCapabilities(modelDir string) modelCapabilities {
 		ModelType     string          `json:"model_type"`
 		VisionConfig  *map[string]any `json:"vision_config"`
 		AudioConfig   *map[string]any `json:"audio_config"`
+		HasVision     bool            `json:"has_vision"`
 	}
 	if data, err := os.ReadFile(filepath.Join(modelDir, "config.json")); err == nil {
 		_ = json.Unmarshal(data, &cfg)
 	}
 
 	return modelCapabilities{
-		vision: cfg.VisionConfig != nil,
+		vision: cfg.VisionConfig != nil || cfg.HasVision,
 		audio:  cfg.AudioConfig != nil,
 		thinking: chatTemplateHasThinkingSupport(readChatTemplate(modelDir)) ||
 			alwaysSupportsThinking(cfg.Architectures, cfg.ModelType),
@@ -630,6 +618,9 @@ func getParserName(modelDir string) string {
 	// Check architectures for known parsers
 	for _, arch := range cfg.Architectures {
 		archLower := strings.ToLower(arch)
+		if strings.HasPrefix(arch, "MuseGlimmer") {
+			return "glimmer"
+		}
 		if strings.Contains(archLower, "laguna") {
 			return lagunaRendererParserName(modelDir)
 		}
@@ -656,6 +647,9 @@ func getParserName(modelDir string) string {
 	// Also check model_type
 	if cfg.ModelType != "" {
 		typeLower := strings.ToLower(cfg.ModelType)
+		if typeLower == "muse_glimmer" {
+			return "glimmer"
+		}
 		if strings.Contains(typeLower, "laguna") {
 			return lagunaRendererParserName(modelDir)
 		}
@@ -702,6 +696,9 @@ func getRendererName(modelDir string) string {
 	// Check architectures for known renderers
 	for _, arch := range cfg.Architectures {
 		archLower := strings.ToLower(arch)
+		if strings.HasPrefix(arch, "MuseGlimmer") {
+			return "glimmer"
+		}
 		if strings.Contains(archLower, "laguna") {
 			return lagunaRendererParserName(modelDir)
 		}
@@ -728,6 +725,9 @@ func getRendererName(modelDir string) string {
 	// Also check model_type
 	if cfg.ModelType != "" {
 		typeLower := strings.ToLower(cfg.ModelType)
+		if typeLower == "muse_glimmer" {
+			return "glimmer"
+		}
 		if strings.Contains(typeLower, "laguna") {
 			return lagunaRendererParserName(modelDir)
 		}

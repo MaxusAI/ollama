@@ -479,7 +479,7 @@ type requestResult struct {
 func simulateRequest(t *testing.T, pc *prefixCache, inputs, generated []int32, userSnapshotAt ...int) requestResult {
 	t.Helper()
 
-	session := pc.begin(inputs, nil, 0)
+	session := pc.begin(inputs, nil)
 	var snapshotOffsets []int
 	for _, at := range userSnapshotAt {
 		if at > 0 {
@@ -692,7 +692,7 @@ func TestBranchCreationAndReuse(t *testing.T) {
 		// Verify trie was populated by close(): everything in the caches
 		// is findable; the last generated token is not.
 		seqA := []int32{1, 2, 3, 4, 5, 6, 7, 8, 20, 21}
-		_, mA := findBestMatch(pc.root, pc.key(seqA, nil))
+		_, mA := findBestMatch(pc.root, pc.key(effectiveKeyTokens(seqA, nil)))
 		if want := len(seqA) - 1; mA != want {
 			t.Fatalf("A findable: expected %d matched, got %d", want, mA)
 		}
@@ -721,11 +721,11 @@ func TestBranchCreationAndReuse(t *testing.T) {
 		env.assertAllTokens(t, "after B", []int32{1, 2, 3, 4, 5, 10, 11, 12, 30})
 
 		// Both A and B should be findable in the trie.
-		_, mA2 := findBestMatch(pc.root, pc.key(seqA, nil))
+		_, mA2 := findBestMatch(pc.root, pc.key(effectiveKeyTokens(seqA, nil)))
 		if mA2 < 5 {
 			t.Fatalf("A still findable: expected >= 5 matched, got %d", mA2)
 		}
-		_, mB := findBestMatch(pc.root, pc.key([]int32{1, 2, 3, 4, 5, 10, 11, 12, 30, 31}, nil))
+		_, mB := findBestMatch(pc.root, pc.key(effectiveKeyTokens([]int32{1, 2, 3, 4, 5, 10, 11, 12, 30, 31}, nil)))
 		if mB < 5 {
 			t.Fatalf("B findable: expected >= 5 matched, got %d", mB)
 		}
@@ -853,8 +853,8 @@ func TestEvictionPreservesActiveConversations(t *testing.T) {
 
 		// System prompt prefix should still be findable (multi-child
 		// branch points are protected from eviction entirely).
-		_, matched := findBestMatch(pc.root, pc.key(systemPrompt, nil))
-		if want := len(pc.key(systemPrompt, nil)); matched < want {
+		_, matched := findBestMatch(pc.root, pc.key(effectiveKeyTokens(systemPrompt, nil)))
+		if want := len(pc.key(effectiveKeyTokens(systemPrompt, nil))); matched < want {
 			t.Fatalf("system prompt match = %d, want %d", matched, want)
 		}
 
@@ -952,7 +952,7 @@ func TestSnapshotBeyondPrefillSkipped(t *testing.T) {
 		pc := env.pc
 		inputs := []int32{1, 2, 3, 4, 5}
 
-		session := pc.begin(inputs, nil, 0)
+		session := pc.begin(inputs, nil)
 		// Request a snapshot at 3 and one at len(inputs); captures land at
 		// the requested prefix minus the look-ahead.
 		session.schedulePrefillSnapshots([]int{3, len(inputs)})
@@ -987,7 +987,7 @@ func TestPrefillSnapshotsDiscardedOnCancel(t *testing.T) {
 		pc := env.pc
 		inputs := []int32{1, 2, 3, 4, 5}
 
-		session := pc.begin(inputs, nil, 0)
+		session := pc.begin(inputs, nil)
 		session.schedulePrefillSnapshots([]int{3})
 		// Cross offset 3 so the caches capture it, then close the session as a
 		// canceled prefill would, before the captures are attached to the trie.
@@ -1189,16 +1189,36 @@ func TestSwapSnapshotsDetachesHook(t *testing.T) {
 	}
 }
 
-// runSalted mirrors simulateRequest with media salts and a restore floor,
-// returning how many tokens begin left to re-evaluate.
-func runSalted(t *testing.T, pc *prefixCache, inputs []int32, salts []uint32, floor int) int {
+// mediaFoldPrompt builds a prompt shaped like an expanded media request:
+// leading text, a run of repeated image placeholder ids, then a text tail.
+// The returned item folds that run into a content-derived trie key, so two
+// prompts differing only in the image differ in their keys across the whole
+// expansion.
+func mediaFoldPrompt(imgTokens int, payload string) ([]int32, []mediaItem) {
+	inputs := []int32{1, 10, 11, 200} // bos, text, text, boi
+	pos := len(inputs)
+	for range imgTokens {
+		inputs = append(inputs, 77) // repeated image placeholder id
+	}
+	inputs = append(inputs, 201, 12, 13, 14) // eoi, text tail
+	item := mediaItem{
+		pos:    pos,
+		length: imgTokens,
+		fold:   foldValue([]byte(payload), []int{imgTokens}),
+	}
+	return inputs, []mediaItem{item}
+}
+
+// runMediaRequest mirrors simulateRequest for a media prompt, returning how
+// many tokens begin left to re-evaluate.
+func runMediaRequest(t *testing.T, pc *prefixCache, inputs []int32, items []mediaItem) int {
 	t.Helper()
-	session := pc.begin(inputs, salts, floor)
+	session := pc.begin(inputs, items)
 	left := len(session.remaining)
-	base := pc.minCacheOffset()
+	start := pc.minCacheOffset()
 	seed := len(inputs) - 1
-	if base < seed {
-		feedAll(pc.caches, inputs[base:seed])
+	if start < seed {
+		feedAll(pc.caches, inputs[start:seed])
 	}
 	session.outputs = []int32{99}
 	feedAll(pc.caches, inputs[seed:])
@@ -1206,106 +1226,37 @@ func runSalted(t *testing.T, pc *prefixCache, inputs []int32, salts []uint32, fl
 	return left
 }
 
-// mediaPrompt builds text + a salted image run + text tail.
-func mediaPrompt(imgTokens int, payload string) (inputs []int32, salts []uint32, spanEnd int) {
-	inputs = []int32{1, 10, 11, 200} // bos, text, text, boi
-	salts = []uint32{0, 0, 0, 0}
-	imgSalts := mediaSalts([]byte(payload), imgTokens)
-	for i := 0; i < imgTokens; i++ {
-		inputs = append(inputs, 77) // repeated image placeholder id
-		salts = append(salts, imgSalts[i])
-	}
-	spanEnd = len(inputs)
-	inputs = append(inputs, 201, 12, 13, 14) // eoi, text tail
-	salts = append(salts, 0, 0, 0, 0)
-	return inputs, salts, spanEnd
-}
-
-func TestPrefixCacheMediaSalts(t *testing.T) {
+// TestPrefixCacheMediaFolds drives media identity through the whole trie, not
+// just the key packing: two prompts identical but for the image must not reuse
+// each other's state inside the placeholder run, while an identical image and
+// prompt reuses straight past it.
+func TestPrefixCacheMediaFolds(t *testing.T) {
 	env := newTransformerEnv()
+	t.Cleanup(func() {
+		checkSnapshotLeaks(t, env.tracker, env.pc.root)
+	})
 
-	inputsA, saltsA, spanEndA := mediaPrompt(4, "image-a")
-	if left := runSalted(t, env.pc, inputsA, saltsA, spanEndA); left != len(inputsA) {
+	inputsA, itemsA := mediaFoldPrompt(4, "image-a")
+	span := itemsA[0]
+	if left := runMediaRequest(t, env.pc, inputsA, itemsA); left != len(inputsA) {
 		t.Fatalf("first request: left = %d, want full %d", left, len(inputsA))
 	}
 
-	// Same tokens, different image content: the placeholder run must not hit.
-	inputsB, saltsB, spanEndB := mediaPrompt(4, "image-b")
-	if left := runSalted(t, env.pc, inputsB, saltsB, spanEndB); left != len(inputsB) {
-		t.Fatalf("different image reused the cache: left = %d, want full %d", left, len(inputsB))
+	// Same tokens, different image: the folds differ across the whole
+	// expansion, so reuse must stop at the text preceding it rather than
+	// resuming somewhere inside the run.
+	inputsB, itemsB := mediaFoldPrompt(4, "image-b")
+	if want := len(inputsB) - span.pos; runMediaRequest(t, env.pc, inputsB, itemsB) < want {
+		t.Fatalf("different image reused state inside the placeholder run: want left >= %d", want)
 	}
 
-	// Identical image + prompt: full reuse (minus the seed token backoff).
-	inputsA2, saltsA2, spanEndA2 := mediaPrompt(4, "image-a")
-	if left := runSalted(t, env.pc, inputsA2, saltsA2, spanEndA2); left >= len(inputsA2) {
-		t.Fatalf("identical image did not reuse the cache: left = %d", left)
-	}
-}
-
-func TestPrefixCacheMediaRestoreFloor(t *testing.T) {
-	env := newTransformerEnv()
-
-	inputsA, saltsA, spanEndA := mediaPrompt(4, "image-a")
-	runSalted(t, env.pc, inputsA, saltsA, spanEndA)
-
-	// The same image at a larger budget is a different encoding: its salts
-	// diverge at the first soft token, so the match stops at the text prefix
-	// before the image block. That match falls below the floor, which must
-	// reject it and re-prefill from zero.
-	inputsL, saltsL, spanEndL := mediaPrompt(6, "image-a")
-	if left := runSalted(t, env.pc, inputsL, saltsL, spanEndL); left != len(inputsL) {
-		t.Fatalf("mid-span restore not rejected: left = %d, want full %d", left, len(inputsL))
-	}
-}
-
-// TestPrefixCacheRestoreFloorUsesResumeOffset checks the floor against the
-// offset prefill actually resumes from, not the trie match depth. Page-in can
-// stop short of the match — here the sliding window refuses a mid-window
-// restore — and the alignment that follows drags every cache back to a
-// shallower node, which for a media prompt lands inside the image block the
-// floor exists to protect.
-func TestPrefixCacheRestoreFloorUsesResumeOffset(t *testing.T) {
-	// Page-in of [3,8) at target 6 is refused by the sliding window, so the
-	// caches align at the [0,3) node even though the trie matched 6 tokens.
-	const aligned = 3
-
-	cases := []struct {
-		name  string
-		floor int
-		want  int // resume offset after begin
-	}{
-		{"floor past the aligned offset", 5, 0},
-		{"floor at the aligned offset", aligned, aligned},
-		{"no floor", 0, aligned},
+	// Identical image and prompt: reuse carries past the run, leaving only the
+	// seed-token holdback.
+	inputsA2, itemsA2 := mediaFoldPrompt(4, "image-a")
+	left := runMediaRequest(t, env.pc, inputsA2, itemsA2)
+	if want := len(inputsA2) - (span.pos + span.length); left >= want {
+		t.Fatalf("identical image did not reuse past the placeholder run: left = %d, want < %d", left, want)
 	}
 
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			env := newSlidingWindowEnv()
-			t.Cleanup(func() {
-				checkSnapshotLeaks(t, env.tracker, env.pc.root)
-			})
-
-			// Seed the trie: the snapshot at aligned splits the path into
-			// [0,3) and [3,8).
-			first := []int32{1, 2, 3, 4, 5, 6, 7, 8, 9}
-			simulateRequest(t, env.pc, first, nil, aligned)
-
-			// Shares six tokens, then diverges — a partial match that clears
-			// the floor on trie depth alone.
-			second := []int32{1, 2, 3, 4, 5, 6, 70, 80, 90}
-			if _, matched := findBestMatch(env.pc.root, env.pc.key(second, nil)); matched < tt.floor {
-				t.Fatalf("matched = %d, want >= floor %d so only the resume offset rejects", matched, tt.floor)
-			}
-
-			session := env.pc.begin(second, nil, tt.floor)
-			if got := env.pc.minCacheOffset(); got != tt.want {
-				t.Fatalf("resume offset = %d, want %d", got, tt.want)
-			}
-			if want := len(second) - tt.want; len(session.remaining) != want {
-				t.Fatalf("remaining = %d, want %d", len(session.remaining), want)
-			}
-			assertCacheOffsetAlignment(t, env.pc, "after begin")
-		})
-	}
+	checkTrieInvariants(t, env.pc.root)
 }

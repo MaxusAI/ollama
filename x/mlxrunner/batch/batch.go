@@ -17,25 +17,64 @@ type Batch struct {
 	// Length equals the batch dimension of InputIDs.
 	SeqQueryLens []int32
 
-	// Hidden is the target hidden state a draft model fuses with its input
-	// embedding for this step. It is nil for ordinary forward passes.
+	// Hidden is the draft-conditioning state for a draft model's forward.
+	// It is nil for ordinary forward passes.
 	Hidden *mlx.Array
+
+	// Media lists a row's media items, on prefill forwards and draft
+	// forwards that embed prompt tokens; items outside the query range
+	// ride featureless. Nil at decode and for text-only requests.
+	Media []MediaItem
+
+	// Layout carries each row's opaque layout state from PrepareMedia,
+	// identical on every forward of the request; the runner never reads
+	// it. Nil entries derive nothing from layout.
+	Layout []any
 
 	// InputsEmbeds, when non-nil, is the precomputed input embedding tensor
 	// for this forward pass, shape (B, L, hidden) — already embed-scaled,
 	// with any multimodal features spliced in. Models that support it skip
 	// their token-embedding lookup; InputIDs still carries the real token
 	// ids for masks and bookkeeping.
+	//
+	// Fork-only, and superseded in principle by Media: upstream models
+	// embed tokens themselves and scatter Media features into the result.
+	// It stays because gemma4 — the fork's only vision model, which
+	// upstream has no equivalent for — does not implement base.MediaModel
+	// and so cannot consume Media. Remove once gemma4 is ported.
 	InputsEmbeds *mlx.Array
 
 	// BidiSpans lists [start, end) absolute prompt positions that attend
 	// bidirectionally (image soft-token blocks). Empty for text-only
 	// forwards; consulted only by models whose config asks for it.
+	//
+	// Fork-only, per ADR 0014. Upstream expresses the same idea as
+	// relaxation rectangles derived from Media (nn.AttentionMask.Relax);
+	// gemma4 instead builds a dense chunk mask from these spans. Remove
+	// once gemma4 moves onto the Media path.
 	BidiSpans [][2]int32
 
 	// Memo is per-forward memoization used to cache results, such as masks,
 	// which are often the same across layers.
 	Memo Memo
+}
+
+// MediaItem is one media occurrence in a row's sequence. The runner
+// knows only where the expansion was spliced; which positions bear
+// features is the model's, derived from Pos and Opaque.
+type MediaItem struct {
+	// Seq is the batch row the item belongs to.
+	Seq int
+
+	// Pos is the absolute sequence position of the expansion's first token.
+	Pos int
+
+	// Features is the item's whole feature-row array, attached only while
+	// the item's token range overlaps this forward's query range.
+	Features *mlx.Array
+
+	// Opaque is the item's PreparedMedia.Opaque, round-tripped untouched.
+	Opaque any
 }
 
 type Memo struct {

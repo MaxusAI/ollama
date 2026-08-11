@@ -126,13 +126,6 @@ func IsSafetensorsLLMModel(modelName string) bool {
 	return config.ModelFormat == "safetensors" && slices.Contains(config.Capabilities, "completion")
 }
 
-// IsTensorModelDir checks if the directory contains a diffusers-style tensor model
-// by looking for model_index.json, which is the standard diffusers pipeline config.
-func IsTensorModelDir(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, "model_index.json"))
-	return err == nil
-}
-
 // IsSafetensorsModelDir checks if the directory contains a standard safetensors model
 // by looking for config.json and at least one .safetensors file.
 func IsSafetensorsModelDir(dir string) bool {
@@ -304,6 +297,11 @@ func GetTensorQuantization(name string, shape []int32, quantize string) string {
 		return ""
 	}
 
+	// Vision components are too quantization-sensitive; keep source precision.
+	if isVision(name) {
+		return ""
+	}
+
 	// MLX quantization requires last dimension to be divisible by group size.
 	if !isAligned(shape, quantNorm) {
 		return ""
@@ -321,9 +319,7 @@ func GetTensorQuantization(name string, shape []int32, quantize string) string {
 	return quantNorm
 }
 
-var (
-	expertLayerPrefixRegexp = regexp.MustCompile(`^(?:model\.language_model\.|language_model(?:\.model)?\.|model\.)?layers\.\d+$`)
-)
+var expertLayerPrefixRegexp = regexp.MustCompile(`^(?:model\.language_model\.|language_model(?:\.model)?\.|model\.)?layers\.\d+$`)
 
 // ExpertGroupPrefix returns the group prefix for expert tensors that should be packed together.
 // For example:
@@ -489,6 +485,7 @@ var tensorImportTransformRegistry = map[string]tensorImportTransformFactory{
 	"gemma4_unified":                        newGemma4ImportTransform,
 	"gemma4_unified_text":                   newGemma4ImportTransform,
 	"LagunaForCausalLM":                     newLagunaImportTransform,
+	"MuseGlimmerForConditionalGeneration":   newGlimmerImportTransform,
 	"Cohere2MoeForCausalLM":                 newCohere2MoeImportTransform,
 	"Gemma4AssistantForCausalLM":            newGemma4ImportTransform,
 	"Gemma4UnifiedAssistantForCausalLM":     newGemma4ImportTransform,

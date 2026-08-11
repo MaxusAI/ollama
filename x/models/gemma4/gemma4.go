@@ -1006,7 +1006,7 @@ func (m *Model) LoadWeights(tensors map[string]*mlx.Array) error {
 	return nil
 }
 
-func (m *Model) Forward(b *batch.Batch, caches []cache.Cache) *mlx.Array {
+func (m *Model) Forward(b *batch.Batch, caches []cache.Cache) (hidden, auxHidden *mlx.Array) {
 	dims := b.InputIDs.Dims()
 	B, L := int32(dims[0]), int32(dims[1])
 	positions := mlx.FromValues(b.SeqOffsets, len(b.SeqOffsets))
@@ -1058,7 +1058,8 @@ func (m *Model) Forward(b *batch.Batch, caches []cache.Cache) *mlx.Array {
 		}
 	}
 
-	return mlx.RMSNormFn(h, m.NormScaled, m.RMSNormEps)
+	out := mlx.RMSNormFn(h, m.NormScaled, m.RMSNormEps)
+	return out, out
 }
 
 func (m *Model) Unembed(x *mlx.Array) *mlx.Array {
@@ -1103,10 +1104,6 @@ func suppressTokenLogits(logits, bias *mlx.Array) *mlx.Array {
 	}
 
 	return logits.Add(bias.AsType(logits.DType()))
-}
-
-func (m *Model) NumLayers() int {
-	return len(m.Layers)
 }
 
 func (m *Model) MaxContextLength() int {

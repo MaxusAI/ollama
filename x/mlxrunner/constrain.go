@@ -101,12 +101,14 @@ func (r *Runner) constrainedDecoder(spec *speculationSession, caches []cache.Cac
 // and returns the last-position logits ([1, V], lazy).
 func (d *constrainedDecoder) forward(token *mlx.Array) *mlx.Array {
 	r := d.r
-	hidden := r.Model.Forward(&batch.Batch{
+	hidden, auxHidden := r.Model.Forward(&batch.Batch{
 		InputIDs:     token,
 		SeqOffsets:   []int32{int32(d.position)},
 		SeqQueryLens: []int32{int32(token.Dim(1))},
 	}, d.caches)
-	d.spec.committed(token, hidden, d.position)
+	// auxHidden is the draft-conditioning state upstream's Forward now returns;
+	// decode forwards carry no media, hence the nil.
+	d.spec.committed(token, auxHidden, d.position, nil)
 	d.position += token.Dim(1)
 	logits := r.Model.Unembed(hidden)
 	return logits.Slice(mlx.Slice(), mlx.Slice(logits.Dim(1)-1), mlx.Slice()).Squeeze(1)

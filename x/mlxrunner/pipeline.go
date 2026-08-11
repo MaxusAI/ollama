@@ -24,63 +24,6 @@ func prefillChunkSize() int {
 	return 2 << 10
 }
 
-// prefillChunkLen returns how many tokens the next prefill chunk takes
-// starting at position, never more than limit. Bidirectional image blocks
-// must never straddle a chunk boundary, and the model's overlay treats a
-// carrying chunk's own keys as the complete key set — so only a chunk
-// starting at position zero may carry one, and the opening chunk of a media
-// prompt grows to cover every block still left to prefill. Boundaries
-// further in snap clear of a block's interior. spans is empty for text-only
-// prompts, where the nominal chunk always wins.
-func prefillChunkLen(position, limit, chunk int, spans [][2]int32) int {
-	n := min(chunk, limit)
-	for _, s := range spans {
-		start, end := int(s[0]), int(s[1])
-		if end <= position {
-			continue // already prefilled
-		}
-		switch {
-		case position == 0:
-			// The opening chunk carries every block, whole. limit always
-			// leaves the seed token after the last block's closing eoi, so
-			// the clamp below never splits one.
-			n = max(n, end)
-		case start > position && start < position+n:
-			// A block ahead of this chunk opens the next one instead.
-			n = start - position
-		}
-	}
-	return min(max(n, 1), limit)
-}
-
-// visionPrefillMaskBudget caps the dense attention mask a media prompt may
-// materialize during prefill, in bytes.
-//
-// Only a chunk starting at position zero may carry a bidirectional image
-// block, so the opening chunk has to span every block: a prompt whose last
-// image sits late forces an opening chunk that long. gemma4 then builds a
-// dense L×L float32 additive mask over it once per attention window, and
-// both are held for the whole forward — 8L² bytes. At 1 GiB the ceiling is
-// ~11.6k tokens before the last image's end, which is far past any real
-// vision prompt and still leaves the runner alive. Refusing beats letting
-// the subprocess OOM mid-prefill, and the ceiling rises on its own once
-// gemma4's mask becomes offset-aware and blocks can ride a mid-prompt chunk.
-const visionPrefillMaskBudget = 1 << 30
-
-// checkVisionPrefillBudget rejects a media prompt whose image blocks end so
-// late that the opening prefill chunk's mask would exceed the budget.
-func checkVisionPrefillBudget(spans [][2]int32) error {
-	if len(spans) == 0 {
-		return nil
-	}
-	opening := int64(spans[len(spans)-1][1])
-	if want := 8 * opening * opening; want > visionPrefillMaskBudget {
-		return fmt.Errorf("prompt places its last image %d tokens in, which needs a %d MB attention mask (limit %d MB); move the image earlier or shorten the text before it",
-			opening, want>>20, int64(visionPrefillMaskBudget)>>20)
-	}
-	return nil
-}
-
 // compileFormat populates request.Constraint from request.Format. An
 // unsupported format is an error — the fork never silently drops a
 // constraint the caller asked for. An absent format, JSON null, and the
@@ -108,41 +51,41 @@ func (r *Runner) Prepare(request *Request) error {
 		return errors.New("model not loaded")
 	}
 
+	// A format the runner cannot compile is an error, never a silently
+	// dropped constraint (ADR 0009).
 	if err := request.compileFormat(); err != nil {
 		return err
 	}
 
 	var tokens []int32
-	if len(request.Media) > 0 {
-		vm, ok := r.Model.(base.VisionModel)
-		if !ok || !vm.SupportsVision() {
+	var items []mediaItem
+	if len(request.Media) == 0 {
+		tokens = r.Tokenizer.Encode(request.Prompt, r.Tokenizer.AddBOS())
+	} else {
+		mm, ok := r.Model.(base.MediaModel)
+		if !ok {
 			// A missing media path must be an explicit error, never a silent
 			// drop that lets the model answer from the text alone.
-			return errors.New("this model does not support image input on the MLX runner")
+			kind := string(request.Media[0].Kind)
+			if kind == "" {
+				kind = "media"
+			}
+			return fmt.Errorf("this model does not support %s input", kind)
 		}
-		exp, err := expandMedia(request.Prompt, request.Media, vm, request.Options,
-			func(s string, bos bool) []int32 { return r.Tokenizer.Encode(s, bos) },
-			r.Tokenizer.AddBOS())
+		prepared, bound, err := r.expandMedia(mm, request.Prompt, request.Media)
 		if err != nil {
 			return err
 		}
-		tokens = exp.Tokens
-		request.VisionInputs = exp.Inputs
-		request.VisionSpans = exp.Spans
-		request.CacheSalts = exp.Salts
-	} else {
-		tokens = r.Tokenizer.Encode(request.Prompt, r.Tokenizer.AddBOS())
+		tokens, items = prepared.Tokens, bound
+		request.Layout = prepared.Layout
 	}
+
 	if len(tokens) == 0 {
 		return errors.New("empty prompt")
 	}
 
 	if len(tokens) >= r.contextLength {
 		return fmt.Errorf("input length (%d tokens) exceeds the model's maximum context length (%d tokens)", len(tokens), r.contextLength)
-	}
-
-	if err := checkVisionPrefillBudget(request.VisionSpans); err != nil {
-		return err
 	}
 
 	// Cap generation to stay within the model's context length
@@ -154,6 +97,7 @@ func (r *Runner) Prepare(request *Request) error {
 	}
 
 	request.Tokens = tokens
+	request.MediaItems = items
 	return nil
 }
 
@@ -177,42 +121,19 @@ func (r *Runner) TextGenerationPipeline(ctx context.Context, request Request) er
 
 	inputs := request.Tokens
 
-	// Media prompts restore all-or-nothing: a partial match inside an image
-	// block would resume prefill mid-block, and the bidirectional masks only
-	// compose from position zero.
-	restoreFloor := 0
-	if n := len(request.VisionSpans); n > 0 {
-		restoreFloor = int(request.VisionSpans[n-1][1])
-	}
-	session := r.cache.begin(inputs, request.CacheSalts, restoreFloor)
+	session := r.cache.begin(inputs, request.MediaItems)
 	defer session.close()
 	caches := session.caches
 
+	media := r.openMedia(request)
+	defer media.close()
+
 	// Built before prefill so a drafter with draft caches follows the prompt
 	// through prefill alongside the target.
-	spec := r.spec.open(request, caches)
+	spec := r.spec.open(request, media.rowLayout())
 	defer spec.close()
 
-	// Encode media and build the merged prompt embeddings before prefill
-	// (all on the MLX thread). The tower's intermediates are swept before the
-	// prompt forward starts.
-	var vision *visionPrefill
-	if len(request.VisionInputs) > 0 {
-		vm := r.Model.(base.VisionModel)
-		feats := make([]*mlx.Array, len(request.VisionInputs))
-		for i, vi := range request.VisionInputs {
-			feats[i] = vm.EncodeVision(vi)
-		}
-		ids := mlx.FromValues(inputs, 1, len(inputs))
-		embeds := vm.MergedEmbeddings(ids, feats, request.VisionSpans)
-		mlx.Pin(embeds)
-		defer mlx.Unpin(embeds)
-		mlx.Sweep()
-		mlx.Eval(embeds)
-		vision = &visionPrefill{embeds: embeds, spans: request.VisionSpans}
-	}
-
-	seed, position, promptEval, err := r.prefill(ctx, session, spec, vision)
+	seed, position, promptEval, err := r.prefill(ctx, session, spec, media)
 	if err != nil {
 		return err
 	}
@@ -229,37 +150,21 @@ func (r *Runner) TextGenerationPipeline(ctx context.Context, request Request) er
 	case spec != nil:
 		d = spec.decoder(seed, position)
 	default:
-		d = r.pipelinedDecoder(nil, caches, seed.ExpandDims(-1), position)
+		d = r.pipelinedDecoder(nil, caches, seed.ExpandDims(-1), position, media.rowLayout())
 	}
 	defer d.close()
 	return r.decode(ctx, request, session, d, promptEval)
 }
 
-// visionPrefill carries a media prompt's merged embeddings and its
-// bidirectional soft-token spans into prefill.
-type visionPrefill struct {
-	embeds *mlx.Array // [1, len(inputs), hidden]
-	spans  [][2]int32
-}
-
 // prefill evaluates the prompt in chunks, leaving one token for decode to
 // seed from, and schedules the prompt's periodic snapshots. It returns the
 // seed token, the resume position, and the prompt-evaluation duration.
-func (r *Runner) prefill(ctx context.Context, session *cacheSession, spec *speculationSession, vision *visionPrefill) (*mlx.Array, int, time.Duration, error) {
+func (r *Runner) prefill(ctx context.Context, session *cacheSession, spec *speculationSession, media *requestMedia) (*mlx.Array, int, time.Duration, error) {
 	start := time.Now()
 	inputs := session.inputs
 	tokens := session.remaining
 	caches := session.caches
 	prefillChunk := prefillChunkSize()
-
-	// Media prompts stay chunked — a single pass over the whole prompt makes
-	// the bidirectional mask quadratic in the prompt, not in the blocks — but
-	// their chunk boundaries are snapped so an image block is always
-	// processed in one pass.
-	var spans [][2]int32
-	if vision != nil {
-		spans = vision.spans
-	}
 
 	// Request periodic snapshots during prefill and near the end of the
 	// prompt so that long prompts can be partially restored and
@@ -290,32 +195,36 @@ func (r *Runner) prefill(ctx context.Context, session *cacheSession, spec *specu
 
 	total, processed := len(tokens), 0
 	position := len(inputs) - len(tokens)
+	// Free restored items' buffers now: on a full cache hit the loop never runs.
+	media.release(position)
 	for total-processed > 1 {
 		if err := ctx.Err(); err != nil {
 			return nil, 0, 0, err
 		}
 
-		n := prefillChunkLen(position, total-processed-1, prefillChunk, spans)
+		n := min(prefillChunk, total-processed-1)
+		n = media.extendChunk(position, n)
 
 		chunkIDs := mlx.FromValues(tokens[processed:processed+n], 1, n)
-		b := &batch.Batch{
+		manifest := media.batchMedia(position, n)
+		_, auxHidden := r.Model.Forward(&batch.Batch{
 			InputIDs:     chunkIDs,
 			SeqOffsets:   []int32{int32(position)},
 			SeqQueryLens: []int32{int32(n)},
-		}
-		if vision != nil {
-			b.InputsEmbeds = vision.embeds.Slice(mlx.Slice(), mlx.Slice(position, position+n), mlx.Slice())
-			// Only chunks whose queries overlap an image block need the
-			// bidirectional overlay; the restore floor guarantees those
-			// start at position zero with empty caches.
-			if last := vision.spans[len(vision.spans)-1][1]; int32(position) < last {
-				b.BidiSpans = vision.spans
-			}
-		}
-		hidden := r.Model.Forward(b, caches)
-		spec.committed(chunkIDs, hidden, position)
+			Media:        manifest,
+			Layout:       media.rowLayout(),
+		}, caches)
+		// Report to the drafter only after the chunk's eval: a draft flush
+		// evaluates, and an eval before the sweep cannot free any buffer the
+		// chunk's live handles retain — on media chunks, the whole vision tower.
+		mlx.Pin(chunkIDs, auxHidden)
 		mlx.Sweep()
 		materializeCaches()
+		spec.committed(chunkIDs, auxHidden, position, manifest)
+		mlx.Unpin(chunkIDs, auxHidden)
+		// Released after committed so the drafter can capture rows its
+		// deferred flush still embeds.
+		media.release(position + n)
 		processed += n
 		position += n
 		slog.Info("Prompt processing progress", "processed", processed, "total", total)
@@ -487,12 +396,13 @@ type pipelinedDecoder struct {
 	// drafter at close, keeping a non-drafting session's draft KV level.
 	spec     *speculationSession
 	caches   []cache.Cache
+	layout   []any // the request's per-row layout state, stamped on every forward
 	position int
 	sample   sampler.Result // in flight: sampled, not yet forwarded
 }
 
-func (r *Runner) pipelinedDecoder(spec *speculationSession, caches []cache.Cache, seed *mlx.Array, position int) *pipelinedDecoder {
-	t := &pipelinedDecoder{r: r, spec: spec, caches: caches, position: position}
+func (r *Runner) pipelinedDecoder(spec *speculationSession, caches []cache.Cache, seed *mlx.Array, position int, layout []any) *pipelinedDecoder {
+	t := &pipelinedDecoder{r: r, spec: spec, caches: caches, layout: layout, position: position}
 	t.sample = t.dispatch(seed)
 	return t
 }
@@ -501,12 +411,13 @@ func (r *Runner) pipelinedDecoder(spec *speculationSession, caches []cache.Cache
 // value, so it is in flight before the previous token is synchronized.
 func (t *pipelinedDecoder) dispatch(token *mlx.Array) sampler.Result {
 	r := t.r
-	hidden := r.Model.Forward(&batch.Batch{
+	hidden, auxHidden := r.Model.Forward(&batch.Batch{
 		InputIDs:     token,
 		SeqOffsets:   []int32{int32(t.position)},
 		SeqQueryLens: []int32{int32(token.Dim(1))},
+		Layout:       t.layout,
 	}, t.caches)
-	t.spec.committed(token, hidden, t.position)
+	t.spec.committed(token, auxHidden, t.position, nil)
 	t.position += token.Dim(1)
 	logits := r.Model.Unembed(hidden)
 	next := r.Sampler.Sample([]int{pipelineSlot}, logits.Slice(mlx.Slice(), mlx.Slice(logits.Dim(1)-1), mlx.Slice()).Squeeze(1))
