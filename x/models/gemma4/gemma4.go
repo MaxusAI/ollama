@@ -1015,6 +1015,10 @@ func (m *Model) Forward(b *batch.Batch, caches []cache.Cache) (hidden, auxHidden
 		h = m.EmbedTokens.Forward(b.InputIDs)
 		h = mlx.MulScalar(h, m.EmbedScale)
 	}
+	// Splice this chunk's image features over their placeholder rows. Nothing
+	// writes InputsEmbeds any more; the branch above stays until phase 5
+	// removes the field.
+	h = m.scatterMedia(h, b)
 
 	// Compute PLE inputs if configured.
 	var perLayerInputs *mlx.Array

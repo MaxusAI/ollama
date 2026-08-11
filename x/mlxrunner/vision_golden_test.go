@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/x/internal/mlxthread"
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
 	"github.com/ollama/ollama/x/mlxrunner/model"
@@ -102,28 +101,40 @@ func TestVisionGoldenParity(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("load %s: %v", modelName, err)
 	}
-	vm := r.Model.(base.VisionModel)
+	// Drives the base.MediaBudgetModel path the runner actually uses, so this
+	// golden comparison gates PrepareMediaWithBudget and EncodeMedia rather than
+	// the superseded base.VisionModel entry points.
+	mm, ok := r.Model.(base.MediaBudgetModel)
+	if !ok {
+		t.Fatalf("%T does not implement base.MediaBudgetModel", r.Model)
+	}
 
-	opts := api.DefaultOptions()
-	opts.ImageMaxTokens = 70
-	in, err := vm.NewVisionInput(gradientPNG(t, 480, 336), opts)
+	prepared, err := mm.PrepareMediaWithBudget(
+		[]base.Segment{{Kind: "image", Data: gradientPNG(t, 480, 336)}}, 0, 70)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if in.SoftTokens() != golden.Shape[0] {
-		t.Fatalf("soft tokens = %d, golden %d", in.SoftTokens(), golden.Shape[0])
+	if len(prepared.Items) != 1 {
+		t.Fatalf("got %d prepared items, want 1", len(prepared.Items))
+	}
+	item := &prepared.Items[0]
+
+	// Range brackets the expansion with BOI/EOI, which carry no features.
+	if soft := item.Range[1] - item.Range[0] - 2; soft != golden.Shape[0] {
+		t.Fatalf("soft tokens = %d, golden %d", soft, golden.Shape[0])
 	}
 
 	var feats []float32
 	var dims []int
 	if err := worker.Do(context.Background(), func() error {
-		out := vm.EncodeVision(in).AsType(mlx.DTypeFloat32)
+		data := mlx.FromValues(item.MediaData, item.Dims...)
+		out := mm.EncodeMedia(item, data).AsType(mlx.DTypeFloat32)
 		mlx.Eval(out)
 		dims = out.Dims()
 		feats = out.Floats()
 		return nil
 	}); err != nil {
-		t.Fatalf("EncodeVision: %v", err)
+		t.Fatalf("EncodeMedia: %v", err)
 	}
 	if len(dims) != 3 || dims[1] != golden.Shape[0] || dims[2] != golden.Shape[1] {
 		t.Fatalf("shape = %v, golden %v", dims, golden.Shape)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ollama/ollama/api"
+	"github.com/ollama/ollama/x/mlxrunner/batch"
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
 	"github.com/ollama/ollama/x/mlxrunner/model/base"
 )
@@ -88,6 +89,43 @@ func (m *Model) PrepareMediaWithBudget(segments []base.Segment, imageMinTokens, 
 		})
 	}
 	return prepared, nil
+}
+
+// softRun returns the absolute [start, end) positions of an item's placeholder
+// run. PreparedItem.Range brackets the expansion with BOI and EOI, which carry
+// no features, so the feature rows line up with Range shifted one to the right
+// and shortened by two — getting this offset wrong shifts every image feature by
+// a token and degrades output without failing anything.
+func softRun(item batch.MediaItem) (start, end int) {
+	vi := item.Opaque.(*visionInput)
+	return item.Pos + 1, item.Pos + 1 + vi.soft
+}
+
+// scatterMedia overwrites the placeholder rows this chunk covers with the
+// image's features, replacing the pre-merge MergedEmbeddings path. Features are
+// spliced unscaled, matching the reference's get_input_embeddings: only the text
+// embeddings carry EmbedScale.
+//
+// A chunk may cover part of an expansion, so both sides are clipped to the
+// overlap of the item's run with this forward's query range.
+func (m *Model) scatterMedia(h *mlx.Array, b *batch.Batch) *mlx.Array {
+	for _, item := range b.Media {
+		if item.Features == nil {
+			continue
+		}
+		start, end := softRun(item)
+		off := int(b.SeqOffsets[item.Seq])
+		qLo := max(start, off)
+		qHi := min(end, off+int(b.SeqQueryLens[item.Seq]))
+		if qHi <= qLo {
+			continue
+		}
+
+		feat := item.Features.Slice(mlx.Slice(), mlx.Slice(qLo-start, qHi-start), mlx.Slice())
+		h = h.SliceUpdate(feat.AsType(h.DType()),
+			mlx.Slice(item.Seq, item.Seq+1), mlx.Slice(qLo-off, qHi-off), mlx.Slice())
+	}
+	return h
 }
 
 // EncodeMedia implements base.MediaModel: run the vision path over one prepared
