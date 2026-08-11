@@ -3,7 +3,6 @@
 package mlxtest
 
 import (
-	"runtime"
 	"testing"
 
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
@@ -31,11 +30,19 @@ func SkipIfUnavailable(t *testing.T) {
 // default device re-creates the process-wide default stream, and sweeping the
 // allocator cache between tests changes allocator reuse — both perturbed
 // tests that share lazy arrays with subtests running on other threads.
+//
+// The claim is permanent — no paired UnlockOSThread — which is load-bearing in
+// the same way the pin is (ADR 0017, and ADR 0018 for what it costs to get
+// wrong). Releasing it returns a thread to the runtime's pool with MLX's
+// thread-local stream and command-encoder state still on it, so the next
+// goroutine scheduled there inherits a stream it cannot evaluate on. That is
+// what made x/imagegen segfault: every test passed alone and any two in
+// sequence crashed. mlx.ClaimOSThread is idempotent, so calling it once per
+// test cannot run the runtime's lock counter away across a package.
 func Setup(t *testing.T) {
 	t.Helper()
 
 	SkipIfUnavailable(t)
 
-	runtime.LockOSThread()
-	t.Cleanup(runtime.UnlockOSThread)
+	mlx.ClaimOSThread()
 }

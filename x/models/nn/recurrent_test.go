@@ -33,6 +33,35 @@ func convFromKernel(w *mlx.Array) *Conv1d {
 	return NewConv1d(mlx.ExpandDims(w, 2), nil, 1, 0, 1, int32(w.Dim(0)))
 }
 
+// Guards a biased conv silently losing the fused kernel: depthwiseConvWeight
+// returning nil sends WithConvSiLU down separate graph ops.
+func TestCausalConv1DBiasTakesFusedPath(t *testing.T) {
+	skipIfNoMLX(t)
+	B, L, D, convTail := 2, 3, 4, 2
+	K := convTail + 1
+
+	weight := fromValues(-0.3, D, K)
+	bias := fromValues(0.4, D)
+	conv := NewConv1d(mlx.ExpandDims(weight, 2), bias, 1, 0, 1, int32(D))
+
+	if depthwiseConvWeight(conv) == nil {
+		t.Fatal("depthwiseConvWeight = nil for a biased depthwise conv, so the fused path is skipped")
+	}
+
+	prior := fromValues(0.2, B, convTail, D)
+	input := fromValues(0.1, B, L, D)
+	b := &batch.Batch{
+		InputIDs:     mlx.Zeros(mlx.DTypeInt32, B, L),
+		SeqOffsets:   []int32{0, 0},
+		SeqQueryLens: []int32{int32(L), int32(L)},
+	}
+
+	got, _ := CausalConv1D(b, input, conv, convTail, WithRecurrentState(prior, nil), WithConvSiLU())
+	want := mlx.SiLU(conv.Forward(mlx.Concatenate([]*mlx.Array{prior, input}, 1)))
+	mlx.Eval(got, want)
+	floatsClose(t, "biased fused conv+silu", got.Floats(), want.Floats(), 1e-5)
+}
+
 // TestCausalConv1DPaddedRowParity drives a B=2 batch with one short
 // row (qLen<L). For the short row, (a) `out` positions [0..qLen)
 // must equal a B=1 reference at length qLen, (b) `nextConv` for the
@@ -140,11 +169,6 @@ func TestCausalConv1DPaddedRowParity(t *testing.T) {
 
 // gatedDeltaPackedInputs builds deterministic packed conv-output and
 // projection rows plus the per-head parameters for a GatedDelta call.
-//
-// It is a builder rather than a shared fixture on purpose: t.Run subtests are
-// separate goroutines, each owning its own MLX thread, and an array can only be
-// evaluated on the thread whose stream it built on. Every subtest below calls
-// this for itself instead of closing over tensors made by the parent.
 func gatedDeltaPackedInputs(B, T, Hk, Dk, Hv, Dv int) (packed, ba, dtBias, aExp *mlx.Array) {
 	packed = fromValues(0.05, B, T, 2*Hk*Dk+Hv*Dv)
 	ba = fromValues(-0.2, B, T, 2*Hv)
@@ -188,13 +212,17 @@ func floatsClose(t *testing.T, label string, got, want []float32, tol float64) {
 // that each boundary state equals the single-shot state over the
 // corresponding prefix.
 func TestGatedDeltaSegmentEquivalence(t *testing.T) {
+	skipIfNoMLX(t)
 	B, T, Hk, Dk, Hv, Dv := 1, 5, 1, 32, 1, 32
+	packed, ba, dtBias, aExp := gatedDeltaPackedInputs(B, T, Hk, Dk, Hv, Dv)
+	prior := mlx.Zeros(mlx.DTypeFloat32, B, Hv, Dv, Dk)
+	full := &batch.Batch{SeqOffsets: []int32{0}, SeqQueryLens: []int32{int32(T)}}
 
-	// Every subtest runs on its own goroutine, and each of those owns a
-	// separate MLX thread, so the tensors — and the reference forward built
-	// from them — are constructed inside the subtest rather than shared down
-	// from the parent: an array can only be evaluated on the thread whose
-	// stream it was built on.
+	refOut, refStates := GatedDelta(full, packed, ba, dtBias, aExp, WithRecurrentState(nil, prior))
+	if len(refStates) != 1 {
+		t.Fatalf("unsegmented call returned %d states, want 1", len(refStates))
+	}
+
 	cases := []struct {
 		name   string
 		splits []int
@@ -203,33 +231,21 @@ func TestGatedDeltaSegmentEquivalence(t *testing.T) {
 		{"sparse", []int{2}},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			skipIfNoMLX(t)
-			packed, ba, dtBias, aExp := gatedDeltaPackedInputs(B, T, Hk, Dk, Hv, Dv)
-			prior := mlx.Zeros(mlx.DTypeFloat32, B, Hv, Dv, Dk)
-			full := &batch.Batch{SeqOffsets: []int32{0}, SeqQueryLens: []int32{int32(T)}}
-
-			refOut, refStates := GatedDelta(full, packed, ba, dtBias, aExp, WithRecurrentState(nil, prior))
-			if len(refStates) != 1 {
-				t.Fatalf("unsegmented call returned %d states, want 1", len(refStates))
-			}
-
-			segOut, segStates := GatedDelta(full, packed, ba, dtBias, aExp,
-				WithRecurrentState(nil, prior), WithSnapshotSplits(tc.splits))
-			mlx.Eval(refOut, segOut)
-			floatsClose(t, "out", segOut.Floats(), refOut.Floats(), 1e-4)
-			if len(segStates) != len(tc.splits)+1 {
-				t.Fatalf("got %d boundary states, want %d", len(segStates), len(tc.splits)+1)
-			}
-			boundaries := append(append([]int{}, tc.splits...), T)
-			for i, n := range boundaries {
-				_, want, _ := mlx.GatedDelta(
-					slicePrefix(packed, 0, 1, int32(n)), slicePrefix(ba, 0, 1, int32(n)),
-					dtBias, aExp, prior, nil, false)
-				mlx.Eval(segStates[i], want)
-				floatsClose(t, "boundary delta", segStates[i].Floats(), want.Floats(), 1e-4)
-			}
-		})
+		segOut, segStates := GatedDelta(full, packed, ba, dtBias, aExp,
+			WithRecurrentState(nil, prior), WithSnapshotSplits(tc.splits))
+		mlx.Eval(refOut, segOut)
+		floatsClose(t, tc.name+" out", segOut.Floats(), refOut.Floats(), 1e-4)
+		if len(segStates) != len(tc.splits)+1 {
+			t.Fatalf("%s: got %d boundary states, want %d", tc.name, len(segStates), len(tc.splits)+1)
+		}
+		boundaries := append(append([]int{}, tc.splits...), T)
+		for i, n := range boundaries {
+			_, want, _ := mlx.GatedDelta(
+				slicePrefix(packed, 0, 1, int32(n)), slicePrefix(ba, 0, 1, int32(n)),
+				dtBias, aExp, prior, nil, false)
+			mlx.Eval(segStates[i], want)
+			floatsClose(t, tc.name+" boundary delta", segStates[i].Floats(), want.Floats(), 1e-4)
+		}
 	}
 }
 
@@ -280,12 +296,21 @@ func TestCausalConv1DSegmentEquivalence(t *testing.T) {
 // row's padded positions so a short row's boundary state freezes at its
 // real end.
 func TestGatedDeltaSegmentEquivalenceBatched(t *testing.T) {
+	skipIfNoMLX(t)
 	B, T, Hk, Dk, Hv, Dv := 2, 4, 1, 32, 1, 32
+	packed, ba, dtBias, aExp := gatedDeltaPackedInputs(B, T, Hk, Dk, Hv, Dv)
+	prior := mlx.Zeros(mlx.DTypeFloat32, B, Hv, Dv, Dk)
 
 	// Row 0 full length T; row 1 ends at 3 (so segment [3,4) is all padding
-	// for row 1). Plain Go values are safe to share across subtests; the MLX
-	// tensors are not, so they are built inside each one.
+	// for row 1).
 	rowReal := []int32{int32(T), 3}
+	full := &batch.Batch{
+		InputIDs:     mlx.Zeros(mlx.DTypeInt32, B, T),
+		SeqOffsets:   []int32{0, 0},
+		SeqQueryLens: rowReal,
+	}
+
+	refOut, refStates := GatedDelta(full, packed, ba, dtBias, aExp, WithRecurrentState(nil, prior))
 
 	cases := []struct {
 		name   string
@@ -295,45 +320,32 @@ func TestGatedDeltaSegmentEquivalenceBatched(t *testing.T) {
 		{"sparse", []int{2}},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			skipIfNoMLX(t)
-			packed, ba, dtBias, aExp := gatedDeltaPackedInputs(B, T, Hk, Dk, Hv, Dv)
-			prior := mlx.Zeros(mlx.DTypeFloat32, B, Hv, Dv, Dk)
-			full := &batch.Batch{
-				InputIDs:     mlx.Zeros(mlx.DTypeInt32, B, T),
-				SeqOffsets:   []int32{0, 0},
-				SeqQueryLens: rowReal,
-			}
+		segOut, segStates := GatedDelta(full, packed, ba, dtBias, aExp,
+			WithRecurrentState(nil, prior), WithSnapshotSplits(tc.splits))
+		mlx.Eval(refOut, segOut, lastState(refStates), lastState(segStates))
+		floatsClose(t, tc.name+" batched out", segOut.Floats(), refOut.Floats(), 1e-4)
+		floatsClose(t, tc.name+" batched final state", lastState(segStates).Floats(), lastState(refStates).Floats(), 1e-4)
+		if len(segStates) != len(tc.splits)+1 {
+			t.Fatalf("%s: got %d boundary states, want %d", tc.name, len(segStates), len(tc.splits)+1)
+		}
 
-			refOut, refStates := GatedDelta(full, packed, ba, dtBias, aExp, WithRecurrentState(nil, prior))
-
-			segOut, segStates := GatedDelta(full, packed, ba, dtBias, aExp,
-				WithRecurrentState(nil, prior), WithSnapshotSplits(tc.splits))
-			mlx.Eval(refOut, segOut, lastState(refStates), lastState(segStates))
-			floatsClose(t, "batched out", segOut.Floats(), refOut.Floats(), 1e-4)
-			floatsClose(t, "batched final state", lastState(segStates).Floats(), lastState(refStates).Floats(), 1e-4)
-			if len(segStates) != len(tc.splits)+1 {
-				t.Fatalf("got %d boundary states, want %d", len(segStates), len(tc.splits)+1)
+		// Each row's boundary must equal a B=1 single-shot call over that
+		// row's real prefix: row 0 advances the full length, row 1 freezes
+		// once it reaches its real length.
+		boundaries := append(append([]int{}, tc.splits...), T)
+		for i, bound := range boundaries {
+			for r := range B {
+				n := min(int32(bound), rowReal[r])
+				lo, hi := int32(r), int32(r)+1
+				rowPrior := mlx.SliceStartStop(prior, []int32{lo, 0, 0, 0}, []int32{hi, int32(Hv), int32(Dv), int32(Dk)})
+				_, want, _ := mlx.GatedDelta(
+					slicePrefix(packed, lo, hi, n), slicePrefix(ba, lo, hi, n),
+					dtBias, aExp, rowPrior, nil, false)
+				gotRow := mlx.SliceStartStop(segStates[i], []int32{lo, 0, 0, 0}, []int32{hi, int32(Hv), int32(Dv), int32(Dk)})
+				mlx.Eval(gotRow, want)
+				floatsClose(t, tc.name+" batched boundary delta", gotRow.Floats(), want.Floats(), 1e-4)
 			}
-
-			// Each row's boundary must equal a B=1 single-shot call over that
-			// row's real prefix: row 0 advances the full length, row 1 freezes
-			// once it reaches its real length.
-			boundaries := append(append([]int{}, tc.splits...), T)
-			for i, bound := range boundaries {
-				for r := range B {
-					n := min(int32(bound), rowReal[r])
-					lo, hi := int32(r), int32(r)+1
-					rowPrior := mlx.SliceStartStop(prior, []int32{lo, 0, 0, 0}, []int32{hi, int32(Hv), int32(Dv), int32(Dk)})
-					_, want, _ := mlx.GatedDelta(
-						slicePrefix(packed, lo, hi, n), slicePrefix(ba, lo, hi, n),
-						dtBias, aExp, rowPrior, nil, false)
-					gotRow := mlx.SliceStartStop(segStates[i], []int32{lo, 0, 0, 0}, []int32{hi, int32(Hv), int32(Dv), int32(Dk)})
-					mlx.Eval(gotRow, want)
-					floatsClose(t, "batched boundary delta", gotRow.Floats(), want.Floats(), 1e-4)
-				}
-			}
-		})
+		}
 	}
 }
 
