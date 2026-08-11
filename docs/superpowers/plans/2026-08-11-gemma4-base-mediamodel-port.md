@@ -189,6 +189,23 @@ Two consequences that are requirements, not notes:
 > `EncodeMedia` instead of 400ing; and a test proves that the **same image bytes at two different
 > budgets** produce different `Dims` and never share a prefix-cache prefix.
 
+### Phase 1b — port `qwen3_5` and `glimmer` onto the budget seam
+
+Add `PrepareMediaWithBudget` to both upstream models, delegating to their existing preprocessing
+with the resolved ceiling substituted for their hard-coded constant. Each keeps its own default:
+a request value equal to the shared default counts as unset, per `llm/llama_server.go:1102-1113`.
+Keep the diff minimal and mechanical — these are upstream files and every future merge will conflict
+here, so the smaller and more obviously-shaped the change, the cheaper each resolution.
+
+Then `pipeline.go` can treat `MediaBudgetModel` as the expected interface rather than an optional
+one, since all three MLX media models implement it.
+
+> **Gate:** `go test -p 1 -count=1 ./x/models/glimmer/ ./x/models/qwen3_5/` green, plus a test per
+> model proving that (a) an unset/default budget reproduces the model's own ceiling byte-for-byte —
+> glimmer must still resolve 4096 — and (b) an explicitly different budget changes the resulting
+> `Dims`. Without (a) this phase silently degrades OCR, which is exactly what glimmer's comment
+> warns about.
+
 ### Phase 2 — real features: `EncodeMedia` + scatter
 
 Port `EncodeVision` into `EncodeMedia` (lazy — must not evaluate; the consuming forward pulls it).
@@ -261,28 +278,34 @@ fork-local interface to carry across every upstream merge, and a determinism con
 segments + budget rather than segments alone. It is a clean addition rather than a modification, so
 it is upstreamable if upstream ever wants per-request budgets.
 
+**Every MLX media model implements the budget seam — `qwen3_5` and `glimmer` are ported too.**
+Decided against the two cheaper answers. Accept-and-warn is a silent drop with extra steps, which
+ADR 0009 rejects outright. Rejecting with a 400 is honest but unusable in practice: `DefaultOptions`
+always populates `ImageMinTokens`/`ImageMaxTokens`, so *every* request carries a budget and a gate
+would 400 all qwen and glimmer image traffic. Porting all three is the only answer that keeps the
+field meaningful everywhere.
+
+`MediaBudgetModel` therefore becomes the expected interface for MLX media models rather than an
+optional extra, and `pipeline.go` can gate on it. Two consequences:
+
+- **A model's own ceiling stays its default.** glimmer pins `maxImageTokens = 4096` with a comment
+  that lowering it discards detail and hurts OCR; that is a considered choice, not an oversight, and
+  handing it gemma4's 1120 default would silently degrade it. Reuse the resolution convention
+  `llm/llama_server.go:1102-1113` already uses for nemotron and qwen-VL: a value equal to the
+  *shared* default counts as unset and the model's own default applies; only a genuinely different
+  value overrides. That keeps the MLX and GGUF paths consistent for the same model family.
+- **Cost: this is fork divergence inside upstream's own model files.** `x/models/qwen3_5` and
+  `x/models/glimmer` are upstream code, so every future upstream merge will conflict there. Keep the
+  change small and mechanical — one extra method delegating to the existing preprocessing — so the
+  conflicts stay trivial to resolve.
+
 ## Open questions — answer before phase 4, do not guess
 
 1. **Ceiling or no ceiling** (phase 4) — whether ADR 0014's 1 GiB admission ceiling must be
    reinstated depends on whether the phase 3 mask is genuinely offset-safe at every resume point,
    which phase 3's gate 2 answers. Do not resolve this before that gate runs.
-2. **What happens when a budget is sent to an MLX model that cannot honour it?** This is the
-   sharp one, and it is live from the moment the merge lands rather than hypothetical. Post-merge
-   there are three MLX media models: gemma4 (to be ported to `MediaBudgetModel`), and upstream's
-   `qwen3_5` and `glimmer`, which implement the budget-blind `PrepareMedia` and hard-code their own
-   ceilings — glimmer pins `maxImageTokens = 4096` in media.go with a comment that lowering it hurts
-   OCR. So `image_max_tokens` sent with a qwen or glimmer request would be **silently ignored**,
-   which is exactly what ADR 0009 forbids: the fork's no-silent-drop principle. Worse, the paths
-   would disagree for the same model family — `llm/llama_server.go:1127` already applies a
-   qwen-VL-specific floor on the GGUF path.
-
-   Three candidate answers, none free: reject the request with a named 400 when a budget is set and
-   the model is not a `MediaBudgetModel` (consistent with ADR 0009, but breaks callers who set the
-   default globally); accept and warn (cheap, but it is a silent drop with extra steps); or port
-   `qwen3_5` and `glimmer` to the budget seam too (most correct, most divergence from upstream, and
-   glimmer's comment suggests its ceiling is a considered choice rather than an oversight).
-   **Answer this before phase 1's seam is built** — it decides whether `MediaBudgetModel` is optional
-   or whether the runner must gate on it.
+*(The former question 2 — what happens when a budget reaches a model that cannot honour it — is
+answered above: all three models are ported.)*
 
 ## Out of scope
 
