@@ -28,6 +28,22 @@ on:
       - '**/*'
       - '!docs/**'
       - '!README.md'
+  # Post-merge signal. A change can go green on its own pull request and still
+  # break main once merged: the LLAMA_CPP_VERSION bump b10091 -> b10353 left
+  # three of the compat patches in llama/compat/ unable to apply, which broke
+  # every GGUF build off main, and nothing reported it -- of the workflows in
+  # this repository only preflight-expectations.yaml ran on pushes to main.
+  #
+  # This does NOT un-gate the self-hosted `linux` / `windows` jobs. They stay
+  # behind `vars.SELF_HOSTED_RUNNERS` (see the fork note at the top of this
+  # file) and skip on a push exactly as they do on a pull request.
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*'
+      - '!docs/**'
+      - '!README.md'
 
 jobs:
   changes:
@@ -41,34 +57,74 @@ jobs:
         with:
           fetch-depth: 0
       - id: changes
+        # Passed as env rather than interpolated into the script body: on a
+        # push the pull_request.* values are empty, and `local BASE=${{ ... }}`
+        # then expanded to a bare `local BASE=`, so the range was silently
+        # empty and every glob reported False.
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          PUSH_HEAD_SHA: ${{ github.sha }}
         run: |
+          # This job now runs on pushes to main as well as on pull requests,
+          # and the two events name their diff endpoints differently.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            HEAD=$PR_HEAD_SHA
+            BASE=$(git merge-base "$PR_BASE_SHA" "$HEAD")
+          else
+            HEAD=$PUSH_HEAD_SHA
+            BASE=$PUSH_BEFORE_SHA
+            # A branch's first push reports the all-zero SHA, and a force-push
+            # can name a pre-image this checkout does not have. Neither yields
+            # a usable range, so fail open: treat everything as changed rather
+            # than silently reporting False the way the old form did.
+            git cat-file -e "$BASE^{commit}" 2>/dev/null || BASE=
+          fi
+
           changed() {
-            local BASE=${{ github.event.pull_request.base.sha }}
-            local HEAD=${{ github.event.pull_request.head.sha }}
-            local MERGE_BASE=$(git merge-base $BASE $HEAD)
-            git diff-tree -r --no-commit-id --name-only "$MERGE_BASE" "$HEAD" \
+            if [ -z "$BASE" ]; then
+              echo True
+              return
+            fi
+            git diff-tree -r --no-commit-id --name-only "$BASE" "$HEAD" \
               | xargs python3 -c "import sys; from pathlib import Path; print(any(Path(x).match(glob) for x in sys.argv[1:] for glob in '$*'.split(' ')))"
           }
 
+          # Every directory needs BOTH the `d/**` and `d/**/*` forms, as
+          # cmake/ and x/imagegen/mlx/ already have. Path.match() matches
+          # right-to-left and does not treat ** as recursive, so a pattern
+          # only ever matches a path with exactly as many segments: `d/**/*`
+          # matches d/sub/file but NOT d/file. Without the `d/**` sibling,
+          # llama/server/CMakeLists.txt and every llama/compat/*.patch
+          # reported False.
           echo changed=$(changed \
             'CMakeLists.txt' \
             'CMakePresets.json' \
             'cmake/**' \
             'cmake/**/*' \
+            'llama/server/**' \
             'llama/server/**/*' \
+            'llama/compat/**' \
             'llama/compat/**/*' \
             'LLAMA_CPP_VERSION' \
             'MLX_VERSION' \
             'MLX_C_VERSION' \
+            'llama/llama.cpp/**' \
             'llama/llama.cpp/**/*' \
+            'ml/backend/ggml/ggml/**' \
             'ml/backend/ggml/ggml/**/*' \
             'x/imagegen/mlx/**' \
             'x/imagegen/mlx/**/*' \
+            '.github/**' \
             '.github/**/*') | tee -a $GITHUB_OUTPUT
           echo app_changed=$(changed 'app/**' 'app/**/*') | tee -a $GITHUB_OUTPUT
           echo enginehash=$(cat LLAMA_CPP_VERSION)-$(cat MLX_VERSION)-$(cat MLX_C_VERSION) | tee -a $GITHUB_OUTPUT
 
   patches:
+    # Deliberately ungated: no `needs: [changes]`, no `if:`. This is the job
+    # that reports a broken llama/compat patch set, so it runs on every pull
+    # request and every push to main regardless of what the diff touched.
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
@@ -86,6 +142,32 @@ jobs:
             -DGGML_OPENMP=OFF \
             -DGGML_CPU_ALL_VARIANTS=ON \
             -DOLLAMA_RUNNER_DIR=
+
+      # Applying is not compiling. b10353 gathered calc_size_preserved_ratio's
+      # positional parameters into a calc_size_opt struct; 005's hunk applied
+      # with no conflict and still referenced the bare max_pixels and
+      # align_size the struct had absorbed. Only a build catches that class of
+      # drift, which is why the configure step above is not sufficient on its
+      # own -- see "Regenerating the Patch Files" in llama/compat/README.md.
+      #
+      # `mtmd` pulls in llama, so this compiles every file the patch set
+      # touches: llama-model-loader.cpp (001), clip.cpp (001/002/004),
+      # nemotron-v2-vl.cpp + mtmd.cpp (002), models/laguna.cpp (003),
+      # mtmd-image.cpp (004/005), plus the compat sources themselves. Building
+      # it here rather than against a standalone llama.cpp checkout is what
+      # makes 001 reachable at all: it includes llama-ollama-compat.h, which
+      # only Ollama's build tree supplies.
+      #
+      # Linux only. The drift this catches is upstream renaming things, which
+      # is platform-independent, and a second full native build would dominate
+      # the job. (One gap: 003's body is #if GGML_USE_METAL, so only its
+      # build_moe_ffn call site is compiled here, not the Metal block.)
+      - name: Verify patches compile
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          cmake --build "$RUNNER_TEMP/llama-server-patch-check" \
+            --target mtmd --parallel "$(nproc)"
 
   linux:
     needs: [changes]
