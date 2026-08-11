@@ -24,8 +24,8 @@ import (
 func circlePNG(t *testing.T, w, h, cx, cy, r int) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			dx, dy := x-cx, y-cy
 			if dx*dx+dy*dy <= r*r {
 				img.SetRGBA(x, y, color.RGBA{R: 200, G: 30, B: 30, A: 255})

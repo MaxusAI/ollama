@@ -123,27 +123,6 @@ func (v *jval) get(key string) *jval {
 
 func (v *jval) has(key string) bool { return v.get(key) != nil }
 
-// isEmptyObject reports whether v is {} — the "any schema" per b10091's
-// object fallback.
-func (v *jval) isEmptyObject() bool {
-	return v != nil && v.kind == jObj && len(v.obj) == 0
-}
-
-// typeString returns the schema's "type" when it is a string, else "".
-func (v *jval) typeString() string {
-	if t := v.get("type"); t != nil && t.kind == jStr {
-		return t.str
-	}
-	return ""
-}
-
-// typeIsNullOr reports whether "type" is absent or equals s — the guard
-// most converter branches use.
-func (v *jval) typeIsNullOr(s string) bool {
-	t := v.get("type")
-	return t == nil || (t.kind == jStr && t.str == s)
-}
-
 // int64Value converts a numeric schema value to int64, truncating floats
 // the way nlohmann's get<int64_t> does.
 func (v *jval) int64Value() (int64, error) {

@@ -216,10 +216,7 @@ func TestCheckVisionPrefillBudget(t *testing.T) {
 		{"causal media needs no dense overlay", []mediaItem{causal(4096)}, int(overLen), false},
 		{"short bidi prompt fits", []mediaItem{bidi(256)}, 8192, false},
 		{"bidi prompt past the ceiling is refused", []mediaItem{bidi(256)}, int(overLen), true},
-		{
-			"a long expansion widens the chunk and so the mask",
-			[]mediaItem{bidi(1 << 16)}, 16384, true,
-		},
+		{"a long expansion widens the chunk and so the mask", []mediaItem{bidi(1 << 16)}, 16384, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := checkVisionPrefillBudget(tc.items, tc.promptLen)

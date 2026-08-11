@@ -51,7 +51,7 @@ func TestStopperHoldbackReleasedWhenDisproven(t *testing.T) {
 }
 
 func TestStopperHoldsPossiblePrefixAtEnd(t *testing.T) {
-	s := newStopper([]string{"STOP"}) //nolint:misspell
+	s := newStopper([]string{"STOP"})
 	emit, matched := s.feed("text ST")
 	if matched {
 		t.Fatal("unexpected match")
