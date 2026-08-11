@@ -246,12 +246,23 @@ ADR 0014 called it a DoS fix.** See Open Questions.
 Delete `base.VisionModel`, `VisionInput`, `NewVisionInput`/`EncodeVision`/`MergedEmbeddings`/
 `SupportsVision`, `batch.InputsEmbeds`/`BidiSpans`, and `Request.VisionInputs`/`VisionSpans`/
 `CacheSalts`. Port `vision_e2e_test.go`'s assertions onto `MediaItems`/`Layout`. Restore audio
-rejection as a `seg.Kind != "image"` check in gemma4's `PrepareMedia`. Add a `skipIfNoMLX` helper
-to `x/models/glimmer` (ADR 0017). Re-add coverage for `prefix_cache`'s restore floor.
+rejection as a `seg.Kind != "image"` check in gemma4's `PrepareMedia`. Re-add coverage for
+`prefix_cache`'s restore floor. (The glimmer ADR 0017 gap is already closed — phase 0 converged the
+test seam on `mlxtest.Setup`, which glimmer and nemotron_h already call.)
 
-> **Gate:** `go test -p 1 -count=1 ./x/...` green with **zero** skipped vision tests when
-> `OLLAMA_VISION_E2E=1`, plus `grep -rn "VisionInputs\|InputsEmbeds\|BidiSpans" x/` returning
-> nothing outside git history.
+**Re-enable the vision capability.** Found in phase 0: upstream now suppresses `CapabilityVision`
+for gemma4 safetensors — `suppressVisionCapability` in `server/images.go` and
+`filterUnsupportedModelListCapabilities` in `server/model_list_cache.go`, with the test renamed from
+"suppresses audio" to "suppresses vision and audio". That is upstream's own answer to the
+advertise-then-400 problem, correct while gemma4 has no `base.MediaModel`, and **wrong the moment
+this port lands**. Miss it and vision works in the runner but is invisible to every client, which no
+runner-level test would catch. Narrow the suppression back to audio-only for gemma4, leaving
+nemotron3's untouched.
+
+> **Gate:** `go test -p 1 -count=1 ./x/... ./server/...` green with **zero** skipped vision tests
+> when `OLLAMA_VISION_E2E=1`; `grep -rn "VisionInputs\|InputsEmbeds\|BidiSpans" x/` returning nothing
+> outside git history; and a `server` test asserting a gemma4 safetensors model reports
+> `CapabilityVision` while still suppressing audio.
 
 ### Phase 6 — land
 
