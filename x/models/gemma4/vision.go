@@ -28,12 +28,10 @@ import (
 
 	xdraw "golang.org/x/image/draw"
 
-	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/llm"
 	"github.com/ollama/ollama/x/mlxrunner/batch"
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
 	"github.com/ollama/ollama/x/mlxrunner/model"
-	"github.com/ollama/ollama/x/mlxrunner/model/base"
 	"github.com/ollama/ollama/x/models/nn"
 )
 
@@ -465,20 +463,9 @@ func (m *Model) VisionTokens() (int32, int32, int32) {
 	return m.MMTokens.BOI, m.MMTokens.Image, m.MMTokens.EOI
 }
 
-// NewVisionInput decodes and preprocesses one image per the reference
-// pipeline pinned to ADR 0008 sizing: convert to RGB over white, bicubic-
-// resize to the budget-fill target (always a 48-multiple on both axes),
-// rescale by 1/255 with no mean/std normalization, and patchify channel-
-// fastest. The tower lineage additionally maps values to 2x−1, which its
-// reference applies inside _patchify. Pure Go — safe off the MLX thread.
-func (m *Model) NewVisionInput(data []byte, opts api.Options) (base.VisionInput, error) {
-	minTok, maxTok := llm.Gemma4ImageBudget(opts)
-	return m.newVisionInput(data, minTok, maxTok)
-}
-
 // newVisionInput is NewVisionInput's body with the budget already resolved, so
-// the base.MediaModel path (media.go) and the legacy base.VisionModel path share
-// one preprocessing implementation rather than drifting apart.
+// PrepareMediaWithBudget and the preprocessing tests share one implementation
+// rather than drifting apart.
 //
 // Only the ceiling participates in sizing today: BudgetFillSize scales the image
 // to fill maxTok on gemma4's 48-pixel alignment. minTok is carried for symmetry
@@ -546,34 +533,6 @@ func (m *Model) newVisionInput(data []byte, minTok, maxTok int) (*visionInput, e
 		soft: (tw / llm.Gemma4ImageAlign) * (th / llm.Gemma4ImageAlign),
 	}, nil
 }
-
-// EncodeVision embeds one preprocessed image into text hidden space,
-// returning [1, SoftTokens, hidden]. MLX thread only.
-func (m *Model) EncodeVision(in base.VisionInput) *mlx.Array {
-	vi := in.(*visionInput)
-	x := mlx.FromValues(vi.patches, 1, int(vi.n), int(vi.patchDim)).AsType(mlx.DTypeBFloat16)
-	var h *mlx.Array
-	if m.VisionEmbedder != nil {
-		h = m.VisionEmbedder.Forward(x, vi.xs, vi.ys)
-	} else {
-		h = m.VisionTower.Forward(x, vi.xs, vi.ys, vi.gridW, vi.gridH, m.VisionCfg)
-	}
-	return m.projectVision(h)
-}
-
-// MergedEmbeddings returns the embed-scaled token embeddings for inputIDs
-// with vision features spliced over spans — the reference's masked_scatter,
-// specialized to the runner's known half-open span layout. Features replace
-// the placeholder embeddings unscaled, matching get_input_embeddings.
-func (m *Model) MergedEmbeddings(inputIDs *mlx.Array, features []*mlx.Array, spans [][2]int32) *mlx.Array {
-	h := mlx.MulScalar(m.EmbedTokens.Forward(inputIDs), m.EmbedScale)
-	for i, f := range features {
-		h = h.SliceUpdate(f.AsType(h.DType()), mlx.Slice(), mlx.Slice(int(spans[i][0]), int(spans[i][1])), mlx.Slice())
-	}
-	return h
-}
-
-var _ base.VisionModel = (*Model)(nil)
 
 // visionMaskKey memoizes the vision chunk mask per window size on the
 // batch, so sibling layers of the same type share one tensor.

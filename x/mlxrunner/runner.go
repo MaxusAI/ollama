@@ -38,12 +38,6 @@ type Request struct {
 	Layout      any // opaque PrepareMedia layout state, stamped on every batch
 	SamplerOpts sample.Options
 
-	// Media state populated by Prepare: preprocessed images, their
-	// soft-token spans within Tokens, and per-token prefix-cache salts.
-	VisionInputs []base.VisionInput
-	VisionSpans  [][2]int32
-	CacheSalts   []uint32
-
 	// Constraint is the compiled format grammar, nil when the request
 	// carries no format. Populated by Prepare.
 	Constraint *structured.Grammar

@@ -465,9 +465,10 @@ func (m *Model) filterUnsupportedCapabilities(capabilities []model.Capability, m
 }
 
 func suppressVisionCapability(m *Model) bool {
-	if isGemma4Renderer(m.Config.Renderer) && m.Config.ModelFormat == "safetensors" {
-		return true
-	}
+	// gemma4 safetensors serves vision again: it implements base.MediaModel, so
+	// the runner accepts image requests rather than rejecting them. Upstream
+	// suppresses it because upstream's gemma4 has no media path; keeping that
+	// here would leave vision working in the runner but invisible to clients.
 
 	// The current MLX Nemotron path is text-only. Do not advertise vision for
 	// safetensors manifests until the runner can load and serve that modality.

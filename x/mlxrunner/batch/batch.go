@@ -31,29 +31,6 @@ type Batch struct {
 	// it. Nil entries derive nothing from layout.
 	Layout []any
 
-	// InputsEmbeds, when non-nil, is the precomputed input embedding tensor
-	// for this forward pass, shape (B, L, hidden) — already embed-scaled,
-	// with any multimodal features spliced in. Models that support it skip
-	// their token-embedding lookup; InputIDs still carries the real token
-	// ids for masks and bookkeeping.
-	//
-	// Fork-only, and superseded in principle by Media: upstream models
-	// embed tokens themselves and scatter Media features into the result.
-	// It stays because gemma4 — the fork's only vision model, which
-	// upstream has no equivalent for — does not implement base.MediaModel
-	// and so cannot consume Media. Remove once gemma4 is ported.
-	InputsEmbeds *mlx.Array
-
-	// BidiSpans lists [start, end) absolute prompt positions that attend
-	// bidirectionally (image soft-token blocks). Empty for text-only
-	// forwards; consulted only by models whose config asks for it.
-	//
-	// Fork-only, per ADR 0014. Upstream expresses the same idea as
-	// relaxation rectangles derived from Media (nn.AttentionMask.Relax);
-	// gemma4 instead builds a dense chunk mask from these spans. Remove
-	// once gemma4 moves onto the Media path.
-	BidiSpans [][2]int32
-
 	// Memo is per-forward memoization used to cache results, such as masks,
 	// which are often the same across layers.
 	Memo Memo

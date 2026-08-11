@@ -48,7 +48,7 @@ func gradientPNG(t *testing.T, w, h int) []byte {
 	return buf.Bytes()
 }
 
-// TestVisionGoldenParity compares EncodeVision on the real weights against
+// TestVisionGoldenParity compares EncodeMedia on the real weights against
 // the vendored mlx-vlm reference forward (testdata/gen_vision_goldens.py).
 // Gated like the e2e smoke: OLLAMA_VISION_E2E=1 + local model. Regenerate:
 //
@@ -103,7 +103,7 @@ func TestVisionGoldenParity(t *testing.T) {
 	}
 	// Drives the base.MediaBudgetModel path the runner actually uses, so this
 	// golden comparison gates PrepareMediaWithBudget and EncodeMedia rather than
-	// the superseded base.VisionModel entry points.
+	// the superseded per-model vision entry points.
 	mm, ok := r.Model.(base.MediaBudgetModel)
 	if !ok {
 		t.Fatalf("%T does not implement base.MediaBudgetModel", r.Model)

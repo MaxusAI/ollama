@@ -397,14 +397,17 @@ func buildModelListSummary(name model.Name, mf *manifest.Manifest) (modelListSum
 }
 
 func filterUnsupportedModelListCapabilities(capabilities []model.Capability, cfg model.ConfigV2) []model.Capability {
-	if cfg.ModelFormat == "safetensors" && (isGemma4Renderer(cfg.Renderer) || isNemotron3NanoSafetensorsConfig(cfg)) {
+	// Nemotron's MLX path is still text-only, so it loses both modalities.
+	// gemma4 is not in this branch: it serves vision through base.MediaModel
+	// and only audio is unsupported, handled below.
+	if cfg.ModelFormat == "safetensors" && isNemotron3NanoSafetensorsConfig(cfg) {
 		capabilities = slices.DeleteFunc(capabilities, func(c model.Capability) bool {
 			return c == model.CapabilityVision || c == model.CapabilityAudio
 		})
 	}
 	// Mirrors suppressAudioCapability in images.go so /api/tags and /api/show
 	// agree for safetensors models whose MLX runner serves vision but not audio.
-	if cfg.ModelFormat == "safetensors" && cfg.Renderer == "glimmer" {
+	if cfg.ModelFormat == "safetensors" && (isGemma4Renderer(cfg.Renderer) || cfg.Renderer == "glimmer") {
 		capabilities = slices.DeleteFunc(capabilities, func(c model.Capability) bool {
 			return c == model.CapabilityAudio
 		})
