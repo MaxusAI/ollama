@@ -213,6 +213,7 @@ func (r *Runner) prefill(ctx context.Context, session *cacheSession, spec *specu
 
 		n := min(prefillChunk, total-processed-1)
 		n = media.extendChunk(position, n)
+		n = media.growOpeningChunk(position, n)
 
 		chunkIDs := mlx.FromValues(tokens[processed:processed+n], 1, n)
 		manifest := media.batchMedia(position, n)

@@ -1261,10 +1261,13 @@ func (a *Attention) Forward(x *mlx.Array, b *batch.Batch, c cache.Cache, positio
 	// vision mask. Routing through the cache history would let the sliding
 	// applier re-add the window over relaxed image blocks, which the
 	// reference overlay explicitly overrides.
-	// Offset-aware: the mask indexes absolute positions on both axes, so a
-	// block is honoured wherever the chunk resumes. The old SeqOffsets[0]==0
-	// requirement is gone with the chunk-alignment invariant it depended on.
-	bidi := len(b.Media) > 0 && L > 1 && len(b.SeqOffsets) > 0
+	// The offset-zero requirement is load-bearing, not vestigial: this path
+	// attends over the chunk's own k/v (above), so the mask's key axis is the
+	// chunk's keys. Only at offset zero are those the complete key set, which
+	// is what makes chunk-relative and absolute positions coincide. The runner
+	// re-establishes the guarantee by growing the opening chunk to cover every
+	// bidirectional expansion (requestMedia.extendChunk).
+	bidi := len(b.Media) > 0 && L > 1 && len(b.SeqOffsets) > 0 && b.SeqOffsets[0] == 0
 
 	kv := donor
 	if kv == nil {

@@ -47,11 +47,16 @@ Two constraints shaped the work, neither obvious from upstream's interface:
    `image_max_tokens` is never silently ignored (ADR 0009). Each keeps its own
    ceiling: a value equal to the shared api default counts as unset, the
    convention `llm/llama_server.go` already applies for nemotron and qwen-VL.
-4. **The bidirectional mask is offset-aware.** Spans come from `b.Media`, and the
-   `SeqOffsets[0] == 0` requirement is gone. It existed for ADR 0014's
-   chunk-alignment invariant, which upstream's `extendChunk` does not provide: it
-   only prevents a chunk *ending* inside an atomic expansion and explicitly
-   permits resuming inside one.
+4. **Bidirectional spans come from `b.Media`, and the opening chunk carries every
+   one of them.** The `SeqOffsets[0] == 0` requirement is kept, because it is
+   load-bearing rather than vestigial: the bidi path attends over the chunk's own
+   k/v rather than the cache history — routing through history lets the sliding
+   applier re-add the window over relaxed blocks — so the mask's key axis is the
+   chunk's keys, and those are the complete key set only at offset zero.
+   Upstream's `extendChunk` does not preserve that: it prevents a chunk *ending*
+   inside an atomic expansion but explicitly permits resuming inside one. The
+   fork-local `requestMedia.growOpeningChunk` re-establishes it, kept separate
+   from `extendChunk` so upstream's rule keeps its exact semantics and tests.
 5. **ADR 0014's admission ceiling stays**, keyed on media items rather than the
    removed `VisionSpans`.
 6. **The test seam converges on upstream's `x/internal/mlxtest`**, implemented
@@ -99,10 +104,18 @@ Two constraints shaped the work, neither obvious from upstream's interface:
   model's own default; a non-image segment is refused;
   `ResolveImageBudget` treats the shared default as unset.
 - Mask: a query attends a later key inside its own span where a causal baseline
-  forbids it, and a chunk resuming at a non-zero offset produces the same
-  visibility for the same absolute positions as one starting at zero.
-  **Model output cannot gate this** — the end-to-end spatial probe passed with
-  bidirectional attention entirely off, so the masks are compared directly.
+  forbids it. **Model output cannot gate this** — the end-to-end spatial probe
+  passed with bidirectional attention entirely off, so the mask is compared
+  directly.
+- Chunking: the opening chunk grows past every bidirectional expansion, later
+  chunks are untouched, causal media is not charged for it, and growth is clipped
+  to keep the decode seed. This guards the precondition above, and it exists
+  because an earlier revision removed the offset gate on the strength of a unit
+  test that asserted the key axis was absolute — which is precisely what the test
+  had assumed rather than checked. Multi-chunk media then produced garbage logits,
+  surfacing as `constrained sampling produced an illegal token`. It was caught by
+  the benchmark suite, not the test suite; the chunking test above is the guard
+  that would have caught it.
 - Ceiling: table cases plus a test that computes the allocation an admitted
   request would make and fails if anything admitted exceeds the budget.
 - Hardware (`gemma4:12b-nvfp4`, Apple Silicon): golden parity against the

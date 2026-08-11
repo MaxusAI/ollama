@@ -98,6 +98,7 @@ func (m *requestMedia) extendChunk(pos, n int) int {
 	if m == nil {
 		return n
 	}
+
 	end := pos + n
 	for i := range m.items {
 		item := &m.items[i]
@@ -112,6 +113,37 @@ func (m *requestMedia) extendChunk(pos, n int) int {
 		}
 	}
 	return n
+}
+
+// growOpeningChunk grows chunk zero to cover every bidirectional expansion
+// (ADR 0014). Fork-local, and deliberately separate from extendChunk so
+// upstream's rule keeps its exact semantics and its tests.
+//
+// A model serving a non-causal expansion attends over the chunk's own k/v
+// rather than the cache history — gemma4 does, because routing through history
+// lets the sliding applier re-add the window over relaxed image blocks. That is
+// only sound while the chunk holds the whole key set, i.e. while it starts at
+// position zero. extendChunk keeps a chunk from *ending* inside an expansion but
+// happily resumes inside one, which would leave a block attending over a partial
+// prefix: not an error, just silently wrong attention, and downstream it
+// surfaced as garbage logits rather than anything nameable.
+//
+// Causal media needs none of this and is not charged for it.
+func (m *requestMedia) growOpeningChunk(pos, n int) int {
+	if m == nil || pos != 0 {
+		return n
+	}
+	last := 0
+	for i := range m.items {
+		if item := &m.items[i]; item.atomic() {
+			last = max(last, item.pos+item.length)
+		}
+	}
+	if last == 0 {
+		return n
+	}
+	// Clipped one short of the prompt so decode keeps its seed token.
+	return max(n, min(last, m.inputLen-1)-pos)
 }
 
 // batchMedia returns the manifest for chunk [pos, pos+n), encoding and
@@ -195,10 +227,10 @@ func checkVisionPrefillBudget(items []mediaItem, promptLen int) error {
 		if it.item.Causal {
 			continue
 		}
-		// extendChunk grows a chunk to cover a whole atomic expansion, so the
-		// widest mask row count is the larger of the base chunk and the
-		// longest expansion.
-		chunk = max(chunk, max(prefillChunkSize(), it.length))
+		// The opening chunk grows to the end of the last bidirectional
+		// expansion (extendChunk), so the widest mask is that far in — not
+		// merely one expansion long.
+		chunk = max(chunk, max(prefillChunkSize(), it.pos+it.length))
 	}
 	if chunk == 0 {
 		return nil

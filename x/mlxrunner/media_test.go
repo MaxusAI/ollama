@@ -249,3 +249,57 @@ func TestVisionPrefillBudgetBoundsTheAllocation(t *testing.T) {
 		}
 	}
 }
+
+// TestExtendChunkKeepsBidiBlocksInTheOpeningChunk guards the precondition the
+// gemma4 attention path depends on and that no unit test caught the first time:
+// a model serving a non-causal expansion attends over the chunk's own k/v, so
+// the block must sit in a chunk starting at position zero or it attends over a
+// partial prefix. That failure is silent in the mask and only surfaces as
+// garbage logits far downstream — it was found by the benchmark suite, not the
+// test suite.
+func TestExtendChunkKeepsBidiBlocksInTheOpeningChunk(t *testing.T) {
+	bidiItem := func(pos, length int) mediaItem {
+		return mediaItem{pos: pos, length: length, item: &base.PreparedItem{Causal: false}}
+	}
+	causalItem := func(pos, length int) mediaItem {
+		return mediaItem{pos: pos, length: length, item: &base.PreparedItem{Causal: true}}
+	}
+
+	t.Run("opening chunk grows past every bidi expansion", func(t *testing.T) {
+		// Three images whose last expansion ends at 3700, well past the 2 KiB
+		// prefill chunk — the shape that crashed before this guard existed.
+		m := &requestMedia{
+			inputLen: 4000,
+			items: []mediaItem{
+				bidiItem(10, 260), bidiItem(300, 1200), bidiItem(1600, 2100),
+			},
+		}
+		got := m.growOpeningChunk(0, prefillChunkSize())
+		if want := 3700; got != want {
+			t.Fatalf("opening chunk = %d, want %d (through the last expansion)", got, want)
+		}
+	})
+
+	t.Run("later chunks are not grown", func(t *testing.T) {
+		m := &requestMedia{inputLen: 4000, items: []mediaItem{bidiItem(10, 260)}}
+		if got := m.growOpeningChunk(3000, 512); got != 512 {
+			t.Fatalf("chunk at 3000 = %d, want 512 untouched", got)
+		}
+	})
+
+	t.Run("causal media does not grow the opening chunk", func(t *testing.T) {
+		// glimmer and qwen3.5 scatter into cache history and need no such
+		// guarantee; growing for them would cost memory for nothing.
+		m := &requestMedia{inputLen: 4000, items: []mediaItem{causalItem(10, 3000)}}
+		if got := m.growOpeningChunk(0, prefillChunkSize()); got != prefillChunkSize() {
+			t.Fatalf("opening chunk = %d, want %d for causal media", got, prefillChunkSize())
+		}
+	})
+
+	t.Run("growth is clipped to keep the decode seed", func(t *testing.T) {
+		m := &requestMedia{inputLen: 500, items: []mediaItem{bidiItem(10, 480)}}
+		if got := m.growOpeningChunk(0, 499); got != 499 {
+			t.Fatalf("opening chunk = %d, want 499 (inputLen-1)", got)
+		}
+	})
+}
