@@ -24,6 +24,14 @@ Opaque any, Causal bool}`. `PreparedRequest{Tokens, Items, Layout any}`.
 **The runner gates all media on it.** `pipeline.go` returns `this model does not support %s input`
 for any model that is not a `base.MediaModel`.
 
+**gemma4 is not the only MLX vision model after the merge.** On fork `main` today it is — no other
+`x/models/*` package has a `vision.go` or `media.go`. But the merge brings two more, both already
+`base.MediaModel`: `x/models/qwen3_5` (upstream's `1e85fe8e qwen3_5: image input support`, registering
+`Qwen3_5ForConditionalGeneration`, with `PrepareMedia` at vision.go:207) and `x/models/glimmer`.
+So the post-merge world has three MLX media models, of which **only gemma4 is unported** — and only
+gemma4 would know about the fork's image-token budget. That asymmetry is a live design problem, not a
+deferred one; see Open Questions.
+
 **gemma4 does not implement it.** It implements the fork's `base.VisionModel`:
 `SupportsVision` (vision.go:459), `VisionTokens` (464), `NewVisionInput` (474), `EncodeVision` (538),
 `MergedEmbeddings` (554). After the merge every image request against gemma4 400s, while
@@ -96,10 +104,19 @@ interface** rather than changing upstream's:
 
 ```go
 // x/mlxrunner/model/base — fork-local; upstream models are unaffected.
+//
+// The budget is named per media kind on purpose: a Segment may be text, an
+// image or audio, and only images carry a token-rung budget today. Bare
+// minTokens/maxTokens would claim a scope this does not have. The names also
+// match the API fields they carry (api.Options.ImageMinTokens/ImageMaxTokens).
 type MediaBudgetModel interface {
-    PrepareMediaBudget(segments []Segment, minTokens, maxTokens int) (*PreparedRequest, error)
+    PrepareMediaWithBudget(segments []Segment, imageMinTokens, imageMaxTokens int) (*PreparedRequest, error)
 }
 ```
+
+If a second media kind ever needs its own budget, collapse the pair into a
+`MediaBudget` struct rather than growing the parameter list — but not before, since
+there is no second kind to design against.
 
 `pipeline.go` prefers it when the model implements it and falls back to `PrepareMedia` otherwise.
 Keeping upstream's interface untouched means future merges conflict on one added file rather than
@@ -198,11 +215,23 @@ it is upstreamable if upstream ever wants per-request budgets.
 1. **Ceiling or no ceiling** (phase 4) — whether ADR 0014's 1 GiB admission ceiling must be
    reinstated depends on whether the phase 3 mask is genuinely offset-safe at every resume point,
    which phase 3's gate 2 answers. Do not resolve this before that gate runs.
-2. **Do the per-architecture budget defaults belong in the MLX path?**
-   `llm/llama_server.go:1083-1113` carries nemotron and qwen-VL specific floors and ceilings that
-   only the llama-server path applies today. If an MLX model other than gemma4 ever takes media,
-   that resolution logic wants to be shared rather than duplicated — but there is no second MLX
-   vision model yet, so this is deliberately deferred rather than designed now.
+2. **What happens when a budget is sent to an MLX model that cannot honour it?** This is the
+   sharp one, and it is live from the moment the merge lands rather than hypothetical. Post-merge
+   there are three MLX media models: gemma4 (to be ported to `MediaBudgetModel`), and upstream's
+   `qwen3_5` and `glimmer`, which implement the budget-blind `PrepareMedia` and hard-code their own
+   ceilings — glimmer pins `maxImageTokens = 4096` in media.go with a comment that lowering it hurts
+   OCR. So `image_max_tokens` sent with a qwen or glimmer request would be **silently ignored**,
+   which is exactly what ADR 0009 forbids: the fork's no-silent-drop principle. Worse, the paths
+   would disagree for the same model family — `llm/llama_server.go:1127` already applies a
+   qwen-VL-specific floor on the GGUF path.
+
+   Three candidate answers, none free: reject the request with a named 400 when a budget is set and
+   the model is not a `MediaBudgetModel` (consistent with ADR 0009, but breaks callers who set the
+   default globally); accept and warn (cheap, but it is a silent drop with extra steps); or port
+   `qwen3_5` and `glimmer` to the budget seam too (most correct, most divergence from upstream, and
+   glimmer's comment suggests its ceiling is a considered choice rather than an oversight).
+   **Answer this before phase 1's seam is built** — it decides whether `MediaBudgetModel` is optional
+   or whether the runner must gate on it.
 
 ## Out of scope
 
