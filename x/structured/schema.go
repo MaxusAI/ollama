@@ -70,7 +70,7 @@ var (
 func formatLiteral(s string) string {
 	var sb strings.Builder
 	sb.WriteByte('"')
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		switch c := s[i]; c {
 		case '\r':
 			sb.WriteString(`\r`)
@@ -559,7 +559,7 @@ func (c *schemaConverter) notStrings(strs []string) string {
 	trie := newNode()
 	for _, s := range strs {
 		node := trie
-		for i := 0; i < len(s); i++ {
+		for i := range len(s) {
 			next, ok := node.children[s[i]]
 			if !ok {
 				next = newNode()

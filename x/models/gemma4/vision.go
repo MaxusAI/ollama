@@ -301,7 +301,7 @@ func visionRopeTables(coords []int32, halfDim int, theta float64, dtype mlx.DTyp
 	c := make([]float32, len(coords)*halfDim)
 	s := make([]float32, len(coords)*halfDim)
 	for i, p := range coords {
-		for j := 0; j < quarter; j++ {
+		for j := range quarter {
 			ts := math.Pow(theta, 2*float64(j)/float64(halfDim))
 			angle := float64(p) / ts
 			cv, sv := float32(math.Cos(angle)), float32(math.Sin(angle))
@@ -511,14 +511,14 @@ func (m *Model) newVisionInput(data []byte, minTok, maxTok int) (*visionInput, e
 	patchDim := p * p * 3
 	patches := make([]float32, pW*pH*patchDim)
 	xs, ys := make([]int32, pW*pH), make([]int32, pW*pH)
-	for py := 0; py < pH; py++ {
-		for px := 0; px < pW; px++ {
+	for py := range pH {
+		for px := range pW {
 			i := py*pW + px
 			xs[i], ys[i] = int32(px), int32(py)
-			for dy := 0; dy < p; dy++ {
+			for dy := range p {
 				o := dst.PixOffset(px*p, (py*p)+dy)
 				row := dst.Pix[o : o+p*4]
-				for dx := 0; dx < p; dx++ {
+				for dx := range p {
 					d := i*patchDim + (dy*p+dx)*3
 					patches[d+0] = float32(row[dx*4+0])*scale + shift
 					patches[d+1] = float32(row[dx*4+1])*scale + shift

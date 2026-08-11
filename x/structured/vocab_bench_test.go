@@ -11,7 +11,7 @@ import (
 func benchVocab() *Vocab {
 	rng := rand.New(rand.NewSource(1))
 	pieces := make([][]byte, 0, 260000)
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		pieces = append(pieces, []byte{byte(b)})
 	}
 	const letters = " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.,:\"{}[]"
@@ -42,7 +42,7 @@ func BenchmarkMaskColdInString(b *testing.B) {
 	m := g.NewMatcher()
 	m.Advance([]byte(`{"key`)) // in-string: the widest allowed set
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		v.cache = make(map[uint64]*Mask) // force cold
 		v.Mask(m)
 	}
@@ -58,7 +58,7 @@ func BenchmarkMaskWarm(b *testing.B) {
 	m.Advance([]byte(`{"key`))
 	v.Mask(m)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		v.Mask(m)
 	}
 }
@@ -73,9 +73,9 @@ func BenchmarkMaskGenerationSequence(b *testing.B) {
 	}
 	text := `{"name":"Ada Lovelace, mathematician and writer","age":36}`
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		m := g.NewMatcher()
-		for j := 0; j < len(text); j++ {
+		for j := range len(text) {
 			v.Mask(m)
 			if !m.AdvanceByte(text[j]) {
 				b.Fatalf("rejected at %d", j)

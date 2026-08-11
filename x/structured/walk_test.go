@@ -12,7 +12,7 @@ import (
 // A few multi-byte tokens exercise cross-boundary pieces.
 func walkVocab() (*Vocab, [][]byte, int32) {
 	pieces := make([][]byte, 0, 262)
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		pieces = append(pieces, []byte{byte(b)})
 	}
 	for _, s := range []string{`{"`, `":`, `",`, `"}`, "true", "null"} {
@@ -36,11 +36,11 @@ func walkGrammar(t *testing.T, g *Grammar, seed int64) string {
 	var out []byte
 
 	const maxSteps, softCap = 4000, 300
-	for step := 0; step < maxSteps; step++ {
+	for step := range maxSteps {
 		mask := v.Mask(m)
 
 		var candidates []int32
-		for id := int32(0); id < int32(len(pieces)); id++ {
+		for id := range int32(len(pieces)) {
 			if mask.Allowed(id) {
 				candidates = append(candidates, id)
 			}
@@ -84,7 +84,7 @@ func walkGrammar(t *testing.T, g *Grammar, seed int64) string {
 
 func TestWalkJSONFormatAlwaysValid(t *testing.T) {
 	g := mustCompileJSON(t)
-	for seed := int64(0); seed < 20; seed++ {
+	for seed := range int64(20) {
 		out := walkGrammar(t, g, seed)
 		if !json.Valid([]byte(out)) {
 			t.Fatalf("seed %d: invalid JSON: %q", seed, out)
@@ -102,7 +102,7 @@ func TestWalkJSONFormatAlwaysValid(t *testing.T) {
 
 func TestWalkSchemaShapesOutput(t *testing.T) {
 	g := compileSchema(t, `{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"},"tags":{"type":"array","items":{"type":"string"},"maxItems":3}},"required":["name","age"]}`)
-	for seed := int64(0); seed < 20; seed++ {
+	for seed := range int64(20) {
 		out := walkGrammar(t, g, seed)
 		var v struct {
 			Name *string `json:"name"`
@@ -126,7 +126,7 @@ func TestWalkSchemaShapesOutput(t *testing.T) {
 func TestWalkEnumOnlyEmitsMembers(t *testing.T) {
 	g := compileSchema(t, `{"enum":["alpha","beta",42]}`)
 	seen := map[string]bool{}
-	for seed := int64(0); seed < 30; seed++ {
+	for seed := range int64(30) {
 		out := walkGrammar(t, g, seed)
 		var v any
 		if err := json.Unmarshal([]byte(out), &v); err != nil {
@@ -153,7 +153,7 @@ func TestWalkEnumOnlyEmitsMembers(t *testing.T) {
 
 func TestWalkRecursiveRefTerminates(t *testing.T) {
 	g := compileSchema(t, `{"$ref":"#/$defs/node","$defs":{"node":{"type":"object","properties":{"v":{"type":"integer"},"kids":{"type":"array","items":{"$ref":"#/$defs/node"},"maxItems":2}},"required":["v"]}}}`)
-	for seed := int64(0); seed < 10; seed++ {
+	for seed := range int64(10) {
 		out := walkGrammar(t, g, seed)
 		if !json.Valid([]byte(out)) {
 			t.Fatalf("seed %d: invalid JSON: %q", seed, out)
@@ -163,7 +163,7 @@ func TestWalkRecursiveRefTerminates(t *testing.T) {
 
 func TestWalkIntegerBoundsHold(t *testing.T) {
 	g := compileSchema(t, `{"type":"integer","minimum":-25,"maximum":170}`)
-	for seed := int64(0); seed < 40; seed++ {
+	for seed := range int64(40) {
 		out := walkGrammar(t, g, seed)
 		var v json.Number
 		if err := json.Unmarshal([]byte(out), &v); err != nil {
