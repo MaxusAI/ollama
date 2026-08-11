@@ -216,7 +216,7 @@ func towerVisionTensors(layers int) map[string]*mlx.Array {
 		"model.vision_tower.std_scale":                               zerosF32(hidden),
 		"model.embed_vision.embedding_projection.weight":             zerosF32(24, hidden),
 	}
-	for i := 0; i < layers; i++ {
+	for i := range layers {
 		lp := "model.vision_tower.encoder.layers." + string(rune('0'+i)) + "."
 		for _, n := range []string{"input_layernorm", "post_attention_layernorm", "pre_feedforward_layernorm", "post_feedforward_layernorm"} {
 			tensors[lp+n+".weight"] = zerosF32(hidden)
@@ -307,16 +307,16 @@ func naiveRope2D(x []float64, L, H, D int, xs, ys []int32, theta float64) []floa
 	out := make([]float64, len(x))
 	half := D / 2
 	quarter := half / 2
-	for l := 0; l < L; l++ {
-		for h := 0; h < H; h++ {
+	for l := range L {
+		for h := range H {
 			base := (l*H + h) * D
-			for d := 0; d < 2; d++ {
+			for d := range 2 {
 				pos := float64(xs[l])
 				if d == 1 {
 					pos = float64(ys[l])
 				}
 				o := base + d*half
-				for j := 0; j < quarter; j++ {
+				for j := range quarter {
 					ts := math.Pow(theta, 2*float64(j)/float64(half))
 					angle := pos / ts
 					c, s := math.Cos(angle), math.Sin(angle)
@@ -377,12 +377,12 @@ func TestVisionAvgPoolMatchesNaive(t *testing.T) {
 	if dims := got.Dims(); dims[1] != rB*cB {
 		t.Fatalf("pooled length = %d, want %d", dims[1], rB*cB)
 	}
-	for rb := 0; rb < rB; rb++ {
-		for cb := 0; cb < cB; cb++ {
-			for d := 0; d < D; d++ {
+	for rb := range rB {
+		for cb := range cB {
+			for d := range D {
 				var sum float64
-				for dy := 0; dy < k; dy++ {
-					for dx := 0; dx < k; dx++ {
+				for dy := range k {
+					for dx := range k {
 						patch := (rb*k+dy)*gridW + (cb*k + dx)
 						sum += float64(data[patch*D+d])
 					}
@@ -484,8 +484,8 @@ func TestVisionTowerForwardShapes(t *testing.T) {
 func testImagePNG(t *testing.T, w, h int) []byte {
 	t.Helper()
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			img.SetNRGBA(x, y, color.NRGBA{R: uint8(x % 256), G: uint8(y % 256), B: uint8((x + y) % 256), A: 255})
 		}
 	}

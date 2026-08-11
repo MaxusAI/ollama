@@ -8,7 +8,7 @@ import (
 // advanceString feeds s byte-by-byte and reports how many bytes were
 // accepted before the first rejection.
 func advanceString(m *Matcher, s string) int {
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		if !m.AdvanceByte(s[i]) {
 			return i
 		}
@@ -177,7 +177,7 @@ func TestInStringStateIsStable(t *testing.T) {
 	}
 	m.AdvanceByte('a')
 	key := m.StateKey()
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		if !m.AdvanceByte('a') {
 			t.Fatalf("content byte %d rejected", i)
 		}
@@ -194,7 +194,7 @@ func TestWhitespaceStateIsStable(t *testing.T) {
 		t.Fatal("prefix rejected")
 	}
 	key := m.StateKey()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if !m.AdvanceByte(' ') {
 			t.Fatalf("ws byte %d rejected", i)
 		}

@@ -218,7 +218,7 @@ func (v *jval) dumpTo(sb *strings.Builder) {
 // verbatim.
 func dumpJSONString(sb *strings.Builder, s string) {
 	sb.WriteByte('"')
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		switch {
 		case c == '"':

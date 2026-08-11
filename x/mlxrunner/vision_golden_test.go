@@ -143,9 +143,9 @@ func TestVisionGoldenParity(t *testing.T) {
 	n, d := golden.Shape[0], golden.Shape[1]
 	var sum, sumSq float64
 	norms := make([]float64, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		var rowSq float64
-		for j := 0; j < d; j++ {
+		for j := range d {
 			v := float64(feats[i*d+j])
 			sum += v
 			sumSq += v * v

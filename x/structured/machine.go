@@ -559,7 +559,7 @@ func chars(bs ...byte) elem {
 // lit builds a sequence matching s exactly.
 func lit(s string) seq {
 	out := make(seq, len(s))
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		out[i] = chars(s[i])
 	}
 	return out
