@@ -25,10 +25,11 @@ func init() {
 }
 
 var (
-	_ base.Model      = (*Model)(nil)
-	_ base.SelfDraft  = (*Model)(nil)
-	_ base.DraftModel = (*mtpDraft)(nil)
-	_ base.MediaModel = (*Model)(nil)
+	_ base.Model            = (*Model)(nil)
+	_ base.SelfDraft        = (*Model)(nil)
+	_ base.DraftModel       = (*mtpDraft)(nil)
+	_ base.MediaModel       = (*Model)(nil)
+	_ base.MediaBudgetModel = (*Model)(nil)
 )
 
 // RopeParameters carries optional rope metadata embedded under rope_parameters.

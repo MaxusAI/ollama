@@ -205,6 +205,40 @@ func (m *Model) visionLoaded() bool { return m.VisionTower != nil }
 // splice its vision_start + pads + vision_end expansion, and precompute the
 // request's 3-channel rope positions.
 func (m *Model) PrepareMedia(segments []base.Segment) (*base.PreparedRequest, error) {
+	return m.PrepareMediaWithBudget(segments, 0, 0)
+}
+
+// pixelBudget converts an image-token budget into the pixel bounds smartResize
+// works in. One token covers spatial_merge_size² patches of patch_size² pixels,
+// so pixels = tokens · (patch · merge)².
+//
+// Unlike gemma4 and glimmer, qwen3.5's ceiling is a pixel budget rather than a
+// token one, so the fork's option cannot be applied directly. A non-positive
+// bound means "keep the model's own", which is how an unset or default request
+// reproduces the reference preprocessing exactly.
+func (m *Model) pixelBudget(minTokens, maxTokens int) (minPixels, maxPixels float64) {
+	perToken := float64(m.Vision.PatchSize*m.Vision.SpatialMergeSize) * float64(m.Vision.PatchSize*m.Vision.SpatialMergeSize)
+	minPixels, maxPixels = float64(visionMinPixels), float64(visionMaxPixels)
+	if minTokens > 0 {
+		minPixels = float64(minTokens) * perToken
+	}
+	if maxTokens > 0 {
+		maxPixels = float64(maxTokens) * perToken
+	}
+	return minPixels, maxPixels
+}
+
+// PrepareMediaWithBudget implements base.MediaBudgetModel. qwen3.5 keeps its own
+// pixel bounds as the default: a request carrying only api.DefaultOptions
+// resolves to them, so gemma4's ladder never silently shrinks an image here —
+// the model's ceiling is roughly 16k tokens, an order of magnitude above that
+// default.
+func (m *Model) PrepareMediaWithBudget(segments []base.Segment, imageMinTokens, imageMaxTokens int) (*base.PreparedRequest, error) {
+	// 0 for the model bounds means "no token-space default": pixelBudget then
+	// keeps the reference pixel constants rather than deriving from tokens.
+	minTokens, maxTokens := base.ResolveImageBudget(imageMinTokens, imageMaxTokens, 0, 0)
+	minPixels, maxPixels := m.pixelBudget(minTokens, maxTokens)
+
 	prepared := &base.PreparedRequest{}
 
 	// pos walks the reference's multimodal position rule: text advances one
@@ -234,7 +268,7 @@ func (m *Model) PrepareMedia(segments []base.Segment) (*base.PreparedRequest, er
 			return nil, fmt.Errorf("qwen3.5 does not support %s input", seg.Kind)
 		}
 
-		pixels, prep, err := m.preprocessImage(seg.Data)
+		pixels, prep, err := m.preprocessImage(seg.Data, minPixels, maxPixels)
 		if err != nil {
 			return nil, err
 		}

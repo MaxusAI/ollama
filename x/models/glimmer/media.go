@@ -20,7 +20,10 @@ import (
 // Reducing it here discards source detail and disproportionately hurts OCR.
 const maxImageTokens = 4096
 
-var _ base.MediaModel = (*Model)(nil)
+var (
+	_ base.MediaModel       = (*Model)(nil)
+	_ base.MediaBudgetModel = (*Model)(nil)
+)
 
 // preparedImage is glimmer's model-private media state: the patch grid the
 // encoder consumes and the soft-token count of its pixel-shuffled output.
@@ -34,6 +37,15 @@ type preparedImage struct {
 // placeholder expansion — image_start, the patch-token run, image_end — into
 // the stream, decoding, resizing, and patchifying the image on the CPU.
 func (m *Model) PrepareMedia(segments []base.Segment) (*base.PreparedRequest, error) {
+	return m.PrepareMediaWithBudget(segments, 0, 0)
+}
+
+// PrepareMediaWithBudget implements base.MediaBudgetModel. glimmer keeps its own
+// 4096-token ceiling as the default: a request carrying only api.DefaultOptions
+// resolves to it, so the shared gemma4 ladder never silently lowers it.
+func (m *Model) PrepareMediaWithBudget(segments []base.Segment, imageMinTokens, imageMaxTokens int) (*base.PreparedRequest, error) {
+	_, maxTokens := base.ResolveImageBudget(imageMinTokens, imageMaxTokens, 0, maxImageTokens)
+
 	prepared := &base.PreparedRequest{}
 	for s, seg := range segments {
 		if seg.Data == nil {
@@ -47,7 +59,7 @@ func (m *Model) PrepareMedia(segments []base.Segment) (*base.PreparedRequest, er
 			return nil, fmt.Errorf("glimmer does not support %s input", seg.Kind)
 		}
 
-		patches, geom, err := m.preprocessImage(seg.Data)
+		patches, geom, err := m.preprocessImage(seg.Data, maxTokens)
 		if err != nil {
 			return nil, fmt.Errorf("preprocess image: %w", err)
 		}
@@ -155,7 +167,7 @@ func computeImageSize(width, height, patchStride, maxTokens int) (targetWidth, t
 // preprocessImage decodes and prepares one image on the CPU: budgeted
 // resize, [-1,1] rescale, and patchify to the tower's layout — one row per
 // patch, (temporal, RGB, pixel row, pixel column) within it.
-func (m *Model) preprocessImage(data []byte) ([]float32, preparedImage, error) {
+func (m *Model) preprocessImage(data []byte, maxTokens int) ([]float32, preparedImage, error) {
 	src, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, preparedImage{}, fmt.Errorf("decode: %w", err)
@@ -163,7 +175,7 @@ func (m *Model) preprocessImage(data []byte) ([]float32, preparedImage, error) {
 
 	bounds := src.Bounds()
 	patchStride := int(m.VisionPatchSize * m.VisionDownsampleFactor)
-	targetW, targetH, outputTokens := computeImageSize(bounds.Dx(), bounds.Dy(), patchStride, maxImageTokens)
+	targetW, targetH, outputTokens := computeImageSize(bounds.Dx(), bounds.Dy(), patchStride, maxTokens)
 	if targetW == 0 || targetH == 0 || outputTokens == 0 {
 		return nil, preparedImage{}, fmt.Errorf("invalid image dimensions %dx%d", bounds.Dx(), bounds.Dy())
 	}

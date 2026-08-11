@@ -39,6 +39,14 @@ func (p preparedImage) numTokens(merge int32) int32 {
 // smartResize ports the reference resize rule: round each side to the patch
 // factor, then scale into the pixel budget, preserving aspect ratio.
 func smartResize(height, width, factor int32) (int32, int32, error) {
+	return smartResizeBounded(height, width, factor, visionMinPixels, visionMaxPixels)
+}
+
+// smartResizeBounded is smartResize with the pixel bounds supplied, so a
+// request's image-token budget can narrow them. Kept as a separate entry point
+// rather than widening smartResize: that keeps upstream's call sites and tests
+// untouched, so this fork-local change stays cheap to re-resolve on every merge.
+func smartResizeBounded(height, width, factor int32, minPixels, maxPixels float64) (int32, int32, error) {
 	if height <= 0 || width <= 0 {
 		return 0, 0, fmt.Errorf("invalid image size %dx%d", width, height)
 	}
@@ -51,12 +59,12 @@ func smartResize(height, width, factor int32) (int32, int32, error) {
 	// The reference uses Python round (half to even).
 	hBar := math.RoundToEven(float64(height)/f) * f
 	wBar := math.RoundToEven(float64(width)/f) * f
-	if hBar*wBar > visionMaxPixels {
-		beta := math.Sqrt(float64(height) * float64(width) / visionMaxPixels)
+	if hBar*wBar > maxPixels {
+		beta := math.Sqrt(float64(height) * float64(width) / maxPixels)
 		hBar = math.Max(f, math.Floor(float64(height)/beta/f)*f)
 		wBar = math.Max(f, math.Floor(float64(width)/beta/f)*f)
-	} else if hBar*wBar < visionMinPixels {
-		beta := math.Sqrt(visionMinPixels / (float64(height) * float64(width)))
+	} else if hBar*wBar < minPixels {
+		beta := math.Sqrt(minPixels / (float64(height) * float64(width)))
 		hBar = math.Ceil(float64(height)*beta/f) * f
 		wBar = math.Ceil(float64(width)*beta/f) * f
 	}
@@ -66,7 +74,7 @@ func smartResize(height, width, factor int32) (int32, int32, error) {
 // preprocessImage decodes and prepares one image: aspect-preserving resize,
 // (x/255-0.5)/0.5 normalization, and patchification into the tower's
 // block-major row layout.
-func (m *Model) preprocessImage(data []byte) (pixels []float32, prep preparedImage, err error) {
+func (m *Model) preprocessImage(data []byte, minPixels, maxPixels float64) (pixels []float32, prep preparedImage, err error) {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, preparedImage{}, fmt.Errorf("decode image: %w", err)
@@ -76,7 +84,7 @@ func (m *Model) preprocessImage(data []byte) (pixels []float32, prep preparedIma
 	patch, merge, temporal := v.PatchSize, v.SpatialMergeSize, v.TemporalPatchSize
 	bounds := img.Bounds()
 	img = dropAlpha(img, bounds)
-	targetH, targetW, err := smartResize(int32(bounds.Dy()), int32(bounds.Dx()), patch*merge)
+	targetH, targetW, err := smartResizeBounded(int32(bounds.Dy()), int32(bounds.Dx()), patch*merge, minPixels, maxPixels)
 	if err != nil {
 		return nil, preparedImage{}, err
 	}

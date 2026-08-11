@@ -9,6 +9,7 @@ import (
 
 	_ "golang.org/x/image/webp"
 
+	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
 )
 
@@ -103,4 +104,30 @@ type MediaBudgetModel interface {
 	MediaModel
 
 	PrepareMediaWithBudget(segments []Segment, imageMinTokens, imageMaxTokens int) (*PreparedRequest, error)
+}
+
+// ResolveImageBudget folds a request's image-token budget into a model's own,
+// using the convention llm/llama_server.go already applies for nemotron and
+// qwen-VL: a non-positive value, or one equal to the shared api default, counts
+// as unset and the model's own bound stands.
+//
+// The check against the default is the load-bearing half. api.DefaultOptions
+// always populates these fields with gemma4's ladder (ADR 0008), so every
+// request carries a budget whether or not the caller meant one. Without this,
+// a model that deliberately keeps a different ceiling — glimmer's 4096, chosen
+// because lowering it hurts OCR — would have gemma4's 1120 imposed on it by
+// every default request, silently discarding detail it was built to keep.
+//
+// The cost is that a caller cannot explicitly request exactly the shared default
+// on such a model; it resolves to the model's own. That is the right trade while
+// the defaults are one architecture's ladder rather than a neutral value.
+func ResolveImageBudget(reqMin, reqMax, modelMin, modelMax int) (minTok, maxTok int) {
+	minTok, maxTok = reqMin, reqMax
+	if minTok <= 0 || minTok == api.DefaultImageMinTokens {
+		minTok = modelMin
+	}
+	if maxTok <= 0 || maxTok == api.DefaultImageMaxTokens {
+		maxTok = modelMax
+	}
+	return minTok, maxTok
 }
