@@ -162,8 +162,7 @@ git diff HEAD~1 HEAD -- tools/mtmd/clip-model.h tools/mtmd/clip.cpp tools/mtmd/m
 
 Then verify, in this order — the second step is not optional:
 
-1. **They apply.** This is what CI's `patches` job checks, and it is only a
-   configure step:
+1. **They apply.** Configuring Ollama's build tree runs the applier:
 
    ```sh
    cmake -S llama/server -B /tmp/patch-check -DCMAKE_BUILD_TYPE=Release -DOLLAMA_RUNNER_DIR=
@@ -173,14 +172,25 @@ Then verify, in this order — the second step is not optional:
    surrounding code: b10353 moved `calc_size_preserved_ratio`'s parameters into
    a `calc_size_opt` struct, and 005's hunk applied without a conflict while
    still referencing the now-nonexistent bare `max_pixels` and `align_size`.
-   Build the affected target against 002/004/005 only — 001 references
-   `llama-ollama-compat.h`, which only Ollama's build tree supplies:
+   Building `mtmd` from the tree configured above pulls in `llama` and so
+   compiles every file the patch set touches, 001 included:
+
+   ```sh
+   cmake --build /tmp/patch-check --target mtmd -j8
+   ```
+
+   To iterate against a standalone llama.cpp checkout instead, build 002/004/005
+   only — 001 references `llama-ollama-compat.h`, which only Ollama's build tree
+   supplies:
 
    ```sh
    cmake -S . -B build -DGGML_METAL=OFF -DLLAMA_BUILD_TESTS=OFF \
        -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF -DLLAMA_CURL=OFF
    cmake --build build --target mtmd -j8
    ```
+
+CI runs both steps: `test.yaml`'s `patches` job configures on Linux and Windows
+and builds `mtmd` on Linux, on every pull request and on every push to `main`.
 
 Frozen release lineages pin their own `LLAMA_CPP_VERSION` and carry their own
 copies of these files. A regenerated patch targets one pinned tag and must not
