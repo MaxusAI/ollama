@@ -596,30 +596,7 @@ func visionChunkMask(b *batch.Batch, K, window int, dtype mlx.DType) nn.Attentio
 		off = int(b.SeqOffsets[0])
 	}
 	L := b.InputIDs.Dim(1)
-	inSpan := func(p int32) int {
-		for si, s := range b.BidiSpans {
-			if p >= s[0] && p < s[1] {
-				return si
-			}
-		}
-		return -1
-	}
-
-	neg := float32(math.Inf(-1))
-	data := make([]float32, L*K)
-	for qi := 0; qi < L; qi++ {
-		q := off + qi
-		qs := inSpan(int32(q))
-		for k := 0; k < K; k++ {
-			allowed := k <= q && (window <= 0 || q-k < window)
-			if !allowed && qs >= 0 && inSpan(int32(k)) == qs {
-				allowed = true
-			}
-			if !allowed {
-				data[qi*K+k] = neg
-			}
-		}
-	}
+	data := visionMaskData(bidiSpans(b), off, L, K, window)
 	mask := nn.ArrayMask(mlx.FromValues(data, 1, 1, L, K).AsType(dtype))
 	b.Memo.Put(key, mask)
 	return mask

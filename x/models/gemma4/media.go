@@ -2,6 +2,7 @@ package gemma4
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/x/mlxrunner/batch"
@@ -99,6 +100,58 @@ func (m *Model) PrepareMediaWithBudget(segments []base.Segment, imageMinTokens, 
 func softRun(item batch.MediaItem) (start, end int) {
 	vi := item.Opaque.(*visionInput)
 	return item.Pos + 1, item.Pos + 1 + vi.soft
+}
+
+// bidiSpans returns the absolute [start, end) ranges that attend
+// bidirectionally: the placeholder run of every non-causal media item this batch
+// carries. It replaces batch.BidiSpans, which the upstream media rework left
+// without a writer.
+func bidiSpans(b *batch.Batch) [][2]int32 {
+	var spans [][2]int32
+	for _, item := range b.Media {
+		if _, ok := item.Opaque.(*visionInput); !ok {
+			continue
+		}
+		start, end := softRun(item)
+		spans = append(spans, [2]int32{int32(start), int32(end)})
+	}
+	return spans
+}
+
+// visionMaskData builds the dense [L, K] additive mask for a chunk starting at
+// absolute position off: causal, window-limited, and fully connected within each
+// bidirectional span.
+//
+// Positions are absolute on both axes (q = off + qi), so a span is honoured
+// wherever the chunk resumes — the property that lets an image block ride a
+// mid-prompt chunk. Split out from visionChunkMask so it can be tested without
+// building a batch or touching MLX.
+func visionMaskData(spans [][2]int32, off, L, K, window int) []float32 {
+	inSpan := func(p int32) int {
+		for si, s := range spans {
+			if p >= s[0] && p < s[1] {
+				return si
+			}
+		}
+		return -1
+	}
+
+	neg := float32(math.Inf(-1))
+	data := make([]float32, L*K)
+	for qi := range L {
+		q := off + qi
+		qs := inSpan(int32(q))
+		for k := range K {
+			allowed := k <= q && (window <= 0 || q-k < window)
+			if !allowed && qs >= 0 && inSpan(int32(k)) == qs {
+				allowed = true
+			}
+			if !allowed {
+				data[qi*K+k] = neg
+			}
+		}
+	}
+	return data
 }
 
 // scatterMedia overwrites the placeholder rows this chunk covers with the

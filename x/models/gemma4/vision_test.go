@@ -699,11 +699,18 @@ func close32(a, b, tol float32) bool {
 func TestVisionChunkMask(t *testing.T) {
 	useMLXTestThread(t)
 
+	// The bidirectional span now comes from the batch's media manifest rather
+	// than BidiSpans, so build the item that yields [1, 4): softRun starts one
+	// past Pos to skip BOI, and runs for the image's soft-token count.
 	b := &batch.Batch{
 		InputIDs:     mlx.Zeros(mlx.DTypeInt32, 1, 6),
 		SeqOffsets:   []int32{0},
 		SeqQueryLens: []int32{6},
-		BidiSpans:    [][2]int32{{1, 4}},
+		Media: []batch.MediaItem{{
+			Seq:    0,
+			Pos:    0,
+			Opaque: &visionInput{soft: 3},
+		}},
 	}
 	mask := visionChunkMask(b, 6, 2, mlx.DTypeFloat32)
 	arr := mask.AsArray(b, 6, mlx.DTypeFloat32)

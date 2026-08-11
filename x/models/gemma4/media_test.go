@@ -141,3 +141,61 @@ func equalInts(a, b []int) bool {
 	}
 	return true
 }
+
+// allowed reports whether query row qi may attend key k in a dense mask.
+func allowed(data []float32, K, qi, k int) bool { return data[qi*K+k] == 0 }
+
+// TestVisionMaskDataIsBidirectionalInsideSpans proves the mask actually does
+// something. Phase 2 showed the end-to-end spatial subtest still answers "left"
+// with image spans attending causally only, so model output cannot gate this —
+// the mask has to be compared directly.
+func TestVisionMaskDataIsBidirectionalInsideSpans(t *testing.T) {
+	// A 12-token prompt with an image span at [4, 9).
+	const L, K = 12, 12
+	span := [][2]int32{{4, 9}}
+
+	bidi := visionMaskData(span, 0, L, K, 0)
+	causal := visionMaskData(nil, 0, L, K, 0)
+
+	// Inside the span a later key must be visible to an earlier query, which
+	// causal attention forbids. That difference is the whole feature.
+	if !allowed(bidi, K, 5, 8) {
+		t.Fatal("query 5 cannot attend key 8 inside its own image span")
+	}
+	if allowed(causal, K, 5, 8) {
+		t.Fatal("causal baseline already allows 5->8; the test proves nothing")
+	}
+	// Outside the span, bidi must not relax anything.
+	if allowed(bidi, K, 2, 3) {
+		t.Fatal("bidi mask relaxed a text position outside any span")
+	}
+	// A span position must not see past its own span forwards.
+	if allowed(bidi, K, 5, 9) {
+		t.Fatal("span position attended a key beyond the span end")
+	}
+}
+
+// TestVisionMaskDataIsOffsetAware is the gate the plan calls load-bearing: the
+// same absolute span must produce the same visibility whether the chunk starts
+// at position zero or resumes mid-prompt. The old implementation was gated on
+// SeqOffsets[0]==0, so a block riding a later chunk silently lost bidirectional
+// attention — no build or model-output test catches that.
+func TestVisionMaskDataIsOffsetAware(t *testing.T) {
+	const K = 12
+	span := [][2]int32{{4, 9}}
+
+	// Whole prompt in one chunk from 0, versus a chunk resuming at 3.
+	full := visionMaskData(span, 0, 12, K, 0)
+	resumed := visionMaskData(span, 3, 9, K, 0)
+
+	for q := 3; q < 12; q++ {
+		for k := range K {
+			want := allowed(full, K, q, k)
+			got := allowed(resumed, K, q-3, k)
+			if got != want {
+				t.Fatalf("absolute q=%d k=%d: offset-0 allowed=%v, resumed-at-3 allowed=%v",
+					q, k, want, got)
+			}
+		}
+	}
+}
