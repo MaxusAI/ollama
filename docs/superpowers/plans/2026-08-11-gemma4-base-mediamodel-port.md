@@ -49,6 +49,16 @@ accepts a resume point inside one. So the mask must become offset-aware, or bidi
 is silently lost — ADR 0014's own words: this "degrades vision quality *silently* rather than
 failing a test."
 
+**The image-token budget is fork-only and must survive.** `ImageMinTokens` / `ImageMaxTokens`
+(`api/types.go:632-633`, defaults 70 / 1120 per ADR 0008) exist **only in this fork** — upstream has
+neither. They are declared inside `Runner` ("options which must be set when the model is loaded"),
+but the two paths honour them differently today: `llm/llama_server.go:1067,1102` resolves them at
+load into CLI args, with per-architecture defaults for nemotron and qwen-VL, whereas the MLX path
+reads them **per request** by passing `api.Options` straight into `vm.NewVisionInput(m.Data, opts)`.
+Upstream's `PrepareMedia(segments)` takes no options, so that per-request path has no seam to arrive
+through. They survived the merge in `api/types.go`; what did not survive is the way they reach
+preprocessing.
+
 **The suites can actually run here.** `OLLAMA_VISION_E2E=1` gates both
 `x/mlxrunner/vision_e2e_test.go` (shape + spatial, default `gemma4:12b-nvfp4`) and
 `vision_golden_test.go` (`TestVisionGoldenParity` against `testdata/vision_goldens_{12b,26b,31b}.json`).
@@ -73,16 +83,43 @@ block starting — they block finishing phase 4.
 
 Each phase ends with a **runnable** gate. Do not advance on "it compiles".
 
-### Phase 1 — gemma4 becomes a `base.MediaModel`, text path unchanged
+### Phase 1 — gemma4 becomes a `base.MediaModel`, with the budget threaded through
 
 Implement `PrepareMedia` over gemma4's existing preprocessing (reuse `NewVisionInput`'s decode,
 resize and compositing — ADR 0015's alpha-over-white must survive verbatim). Splice the same
 placeholder token run gemma4 expects today. Set `Causal: false`. Record soft-token count and
 geometry in `Opaque`. Leave `EncodeMedia` returning a zero tensor of the right shape.
 
+**`image_min_tokens` and `image_max_tokens` are passed through per request** — decided, see below.
+Upstream's `PrepareMedia(segments)` has nowhere to carry them, so add a **fork-local optional
+interface** rather than changing upstream's:
+
+```go
+// x/mlxrunner/model/base — fork-local; upstream models are unaffected.
+type MediaBudgetModel interface {
+    PrepareMediaBudget(segments []Segment, minTokens, maxTokens int) (*PreparedRequest, error)
+}
+```
+
+`pipeline.go` prefers it when the model implements it and falls back to `PrepareMedia` otherwise.
+Keeping upstream's interface untouched means future merges conflict on one added file rather than
+on every media model. Resolve the budget the way `llm/llama_server.go:1067` already does —
+per-architecture defaults, request value wins — so the MLX and llama-server paths agree.
+
+Two consequences that are requirements, not notes:
+
+- **`PreparedItem.Dims` must reflect the resolved budget.** It feeds upstream's prefix-cache fold,
+  so this is what keeps two budgets over the same image bytes from sharing a cache prefix. gemma4
+  resizes per budget, so Dims does change — assert it rather than assume it.
+- **Upstream's determinism contract widens.** It says `PrepareMedia` must be deterministic "for
+  given segments". With a per-request budget it is deterministic for *segments + budget*, and the
+  budget must therefore be part of cache identity. Anything that restores KV captured at a
+  different budget is a correctness bug, not a cache-efficiency one.
+
 > **Gate:** `go build ./x/... && go test -p 1 -count=1 ./x/mlxrunner/... ./x/models/gemma4/`
-> green, and a text-only request through the runner is byte-identical to before the port.
-> Image requests must now reach `EncodeMedia` instead of 400ing — assert that explicitly.
+> green; a text-only request is byte-identical to before the port; image requests reach
+> `EncodeMedia` instead of 400ing; and a test proves that the **same image bytes at two different
+> budgets** produce different `Dims` and never share a prefix-cache prefix.
 
 ### Phase 2 — real features: `EncodeMedia` + scatter
 
@@ -143,17 +180,29 @@ becomes landable.
 
 ---
 
+## Decided
+
+**The image-token budget is passed through per request.** `image_min_tokens` and
+`image_max_tokens` must reach preprocessing on every request, not be frozen at load. Load-time-only
+was the cheaper option and is rejected: it would silently demote a documented, fork-only API field
+to a restart-scoped one, and ADR 0008's whole finding is that the right rung differs by model *and*
+by task — the 12B prefers 560 for bbox work while 26B/31B want 1120, which is a per-request choice.
+
+Implemented as the fork-local `MediaBudgetModel` seam in phase 1. Cost, stated plainly: one more
+fork-local interface to carry across every upstream merge, and a determinism contract that is now
+segments + budget rather than segments alone. It is a clean addition rather than a modification, so
+it is upstreamable if upstream ever wants per-request budgets.
+
 ## Open questions — answer before phase 4, do not guess
 
-1. **Can the per-request image-token budget survive?** ADR 0003/0007/0008 let `image_max_tokens`
-   reach preprocessing per request. Upstream's `PrepareMedia(segments)` takes **no options**, so the
-   budget can only come from load-time config, which is what ADR 0016's reload-on-resolved-flags
-   already does. Is load-time-only acceptable, or does `PrepareMedia` need a model-scoped budget set
-   at load? This also decides whether the prefix-cache budget separation still holds: upstream keys
-   on `Dims`, which for gemma4 changes with the budget — but only because gemma4 resizes. A model
-   that pooled to a token budget without changing pixel dims would alias.
-2. **Ceiling or no ceiling** (phase 4) — depends on whether the phase 3 mask is genuinely
-   offset-safe at every resume point, which phase 3's gate 2 answers.
+1. **Ceiling or no ceiling** (phase 4) — whether ADR 0014's 1 GiB admission ceiling must be
+   reinstated depends on whether the phase 3 mask is genuinely offset-safe at every resume point,
+   which phase 3's gate 2 answers. Do not resolve this before that gate runs.
+2. **Do the per-architecture budget defaults belong in the MLX path?**
+   `llm/llama_server.go:1083-1113` carries nemotron and qwen-VL specific floors and ceilings that
+   only the llama-server path applies today. If an MLX model other than gemma4 ever takes media,
+   that resolution logic wants to be shared rather than duplicated — but there is no second MLX
+   vision model yet, so this is deliberately deferred rather than designed now.
 
 ## Out of scope
 
