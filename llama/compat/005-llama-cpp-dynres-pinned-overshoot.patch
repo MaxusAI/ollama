@@ -1,9 +1,9 @@
 diff --git a/tools/mtmd/mtmd-image.cpp b/tools/mtmd/mtmd-image.cpp
-index c36ba98..49a2591 100644
+index 7a1c4dd..ef43be6 100644
 --- a/tools/mtmd/mtmd-image.cpp
 +++ b/tools/mtmd/mtmd-image.cpp
-@@ -179,6 +179,15 @@ struct img_tool {
-             const auto beta = std::sqrt(static_cast<float>(min_pixels) / (height * width));
+@@ -181,6 +181,15 @@ struct img_tool {
+             const auto beta = std::sqrt(static_cast<float>(opts.min_pixels) / (static_cast<float>(height) * width));
              h_bar = ceil_by_factor(height * beta);
              w_bar = ceil_by_factor(width * beta);
 +            // when min_pixels ~= max_pixels (pinned budgets) the ceil can overshoot
@@ -11,9 +11,9 @@ index c36ba98..49a2591 100644
 +            // nemotron pinned 3328 delivered 3388, gemma4 pinned 1120 delivered
 +            // 1170 pre-004). The budget is a hard ceiling -- fall back to flooring
 +            // just under min_pixels instead.
-+            if (h_bar * w_bar > max_pixels) {
-+                h_bar = std::max(align_size, floor_by_factor(height * beta));
-+                w_bar = std::max(align_size, floor_by_factor(width  * beta));
++            if (opts.max_pixels > 0 && h_bar * w_bar > opts.max_pixels) {
++                h_bar = std::max(opts.align_size, floor_by_factor(height * beta));
++                w_bar = std::max(opts.align_size, floor_by_factor(width  * beta));
 +            }
          }
  

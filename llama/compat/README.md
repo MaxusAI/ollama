@@ -125,18 +125,66 @@ dispatching them from `translate_metadata` / `translate_clip_metadata`. For
 monolithic vision models, also update the `compatClipArches` allowlist in
 `llm/llama_server.go` so Ollama passes the main GGUF as `--mmproj`.
 
-## Regenerating the Patch File
+## Regenerating the Patch Files
 
 After a llama.cpp bump moves the insertion points, re-apply the edits to a
-fresh checkout and run:
+fresh checkout and re-cut each patch from its own commit. Each patch owns a
+fixed set of files:
+
+| Patch | Files |
+|---|---|
+| `001-llama-cpp-hooks.patch` | `src/llama-model-loader.cpp`, `tools/mtmd/clip.cpp` |
+| `002-llama-cpp-nemotron-dynres.patch` | `tools/mtmd/clip.cpp`, `tools/mtmd/models/nemotron-v2-vl.cpp`, `tools/mtmd/mtmd.cpp` |
+| `004-llama-cpp-gemma4-budget-fill.patch` | `tools/mtmd/clip-model.h`, `tools/mtmd/clip.cpp`, `tools/mtmd/mtmd-image.cpp` |
+| `005-llama-cpp-dynres-pinned-overshoot.patch` | `tools/mtmd/mtmd-image.cpp` |
+
+Clone at the pinned tag **with history** — `git apply --3way` needs the
+pre-image blobs, and against a `--depth 1` clone it fails with "repository
+lacks the necessary blob", falls back to a direct apply, and reports the drift
+as an ordinary rejection:
 
 ```sh
-cd /path/to/llama.cpp
-git diff -- \
-    src/llama-model-loader.cpp \
-    tools/mtmd/clip.cpp \
-    > /path/to/ollama/llama/compat/001-llama-cpp-hooks.patch
+git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
+git checkout "$(cat /path/to/ollama/LLAMA_CPP_VERSION)"
 ```
+
+Apply the patches in numeric order, committing after each, so every patch is
+cut against the tree its predecessors produced — 004 and 005 both touch
+`mtmd-image.cpp`, and cutting them from a shared working tree merges them:
+
+```sh
+git apply --3way /path/to/ollama/llama/compat/004-llama-cpp-gemma4-budget-fill.patch
+# resolve any conflicts, then re-cut from the commit:
+git commit -am 004
+git diff HEAD~1 HEAD -- tools/mtmd/clip-model.h tools/mtmd/clip.cpp tools/mtmd/mtmd-image.cpp \
+    > /path/to/ollama/llama/compat/004-llama-cpp-gemma4-budget-fill.patch
+```
+
+Then verify, in this order — the second step is not optional:
+
+1. **They apply.** This is what CI's `patches` job checks, and it is only a
+   configure step:
+
+   ```sh
+   cmake -S llama/server -B /tmp/patch-check -DCMAKE_BUILD_TYPE=Release -DOLLAMA_RUNNER_DIR=
+   ```
+
+2. **They compile.** A clean 3-way application proves nothing about the
+   surrounding code: b10353 moved `calc_size_preserved_ratio`'s parameters into
+   a `calc_size_opt` struct, and 005's hunk applied without a conflict while
+   still referencing the now-nonexistent bare `max_pixels` and `align_size`.
+   Build the affected target against 002/004/005 only — 001 references
+   `llama-ollama-compat.h`, which only Ollama's build tree supplies:
+
+   ```sh
+   cmake -S . -B build -DGGML_METAL=OFF -DLLAMA_BUILD_TESTS=OFF \
+       -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF -DLLAMA_CURL=OFF
+   cmake --build build --target mtmd -j8
+   ```
+
+Frozen release lineages pin their own `LLAMA_CPP_VERSION` and carry their own
+copies of these files. A regenerated patch targets one pinned tag and must not
+be forward-ported to a branch whose pin has not moved.
 
 ## Implementation Notes
 
