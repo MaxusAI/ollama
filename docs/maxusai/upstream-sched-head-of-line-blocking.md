@@ -11,13 +11,28 @@ Fork-internal draft for filing against **ollama/ollama**. Issues are disabled on
 MaxusAI/ollama, so this doc is the fork's record of the finding, following the
 precedent of [`upstream-gemma4-sizing-issue.md`](upstream-gemma4-sizing-issue.md).
 
-**Not fixed in the fork, deliberately.** `server/sched.go` is untouched upstream
-code and the correct fix depends on upstream intent — should `findRunnerToUnload`
-skip busy runners, or should `unloadedCh` become a per-runner handshake? Guessing
-here means carrying live scheduler divergence against whatever upstream settles
-on. If this ever bites in production, the lowest-risk scoped fix is adding a
-`case <-pending.ctx.Done():` arm to the select at `sched.go:351`, so at minimum an
-abandoned request stops holding the queue.
+**Fork status: partially fixed.** The fork now carries the scoped arm described
+at the end of *Suggested fixes* — a `case <-pending.ctx.Done():` on the select at
+`sched.go:351`, which breaks out of the per-request scheduling loop instead of
+holding it. That closes the unbounded case: a request whose client has hung up no
+longer holds the queue against a signal nothing is obliged to send. It is the
+smallest change that fixes the reproducer below, and it is regression-tested by
+`TestSchedAbandonedEvictionDoesNotBlockQueue` in `server/sched_headofline_test.go`.
+
+**Still present, deliberately:** while a *live* client waits for eviction, the
+loop is still serialized, so requests that need no eviction still queue behind it
+for as long as the picked runner's in-flight request runs. Removing that means
+either teaching `findRunnerToUnload` to report whether it picked an idle runner,
+or restructuring the loop to set a blocked request aside and keep dequeuing —
+both are behaviour changes to untouched upstream code whose correct shape depends
+on upstream intent, and both risk carrying live scheduler divergence.
+
+**Also still present:** `evictAllAndWait` (`sched.go:1629`) has the identical
+park — it waits on `unloadedCh` watching only the scheduler's lifetime context,
+and it is called from this same pending loop. It is reachable only on the OOM
+post-crash retry path, and it cannot take the same fix as-is because its `false`
+return means "scheduler shutting down" and is wired to `return` out of
+`processPending`; distinguishing "requester gave up" needs a signature change.
 
 ---
 

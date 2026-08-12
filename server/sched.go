@@ -240,6 +240,7 @@ func (s *Scheduler) processPending(ctx context.Context) {
 			}
 			logutil.Trace("processing incoming request", "model", pending.model.ModelPath)
 
+		scheduleRequest:
 			for {
 				var runnerToExpire *runnerRef
 				pendingKey := schedulerModelKey(pending.model)
@@ -352,6 +353,23 @@ func (s *Scheduler) processPending(ctx context.Context) {
 				case <-ctx.Done():
 					slog.Debug("shutting down scheduler pending loop")
 					return
+				case <-pending.ctx.Done():
+					// The client behind this request gave up while we were
+					// waiting. Nothing is obliged to send unloadedCh on our
+					// behalf: when runnerToExpire is busy no expiredCh was
+					// sent above, so the unload only happens if and when that
+					// runner's own in-flight request finishes. Holding the
+					// loop for a request nobody is waiting on blocks every
+					// other request behind it, including ones that need no
+					// eviction at all and would be served straight from
+					// s.loaded.
+					//
+					// runnerToExpire keeps sessionDuration 0 and unloads when
+					// it goes idle, which is what it was already going to do
+					// before we abandoned the wait; the only difference is
+					// that nothing takes the freed slot.
+					slog.Debug("pending request cancelled while waiting for unload, abandoning it", "runner", runnerToExpire, "model", pending.model.ModelPath)
+					break scheduleRequest
 				case <-s.unloadedCh:
 					slog.Debug("unload completed", "runner", runnerToExpire)
 					continue
