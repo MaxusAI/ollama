@@ -1,0 +1,190 @@
+--- a/server/sched_test.go
++++ b/server/sched_test.go
+@@ -8,6 +8,7 @@
+ 	"os"
+ 	"sync"
+ 	"testing"
++	"testing/synctest"
+ 	"time"
+ 
+ 	"github.com/stretchr/testify/require"
+@@ -37,8 +38,11 @@
+ }
+ 
+ func TestSchedLoad(t *testing.T) {
+-	ctx, done := context.WithTimeout(t.Context(), 20*time.Millisecond)
+-	defer done()
++	synctest.Test(t, testSchedLoad)
++}
++
++func testSchedLoad(t *testing.T) {
++	ctx := t.Context()
+ 	s := InitScheduler(ctx)
+ 	s.waitForRecovery = 10 * time.Millisecond
+ 
+@@ -319,8 +323,11 @@
+ }
+ 
+ func TestSchedRequestsSimpleReloadSameModel(t *testing.T) {
+-	ctx, done := context.WithTimeout(t.Context(), 5000*time.Millisecond)
+-	defer done()
++	synctest.Test(t, testSchedRequestsSimpleReloadSameModel)
++}
++
++func testSchedRequestsSimpleReloadSameModel(t *testing.T) {
++	ctx := t.Context()
+ 	s := InitScheduler(ctx)
+ 	s.waitForRecovery = 10 * time.Millisecond
+ 	g := ml.DeviceInfo{DeviceID: ml.DeviceID{Library: "Metal"}}
+@@ -351,8 +358,6 @@
+ 		require.Empty(t, a.req.errCh)
+ 	case err := <-a.req.errCh:
+ 		t.Fatal(err.Error())
+-	case <-ctx.Done():
+-		t.Fatal("timeout")
+ 	}
+ 
+ 	// Trigger a reload
+@@ -375,15 +380,16 @@
+ 		require.Empty(t, b.req.errCh)
+ 	case err := <-b.req.errCh:
+ 		t.Fatal(err.Error())
+-	case <-ctx.Done():
+-		t.Fatal("timeout")
+ 	}
+ }
+ 
+ func TestSchedRequestsMultipleLoadedModels(t *testing.T) {
++	synctest.Test(t, testSchedRequestsMultipleLoadedModels)
++}
++
++func testSchedRequestsMultipleLoadedModels(t *testing.T) {
+ 	slog.Info("TestRequestsMultipleLoadedModels")
+-	ctx, done := context.WithTimeout(t.Context(), 1000*time.Millisecond)
+-	defer done()
++	ctx := t.Context()
+ 	s := InitScheduler(ctx)
+ 	s.waitForRecovery = 10 * time.Millisecond
+ 	g := ml.DeviceInfo{DeviceID: ml.DeviceID{Library: "Metal"}}
+@@ -419,8 +425,6 @@
+ 		require.Empty(t, a.req.errCh)
+ 	case err := <-a.req.errCh:
+ 		t.Fatal(err.Error())
+-	case <-ctx.Done():
+-		t.Fatal("timeout")
+ 	}
+ 	s.loadedMu.Lock()
+ 	require.Len(t, s.loaded, 1)
+@@ -437,8 +441,6 @@
+ 		require.Empty(t, b.req.errCh)
+ 	case err := <-b.req.errCh:
+ 		t.Fatal(err.Error())
+-	case <-ctx.Done():
+-		t.Fatal("timeout")
+ 	}
+ 	s.loadedMu.Lock()
+ 	require.Len(t, s.loaded, 2)
+@@ -455,9 +457,6 @@
+ 		require.Empty(t, c.req.errCh)
+ 	case err := <-c.req.errCh:
+ 		t.Fatal(err.Error())
+-	case <-ctx.Done():
+-		slog.Info("FAIL: scheduler state", "s.loaded", s.loaded)
+-		t.Fatal("timeout")
+ 	}
+ 	s.loadedMu.Lock()
+ 	require.Len(t, s.loaded, 3)
+@@ -484,26 +483,13 @@
+ 	gMu.Lock()
+ 	g.FreeMemory = 24 * format.GigaByte
+ 	gMu.Unlock()
+-	select {
+-	case resp := <-d.req.successCh:
+-		require.Equal(t, resp.llama, d.srv)
+-		require.Empty(t, s.pendingReqCh)
+-		require.Empty(t, d.req.errCh)
+-	case <-ctx.Done():
+-		t.Fatal("timeout")
+-	}
++	resp := <-d.req.successCh
++	require.Equal(t, resp.llama, d.srv)
++	require.Empty(t, s.pendingReqCh)
++	require.Empty(t, d.req.errCh)
+ 	// Wait for b to close
+-closeWait:
+-	for {
+-		select {
+-		case <-ctx.Done():
+-			t.Fatal("timeout")
+-		default:
+-			if b.srv.closeCalled {
+-				break closeWait
+-			}
+-			time.Sleep(1 * time.Millisecond)
+-		}
++	for !b.srv.closeCalled {
++		time.Sleep(1 * time.Millisecond)
+ 	}
+ 	s.loadedMu.Lock()
+ 	require.Len(t, s.loaded, 2)
+@@ -511,9 +497,12 @@
+ }
+ 
+ func TestSchedGetRunner(t *testing.T) {
+-	ctx, done := context.WithTimeout(t.Context(), 3*time.Second)
+-	defer done()
++	synctest.Test(t, testSchedGetRunner)
++}
+ 
++func testSchedGetRunner(t *testing.T) {
++	ctx := t.Context()
++
+ 	a := newScenarioRequest(t, ctx, "ollama-model-1a", 10, &api.Duration{Duration: 2 * time.Millisecond}, nil)
+ 	b := newScenarioRequest(t, ctx, "ollama-model-1b", 10, &api.Duration{Duration: 2 * time.Millisecond}, nil)
+ 	c := newScenarioRequest(t, ctx, "ollama-model-1c", 10, &api.Duration{Duration: 2 * time.Millisecond}, nil)
+@@ -541,8 +530,6 @@
+ 		require.Empty(t, errCh1a)
+ 	case err := <-errCh1a:
+ 		t.Fatal(err.Error())
+-	case <-ctx.Done():
+-		t.Fatal("timeout")
+ 	}
+ 	a.ctxDone() // Set "a" model to idle so it can unload
+ 	s.loadedMu.Lock()
+@@ -715,8 +702,11 @@
+ 
+ // TODO - add one scenario that triggers the bogus finished event with positive ref count
+ func TestSchedPrematureExpired(t *testing.T) {
+-	ctx, done := context.WithTimeout(t.Context(), 1000*time.Millisecond)
+-	defer done()
++	synctest.Test(t, testSchedPrematureExpired)
++}
++
++func testSchedPrematureExpired(t *testing.T) {
++	ctx := t.Context()
+ 
+ 	// Same model, same request
+ 	scenario1a := newScenarioRequest(t, ctx, "ollama-model-1a", 10, &api.Duration{Duration: 100 * time.Millisecond}, nil)
+@@ -740,8 +730,6 @@
+ 		s.expiredCh <- resp // Shouldn't happen in real life, but make sure its safe
+ 	case err := <-errCh1a:
+ 		t.Fatal(err.Error())
+-	case <-ctx.Done():
+-		t.Fatal("timeout")
+ 	}
+ 	time.Sleep(scenario1a.req.sessionDuration.Duration)
+ 	scenario1a.ctxDone()
+@@ -1189,8 +1177,11 @@
+ }
+ 
+ func TestSchedAlreadyCanceled(t *testing.T) {
+-	ctx, done := context.WithTimeout(t.Context(), 500*time.Millisecond)
+-	defer done()
++	synctest.Test(t, testSchedAlreadyCanceled)
++}
++
++func testSchedAlreadyCanceled(t *testing.T) {
++	ctx := t.Context()
+ 	dctx, done2 := context.WithCancel(ctx)
+ 	done2()
+ 	scenario1a := newScenarioRequest(t, dctx, "ollama-model-1", 10, &api.Duration{Duration: 0}, nil)
