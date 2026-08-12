@@ -19,7 +19,22 @@ concurrency:
   # For non-PR pushes, concurrency.group needs to be unique for every distinct
   # CI run we want to have happen. Use run_id, which in practice means all
   # non-PR CI runs will be allowed to run without preempting each other.
-  group: ${{ github.workflow }}-$${{ github.pull_request.number || github.run_id }}
+  #
+  # MaxusAI fork note -- NOT upstream, keep when syncing. Upstream writes this
+  # as `-$${{ github.pull_request.number || github.run_id }}`, which has never
+  # done what the two paragraphs above describe. The pull request payload lives
+  # at `github.event.pull_request`; there is no `github.pull_request`, and an
+  # undefined context property evaluates to null rather than erroring. So the
+  # `||` fell through to run_id on every event, the group was unique per run,
+  # and nothing could preempt anything -- zero concurrency cancellations across
+  # 30 test.yaml runs on this fork. (The stray `$` was a literal in the group
+  # name, which is how it went unnoticed for so long: the group looked wrong
+  # rather than behaved wrong.)
+  #
+  # The run_id fallback still carries pushes to main, so each one gets its own
+  # group and runs to completion -- which is what the push trigger below is
+  # for. A merge that breaks the build must not be cancelled by the next merge.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 on:
