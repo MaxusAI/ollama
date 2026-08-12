@@ -105,7 +105,7 @@ reference_image = "native macOS build — no container"
 # The fork Go binary carries the --image-max-tokens flag either way; without a
 # container the binary and log checks are skipped by the harness anyway.
 expect_patch_marker = 1
-arches = ["gemma4", "gemma4_unified"]
+arches = ["gemma4", "gemma4_unified", "qwen35moe"]
 notes = """
 MLX vision merged to main 2026-08-08 (7380a61f); sizing goes through
 llm.BudgetFillSize. Audio input still returns an explicit 400 on MLX, so no
@@ -338,6 +338,41 @@ image_max_pixels = 2580480
 scaling = "flat"
 ladder_tolerance = 2
 ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.apple-silicon-mlx.qwen35moe]
+status = "measured"
+measured_on = "2026-08-12"
+model = "qwen3.6:35b-a3b-nvfp4"   # the MLX export anchors this arch; the sibling
+                                  # q4_K_M tag is a GGUF and routes to
+                                  # llama-server, so it CANNOT anchor an MLX row
+patch_stride = 32                 # patch_size 16 * spatial_merge_size 2
+budget_min_tokens = 64            # shortest_edge 65536 / 32^2
+budget_max_tokens = 16384         # longest_edge 16777216 / 32^2
+image_min_pixels = 65536          # qwen35moe.vision.shortest_edge
+image_max_pixels = 16777216       # qwen35moe.vision.longest_edge
+
+# Unlike gemma4, this arch does NOT budget-fill: MLX runs plain qwen smart-resize,
+# so cost tracks resolution and the ladder must be dynamic. Every geometry
+# reproduces from the arithmetic rather than being recorded blind — align each
+# edge to 32, clamp total pixels into [min, max], take (w/32)*(h/32), add the
+# 2-marker allowance: 6x11+2=68, 16x9+2=146, 32x18+2=578, 64x36+2=2306,
+# 96x54+2=5186. 256x144 is the clamp case (32768px is under the 65536 floor, so
+# it scales UP to 66 grid tokens). prefix == text_only == 13 on this arch.
+# Measured with probes.Ollama.image_prefix (B8 prefix trick) against server
+# 0.32.5-maxusai-e6d42b2e on :11436.
+#
+# Cross-stack note, and the reason the anchor is pinned to the MLX tag. The same
+# weights as GGUF (qwen3.6:35b-a3b-q4_K_M, llama-server on the same host) give a
+# DIFFERENT ladder: [1034, 1034, 1034, 2306, 4082]. That is not a defect in
+# either stack, it is two different default budgets for one model. llama_server
+# launches qwen-VL with --image-min-tokens 1024 and caps at 4096 (1034 = 1032+2
+# at the floor; 4082 = 85x48+2 after scaling 3072x1728 down under a 4096-token
+# ceiling), while MLX honours the model's own 64..16384 range. The two agree
+# exactly at 2048x1152 (2306) because that geometry falls inside both windows.
+# See ADR 0003/0007/0008 for the budget policy this divergence sits under.
+scaling = "dynamic"
+ladder_tolerance = 2
+ladder = [68, 146, 578, 2306, 5186]
 
 
 
