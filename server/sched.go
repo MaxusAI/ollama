@@ -320,8 +320,11 @@ func (s *Scheduler) processPending(ctx context.Context) {
 					// load() has already set oomRetryAttempted so a second
 					// crash falls through to the fail-fast path.
 					if pending.oomRetryAttempted {
-						if !s.evictAllAndWait(ctx, pendingKey) {
+						switch s.evictAllAndWait(ctx, pending, pendingKey) {
+						case evictShutdown:
 							return
+						case evictAbandoned:
+							break scheduleRequest
 						}
 						continue
 					}
@@ -1609,11 +1612,29 @@ func (a ByDurationAndName) Less(i, j int) bool {
 // func (a BySize) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 // func (a BySize) Less(i, j int) bool { return a[i].vramSize < a[j].vramSize }
 
+// evictOutcome reports how an evict-all wait ended. A bool cannot carry this:
+// "the scheduler is going away" must take down processPending's loop, while
+// "the requester gave up" must release the loop and leave it running, and the
+// original signature spent its only false on the former.
+type evictOutcome int
+
+const (
+	evictComplete  evictOutcome = iota // every expired runner reported its unload
+	evictShutdown                      // the scheduler's context was cancelled
+	evictAbandoned                     // the request that wanted the room gave up
+)
+
 // evictAllAndWait synchronously expires every currently loaded runner except
 // the one being loaded (matched by modelKey) and waits for all unload events
-// to drain. Returns false if the context was cancelled mid-wait so the caller
-// can exit the scheduling loop. Used by the OOM retry path in processPending.
-func (s *Scheduler) evictAllAndWait(ctx context.Context, keepKey string) bool {
+// to drain. Used by the OOM retry path in processPending.
+//
+// The wait is bounded by the requester's context as well as the scheduler's,
+// for the reason documented at the pending loop's own unload wait: a runner
+// that is still referenced is sent no expiredCh, so its unload arrives only if
+// and when its in-flight request finishes. Watching only the scheduler context
+// would let a request whose client has already hung up hold the entire pending
+// loop against a signal nothing is obliged to send.
+func (s *Scheduler) evictAllAndWait(ctx context.Context, pending *LlmRequest, keepKey string) evictOutcome {
 	s.loadedMu.Lock()
 	runnersToExpire := make([]*runnerRef, 0, len(s.loaded))
 	for key, r := range s.loaded {
@@ -1625,7 +1646,7 @@ func (s *Scheduler) evictAllAndWait(ctx context.Context, keepKey string) bool {
 	s.loadedMu.Unlock()
 
 	if len(runnersToExpire) == 0 {
-		return true
+		return evictComplete
 	}
 
 	slog.Info("evicting all other loaded models for OOM retry", "count", len(runnersToExpire))
@@ -1648,11 +1669,18 @@ func (s *Scheduler) evictAllAndWait(ctx context.Context, keepKey string) bool {
 		select {
 		case <-ctx.Done():
 			slog.Debug("shutting down scheduler during evict-all wait")
-			return false
+			return evictShutdown
+		case <-pending.ctx.Done():
+			// The runners we expired above keep sessionDuration 0 and unload
+			// as they go idle, which is what they were already going to do;
+			// abandoning the wait only means nothing claims the freed room.
+			slog.Debug("pending request cancelled during evict-all wait, abandoning it",
+				"model", pending.model.ModelPath)
+			return evictAbandoned
 		case <-s.unloadedCh:
 		}
 	}
-	return true
+	return evictComplete
 }
 
 func (s *Scheduler) expireRunnersForRuntimeOOM(model *Model, err error) {

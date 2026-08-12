@@ -11,7 +11,9 @@ Fork-internal draft for filing against **ollama/ollama**. Issues are disabled on
 MaxusAI/ollama, so this doc is the fork's record of the finding, following the
 precedent of [`upstream-gemma4-sizing-issue.md`](upstream-gemma4-sizing-issue.md).
 
-**Fork status: partially fixed.** The fork now carries the scoped arm described
+**Fork status: both parks fixed; the serialization below is not.** Everything
+described in the issue text still stands upstream, which is what that text
+describes. The fork now carries the scoped arm described
 at the end of *Suggested fixes* — a `case <-pending.ctx.Done():` on the select at
 `sched.go:351`, which breaks out of the per-request scheduling loop instead of
 holding it. That closes the unbounded case: a request whose client has hung up no
@@ -27,12 +29,16 @@ or restructuring the loop to set a blocked request aside and keep dequeuing —
 both are behaviour changes to untouched upstream code whose correct shape depends
 on upstream intent, and both risk carrying live scheduler divergence.
 
-**Also still present:** `evictAllAndWait` (`sched.go:1629`) has the identical
-park — it waits on `unloadedCh` watching only the scheduler's lifetime context,
-and it is called from this same pending loop. It is reachable only on the OOM
-post-crash retry path, and it cannot take the same fix as-is because its `false`
-return means "scheduler shutting down" and is wired to `return` out of
-`processPending`; distinguishing "requester gave up" needs a signature change.
+**`evictAllAndWait` is now fixed too.** It had the identical park — waiting on
+`unloadedCh` while watching only the scheduler's lifetime context, reachable on
+the OOM post-crash retry path. It could not take the same one-line arm, because
+its `bool` return had already spent its only `false` on "scheduler shutting
+down", wired to `return` out of `processPending`. The outcome is now a
+three-state `evictOutcome` (`evictComplete` / `evictShutdown` /
+`evictAbandoned`), so an abandoned requester releases the loop while a shutdown
+still takes it down, and the wait watches `pending.ctx` alongside `ctx`.
+Regression-tested by `TestSchedAbandonedOOMEvictAllDoesNotBlockQueue`, which
+deadlocks at `evictAllAndWait`'s select without the change.
 
 ---
 
