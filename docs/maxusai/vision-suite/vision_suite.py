@@ -320,10 +320,27 @@ def score_multi(resp_text):
             s["chart_values_found"] += 1
     return s
 
+# The dense fine-text probe joins the suite rather than living as a second
+# entry point. Prompt and scorer are IMPORTED from finetext_probe, not copied:
+# the probe's assets are committed precisely so the same input scores the same
+# everywhere, and a drifted prompt copy would defeat that just as thoroughly as
+# a regenerated font would. finetext_probe.py still runs standalone.
+from finetext_probe import PROMPT as FINETEXT_PROMPT, score_codes as score_finetext
+from finetext_probe import NUM_PREDICT as FINETEXT_NUM_PREDICT, NUM_CTX as FINETEXT_NUM_CTX
+
+# (name, prompt, images, scorer, gen_opts). gen_opts is optional and carries
+# per-probe generation overrides; fine-text needs a bigger allowance than the
+# suite default (20 codes plus JSON scaffolding do not fit 2200 tokens), and an
+# exhausted allowance reads as a vision failure rather than a truncation.
 tests = [
     ("scene_single", SCENE_PROMPT.format(w=1920, h=1080), ["scene_hd.png"], score_scene),
     ("document_single", DOC_PROMPT.format(w=1568, h=1568), ["document.png"], score_doc),
     ("multi_3img", MULTI_PROMPT, ["scene_hd.png", "document.png", "chart.png"], score_multi),
+    # Env still wins, as it does for the standalone probe — the override only
+    # replaces the suite's default with this probe's, it does not pin it.
+    ("finetext", FINETEXT_PROMPT, ["finetext.png"], score_finetext,
+     {"num_predict": int(os.environ.get("NUM_PREDICT", FINETEXT_NUM_PREDICT)),
+      "num_ctx": int(os.environ.get("NUM_CTX", FINETEXT_NUM_CTX))}),
 ]
 
 def main():
@@ -351,10 +368,14 @@ def main():
     # test whenever ONLY_TESTS held more than one comma-separated name (no single
     # name equals the whole string) — producing an empty scores file that looked
     # like a model failure.
-    for name, prompt, images, scorer in run_tests:
+    for entry in run_tests:
+        # 5th element is optional per-probe gen overrides; the original 4-tuples
+        # keep working unchanged.
+        name, prompt, images, scorer = entry[:4]
+        gen_opts = entry[4] if len(entry) > 4 else {}
         print(f"--- {name} [{TAG}] ---", flush=True)
         try:
-            r = gen(prompt, [b64(i) for i in images])
+            r = gen(prompt, [b64(i) for i in images], **gen_opts)
         except Exception as e:
             print(f"ERROR: {e}")
             results[name] = {"error": str(e)}

@@ -55,16 +55,56 @@ def generate():
     return gt
 
 
-def run(host, tag, model):
+# Module-level so vision_suite.py's `finetext` test uses the SAME prompt and
+# scorer rather than a copy. A drifted copy would silently make scores from the
+# two entry points non-comparable, which is the whole reason this probe ships
+# committed assets instead of regenerating them.
+PROMPT = ("Transcribe EVERY reference code on this page exactly as printed. "
+          "Codes look like ABC-1234-DE56 and appear at several text sizes, "
+          "including very small ones; read carefully down to the smallest. "
+          "Respond with a SINGLE JSON object, no prose: "
+          '{"codes": [<string>, ...]} listing every code you can read.')
+
+# The generation allowance this probe needs. 20 codes plus JSON scaffolding does
+# not fit vision_suite.py's 2200-token default, and an exhausted allowance looks
+# like a vision failure rather than a truncation (the num_predict trap in the
+# preflight skill).
+NUM_PREDICT = 4000
+NUM_CTX = 32768
+
+
+def score_codes(body):
+    """Transcription body -> per-tier recall. Returns only the scored fields;
+    callers add their own tag//timing metadata."""
     gt = json.load(open(GT)) if os.path.exists(GT) else generate()
-    prompt = ("Transcribe EVERY reference code on this page exactly as printed. "
-              "Codes look like ABC-1234-DE56 and appear at several text sizes, "
-              "including very small ones; read carefully down to the smallest. "
-              "Respond with a SINGLE JSON object, no prose: "
-              '{"codes": [<string>, ...]} listing every code you can read.')
+    s = {"json_valid": False}
+    found = []
+    # Fence tolerance: engines that do not enforce format:"json" (the MLX
+    # runner before x/structured, ADR 0009) fence the JSON. No-op on
+    # grammar-constrained output; recorded so the engine is identifiable.
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", body, re.S)
+    if fenced:
+        body = fenced.group(1)
+        s["fenced"] = True
+    try:
+        found = [str(x).strip().upper() for x in json.loads(body).get("codes", [])]
+        s["json_valid"] = True
+    except Exception:
+        pass
+    for size, codes in sorted(gt.items(), key=lambda kv: -int(kv[0])):
+        s[f"recall_{size}px"] = sum(1 for c in codes if c in found)
+    # Every model observed so far returns all 20 regardless of what it can
+    # actually resolve, so a full total_found with zeroed small tiers means
+    # fabricated codes, not omitted ones. Worth keeping visible.
+    s["total_found"] = len(found)
+    return s
+
+
+def run(host, tag, model):
+    prompt = PROMPT
     img_b64 = base64.b64encode(open(IMG, "rb").read()).decode()
-    num_ctx = int(os.environ.get("NUM_CTX", "32768"))
-    num_predict = int(os.environ.get("NUM_PREDICT", "4000"))
+    num_ctx = int(os.environ.get("NUM_CTX", str(NUM_CTX)))
+    num_predict = int(os.environ.get("NUM_PREDICT", str(NUM_PREDICT)))
     timeout = int(os.environ.get("HTTP_TIMEOUT", "1800"))
     ep = os.environ.get("ENDPOINT", "generate")
     think = os.environ.get("THINK", "false") == "on"
@@ -85,24 +125,10 @@ def run(host, tag, model):
                                  headers={"Content-Type": "application/json"})
     r = json.load(urllib.request.urlopen(req, timeout=timeout))
     body = r.get("response") or (r.get("message") or {}).get("content", "")
-    s = {"tag": tag, "json_valid": False,
-         "prompt_eval_count": r.get("prompt_eval_count"), "eval_count": r.get("eval_count")}
-    found = []
-    # Fence tolerance: engines that do not enforce format:"json" (the MLX
-    # runner before x/structured, ADR 0009) fence the JSON. No-op on
-    # grammar-constrained output; recorded so the engine is identifiable.
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", body, re.S)
-    if fenced:
-        body = fenced.group(1)
-        s["fenced"] = True
-    try:
-        found = [str(x).strip().upper() for x in json.loads(body).get("codes", [])]
-        s["json_valid"] = True
-    except Exception:
-        pass
-    for size, codes in sorted(gt.items(), key=lambda kv: -int(kv[0])):
-        s[f"recall_{size}px"] = sum(1 for c in codes if c in found)
-    s["total_found"] = len(found)
+    s = {"tag": tag}
+    s.update(score_codes(body))
+    s["prompt_eval_count"] = r.get("prompt_eval_count")
+    s["eval_count"] = r.get("eval_count")
     print(f"--- finetext [{tag}] ---")
     print(json.dumps(s, indent=1))
     json.dump(s, open(os.path.join(DIR, f"ft_{tag}.json"), "w"), indent=1)
