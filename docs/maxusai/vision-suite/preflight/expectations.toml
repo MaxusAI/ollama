@@ -114,6 +114,36 @@ load-log payload proof are skipped by design — the token ladder and generative
 probes are the evidence here.
 """
 
+[profiles.apple-silicon-metal]
+platform = "apple-silicon"
+version_pattern = '^0\.32\.5-maxusai-[0-9a-f]{7,40}$'
+patchset = ["001", "002", "003", "004", "005"]
+reference_image = "native macOS build — no container"
+expect_patch_marker = 1
+arches = ["gemma4", "qwen35moe"]
+notes = """
+The GGUF half of Apple Silicon: the SAME native macOS binary as
+apple-silicon-mlx, serving llama.cpp with Metal. Which stack you get is decided
+by the model tag, not by the server — q4_K_M/q8 route to llama-server even when
+OLLAMA_MODELS points at the MLX store, while nvfp4/mxfp8/mlx-bf16 take the MLX
+runner. That is why this profile and apple-silicon-mlx share a version_pattern
+and are separated by --platform.
+
+Deliberately NOT a reuse of apple-silicon-cpu, which describes the CPU-only
+linux/arm64 container. Two things differ: that artifact is stamped
+0.32.5-dynres-, and it never compiles models/003 (no Metal backend), so its
+patchset is a strict subset. It is also expected to be slower — arm64 Linux in a
+VM with no Metal passthrough — and is a distribution artifact for other M-family
+Macs rather than the reference. The native Metal build is the reference on this
+platform.
+
+Token costs are payload properties and are expected to match the MLX profile
+wherever both stacks honour the same budget; where they do not, the gemma4 and
+qwen35moe blocks below record why. Generative text must NOT be compared across
+the two: greedy sampling diverges on backend floating point even at identical
+prompt_eval_count.
+"""
+
 
 # =============================================================================
 # EXPECTATIONS — [expect.<profile>.<arch>]
@@ -373,6 +403,58 @@ image_max_pixels = 16777216       # qwen35moe.vision.longest_edge
 scaling = "dynamic"
 ladder_tolerance = 2
 ladder = [68, 146, 578, 2306, 5186]
+
+
+# ------------------------------------------- APPLE SILICON / NATIVE METAL GGUF --
+
+[expect.apple-silicon-metal.gemma4]
+status = "measured"
+measured_on = "2026-08-12"
+model = "gemma4:31b-it-q4_K_M"    # GGUF tag; routes to llama-server on Metal
+patch_stride = 48                 # patch_size 16 * n_merge 3
+budget_min_tokens = 70            # ADR 0008 floor
+budget_max_tokens = 1120          # vendor maximum
+image_min_pixels = 161280         # 70 * 48^2
+image_max_pixels = 2580480        # 1120 * 48^2
+
+# Exact parity with the MLX profile: flat 1102 at all five geometries, prefix ==
+# text_only == 19. 004's budget-fill on llama.cpp and llm.BudgetFillSize on MLX
+# are not merely similar, they agree value for value on the same host — which is
+# the strongest evidence available that ADR 0008's sizing is genuinely shared
+# rather than reimplemented per stack. Measured 2026-08-12 on
+# 0.32.5-maxusai-e6d42b2e, :11436; gemma4:12b-it-q4_K_M measured identically the
+# same day (same flat 1102, same prefix 19), so this block covers the lineage and
+# a variant drifting from it is a payload regression.
+scaling = "flat"
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.apple-silicon-metal.qwen35moe]
+status = "measured"
+measured_on = "2026-08-12"
+model = "qwen3.6:35b-a3b-q4_K_M"  # GGUF sibling of the MLX nvfp4 tag
+patch_stride = 32                 # patch_size 16 * spatial_merge_size 2
+budget_min_tokens = 1024          # llama_server's qwen-VL --image-min-tokens
+budget_max_tokens = 4096          # llama_server's qwen-VL ceiling
+image_min_pixels = 1048576        # 1024 * 32^2
+image_max_pixels = 4194304        # 4096 * 32^2
+
+# This is where the two stacks diverge, and it is a budget-policy difference
+# rather than a defect in either. llm/llama_server.go launches qwen-VL with
+# --image-min-tokens 1024 and caps at 4096, so the first three geometries are
+# pinned to the floor (1032 grid tokens + 2 = 1034; alignment lands just above
+# the 1024 request) and the largest is scaled down under the ceiling
+# (85x48 + 2 = 4082). MLX honours the model's own 64..16384 range instead and
+# runs plain smart-resize, giving [68, 146, 578, 2306, 5186]. The two agree
+# EXACTLY at 2048x1152 (2306) because that geometry falls inside both windows —
+# which is why a single-geometry check would have missed the divergence
+# entirely. See ADR 0003/0007/0008 for the policy this sits under.
+#
+# Flat at the bottom, scaling above it, so the shape is dynamic: is_flat is
+# len(set(ladder)) == 1 and this ladder holds three distinct values.
+scaling = "dynamic"
+ladder_tolerance = 2
+ladder = [1034, 1034, 1034, 2306, 4082]
 
 
 
