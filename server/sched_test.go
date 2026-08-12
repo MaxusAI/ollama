@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -40,15 +41,37 @@ import (
 // assert ordering and wiring, not latency, so a real regression that made a
 // load 10x slower would still pass here. Latency belongs in a benchmark.
 //
-// The durable fix is testing/synctest (stable in Go 1.25), which replaces the
-// wall clock with a fake one and removes the race entirely; that is a rewrite
-// of upstream's tests and belongs upstream.
+// Scaling is the right treatment only for the callers below, which wait on a
+// channel receive with no ordering dependency. It is not enough for a test
+// that sequences the scheduler with time.Sleep, because there the deadline is
+// not what fails: a sleep that overruns inverts the intended order, the
+// scheduler parks on a signal nothing will send, and the test then burns its
+// entire budget no matter how large that budget is. Those six tests
+// (TestSchedLoad, TestSchedRequestsSimpleReloadSameModel,
+// TestSchedRequestsMultipleLoadedModels, TestSchedGetRunner,
+// TestSchedPrematureExpired, TestSchedAlreadyCanceled) run under
+// testing/synctest instead and carry no deadline at all — see the note below.
 func schedTestTimeout(d time.Duration) time.Duration {
 	if runtime.GOOS == "windows" {
 		return 10 * d
 	}
 	return d
 }
+
+// The six tests named above pass their body to synctest.Test as a named
+// function rather than an inline closure.
+//
+// Inside a bubble the clock is fake: time.Sleep advances it only once every
+// goroutine in the bubble is durably blocked. An ordering those tests
+// previously only hoped for — "this 1ms sleep finishes before that 10ms expire
+// timer" — is therefore guaranteed, on every platform, rather than holding by
+// luck wherever sleeps happen to be precise. A scheduler that parks on a
+// signal nothing will send no longer hides until the deadline either; the
+// bubble reports it immediately as a deadlock, naming the blocked line.
+//
+// Keeping each body in its own function instead of indenting it into a closure
+// leaves those lines byte-identical to upstream's, so upstream changes to these
+// tests still merge cleanly.
 
 func TestMain(m *testing.M) {
 	os.Setenv("OLLAMA_DEBUG", "1")
@@ -67,8 +90,11 @@ func TestSchedInit(t *testing.T) {
 }
 
 func TestSchedLoad(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(20*time.Millisecond))
-	defer done()
+	synctest.Test(t, testSchedLoad)
+}
+
+func testSchedLoad(t *testing.T) {
+	ctx := t.Context()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
 
@@ -349,8 +375,11 @@ func TestSchedRequestsSameModelSameRequest(t *testing.T) {
 }
 
 func TestSchedRequestsSimpleReloadSameModel(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(5000*time.Millisecond))
-	defer done()
+	synctest.Test(t, testSchedRequestsSimpleReloadSameModel)
+}
+
+func testSchedRequestsSimpleReloadSameModel(t *testing.T) {
+	ctx := t.Context()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
 	g := ml.DeviceInfo{DeviceID: ml.DeviceID{Library: "Metal"}}
@@ -381,8 +410,6 @@ func TestSchedRequestsSimpleReloadSameModel(t *testing.T) {
 		require.Empty(t, a.req.errCh)
 	case err := <-a.req.errCh:
 		t.Fatal(err.Error())
-	case <-ctx.Done():
-		t.Fatal("timeout")
 	}
 
 	// Trigger a reload
@@ -405,15 +432,16 @@ func TestSchedRequestsSimpleReloadSameModel(t *testing.T) {
 		require.Empty(t, b.req.errCh)
 	case err := <-b.req.errCh:
 		t.Fatal(err.Error())
-	case <-ctx.Done():
-		t.Fatal("timeout")
 	}
 }
 
 func TestSchedRequestsMultipleLoadedModels(t *testing.T) {
+	synctest.Test(t, testSchedRequestsMultipleLoadedModels)
+}
+
+func testSchedRequestsMultipleLoadedModels(t *testing.T) {
 	slog.Info("TestRequestsMultipleLoadedModels")
-	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(1000*time.Millisecond))
-	defer done()
+	ctx := t.Context()
 	s := InitScheduler(ctx)
 	s.waitForRecovery = 10 * time.Millisecond
 	g := ml.DeviceInfo{DeviceID: ml.DeviceID{Library: "Metal"}}
@@ -449,8 +477,6 @@ func TestSchedRequestsMultipleLoadedModels(t *testing.T) {
 		require.Empty(t, a.req.errCh)
 	case err := <-a.req.errCh:
 		t.Fatal(err.Error())
-	case <-ctx.Done():
-		t.Fatal("timeout")
 	}
 	s.loadedMu.Lock()
 	require.Len(t, s.loaded, 1)
@@ -467,8 +493,6 @@ func TestSchedRequestsMultipleLoadedModels(t *testing.T) {
 		require.Empty(t, b.req.errCh)
 	case err := <-b.req.errCh:
 		t.Fatal(err.Error())
-	case <-ctx.Done():
-		t.Fatal("timeout")
 	}
 	s.loadedMu.Lock()
 	require.Len(t, s.loaded, 2)
@@ -485,9 +509,6 @@ func TestSchedRequestsMultipleLoadedModels(t *testing.T) {
 		require.Empty(t, c.req.errCh)
 	case err := <-c.req.errCh:
 		t.Fatal(err.Error())
-	case <-ctx.Done():
-		slog.Info("FAIL: scheduler state", "s.loaded", s.loaded)
-		t.Fatal("timeout")
 	}
 	s.loadedMu.Lock()
 	require.Len(t, s.loaded, 3)
@@ -514,26 +535,13 @@ func TestSchedRequestsMultipleLoadedModels(t *testing.T) {
 	gMu.Lock()
 	g.FreeMemory = 24 * format.GigaByte
 	gMu.Unlock()
-	select {
-	case resp := <-d.req.successCh:
-		require.Equal(t, resp.llama, d.srv)
-		require.Empty(t, s.pendingReqCh)
-		require.Empty(t, d.req.errCh)
-	case <-ctx.Done():
-		t.Fatal("timeout")
-	}
+	resp := <-d.req.successCh
+	require.Equal(t, resp.llama, d.srv)
+	require.Empty(t, s.pendingReqCh)
+	require.Empty(t, d.req.errCh)
 	// Wait for b to close
-closeWait:
-	for {
-		select {
-		case <-ctx.Done():
-			t.Fatal("timeout")
-		default:
-			if b.srv.closeCalled {
-				break closeWait
-			}
-			time.Sleep(1 * time.Millisecond)
-		}
+	for !b.srv.closeCalled {
+		time.Sleep(1 * time.Millisecond)
 	}
 	s.loadedMu.Lock()
 	require.Len(t, s.loaded, 2)
@@ -541,8 +549,11 @@ closeWait:
 }
 
 func TestSchedGetRunner(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(3*time.Second))
-	defer done()
+	synctest.Test(t, testSchedGetRunner)
+}
+
+func testSchedGetRunner(t *testing.T) {
+	ctx := t.Context()
 
 	a := newScenarioRequest(t, ctx, "ollama-model-1a", 10, &api.Duration{Duration: 2 * time.Millisecond}, nil)
 	b := newScenarioRequest(t, ctx, "ollama-model-1b", 10, &api.Duration{Duration: 2 * time.Millisecond}, nil)
@@ -571,8 +582,6 @@ func TestSchedGetRunner(t *testing.T) {
 		require.Empty(t, errCh1a)
 	case err := <-errCh1a:
 		t.Fatal(err.Error())
-	case <-ctx.Done():
-		t.Fatal("timeout")
 	}
 	a.ctxDone() // Set "a" model to idle so it can unload
 	s.loadedMu.Lock()
@@ -745,8 +754,11 @@ func TestSchedExpireRunner(t *testing.T) {
 
 // TODO - add one scenario that triggers the bogus finished event with positive ref count
 func TestSchedPrematureExpired(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(1000*time.Millisecond))
-	defer done()
+	synctest.Test(t, testSchedPrematureExpired)
+}
+
+func testSchedPrematureExpired(t *testing.T) {
+	ctx := t.Context()
 
 	// Same model, same request
 	scenario1a := newScenarioRequest(t, ctx, "ollama-model-1a", 10, &api.Duration{Duration: 100 * time.Millisecond}, nil)
@@ -770,8 +782,6 @@ func TestSchedPrematureExpired(t *testing.T) {
 		s.expiredCh <- resp // Shouldn't happen in real life, but make sure its safe
 	case err := <-errCh1a:
 		t.Fatal(err.Error())
-	case <-ctx.Done():
-		t.Fatal("timeout")
 	}
 	time.Sleep(scenario1a.req.sessionDuration.Duration)
 	scenario1a.ctxDone()
@@ -1219,8 +1229,11 @@ func TestSchedUnload(t *testing.T) {
 }
 
 func TestSchedAlreadyCanceled(t *testing.T) {
-	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(500*time.Millisecond))
-	defer done()
+	synctest.Test(t, testSchedAlreadyCanceled)
+}
+
+func testSchedAlreadyCanceled(t *testing.T) {
+	ctx := t.Context()
 	dctx, done2 := context.WithCancel(ctx)
 	done2()
 	scenario1a := newScenarioRequest(t, dctx, "ollama-model-1", 10, &api.Duration{Duration: 0}, nil)
