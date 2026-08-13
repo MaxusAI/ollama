@@ -133,6 +133,26 @@ is a no-op there; the MLX runner did not enforce format until x/structured
   > almost immediately, so it is far slower — not a hang. Same run: stock 21 s for all
   > three tests, fork on Metal ~7 min, fork on the CPU container ~39 min. Raise
   > `HTTP_TIMEOUT` for CPU think-on runs.
+  >
+  > **Amended 2026-08-13 — "do not expect empty cells" was measured on `nemotron3`
+  > only and does not generalize.** A think-on cell can still come back empty, for an
+  > unrelated reason: the model never closes its reasoning and burns the whole
+  > `num_predict` inside `thinking`. Measured on b10353:
+  >
+  > | model | engine | scene | document | multi_3img | finetext |
+  > |---|---|---|---|---|---|
+  > | `nemotron3:33b-q4_K_M` | GGUF | ok | ok | ok | ok |
+  > | `qwen3.6:35b-a3b-nvfp4` | MLX | ok | ok | ok | ok |
+  > | `qwen3.6:35b-a3b-q4_K_M` | GGUF | ok | ok | **cap** | ok |
+  > | `gemma4:12b-it-q4_K_M` | GGUF | **cap** | **cap** | **cap** | ok |
+  > | `gemma4:12b-nvfp4` | MLX | **cap** | ok | **cap** | **cap** |
+  >
+  > `cap` = `eval_count` reached `num_predict`, `response` empty. This is **not** the
+  > ADR 0002/0004 bug and is not caused by `format` — it reproduces with `format`
+  > omitted entirely, and on both engines. Escalating `num_ctx` does not fix it
+  > (qwen3.6 GGUF `multi_3img` capped at 16 K/32 K/64 K/96 K, then hit the 1800 s
+  > `HTTP_TIMEOUT` at 128 K). See
+  > [runaway-reasoning-under-think.md](../runaway-reasoning-under-think.md).
 - Subtract each model's text baseline when reading `prompt_eval_count`, measured with
   **the same prompt as the probe** — a baseline taken with a different prompt puts the
   text-length difference into every row. Beware also that the prefix can tokenise
