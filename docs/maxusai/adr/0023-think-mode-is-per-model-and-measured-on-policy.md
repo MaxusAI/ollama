@@ -74,6 +74,35 @@ output instability, not comprehension loss.
 On-policy sampling moved qwen from *consistent* non-termination to *occasional*
 non-termination (~8% of cells here). It is a large improvement and not a cure.
 
+**`nemotron3:33b-q4_K_M` — thinking degrades grounding, and sampling is not the cause.**
+
+nemotron3 declares **no** sampling parameters (`ollama show` reports none), so "on-policy"
+here means sending no overrides at all and letting the server defaults apply —
+`temperature 0.8 / top_k 40 / top_p 0.9` ([api/types.go](../../../api/types.go)
+`DefaultOptions`), recorded as `packaged-defaults-no-card`.
+
+| arm | scene IoU | multi | finetext | bbox space | scene / document / multi tokens |
+|---|---|---|---|---|---|
+| off (greedy) | 0.870 | ✅ | ✅ | `norm1000/xyxy` | 512 / 467 / 1 049 |
+| on rep 1 | 0.627 (−0.243) | ✅ | ✅ | `norm1000/xyxy` | 11 320 / 18 691 / 20 231 |
+| on rep 2 | **0.460 (−0.410)** | ✅ | ✅ | `norm1000/xyxy` | 8 927 / 9 583 / 2 925 |
+| on rep 3 | **0.462 (−0.408)** | ✅ | ✅ | `norm1000/xyxy` | 3 410 / 6 579 / 9 393 |
+
+Unlike the other two families this is **neither** of the failure modes sampling
+explains: 12/12 cells valid with no caps, and the coordinate dialect stable in all
+three reps. It is straightforward grounding degradation that survives correct sampling.
+Reps 2 and 3 land at 0.460 and 0.462 — reproducible to three digits, and close to
+ADR 0022's 0.391 — so that figure was not an unlucky draw from a wide greedy
+distribution. This is the one family where the regression is a stable property rather
+than variance.
+
+nemotron3's think-off **document** IoU is 0.045, essentially the floor, so that axis
+carries no signal for this comparison and the verdict rests on scene grounding.
+
+Token cost is the highest of the three families by a wide margin: **19–40×** think-off
+(18 691 on document against 467; 20 231 on multi against 1 049), against gemma4's ≈4×
+and qwen3.6's ≈10×.
+
 **Two further levers, recorded for completeness.** `qwen3.6:35b-a3b-q8_0` converges on
 `multi_3img` even at `temperature 0` (16 677 tokens) where `q4_K_M` does not, and
 `gemma4:12b` recovers under its own card values with no `presence_penalty` at all.
@@ -94,14 +123,19 @@ not a global default either way — it is decided per model, on on-policy measur
    verdict survives; only its stated mechanism ("non-terminating on multi-image")
    needed correcting — multi-image now converges reliably and `scene_single` is what
    fails.
-3. **`nemotron3` — unchanged from ADR 0022, and untested here.** The NVIDIA card is
-   gated (HTTP 401), so no card-sourced sampling exists; `sampling.py` falls back to
-   greedy and warns. Its recorded grounding collapse was measured off-policy and has
-   **not** been re-examined. Do not extrapolate the gemma4 result to it.
+3. **`nemotron3` — think-off, and ADR 0022's verdict is upheld on stronger evidence.**
+   Re-measured on-policy (no overrides; the model declares none), scene grounding still
+   falls 0.870 → 0.627 / 0.460 / 0.462 across n = 3. Every cell terminates and the
+   dialect is stable, so neither failure mode that sampling explains is present here —
+   the degradation is real and reproducible. It is also the most expensive family to
+   reason with, at 19–40× the think-off tokens. Enable only when a reasoning trace is
+   itself the deliverable, never to improve vision output.
 
 **A think-mode claim is admissible only if the run is on-policy and replicated.**
-Concretely: `sampling_source` must be present and not `legacy-greedy` /
-`fallback-greedy-no-card`, and n ≥ 3 for any think-on cell. A single greedy think-on
+Concretely: `sampling_source` must be present and not `legacy-greedy`, and n ≥ 3 for
+any think-on cell. `packaged-defaults-no-card` is
+admissible — it means the model declares its own parameters, or takes the server
+defaults, and that no invented values were substituted. A single greedy think-on
 cell is not evidence about thinking — it is evidence about greedy decoding.
 
 **ADR 0022's admissibility rule is retained verbatim:** a think-on regression claim is

@@ -6,9 +6,11 @@
   mode on both families whose cards we can read, and which can prevent reasoning from
   terminating at all. Re-measured on-policy, the **gemma4** document-IoU cost reverses
   sign (parity to +0.047, n=3) and the **qwen3.6** multi-image non-termination
-  disappears. The **qwen3.6** verdict itself survives on other evidence, and the
-  harness traps and admissibility rule below are carried forward unchanged. The
-  problem analysis, the traps, and the alternatives record remain the reference.
+  disappears. The **qwen3.6** and **nemotron3** verdicts themselves survive — nemotron3's
+  grounding regression reproduces on-policy (scene 0.870 → 0.627 / 0.460 / 0.462, n=3), so the 0.391
+  recorded below was not an artefact of greedy decoding. The harness traps and
+  admissibility rule below are carried forward unchanged, and the problem analysis and
+  alternatives record remain the reference.
 - **Date:** 2026-08-13
 - **Deciders:** MaxusAI fork maintainers
 - **Related:** [campaign 2026-08-13](../vision-campaign-2026-08-13-thinkmode.md) (the
