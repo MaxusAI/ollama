@@ -20,9 +20,11 @@ The user-visible failure is an HTTP 500 from the server:
 {"error":"an error was encountered while running the model: CUDA error\nCUDA error: an illegal memory access was encountered"}
 ```
 
-and the runner aborts with:
+and the runner aborts with, in full, from the image being decoded:
 
 ```
+decoding image batch 1/1, n_tokens_batch = 2040
+find_slot: non-consecutive token position 4 after 3 for sequence 0 with 2040 new tokens
 /…/ggml/src/ggml-cuda/ggml-cuda.cu:106: CUDA error
 ggml_cuda_compute_forward: MUL_MAT_ID failed
 CUDA error: an illegal memory access was encountered
@@ -37,6 +39,12 @@ libggml-base.so.0(ggml_backend_sched_graph_compute_async+0x807)
 libllama.so.0(llama_context::graph_compute(ggml_cgraph*, bool)+0xa1)
 libllama.so.0(llama_context::process_ubatch(llama_ubatch const&, llm_graph_type, llama_memory_context_i*, ggml_status&)+0xea)
 ```
+
+The first line gives the trigger directly: the whole image arrives as a single 2040-token
+ubatch. The `find_slot` line comes from the recurrent memory
+(`llama-memory-recurrent.cpp`) and appears on runs that do **not** crash as well, so it marks
+the code path rather than the fault — it is included because it is a distinctive search term
+that other reports of this crash also contain.
 
 Note the reported op is where the error was **noticed**, not necessarily where it occurred:
 `ggml-cuda.cu:2371` is a bare `cudaGetLastError()` after dispatch, so it is asynchronous and
