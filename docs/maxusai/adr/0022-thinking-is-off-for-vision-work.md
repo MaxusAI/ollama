@@ -76,7 +76,9 @@ default; it is not a per-request preference to tune for quality.
      (ADR 0011) documents this at the ~600 floor; it recurs at *every* budget below the
      model's real thinking length.
   2. **Raising `NUM_PREDICT` without `NUM_CTX`** converts truncation into a hard 400 — the
-     server checks `prompt + num_predict <= num_ctx` up front (`2715ffce`, `18dc2e63`).
+     server checks `prompt + num_predict <= num_ctx` up front. Both runners now derive the
+     cap from the rung as `num_ctx - CTX_PROMPT_RESERVE` (`6c90d7bb`, `561e6b98`), so the
+     pair cannot drift apart by hand.
   3. **`THINK` must be the literal string `"on"`.** `run_engine_compare.sh` defaults it to
      `"false"` and the suite tests `== "on"`, so `THINK=true` silently benchmarks with
      thinking **off** — a think-mode result that never enabled thinking.

@@ -105,8 +105,9 @@ emitted JSON. `preflight/expectations.toml` documents this at the ~600-token flo
 
 **Raising the budget alone converts truncation into a hard 400.** The server checks
 `prompt + num_predict <= num_ctx` up front, so `NUM_PREDICT` must rise *with* `NUM_CTX` —
-see `2715ffce` ("raise num_ctx with num_predict, or think-on 400s") and `18dc2e63`, which
-turns the bare 400 into a diagnostic.
+both runners now derive `num_predict` from the rung as `num_ctx - CTX_PROMPT_RESERVE`
+(`6c90d7bb`, reserve corrected to 8192 in `561e6b98` once nemotron3's 6,203-token
+multi-image prompt overran the original 4096).
 
 **`THINK` must be the literal string `on`.** `vision_suite.py` and `finetext_probe.py` both
 test `== "on"`, and `run_engine_compare.sh` defaults it to `false`. Passing `THINK=true`
