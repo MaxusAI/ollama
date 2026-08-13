@@ -77,13 +77,48 @@ a still-resident model keeps the **old** library mapped.
 
 ## Measured
 
-| | full build | dev loop |
-|---|---|---|
-| wall clock | ~90 min | **507 s (8.5 min)** |
-| `libggml-cuda.so` | 249,074,032 B | 59,347,280 B |
-| output | 2.52 GB tar, then `docker load` | directory, ready to `COPY` |
+| | full build | dev loop | dev loop, device 0 only |
+|---|---|---|---|
+| architectures | 12–13, ×2 CUDA stages | `75-virtual;120-virtual` | `120-virtual` |
+| wall clock | ~90 min | **507 s (8.5 min)** | **340 s (5.7 min)** |
+| `libggml-cuda.so` | 249,074,032 B | 59,347,280 B | 39,866,704 B |
+| output | 2.52 GB tar, then `docker load` | directory, ready to `COPY` | directory |
+| valid with | any GPU | this host, both GPUs | **only with device 1 hidden** |
 
 Verified end to end: 26/26 layers offloaded to CUDA0, correct generation, warm request 1.18 s.
+
+## The device-0 variant, and why it is a paired change
+
+Dropping to `120-virtual` alone takes the loop to 5.7 minutes, but the resulting payload is
+only correct when the sm_75 card is hidden. This is not a theoretical hazard — it was
+measured. The **same image**, two run commands:
+
+```
+docker run --gpus '"device=0"' ...   ->  libdirs=ollama,cuda_v13   <- the rebuilt payload
+docker run --gpus all          ...   ->  libdirs=ollama,cuda_v12   <- stock, unpatched
+```
+
+No error. No warning. Both containers start, serve, and answer correctly. The second one is
+simply not running the code you built, because `cuda_v13` no longer covers every visible GPU
+and `filterOverlapByLibrary` falls back to `cuda_v12` — which is stock, since the dev loop
+never rebuilt it.
+
+So the two halves ship together or not at all:
+
+- build with `-DCMAKE_CUDA_ARCHITECTURES='120-virtual'`, **and**
+- run with `--gpus '"device=0"'`.
+
+Pin the device in the `docker run`, not in a shell `export CUDA_VISIBLE_DEVICES=0` — that
+does not cross into the container. And check `libdirs=` on every run; it is the only signal
+that distinguishes the two cases.
+
+If you would rather not carry that coupling, use the `75-virtual;120-virtual` build: 2.8
+minutes slower, correct under `--gpus all`, and it cannot fall back.
+
+Hiding device 1 is worth it for benchmark work independently of build time. The card is
+shared with other workloads (781 MiB resident from something else during this run), and
+leaving it visible lets ollama spill layers onto 11 GB of sm_75 at larger contexts — which
+silently changes what a benchmark cell measures.
 
 ## Four traps
 
