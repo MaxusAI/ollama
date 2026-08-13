@@ -1,0 +1,80 @@
+{
+ "gemma4:31b-nvfp4": {
+  "eval_count": 2517,
+  "num_predict": 12000,
+  "num_ctx": 24576,
+  "done_reason": "stop",
+  "prompt_eval_count": 3765,
+  "think_chars": 3299,
+  "resp_chars": 3238,
+  "json_valid": true,
+  "converged": true,
+  "wall_s": 112.2,
+  "think_tail": " label is \"DYNAMO\" (null if no such shape is legible).\n    - Label \"DYNAMO\" is above the orange circle.\n    - Bbox of the orange circle: [115, 557, 251, 795] (approx). Let me refine.\n    - x1=115, y1=557, x2=251, y2=795."
+ },
+ "gemma4:31b-mxfp8": {
+  "eval_count": 5307,
+  "num_predict": 12000,
+  "num_ctx": 24576,
+  "done_reason": "stop",
+  "prompt_eval_count": 3765,
+  "think_chars": 9096,
+  "resp_chars": 3375,
+  "json_valid": true,
+  "converged": true,
+  "wall_s": 435.3,
+  "think_tail": "x2 ~ 895, y2 ~ 817.\n\nWait, let me re-read the labels.\nANCHOR - red rectangle\nBEACON - blue ellipse\nCIPHER - green rectangle\nDYNAMO - orange circle\nEMBER - purple square\nFALCON - teal ellipse\n\nEverything seems consistent."
+ },
+ "gemma4:31b-mlx-bf16": {
+  "eval_count": 2457,
+  "num_predict": 12000,
+  "num_ctx": 24576,
+  "done_reason": "stop",
+  "prompt_eval_count": 3765,
+  "think_chars": 3146,
+  "resp_chars": 3242,
+  "json_valid": true,
+  "converged": true,
+  "wall_s": 339.8,
+  "think_tail": "None of the labels in image 1 appear in image 2 or 3.\n    - Result: null.\n- q4: give the bounding box, in image 1 pixel coordinates, of the shape whose label is \"DYNAMO\".\n    - Bbox for DYNAMO shape: [114, 555, 251, 797]"
+ },
+ "nemotron3:33b-q4_K_M": {
+  "eval_count": 9948,
+  "num_predict": 12000,
+  "num_ctx": 24576,
+  "done_reason": "stop",
+  "prompt_eval_count": 6202,
+  "think_chars": 22475,
+  "resp_chars": 2266,
+  "json_valid": true,
+  "converged": true,
+  "wall_s": 152.5,
+  "think_tail": "3.\nMax value is 128.\nCategory is Q4.\nSo \"Q4\" and 128.\n\nOne final check on q1. \"which image (1, 2 or 3) contains the reference code \"INV-2026-0801\"?\"\nImage 2 contains \"INV-2026-0801\".\nSo \"2\".\n\nEverything seems consistent."
+ },
+ "nemotron3:33b-q8": {
+  "eval_count": 12000,
+  "num_predict": 12000,
+  "num_ctx": 24576,
+  "done_reason": "length",
+  "prompt_eval_count": 6202,
+  "think_chars": 31854,
+  "resp_chars": 0,
+  "json_valid": false,
+  "converged": false,
+  "wall_s": 190.8,
+  "think_tail": ": type \"shapes_scene\", summary \"A diagram showing six labeled shapes with different colors and forms.\", text_found [\"ANCHOR\", \"BEACON\", \"CIPHER\", \"DYNAMO\", \"EMBER\", \"FALCON\", \"SN-4921-KK\"], key_objects [{\"label\": \"ANCHOR"
+ },
+ "nemotron3:33b-bf16": {
+  "eval_count": 12000,
+  "num_predict": 12000,
+  "num_ctx": 24576,
+  "done_reason": "length",
+  "prompt_eval_count": 6202,
+  "think_chars": 29268,
+  "resp_chars": 0,
+  "json_valid": false,
+  "converged": false,
+  "wall_s": 258.6,
+  "think_tail": "2. Image 1: No. Image 3: No.\n    - \"days\" -> Image 2. Image 1: No. Image 3: No.\n    - \"Quote\" -> Image 2. Image 1: No. Image 3: No.\n    - \"reference\" -> Image 2. Image 1: No. Image 3: No.\n    - \"INV-2026-0801\" -> Image 2"
+ }
+}

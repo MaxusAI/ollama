@@ -1,0 +1,28 @@
+{
+ "nemotron3:33b-q8": {
+  "eval_count": 15956,
+  "num_predict": 32768,
+  "num_ctx": 40960,
+  "done_reason": "stop",
+  "prompt_eval_count": 6202,
+  "think_chars": 38363,
+  "resp_chars": 2941,
+  "json_valid": true,
+  "converged": true,
+  "wall_s": 211.3,
+  "think_tail": "7.70\n- Payment due within 30 days. Quote reference INV-2026-0801 on all correspondence.\n\nFor Image 3:\n- Quarterly unit shipments (k)\n- 62\n- Q1\n- 91\n- Q2\n- 47\n- Q3\n- 128\n- Q4\n- 73\n- Q5*\n\nI will formulate the response now."
+ },
+ "nemotron3:33b-bf16": {
+  "eval_count": 23063,
+  "num_predict": 32768,
+  "num_ctx": 40960,
+  "done_reason": "stop",
+  "prompt_eval_count": 6202,
+  "think_chars": 52239,
+  "resp_chars": 3036,
+  "json_valid": true,
+  "converged": true,
+  "wall_s": 582.6,
+  "think_tail": "No.\nIs \"Q4\" in image 1? No.\nIs \"128\" in image 1? No.\nIs \"Q5*\" in image 1? No.\nIs \"73\" in image 1? No.\nIs \"SN-4921-KK\" in image 1? Yes.\n\nSo \"SN-4921-KK\" is the only match.\n\nThe plan is solid. I will generate the JSON now."
+ }
+}

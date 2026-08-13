@@ -134,24 +134,33 @@ is a no-op there; the MLX runner did not enforce format until x/structured
   > three tests, fork on Metal ~7 min, fork on the CPU container ~39 min. Raise
   > `HTTP_TIMEOUT` for CPU think-on runs.
   >
-  > **Amended 2026-08-13 — "do not expect empty cells" was measured on `nemotron3`
-  > only and does not generalize.** A think-on cell can still come back empty, for an
-  > unrelated reason: the model never closes its reasoning and burns the whole
-  > `num_predict` inside `thinking`. Measured on b10353:
+  > **Amended 2026-08-13 — a think-on cell can still come back empty, and it is the
+  > harness's own fault.** The suite generates at `temperature: 0` with no
+  > `presence_penalty` (hardcoded in `vision_suite.py`, `finetext_probe.py` and
+  > `preflight/probes.py`). That is off-policy for these models: Qwen's card
+  > recommends `temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5` for
+  > thinking mode and names `presence_penalty` as the anti-repetition lever. With it
+  > disabled, reasoning can fail to terminate — every token lands in `thinking`,
+  > `eval_count` hits `num_predict`, and `response` is empty.
   >
-  > | model | engine | scene | document | multi_3img | finetext |
-  > |---|---|---|---|---|---|
-  > | `nemotron3:33b-q4_K_M` | GGUF | ok | ok | ok | ok |
-  > | `qwen3.6:35b-a3b-nvfp4` | MLX | ok | ok | ok | ok |
-  > | `qwen3.6:35b-a3b-q4_K_M` | GGUF | ok | ok | **cap** | ok |
-  > | `gemma4:12b-it-q4_K_M` | GGUF | **cap** | **cap** | **cap** | ok |
-  > | `gemma4:12b-nvfp4` | MLX | **cap** | ok | **cap** | **cap** |
+  > Same prompt, same budget (`num_predict=24000`), measured on b10353:
   >
-  > `cap` = `eval_count` reached `num_predict`, `response` empty. This is **not** the
-  > ADR 0002/0004 bug and is not caused by `format` — it reproduces with `format`
-  > omitted entirely, and on both engines. Escalating `num_ctx` does not fix it
-  > (qwen3.6 GGUF `multi_3img` capped at 16 K/32 K/64 K/96 K, then hit the 1800 s
-  > `HTTP_TIMEOUT` at 128 K). See
+  > | model | `temperature: 0` (suite) | card-recommended sampling |
+  > |---|---|---|
+  > | `qwen3.6:35b-a3b-q4_K_M` | 24 000, **empty** | 10 810 / 8 023, **valid** |
+  > | `gemma4:12b-nvfp4` | 24 000, **empty** | 3 278 / 2 525, **valid** |
+  >
+  > **Do not escalate `num_ctx` to chase this** — no context size fixes it, and above
+  > ~90 K `num_predict` the 1800 s `HTTP_TIMEOUT` expires first, turning a cap into an
+  > error with no data. Fix the sampling instead.
+  >
+  > Two further consequences for anyone reading think-on numbers: the failure is
+  > **stochastic even at `temperature: 0`** (the same `gemma4:12b-nvfp4` finetext cell
+  > converged at 2 761 tokens and capped at 28 672 on identical requests), so a single
+  > capped observation proves nothing — run n ≥ 3. And precision is **not** implicated:
+  > gemma4 31b converges at nvfp4/mxfp8/bf16 and nemotron3 33b at q4_K_M/q8/bf16, though
+  > higher precision costs up to 2.3× more reasoning tokens, which tightens a fixed
+  > `num_predict`. Full evidence:
   > [runaway-reasoning-under-think.md](../runaway-reasoning-under-think.md).
 - Subtract each model's text baseline when reading `prompt_eval_count`, measured with
   **the same prompt as the probe** — a baseline taken with a different prompt puts the

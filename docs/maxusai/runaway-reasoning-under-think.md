@@ -1,159 +1,159 @@
-# Runaway reasoning under `think` — thinking that never closes
+# Runaway reasoning under `think` — an artefact of off-policy sampling
 
-- **Status:** open finding (2026-08-13). Not a fork regression, not an engine
-  defect, and **not** a structured-output defect.
-- **Measured on:** server build `0.32.5-maxusai-31a7f1ef`, payload **b10353**,
-  `/api/generate`, `temperature 0`.
-- **Affected:** `qwen3.6:35b-a3b-q4_K_M` (GGUF, multi-image only),
-  `gemma4:12b-it-q4_K_M` (GGUF) and `gemma4:12b-nvfp4` (MLX).
-- **Unaffected:** `nemotron3:33b-q4_K_M` (GGUF) and `qwen3.6:35b-a3b-nvfp4` (MLX)
-  converge on every suite test.
+- **Status:** resolved (2026-08-13). The cause is the benchmark harness's sampling
+  configuration, not the models, the engines, the quantization, or structured output.
+- **Measured on:** server build `0.32.5-maxusai-31a7f1ef`, payload **b10353**.
+- **Fix:** sample think-on cells with the model card's recommended parameters. The
+  suite pins `temperature: 0` and sets no `presence_penalty`.
+
+> **This document has been wrong twice.** It first attributed the failure to
+> llama.cpp grammar issue [#20345](https://github.com/ggml-org/llama.cpp/issues/20345),
+> then to model-side non-termination independent of configuration (commit `f118f3c0`).
+> Both are refuted below. The correction history is kept deliberately — the earlier
+> claims were circulated and the matrix in the previous revision is still quoted.
 
 ## Summary
 
-With thinking enabled, some model × workload combinations never emit their
-think-close marker. Generation ends only by exhausting `num_predict`
-(`done_reason: "length"`), so every token lands in `thinking` and `response` is
-empty.
+With thinking enabled, some cells never emit a think-close marker: generation ends by
+exhausting `num_predict` (`done_reason: "length"`), every token lands in `thinking`,
+and `response` is empty.
 
-**`format` plays no part.** The same cells cap with `format` omitted entirely
-(evidence below). Raising `num_ctx` cannot fix it either — a larger window buys
-more loop iterations, not termination.
+The trigger is the sampling configuration. The suite generates at `temperature: 0`
+with no `presence_penalty`, which is off-policy for the models under test. Qwen's
+model card recommends, for thinking mode, `temperature=1.0, top_p=0.95, top_k=20,
+min_p=0.0, presence_penalty=1.5`, and names `presence_penalty` (range 0–2) as the
+lever for reducing repetitive output. We disabled that lever and then measured the
+repetition it exists to prevent.
 
-This is a different failure from the empty-response bug that
-[ADR 0002](adr/0002-deferred-format-constraining.md) /
-[ADR 0004](adr/0004-routes-layer-think-format-double-request.md) fixed. There, a
-grammar applied from token 0 *prevented* the marker from being emitted. Here the
-reasoning pass is unconstrained exactly as those ADRs specify, and the model still
-does not stop.
+## Evidence 1 — sampling decides the outcome
 
-## Evidence 1 — `format` is not implicated
+`multi_3img` (3 images), `num_predict=24000`, `num_ctx=32768`, `/api/generate`,
+`think:true`, `format:"json"`. Arm A is what the suite does today; arm B is the Qwen
+card's thinking-mode configuration. Arm B is stochastic, so it is run at two seeds.
 
-`gemma4:12b-nvfp4` (MLX), `multi_3img` prompt, `num_predict=800`, `num_ctx=16384`:
+| model | arm | `eval_count` | `response` | wall |
+|---|---|---|---|---|
+| `qwen3.6:35b-a3b-q4_K_M` | A `temperature=0` | 24 000 (cap) | **0 ch** | 341.6 s |
+| `qwen3.6:35b-a3b-q4_K_M` | B seed 11 | 10 810 | 3 346 ch ✅ | 153.9 s |
+| `qwen3.6:35b-a3b-q4_K_M` | B seed 22 | 8 023 | 3 123 ch ✅ | 111.0 s |
+| `gemma4:12b-nvfp4` | A `temperature=0` | 24 000 (cap) | **0 ch** | 308.4 s |
+| `gemma4:12b-nvfp4` | B seed 11 | 3 278 | 1 958 ch ✅ | 72.5 s |
+| `gemma4:12b-nvfp4` | B seed 22 | 2 525 | 1 807 ch ✅ | 55.3 s |
 
-| `think` | `format` | `eval_count` | `done_reason` | `response` | `thinking` |
-|---|---|---|---|---|---|
-| true | `json` | 800 | length | 0 ch | 1835 ch |
-| true | *(none)* | 800 | length | 0 ch | 1856 ch |
-| false | `json` | 800 | length | 2066 ch | 0 ch |
-| false | *(none)* | 800 | length | 2087 ch | 0 ch |
+4/4 converge on-policy; 2/2 run away at `temperature: 0`. The qwen cell that
+survived five `num_ctx` escalations and a 30-minute timeout finishes in **154
+seconds**.
 
-Rows 1 and 2 are the failure, and row 2 sends **no `format` at all**. Any
-explanation involving a grammar — applied, deferred, or bypassed — is excluded by
-row 2. Rows 3 and 4 show the same model putting tokens in `response` normally once
-thinking is off. (All four stop at `length` because 800 tokens is a deliberately
-small probe budget; the point is *where the tokens land*, not that they finished.)
+**Caveat:** arm B applies *Qwen's* recommended parameters to `gemma4:12b` as well.
+That establishes sampling controls the outcome; it does **not** establish gemma4's
+correct settings. A proper gemma4 arm needs gemma4's own card values.
 
-## Evidence 2 — the mechanism is a degenerate loop
+## Evidence 2 — precision is not the cause
 
-`qwen3.6:35b-a3b-q4_K_M` (GGUF), same prompt, `num_predict=3000`:
+Full precision ladders, `think:true`, `multi_3img`. Every rung terminates.
 
-```
-done_reason  = 'length'
-eval_count   = 3000    (== num_predict)
-thinking len = 8097 chars
-response len = 0 chars
-```
+| model | engine | rung | tokens to terminate |
+|---|---|---|---|
+| `gemma4:31b` | MLX | nvfp4 | 2 517 |
+| `gemma4:31b` | MLX | mxfp8 | 5 307 |
+| `gemma4:31b` | MLX | mlx-bf16 | 2 457 |
+| `nemotron3:33b` | GGUF | q4_K_M | 9 948 |
+| `nemotron3:33b` | GGUF | q8 | 15 956 |
+| `nemotron3:33b` | GGUF | bf16 (F16) | 23 063 |
 
-Tail of the reasoning:
+Higher precision does not loop — it **reasons longer**. nemotron3 needs 2.3× more
+tokens at bf16 than at q4_K_M, monotonically. A fixed `num_predict` therefore becomes
+a tighter budget as precision rises; nemotron3 q8 and bf16 first appeared to "run
+away" at `num_predict=12000` purely because that budget was below their genuine
+requirement.
 
-```
-- Is it possible that "hydraulic" is in Image 1? No.
-- Is it possible that "quarterly" is in Image 1? No.
-- Is it possible that "shipments" is in Image 1? No.
-- Is it possible that "k" is in Image 1? No.
-```
+This matches upstream: [google/gemma-4-12B-it #41](https://huggingface.co/google/gemma-4-12B-it/discussions/41)
+reports the loop at **37.5 % at F16** versus ~60 % at 4-bit MLX — present at full
+precision, so quantization was never the cause there either. Note that report varied
+temperature (0.0/0.7/1.0) and top_k (0/40/64/None) but, on the published evidence,
+**not `presence_penalty`** — the one parameter that changes the outcome here.
 
-The model enumerates candidate strings against an image, rejects each, and never
-concludes. `eval_count == num_predict` with an empty `response` is the signature;
-this loop is the cause.
+## Evidence 3 — the failure is stochastic, even at `temperature: 0`
 
-## Evidence 3 — escalating `num_ctx` does not converge
+`gemma4:12b-nvfp4`, `finetext`, think-on, same rung, minutes apart. Both paths send
+the *same prompt object* — [vision_suite.py:340](vision-suite/vision_suite.py:340)
+imports it: `from finetext_probe import PROMPT as FINETEXT_PROMPT` — with identical
+`num_predict=28672`, `num_ctx=32768`, `temperature=0`, `format:"json"`, endpoint.
 
-`run_engine_compare.sh` raises `num_ctx` whenever a cell caps. For
-`qwen3.6:35b-a3b-q4_K_M` `multi_3img`:
-
-| `num_ctx` | `num_predict` | outcome |
+| source | `eval_count` | `json_valid` |
 |---|---|---|
-| 16 384 | 8 192 | capped |
-| 32 768 | 24 576 | capped |
-| 65 536 | 57 344 | capped |
-| 98 304 | 90 112 | capped |
-| 131 072 | 122 880 | **`ERROR: timed out`** — 1800 s `HTTP_TIMEOUT`, no result |
+| `ft_gemma4_12b-nvfp4_thinkon.json` | 2 761 | **true** |
+| `scores_gemma4_12b-nvfp4_thinkon.json` → `finetext` | 28 672 | **false** |
 
-The 128 K rung yielded no measurement: at ~73 tok/s, 122 880 tokens cannot finish
-inside the 30-minute request timeout. Four completed rungs, four caps.
-
-## Evidence 4 — it is not engine-specific
-
-Think-on matrix from the engine-compare runs. `CAP` = `eval_count` reached
-`num_predict`; `ok` = valid JSON.
-
-| model | engine | scene | document | multi_3img | finetext |
-|---|---|---|---|---|---|
-| `nemotron3:33b-q4_K_M` | GGUF | ok | ok | ok | ok |
-| `qwen3.6:35b-a3b-nvfp4` | MLX | ok | ok | ok | ok |
-| `qwen3.6:35b-a3b-q4_K_M` | GGUF | ok | ok | **CAP** | ok |
-| `gemma4:12b-it-q4_K_M` | GGUF | **CAP** | **CAP** | **CAP** | ok |
-| `gemma4:12b-nvfp4` | MLX | **CAP** | ok | **CAP** | **CAP** |
-
-`gemma4:12b` caps on both engines. MLX constrains generation through the fork's own
-pure-Go grammar ([ADR 0009](adr/0009-mlx-pure-go-constrained-sampling.md)) and GGUF
-goes through llama.cpp, so a defect in either path cannot explain a failure present
-in both. The determining factors are the **model and the workload**.
+A 10× divergence under greedy decoding, where output should be bit-identical.
+`temperature: 0` therefore bought **no** reproducibility while inducing the failure —
+which removes the main argument for keeping it.
 
 ## What this is not
 
-These caps were initially attributed to llama.cpp
-[#20345](https://github.com/ggml-org/llama.cpp/issues/20345) — *"grammar is not
-applied at all when thinking is enabled"* — which names Qwen3.5-35B-A3B and
-Qwen3-VL-8B. **That attribution was wrong.** #20345 describes an answer emitted
-unconstrained *after* thinking closes. In every case measured here thinking never
-closes, `response` is empty, and the failure reproduces with no `format` at all.
-The related ollama issues [#17705](https://github.com/ollama/ollama/issues/17705)
-and [#17706](https://github.com/ollama/ollama/issues/17706) (both 2026-08-12)
-describe the same post-thinking shape and are likewise not this.
+- **Not llama.cpp [#20345](https://github.com/ggml-org/llama.cpp/issues/20345)**
+  ("grammar is not applied when thinking is enabled"). That describes an answer
+  emitted unconstrained *after* thinking closes. Here thinking never closes and the
+  failure reproduces with `format` omitted entirely.
+- **Not the ADR 0002/0004 empty-response bug.** That was a grammar applied from token 0
+  preventing the marker. The reasoning pass here is unconstrained as those ADRs specify.
+- **Not quantization or engine.** See Evidence 2; both failing models recover under
+  arm B at unchanged precision and engine.
+- **Not a fork regression.** No stock arm was ever run for this failure, so the fork
+  is neither implicated nor cleared — but the cause is harness configuration, which is
+  identical on stock.
 
-Whether our payload is *also* subject to #20345 is untested — it would only be
-observable on a cell where thinking terminates.
+## Corrections to the previous revision (`f118f3c0`)
 
-## Harness note
+Retracted or fixed after an adversarial audit:
 
-`vision_suite.py` omits the `think` field when `THINK=on`, relying on the model
-default, and sets `think:false` otherwise. For `gemma4:12b-nvfp4` the omitted-field
-path returns **no `thinking` key at all** while still charging `eval_count`, whereas
-an explicit `think:true` surfaces the reasoning. Both cap; only the reporting
-differs. Pass `think` explicitly when probing, or reasoning tokens look like they
-vanished.
+| claim | status |
+|---|---|
+| "at ~73 tok/s, 122 880 tokens cannot finish in 30 min" | **wrong number.** Measured `gen_tps` is 56.5 → 36.2 min. The conclusion held on a figure that, as written (122880/73 = 28 min), refuted it. |
+| "Measured on … `/api/generate`" | **wrong for the matrix.** [run_engine_compare.sh:126](vision-suite/run_engine_compare.sh:126) sets `ENDPOINT="${ENDPOINT:-chat}"`. Only the hand probes used `generate`. |
+| The 5×4 think-on matrix | **withdrawn.** Cells are single observations of a stochastic process (Evidence 3), and `num_predict` varied up to 7× across rows (8 192 → 57 344) — 2.3× between the two `gemma4:12b` rows carrying its central claim — undisclosed. |
+| "gemma4:12b caps on both engines" → "the determining factors are the model and the workload" | **contradicted by its own table.** For `gemma4:12b`, `document_single` capped on GGUF but passed on MLX, and `finetext` did the reverse. |
+| The degenerate-loop transcript as the mechanism for all capped cells | **over-generalized.** Reasoning text was captured for one model, one test, one budget. |
+| "`nemotron3:33b-q4_K_M` … converges on every suite test" | **incomplete.** It capped `multi_3img` at the first rung and converged only after escalation to a 3× budget. |
+| "Think-off is unaffected. All models converge with thinking off" | **not measured for all five.** No think-off run exists for `qwen3.6:35b-a3b-nvfp4`. |
+| The five-rung ladder as one automatic escalation | **two runs.** The harness stopped at 65 536 and reported NOT CONVERGED; the 96 K and 128 K rungs were a manual re-run with an overridden ladder running only `multi_3img`. |
 
-## Consequences for benchmarking
+## Remediation
 
-- **A capped cell is not a slow cell.** Do not report s/req or req/h for it — the
-  number is `num_predict / tok-s`, an artefact of the budget.
-  `summarize_engine_compare.py` renders these as `capped`.
-- **Do not escalate `num_ctx` indefinitely.** One escalation is a fair probe for a
-  genuinely tight budget; repeated caps mean a non-terminating loop.
-- **Watch the timeout.** Above ~90 K `num_predict`, `HTTP_TIMEOUT=1800` expires
-  before the budget does, turning a cap into `ERROR: timed out` with no data.
-- **Think-off is unaffected.** All models converge with thinking off.
+1. **Sample on-policy for think-on cells.** `temperature: 0` is hardcoded in three
+   places with no env knob and no `presence_penalty` anywhere:
+   [vision_suite.py:37](vision-suite/vision_suite.py:37),
+   [finetext_probe.py:111](vision-suite/finetext_probe.py:111),
+   [preflight/probes.py:135](vision-suite/preflight/probes.py:135).
+   Follow the [ADR 0005](adr/0005-per-model-kv-cache-type.md) precedent: per-model
+   configuration from each model card rather than one global constant.
+2. **Run n ≥ 3 per think-on cell.** On-policy sampling is stochastic by design, and
+   Evidence 3 shows greedy decoding was not deterministic in practice either. A single
+   capped observation cannot distinguish "loops" from "loops sometimes".
+3. **Record the sampling parameters and KV cache type in the scores.**
+   [ADR 0005](adr/0005-per-model-kv-cache-type.md) already requires the KV type; the
+   suite does not emit it, so these runs cannot be attributed after the fact.
+4. **Re-run the think-on half of the cross-family campaign.** Those cells measured a
+   configuration nobody would deploy; the req/h comparison inherits the artefact.
 
 ## Open questions
 
-- Would a repetition penalty, or a `stop` on the loop pattern, let these cells
-  finish? Untested. [ADR 0013](adr/0013-grammar-repetition-bounded-at-llama-cpp-parity.md)
-  bounds grammar repetition, not reasoning repetition.
-- How prompt-sensitive is it? `multi_3img` caps for qwen3.6 GGUF and for gemma4 on
-  both engines, suggesting the 3-image cross-referencing prompt is a trigger — but
-  `gemma4:12b` also caps on single-image `scene_single`.
-- Why does `qwen3.6:35b-a3b` cap on GGUF but not MLX, when both are the same
-  architecture at similar quantization? Quantization-induced drift is the obvious
-  candidate and is untested.
+- What are gemma4's own recommended thinking parameters, and does `gemma4:12b`
+  converge under them rather than under Qwen's?
+- Is `presence_penalty` alone sufficient, or is `temperature > 0` also required?
+  Arm B moved five parameters at once and does not separate them.
+- Why is greedy decoding non-deterministic here (Evidence 3)? Batching, numerical
+  variation in the MLX path, and KV-cache state are the candidates; none is tested.
+- Does the loop rate under on-policy sampling match the ~37.5 % upstream reports for
+  `gemma4:12b`? Two seeds is too few to estimate a rate.
 
 ## References
 
 - [ADR 0002](adr/0002-deferred-format-constraining.md),
   [ADR 0004](adr/0004-routes-layer-think-format-double-request.md) — the *fixed*
-  empty-response bug, distinct from this one
+  empty-response bug, distinct from this
+- [ADR 0005](adr/0005-per-model-kv-cache-type.md) — per-model runtime configuration precedent
 - [ADR 0009](adr/0009-mlx-pure-go-constrained-sampling.md) — MLX constrained sampling
 - [generate-think-format-empty-response.md](generate-think-format-empty-response.md)
-- [vision-suite/README.md](vision-suite/README.md) — think-mode run guidance
+- [Qwen3.6-35B-A3B model card](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) — thinking-mode sampling
+- [google/gemma-4-12B-it #41](https://huggingface.co/google/gemma-4-12B-it/discussions/41) — upstream loop report
