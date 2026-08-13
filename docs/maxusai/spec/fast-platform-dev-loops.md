@@ -3,7 +3,7 @@
 Status: CUDA measured, ROCm and macOS derived from the build files (marked per claim).
 
 Chasing a backend bug at full-build speed is what makes "reason harder" feel cheaper than
-"measure" — and that is how a day gets spent on wrong hypotheses (ADR 0022,
+"measure" — and that is how a day gets spent on wrong hypotheses (ADR 0024,
 [[qwen35moe-mmq-investigation]]). This spec is the other half of that decision: how to
 rebuild one backend per platform in minutes, and — more important — **how to prove you are
 running what you just built**, because every platform here has at least one silent fallback

@@ -1,4 +1,4 @@
-# ADR 0022 — Locate faults by observation before proposing a fix
+# ADR 0024 — Locate faults by observation before proposing a fix
 
 Status: accepted, 2026-08-13
 
