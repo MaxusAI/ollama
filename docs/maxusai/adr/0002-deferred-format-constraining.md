@@ -5,7 +5,8 @@
   the deferral mechanism moved from the llama-server runner to the routes
   layer; the problem analysis and the alternatives record below remain the
   reference. **Its vision-quality claim is separately reversed by
-  [ADR 0022](0022-thinking-is-off-for-vision-work.md) (2026-08-13)** — see the
+  [ADR 0022](0022-thinking-is-off-for-vision-work.md) (2026-08-13), upheld on-policy by
+  [ADR 0023](0023-think-mode-is-per-model-and-measured-on-policy.md)** — see the
   Consequences note below. Originally accepted and validated 2026-08-01 on fork `main`
   (b10091 runners) and `release/0.32.1-dynres` (b9888+002 runners). Full
   evidence in
@@ -91,14 +92,25 @@ existing double-request mechanism.
   vs 0–1 in every think:false run; invoice name-bbox 5/5) — reasoning helps spatial
   grounding, so think:on is now a quality *option* for extraction, not a forbidden
   mode.~~
-  **Reversed by [ADR 0022](0022-thinking-is-off-for-vision-work.md) (2026-08-13).** The
-  scored vision suite measured the same model the other way: nemotron3 scene IoU
-  **0.840 → 0.391** with thinking on, and document extraction dropping an item (5/5 → 4/5).
-  The observation above was a side-effect note from *this* ADR's deferred-constraining
-  validation — center-hit counts on a single unscored run, not the suite — and it does not
-  survive the matrix. Thinking is off for vision work. The mechanism this ADR describes is
+  **Reversed by [ADR 0022](0022-thinking-is-off-for-vision-work.md) (2026-08-13), and the
+  reversal is upheld on stronger evidence by
+  [ADR 0023](0023-think-mode-is-per-model-and-measured-on-policy.md).** The scored vision
+  suite measured the same model the other way: nemotron3 scene IoU **0.840 → 0.391** with
+  thinking on (gfx1151, greedy). ADR 0023 then re-measured nemotron3 **on-policy** on Apple
+  Silicon and the regression reproduced — scene **0.870 → 0.627 / 0.460 / 0.462** across
+  n = 3, every cell terminating and the coordinate dialect stable, so it is neither of the
+  failure modes greedy decoding explains.
+
+  This matters for *this* ADR specifically, because its claim was about nemotron3 — the one
+  family of the three whose regression survived correct sampling. ADR 0023 retired the
+  blanket rule (gemma4's cost reverses sign on-policy; think mode is now decided per model),
+  but nemotron3's verdict is unchanged and better supported than when ADR 0022 recorded it.
+
+  The observation struck through above was a side-effect note from this ADR's
+  deferred-constraining validation — center-hit counts on a single unscored run, not the
+  suite — and it does not survive either matrix. The mechanism this ADR describes is
   unaffected: it remains correct for structured output *with* thinking where thinking is
-  wanted for its own sake, which vision is not.
+  wanted for its own sake.
 - The mechanism needs only stop strings + `stopping_word` + `cache_prompt`: no
   llama.cpp feature dependency, so the identical commit cherry-picks to b9888-era
   branches (done: `d1ef5557` on `release/0.32.1-dynres`).

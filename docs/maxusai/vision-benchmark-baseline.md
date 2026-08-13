@@ -213,7 +213,20 @@ Findings, in contrast to gemma4:
 | Document-row geometry | gemma4 31B @1120 (patched) — only config above 0.7 doc IoU |
 | bbox on 12B specifically | pin `image_max_tokens: 560` (ADR 0008 exception) |
 | Latency-sensitive, coarse tasks | any gemma4 @280 per request (model-card guidance) |
-| **Any vision workload** | **`think: false`** — thinking never improves grounding and twice harms it ([ADR 0022](adr/0022-thinking-is-off-for-vision-work.md), [campaign 2026-08-13](vision-campaign-2026-08-13-thinkmode.md)) |
+| Vision with `think` on | **Per model, not blanket** ([ADR 0023](adr/0023-think-mode-is-per-model-and-measured-on-policy.md)): `gemma4` permitted (quality-neutral, ≈4× tokens); `qwen3.6` and `nemotron3` keep `think: false`. Measured on Apple Silicon; **not confirmed on the §4.5 gfx1151 cell** — see the note below |
+
+> **⚠ Scope of the think-mode row.** [ADR 0023](adr/0023-think-mode-is-per-model-and-measured-on-policy.md)
+> retired the blanket `think: false` rule this table used to carry. Its evidence is Apple
+> Silicon on payload **b10353** — the same machine class as §1.1, but a newer payload than
+> any server in §1.2, so treat it as guidance rather than a cell of this report. It has
+> **not** been confirmed on the gfx1151 / ROCm platform of §4.5, and ADR 0023 states the two
+> hosts must not be pooled: the same model's think-off document IoU is 0.760 there against
+> 0.708 here, a host difference *larger* than the effect the retired rule rested on.
+>
+> The [2026-08-13 campaign](vision-campaign-2026-08-13-thinkmode.md), which produced that
+> retired rule, ran on **gfx1151** with its think-on arms at `temperature 0` — off-policy per
+> ADR 0023, and not comparable to a post-`843c5705` run. Its think-**off** arms remain valid.
+> An on-policy think-on re-run on gfx1151 is outstanding.
 
 ---
 

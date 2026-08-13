@@ -1,7 +1,22 @@
 # Vision campaign — think-mode at 64K context (2026-08-13)
 
+> **⚠ SUPERSEDED IN PART — the think-on arms are off-policy.** Every arm below was measured
+> at `temperature 0`. [ADR 0023](adr/0023-think-mode-is-per-model-and-measured-on-policy.md)
+> established that greedy decoding is off-policy for thinking mode on both families whose
+> cards we can read, and can by itself prevent reasoning from terminating. Re-measured
+> on-policy (on Apple Silicon), **gemma4's document-IoU cost reverses sign** and qwen3.6's
+> multi-image non-termination disappears; the qwen3.6 and nemotron3 verdicts survive.
+>
+> Read this report as: **think-off arms valid and current**; **think-on arms not comparable**
+> to any run after the harness fix `843c5705`, and not evidence about thinking as such. The
+> three harness traps in §"Three harness traps" are unaffected and carry forward — ADR 0023
+> adds a fourth for exactly the defect described here. An on-policy re-run on this host is
+> outstanding.
+
 Does enabling `think` help vision work? Measured across four models, both modes, on the
-gfx1151 host. **Short answer: no — and on two of the four it is actively harmful.**
+gfx1151 host. **Short answer, as measured here: no — and on two of the four it is actively
+harmful.** That answer holds for two of the three families when the sampling is corrected;
+see the banner above before citing any think-on number below.
 
 ## Provenance
 
