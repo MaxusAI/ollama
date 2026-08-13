@@ -8,7 +8,7 @@ import subprocess
 import time
 
 from probes import (ProbeError, container_logs, grep_binary_marker,
-                    ladder_image_b64, parse_pixel_lines)
+                    ladder_image_b64, llama_cpp_build, parse_pixel_lines)
 
 PASS, FAIL, SKIP, NEEDS_BASELINE, ERROR, CONTENTION = (
     "PASS", "FAIL", "SKIP", "NEEDS_BASELINE", "ERROR", "CONTENTION")
@@ -76,6 +76,48 @@ def check_image_tag(client, profile, image_tag, container):
                                 "this port differ.")
     return result("image_tag", PASS, f"{container} runs {actual}",
                   expected=image_tag or expected, actual=actual)
+
+
+# --------------------------------------------------------------------------
+# 1b. Payload identity (llama.cpp build)
+# --------------------------------------------------------------------------
+
+def check_payload_pin(profile, container, exec_cmd=None):
+    """Assert the running payload's llama.cpp SHA matches what this profile was
+    measured against.
+
+    Without this, a llama.cpp bump inherits the previous payload's expectations
+    silently: b10091 and b10353 both matched `^0\\.32\\.5-dynres-` and resolved to
+    cuda-dynres-005, so the second was validated against numbers measured on the
+    first. It passed — but only by luck, and a bump that *did* move sizing would
+    have surfaced as an unexplained ladder failure instead of a payload change."""
+    expected = profile.get("llama_cpp_build")
+    if not expected:
+        return result("payload_pin", SKIP,
+                      "profile records no llama_cpp_build to assert against",
+                      diagnosis="Add llama_cpp_build to this profile so a "
+                                "llama.cpp bump fails loudly instead of "
+                                "inheriting stale expectations. See README.md.")
+    if not container:
+        return result("payload_pin", SKIP,
+                      "no container resolved; cannot read llama-server --version",
+                      expected=expected)
+    try:
+        actual = llama_cpp_build(container, exec_cmd=exec_cmd)
+    except Exception as exc:
+        return result("payload_pin", ERROR, f"could not read build sha: {exc}",
+                      expected=expected)
+    if not expected.startswith(actual) and not actual.startswith(expected):
+        return result(
+            "payload_pin", FAIL, "llama.cpp payload is not the one measured",
+            expected=expected, actual=actual,
+            diagnosis="The compiled payload changed. Every ladder, payload proof "
+                      "and pinned budget below was measured on a different "
+                      "llama.cpp. Re-measure deliberately and update this "
+                      "profile with provenance — do NOT edit values to go green.")
+    return result("payload_pin", PASS,
+                  f"llama.cpp build {actual} matches the measured payload",
+                  expected=expected, actual=actual)
 
 
 # --------------------------------------------------------------------------
