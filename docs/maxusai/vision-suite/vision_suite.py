@@ -28,6 +28,33 @@ def default_num_predict():
     return int(os.environ.get("NUM_PREDICT", "2200"))
 
 
+def _context_error(e, num_predict, num_ctx):
+    """Turn the server's context-overflow 400 into an actionable message.
+
+    The invariant is prompt + num_predict <= num_ctx, and the server enforces it
+    before generating. Raising NUM_PREDICT without raising NUM_CTX therefore does
+    not relieve truncation, it converts it into a bare `HTTP Error 400: Bad
+    Request` that reads as a model or payload fault. It is neither — it is a
+    harness misconfiguration, and this says so with the numbers needed to fix it."""
+    try:
+        body = e.read().decode()
+    except Exception:
+        body = ""
+    m = re.search(r"n_prompt_tokens\\?[\"']?:\s*(\d+).*?n_ctx\\?[\"']?:\s*(\d+)", body, re.S)
+    if e.code == 400 and ("exceed_context_size" in body or m):
+        if m:
+            need, ctx = int(m.group(1)), int(m.group(2))
+            return RuntimeError(
+                f"num_ctx too small: request needs {need} tokens but num_ctx is {ctx}. "
+                f"prompt + num_predict must fit num_ctx (this call used "
+                f"num_predict={num_predict}, num_ctx={num_ctx}). "
+                f"Raise NUM_CTX to at least {need + 2048} (leaving headroom) — "
+                f"raising NUM_PREDICT alone cannot fix this.")
+        return RuntimeError(
+            f"context overflow with num_predict={num_predict}, num_ctx={num_ctx}: {body[:200]}")
+    return RuntimeError(f"HTTP {e.code}: {body[:200]}")
+
+
 def gen(prompt, images, num_predict=None, num_ctx=None):
     if num_ctx is None:
         num_ctx = default_num_ctx()
@@ -71,10 +98,18 @@ def gen(prompt, images, num_predict=None, num_ctx=None):
         msg = r.get("message") or {}
         r["response"] = msg.get("content", "")
         r["thinking"] = msg.get("thinking", "")
+        r["_num_predict"], r["_num_ctx"] = num_predict, num_ctx
         return r
     req = urllib.request.Request(HOST + "/api/generate",
         data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
-    return json.load(urllib.request.urlopen(req, timeout=int(os.environ.get("HTTP_TIMEOUT", "1800"))))
+    try:
+        r = json.load(urllib.request.urlopen(req, timeout=int(os.environ.get("HTTP_TIMEOUT", "1800"))))
+    except urllib.error.HTTPError as e:
+        raise _context_error(e, num_predict, num_ctx) from None
+    # Stamp the EFFECTIVE limits so the caller records what actually ran rather
+    # than what it thought it asked for — gen_opts, env and defaults all feed in.
+    r["_num_predict"], r["_num_ctx"] = num_predict, num_ctx
+    return r
 
 SCENE_PROMPT = """You are a precision visual inspection system deployed in an industrial
 quality-assurance pipeline. Your task on this frame is exhaustive object detection,
@@ -437,6 +472,15 @@ def main():
                          ("IMAGE_MAX_TOKENS", "req_image_max_tokens")):
             if os.environ.get(env):
                 sc[key] = int(os.environ[env])
+        # num_ctx / num_predict are PER MODEL AND PER TEST — nemotron3's
+        # document_single needs 16,421 tokens while its scene_single needs 7,622,
+        # and gemma4 terminates inside 10,691 for every test. A run is not
+        # interpretable without them: an empty response means "truncated" at one
+        # window and "the model would not stop" at another, and the two are
+        # indistinguishable after the fact. Reported in the tables as
+        # "value (num_ctx)". See ADR 0012.
+        sc["req_num_predict"] = r.get("_num_predict")
+        sc["req_num_ctx"] = r.get("_num_ctx")
         results[name] = sc
         print(json.dumps(sc, indent=1), flush=True)
     

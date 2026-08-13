@@ -33,6 +33,16 @@ def b(v):
     return "✅" if v else "❌"
 
 
+def ctx(block):
+    """ADR 0012: quality cells carry the num_ctx they were measured at, in
+    brackets. num_ctx is per model AND per test, and it changes what a result
+    MEANS — an empty response is "truncated" at one window and "would not
+    terminate" at another. A bare number hides which. "?" marks runs recorded
+    before req_num_ctx existed."""
+    n = (block or {}).get("req_num_ctx")
+    return f" ({n})" if n else " (?)"
+
+
 def main():
     args = sys.argv[1:]
     rundir = os.path.dirname(os.path.abspath(__file__))
@@ -62,19 +72,19 @@ def main():
         tiers = [ft.get(f"recall_{px}px") for px in (22, 16, 12, 9, 7)]
         cols.append(name)
         cells.append({
-            ("scene", "bbox IoU"): f"{sc['bbox_mean_iou']:.3f}" if sc.get("bbox_mean_iou") is not None else "—",
+            ("scene", "bbox IoU"): (f"{sc['bbox_mean_iou']:.3f}" + ctx(sc)) if sc.get("bbox_mean_iou") is not None else "—",
             ("scene", "labels / serial"):
                 f"{sc.get('labels_found', '—')}/{sc.get('labels_total', '—')}, {b(sc.get('serial_found'))}",
             ("document", "items / qty+price / total / invoice"):
                 (f"{dc.get('items_found', '—')}/{dc.get('items_total', '—')}, "
                  f"{dc.get('qty_price_right', '—')}/{dc.get('items_total', '—')}, "
                  f"{b(dc.get('total_right'))}, {b(dc.get('invoice_no'))}") if dc else "—",
-            ("document", "name_bbox IoU"): f"{doc_iou:.3f}" if doc_iou is not None else "—",
+            ("document", "name_bbox IoU"): (f"{doc_iou:.3f}" + ctx(dc)) if doc_iou is not None else "—",
             ("fine text", "22/16/12/9/7 px"):
-                "/".join("—" if t is None else str(t) for t in tiers) if ft else "—",
+                ("/".join("—" if t is None else str(t) for t in tiers) + ctx(ft)) if ft else "—",
             ("multi (3 img)", "q1 / q2 / q4-bbox / chart"):
                 (f"{b(mu.get('q1_right'))} {b(mu.get('q2_right'))} {b(mu.get('q4_bbox_hit'))} "
-                 f"{mu.get('chart_values_found', '—')}/{mu.get('chart_total', '—')}") if mu else "—",
+                 f"{mu.get('chart_values_found', '—')}/{mu.get('chart_total', '—')}" + ctx(mu)) if mu else "—",
             ("throughput", "gen tok/s"): f"{gen:.0f}" if gen else "—",
             ("throughput", "prefill tok/s"): f"{pre:.0f}" if pre else "—",
             ("latency", "s/req (unique image)"): f"{s_req:.1f}" if s_req else "—",
