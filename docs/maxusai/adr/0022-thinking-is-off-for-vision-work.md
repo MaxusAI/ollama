@@ -1,6 +1,14 @@
 # ADR 0022: thinking stays off for vision work; gemma4 is the only lineage where it is even viable
 
-- **Status:** accepted (2026-08-13)
+- **Status:** superseded by
+  [ADR 0023](0023-think-mode-is-per-model-and-measured-on-policy.md) (2026-08-13) —
+  every arm below was measured at `temperature 0`, which is off-policy for thinking
+  mode on both families whose cards we can read, and which can prevent reasoning from
+  terminating at all. Re-measured on-policy, the **gemma4** document-IoU cost reverses
+  sign (parity to +0.047, n=3) and the **qwen3.6** multi-image non-termination
+  disappears. The **qwen3.6** verdict itself survives on other evidence, and the
+  harness traps and admissibility rule below are carried forward unchanged. The
+  problem analysis, the traps, and the alternatives record remain the reference.
 - **Date:** 2026-08-13
 - **Deciders:** MaxusAI fork maintainers
 - **Related:** [campaign 2026-08-13](../vision-campaign-2026-08-13-thinkmode.md) (the
