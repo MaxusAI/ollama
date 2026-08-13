@@ -91,10 +91,17 @@ existing double-request mechanism.
   (`0.32.1-dynres-296eb020`): nemotron3 scene IoU **0.840 → 0.391** with thinking on, and
   document extraction dropping an item (5/5 → 4/5). The observation above was a side-effect
   note from *this* ADR's deferred-constraining validation — center-hit counts on a single
-  unscored run, not the suite — and it does not survive the matrix. Thinking is off for
-  vision work. The mechanism this ADR describes is unaffected: it remains correct for
-  structured output *with* thinking where thinking is wanted for its own sake, which vision
-  is not.
+  unscored run, not the suite — and it does not survive the matrix.
+
+  **Upheld on stronger evidence by [ADR 0023](0023-think-mode-is-per-model-and-measured-on-policy.md).**
+  That ADR retired the blanket "think off for vision" rule — gemma4's cost reverses sign when
+  sampled on-policy — but this ADR's claim was about **nemotron3**, which is the one family of
+  three whose regression *survived* correct sampling: scene 0.870 → 0.627 / 0.460 / 0.462
+  across n = 3, every cell terminating and the coordinate dialect stable. So the reversal
+  above stands, and now rests on more than a single greedy campaign.
+
+  The mechanism this ADR describes is unaffected: it remains correct for structured output
+  *with* thinking where thinking is wanted for its own sake.
 - The mechanism needs only stop strings + `stopping_word` + `cache_prompt`: no
   llama.cpp feature dependency, so the identical commit cherry-picks to b9888-era
   branches (done: `d1ef5557` on `release/0.32.1-dynres`).
