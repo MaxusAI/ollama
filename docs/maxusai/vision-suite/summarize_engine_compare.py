@@ -54,6 +54,20 @@ def resolve_tag(rundir, model, think):
     return suffixed  # nothing on disk; report against the expected name
 
 
+def was_capped(sec):
+    """True when generation stopped at num_predict rather than finishing.
+
+    A capped cell's eval_count IS the cap, so any throughput derived from it
+    measures the harness setting, not the model — and it moves 2.3x when the
+    ladder escalates a rung. Such a req/h must never be quoted as a model
+    result.
+    """
+    sec = sec or {}
+    cap = sec.get("num_predict")
+    ev = sec.get("eval_count")
+    return bool(cap and ev and ev >= cap)
+
+
 def ctx_for(*sections):
     """The num_ctx a row's results were measured at.
 
@@ -115,8 +129,8 @@ def main():
           "| Invoice (items · qty+price · total) | name_bbox hits |",
           "|---|---|---|---|---|---|---|---|"]
     t2 = ["| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) "
-          "| Gen tok/s | Prefill tok/s | s/req | req/h |",
-          "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+          "| Answer tok | Gen tok/s | Prefill tok/s | s/req | req/h |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
 
     for model in args:
         tag = resolve_tag(rundir, model, think)
@@ -160,10 +174,22 @@ def main():
         s_req = None
         if gen and pre and sc.get("eval_count") and sc.get("prompt_eval_count"):
             s_req = sc["eval_count"] / gen + sc["prompt_eval_count"] / pre
-        s_cell = f"{s_req:.1f}" if s_req else "—"
-        rh_cell = f"{3600 / s_req:.0f}" if s_req else "—"
+        # Answer length is half the throughput story: a slower model that
+        # answers in fewer tokens can beat a faster, more verbose one, since
+        # s/req = eval/gen_tps + prompt_eval/prefill_tps. Surface it directly.
+        ev = sc.get("eval_count")
+        if was_capped(sc):
+            # eval_count is the cap here, not the answer length; both it and
+            # anything derived from it are meaningless as model results.
+            ans_cell = f"≥{ev} ⚠"
+            s_cell = "capped"
+            rh_cell = "capped"
+        else:
+            ans_cell = str(ev) if ev else "—"
+            s_cell = f"{s_req:.1f}" if s_req else "—"
+            rh_cell = f"{3600 / s_req:.0f}" if s_req else "—"
         t2.append(f"| {model} | {eng_cell} | {ctx_cell} | " + " | ".join(tiers) +
-                  f" | {multi} | {round(gen) if gen else '—'} | {round(pre) if pre else '—'}"
+                  f" | {multi} | {ans_cell} | {round(gen) if gen else '—'} | {round(pre) if pre else '—'}"
                   f" | {s_cell} | {rh_cell} |")
 
     print("## Scene grounding (six objects, norm-1000 boxes) + document extraction\n")
