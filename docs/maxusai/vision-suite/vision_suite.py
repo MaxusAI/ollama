@@ -14,11 +14,23 @@ GT = json.load(open(f"{IMG}/ground_truth.json"))
 def b64(name):
     return base64.b64encode(open(f"{IMG}/{name}", "rb").read()).decode()
 
+# Single source of truth for the request window, so what gets recorded in the
+# scores cannot drift from what was actually sent. num_predict and the prompt
+# share num_ctx; a cell whose eval_count equals num_predict was capped, and one
+# where prompt + eval approaches num_ctx was bounded by the window instead.
+def default_num_ctx():
+    return int(os.environ.get("NUM_CTX", "16384"))
+
+
+def default_num_predict():
+    return int(os.environ.get("NUM_PREDICT", "2200"))
+
+
 def gen(prompt, images, num_predict=None, num_ctx=None):
     if num_ctx is None:
-        num_ctx = int(os.environ.get("NUM_CTX", "16384"))
+        num_ctx = default_num_ctx()
     if num_predict is None:
-        num_predict = int(os.environ.get("NUM_PREDICT", "2200"))
+        num_predict = default_num_predict()
     payload = {
         "model": MODEL, "prompt": prompt, "images": images,
         "stream": False, "format": "json",
@@ -396,6 +408,12 @@ def main():
         if r.get("prompt_eval_duration") and r.get("prompt_eval_count"):
             sc["prefill_tps"] = round(
                 r["prompt_eval_count"] / (r["prompt_eval_duration"] / 1e9), 2)
+        # The request window these numbers were achieved under. Without it a
+        # score is not interpretable: an empty or short result may be the model
+        # or may be the cap, and cells measured at different num_ctx are not
+        # comparable on throughput (KV size affects decode speed).
+        sc["num_ctx"] = default_num_ctx()
+        sc["num_predict"] = default_num_predict()
         # Record the requested vision budget so a scores file is self-describing:
         # absent means "build default", present means this was a budget-matched
         # control arm. Without this a control run is indistinguishable from a

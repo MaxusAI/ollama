@@ -129,6 +129,14 @@ def run(host, tag, model):
     s.update(score_codes(body))
     s["prompt_eval_count"] = r.get("prompt_eval_count")
     s["eval_count"] = r.get("eval_count")
+    # The request window these numbers were achieved under. Recall that comes in
+    # low may be the model or may be a capped generation; without num_ctx and
+    # num_predict the two are indistinguishable after the fact. Note this probe
+    # defaults higher than vision_suite.py (32768/4000 vs 16384/2200), so a run
+    # that does not set both explicitly measures the two harnesses at different
+    # windows — run_engine_compare.sh sets them.
+    s["num_ctx"] = num_ctx
+    s["num_predict"] = num_predict
     print(f"--- finetext [{tag}] ---")
     print(json.dumps(s, indent=1))
     json.dump(s, open(os.path.join(DIR, f"ft_{tag}.json"), "w"), indent=1)
