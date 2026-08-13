@@ -12,6 +12,37 @@ logical end.
 The result is an out-of-bounds read. It faults only when it happens to cross an unmapped
 page, which is why it presents as intermittent.
 
+### Symptom
+
+The user-visible failure is an HTTP 500 from the server:
+
+```json
+{"error":"an error was encountered while running the model: CUDA error\nCUDA error: an illegal memory access was encountered"}
+```
+
+and the runner aborts with:
+
+```
+/…/ggml/src/ggml-cuda/ggml-cuda.cu:106: CUDA error
+ggml_cuda_compute_forward: MUL_MAT_ID failed
+CUDA error: an illegal memory access was encountered
+  current device: 0, in function ggml_cuda_compute_forward at /…/ggml/src/ggml-cuda/ggml-cuda.cu:2374
+  err
+libggml-base.so.0(+0x19d08)
+libggml-base.so.0(ggml_print_backtrace+0x1e1)
+libggml-base.so.0(ggml_abort+0x11e)
+cuda_v13/libggml-cuda.so(+0x298683)
+cuda_v13/libggml-cuda.so(+0x2ad62b)
+libggml-base.so.0(ggml_backend_sched_graph_compute_async+0x807)
+libllama.so.0(llama_context::graph_compute(ggml_cgraph*, bool)+0xa1)
+libllama.so.0(llama_context::process_ubatch(llama_ubatch const&, llm_graph_type, llama_memory_context_i*, ggml_status&)+0xea)
+```
+
+Note the reported op is where the error was **noticed**, not necessarily where it occurred:
+`ggml-cuda.cu:2371` is a bare `cudaGetLastError()` after dispatch, so it is asynchronous and
+sticky. In this case a per-node `cudaStreamSynchronize` confirmed `MUL_MAT_ID` really is the
+faulting op — but the unsynchronised message alone does not establish that.
+
 ### Affected code
 
 `ggml/src/ggml-cuda/mmq.cu`, in `ggml_cuda_mul_mat_q()`, the `ids` branch:
@@ -88,6 +119,30 @@ arrives in a single ubatch. Concretely, ~2040 image tokens at `-b 2048 -ub 2048`
 Note that upstream's default `n_ubatch` of 512 splits such an image into four chunks, which
 is why this shape is rarely produced by llama.cpp's own defaults — it needs `-ub` raised to
 roughly the image's token count.
+
+**How that ubatch arises in the wild.** ollama does not expose `n_ubatch` separately: it
+computes one batch size and passes it as *both* `-b` and `-ub`, tiered purely by context
+length (`server/sched.go`, `llm/llama_server.go`):
+
+```go
+case effectiveCtx > 32768:  return llamaServerGenerationBatchLarge   // 2048
+case effectiveCtx > 4096:   return llamaServerGenerationBatchMedium  // 1024
+default:                    return llamaServerGenerationBatchDefault // 512
+```
+
+```go
+params = append(params, "-b", strconv.Itoa(opts.NumBatch), "-ub", strconv.Itoa(opts.NumBatch))
+```
+
+So any request above 32768 context silently runs at `-ub 2048`, and a ~2040-token image
+arrives unsplit. That is why this reproduces readily under ollama and rarely under
+`llama-server` defaults.
+
+**The context length itself is not a condition.** It only selects the tier. Forcing the batch
+directly reproduces the fault at small context — measured at `num_ctx=8192` with
+`num_batch=2048` (`n_ctx = 8192`, `n_batch = n_ubatch = 2048`, `n_tokens_batch = 2040`) — and
+raising the ceiling does not help either, since the same 2040-token ubatch still faults at
+`-b 4096 -ub 4096`. The single variable is the number of rows in one MUL_MAT_ID ubatch.
 
 ### Why it looks intermittent
 
