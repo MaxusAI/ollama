@@ -48,12 +48,20 @@
 # a quarter of the KV cache a blanket 32768 would. Every rung doubles KV, and
 # 31B dense at 32768 is the cell that will hurt first.
 #
-# ESCALATE ONLY ON EVIDENCE. If a cell reports eval == num_predict it was
-# capped; move that model up ONE rung and re-run just that cell:
-#   NUM_CTX_THINKON=32768 MODELS="gemma4:31b-it-q4_K_M" THINK_MODES=on ./run_engine_compare.sh <host>
-# num_predict follows num_ctx automatically, so the pair cannot go incoherent.
-# Record the rung a result was measured at — cells from different rungs are not
-# directly comparable on throughput.
+# ESCALATION IS AUTOMATIC, PER CELL. After each think-on cell the runner reads
+# the scores back; if any test reports eval_count == num_predict it was capped,
+# and that cell alone is re-run at the next rung. Each model therefore climbs
+# only as far as it needs — a model that converges at 16384 is never paid for
+# at 32768, and only the ones that actually cap cost the larger window.
+#
+# CTX_LADDER sets the rungs, CTX_MAX the ceiling to stop at. A cell still
+# capped at CTX_MAX is reported as NOT CONVERGED and left at that rung: that is
+# a finding about the model, not a harness failure, and it must not be silently
+# retried forever.
+#
+# Records the rung each result was achieved at (scores carry num_ctx), because
+# cells measured at different rungs are not directly comparable on throughput —
+# KV size affects decode speed.
 #
 # macOS + MLX note: a fork server binary must start with the repo root as its
 # working directory (the MLX dylib and llama-server payload resolve relative
@@ -67,6 +75,8 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 MODELS="${MODELS:?set MODELS to the space-separated model list}"
 
 THINK_MODES="${THINK_MODES:-false on}"
+CTX_LADDER="${CTX_LADDER:-4096 8192 16384 32768 65536}"
+CTX_MAX="${CTX_MAX:-65536}"
 
 for m in $MODELS; do
   base=$(printf '%s' "$m" | tr ':.' '__')
@@ -75,35 +85,63 @@ for m in $MODELS; do
     # Reasoning models think before answering; too small a cap yields an empty
     # response, not a short one. See the header note.
     if [ "$think" = "on" ]; then
-      # Ladder rung; num_predict is derived so the pair is always coherent.
       nc="${NUM_CTX:-${NUM_CTX_THINKON:-16384}}"
-      np="${NUM_PREDICT:-${NUM_PREDICT_THINKON:-$((nc - 4096))}}"
     else
       nc="${NUM_CTX:-16384}"
-      np="${NUM_PREDICT:-2200}"
     fi
-    # prompt + num_predict share num_ctx; warn rather than silently under-run.
-    if [ "$((np + 4096))" -gt "$nc" ]; then
-      echo "WARNING: num_predict=$np leaves <4096 of num_ctx=$nc for the prompt;" \
-           "the effective cap will be (num_ctx - prompt), not num_predict."
-    fi
-    pmode=$( (pmset -g 2>/dev/null || true) | awk '/powermode/{print $2}')
-    echo "##### MODEL $m think=$think tag=$tag num_predict=$np num_ctx=$nc $(date +%T) powermode=${pmode:-n/a}"
-    # Cold server per CELL, not per model: think-on and think-off are separate
-    # cells and the leakage caveat applies between them too.
-    if [ -n "${RESTART_CMD:-}" ]; then
-      sh -c "$RESTART_CMD"
-      i=0
-      until curl -sf "$HOST/api/version" >/dev/null 2>&1; do
-        i=$((i + 1))
-        [ "$i" -ge 60 ] && { echo "SERVER FAILED TO START for $m think=$think"; exit 1; }
-        sleep 1
-      done
-    fi
-    ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
-      python3 "$DIR/vision_suite.py" "$HOST" "$tag" "$m"
-    ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
-      python3 "$DIR/finetext_probe.py" "$HOST" "$tag" "$m"
+
+    while :; do
+      # num_predict is DERIVED from the rung for think-on so the pair stays
+      # coherent as we climb; think-off keeps its fixed, comfortably-fitting cap.
+      if [ "$think" = "on" ]; then
+        np="${NUM_PREDICT:-${NUM_PREDICT_THINKON:-$((nc - 4096))}}"
+      else
+        np="${NUM_PREDICT:-2200}"
+      fi
+      if [ "$((np + 4096))" -gt "$nc" ]; then
+        echo "WARNING: num_predict=$np leaves <4096 of num_ctx=$nc for the prompt;" \
+             "the effective cap will be (num_ctx - prompt), not num_predict."
+      fi
+      pmode=$( (pmset -g 2>/dev/null || true) | awk '/powermode/{print $2}')
+      echo "##### MODEL $m think=$think tag=$tag num_predict=$np num_ctx=$nc $(date +%T) powermode=${pmode:-n/a}"
+      # Cold server per CELL, not per model: think-on and think-off are separate
+      # cells and the leakage caveat applies between them too. A re-run at a
+      # higher rung is a new cell and gets its own cold start.
+      if [ -n "${RESTART_CMD:-}" ]; then
+        sh -c "$RESTART_CMD"
+        i=0
+        until curl -sf "$HOST/api/version" >/dev/null 2>&1; do
+          i=$((i + 1))
+          [ "$i" -ge 60 ] && { echo "SERVER FAILED TO START for $m think=$think"; exit 1; }
+          sleep 1
+        done
+      fi
+      ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
+        python3 "$DIR/vision_suite.py" "$HOST" "$tag" "$m"
+      ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
+        python3 "$DIR/finetext_probe.py" "$HOST" "$tag" "$m"
+
+      # Did any test hit the cap? Only then is a bigger window worth paying for.
+      capped=$(python3 - "$DIR/scores_${tag}.json" "$np" <<'PYEOF'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    print(""); raise SystemExit
+cap = int(sys.argv[2])
+print(" ".join(k for k, v in d.items() if (v.get("eval_count") or 0) >= cap))
+PYEOF
+)
+      [ -z "$capped" ] && break
+
+      next=$(printf '%s\n' $CTX_LADDER | awk -v c="$nc" '$1>c{print $1; exit}')
+      if [ -z "$next" ] || [ "$next" -gt "$CTX_MAX" ]; then
+        echo "##### NOT CONVERGED $m think=$think at num_ctx=$nc (ceiling ${CTX_MAX}); capped: $capped"
+        break
+      fi
+      echo "##### CAPPED $m think=$think at num_ctx=$nc ($capped) -> escalating to $next"
+      nc="$next"
+    done
     echo "##### DONE $m think=$think $(date +%T)"
   done
 done
