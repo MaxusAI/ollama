@@ -1,0 +1,16 @@
+--- a/ggml/src/ggml-cuda/mmvq.cu	2026-08-13 19:45:34.599434007 +1000
++++ b/ggml/src/ggml-cuda/mmvq.cu	2026-08-13 19:45:34.640435505 +1000
+@@ -514,7 +514,12 @@
+ 
+     ggml_cuda_pdl_sync();
+     channel_x  = ncols_dst == 1 && ids ? ids[channel_dst]                     : fastdiv(channel_dst, channel_ratio);
+-    channel_y  = ncols_dst == 1 && ids ? fastmodulo(channel_dst, nchannels_y) : channel_dst;
++    // MaxusAI fix: the nchannels_y modulo was gated on ncols_dst == 1, but y is
++    // broadcast whenever nchannels_y < nchannels_dst regardless of ncols_dst. For
++    // MUL_MAT_ID on a MoE with broadcast activations (ne11 == 1) and ncols_dst > 1,
++    // channel_y ran 0..nchannels_dst-1 into a y tensor with a single channel, reading
++    // past the end of src1_q8_1. Clamp whenever ids is present.
++    channel_y  = ids ? fastmodulo(channel_dst, nchannels_y) : channel_dst;
+     sample_dst = blockIdx.z;
+ 
+     const uint32_t sample_x    = fastdiv(sample_dst, sample_ratio);
