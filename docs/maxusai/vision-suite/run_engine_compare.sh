@@ -22,9 +22,10 @@
 # num_predict is raised for think-on. A reasoning model spends its first tokens
 # thinking, and a cap below that budget returns an EMPTY response with a
 # non-zero eval_count — indistinguishable from a vision failure, and the origin
-# of this fork's "serves blank images" false alarm. Defaults are 2200 think-off
-# and 16000 think-on; override with NUM_PREDICT (both modes) or
-# NUM_PREDICT_THINKON (think-on only).
+# of this fork's "serves blank images" false alarm. Think-off defaults to 2200;
+# think-on is DERIVED from the rung as (num_ctx - CTX_PROMPT_RESERVE), i.e. 8192 at
+# the 16384 start rung, climbing as the ladder climbs. Override with NUM_PREDICT
+# (both modes) or NUM_PREDICT_THINKON (think-on only).
 #
 # Why 16000 and not the README's ">=4000 with THINK=on": measured 2026-08-09 on
 # gemma4:12b, that floor does not hold. Every empty cell in that run sat at
@@ -43,8 +44,9 @@
 # 3765 multi-image.
 #
 # CLIMB THE LADDER; DO NOT START AT THE TOP. num_ctx is 4096 / 8192 / 16384 /
-# 32768 / 65536, and think-on starts at 16384 with num_predict = num_ctx - 4096
-# (12288) — comfortably above the 4000 that demonstrably capped, while costing
+# 32768 / 65536, and think-on starts at 16384 with
+# num_predict = num_ctx - CTX_PROMPT_RESERVE (8192 at that rung) — comfortably
+# above the 4000 that demonstrably capped, while costing
 # a quarter of the KV cache a blanket 32768 would. Every rung doubles KV, and
 # 31B dense at 32768 is the cell that will hurt first.
 #

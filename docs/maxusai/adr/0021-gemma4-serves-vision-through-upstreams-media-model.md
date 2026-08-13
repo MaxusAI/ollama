@@ -3,7 +3,7 @@
 - **Status:** accepted (2026-08-11)
 - **Date:** 2026-08-11
 - **Deciders:** MaxusAI fork maintainers
-- **Related:** [ADR 0020](0020-mlx-vision-lineage-preserves-the-pre-upstream-fork.md)
+- **Related:** ADR 0020 (`0020-mlx-vision-lineage-preserves-the-pre-upstream-fork.md`, on `release/mlx-vision` — not present on `main`)
   (the lineage this unblocks), [ADR 0014](0014-media-prompts-chunk-around-image-blocks.md)
   (chunking and the admission ceiling), [ADR 0003](0003-vision-image-token-budget-policy.md) /
   [0007](0007-gemma4-default-budget-560.md) / [0008](0008-gemma4-budget-fill-restores-1120.md)
