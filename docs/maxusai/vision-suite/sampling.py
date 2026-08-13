@@ -23,9 +23,16 @@ preflight expectation and every release record was measured at `temperature: 0`.
 Changing that would invalidate all of them for no benefit — the failure this
 module addresses only occurs with thinking on.
 
-VALUES ARE CARD-SOURCED OR ABSENT. A model whose card we cannot read gets greedy
-decoding and a warning, not an invented configuration. Adding a row here means
-reading that model's card and citing it.
+VALUES ARE CARD-SOURCED OR ABSENT. A model whose card we cannot read gets NO
+sampling overrides at all — its packaged parameters apply — plus a warning.
+Never an invented configuration, and never greedy, which is the very thing that
+breaks think-on. Adding a row here means reading that model's card and citing it.
+
+The table below is corroborated by what the models themselves ship: `ollama show`
+reports gemma4 declaring temperature 1 / top_k 64 / top_p 0.95 and qwen3.6
+declaring temperature 1 / top_k 20 / top_p 0.95 / min_p 0 / presence_penalty 1.5
+— i.e. exactly these values. nemotron3 declares none, which is why it has no row.
+Pinning temperature 0 was therefore overriding each model's own packaged default.
 """
 import os
 import sys
@@ -75,13 +82,18 @@ def sampling_for(model, think, warn=True):
     fam = family(model)
     opts = CARD_THINKING.get(fam)
     if opts is None:
+        # No card entry: send NO sampling keys, so the model's own packaged
+        # parameters apply — or, if it declares none, the server defaults
+        # (temperature 0.8 / top_k 40 / top_p 0.9, api/types.go DefaultOptions).
+        # Falling back to greedy here would be actively wrong twice over: it
+        # overrides whatever the packager shipped, and temperature 0 is the
+        # configuration that causes non-termination in the first place.
         if warn:
-            print(f"[sampling] WARNING: no card-sourced thinking parameters for "
-                  f"'{fam}'; falling back to greedy decoding. If this model "
-                  f"caps (eval_count == num_predict, empty response), that is "
-                  f"the likely cause — see runaway-reasoning-under-think.md.",
+            print(f"[sampling] no card-sourced thinking parameters for '{fam}'; "
+                  f"sending no sampling overrides, so the model's packaged "
+                  f"defaults apply. Check `ollama show` to see what those are.",
                   file=sys.stderr)
-        return dict(GREEDY)
+        return {}
     opts = dict(opts)
 
     for env, key, cast in (("TEMPERATURE", "temperature", float),
@@ -109,5 +121,5 @@ def provenance(model, think):
     elif fam in CARD_THINKING:
         source = f"card:{fam}"
     else:
-        source = "fallback-greedy-no-card"
+        source = "packaged-defaults-no-card"
     return {"sampling_source": source, "sampling": sampling_for(model, think, warn=False)}
