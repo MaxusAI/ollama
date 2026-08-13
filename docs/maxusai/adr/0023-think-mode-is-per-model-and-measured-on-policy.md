@@ -13,8 +13,12 @@
   must not be pooled, and defers ROCm reconfirmation as outstanding work. So on this branch:
   **the blanket `think: false` rule of ADR 0022 is retired, and nothing has replaced it with
   a measurement of this build.** The per-model verdicts below are the best available
-  guidance, not a result for `0.32.1-dynres`. Treat `think` on this lineage as unmeasured
-  rather than approved. Adapted per ADR 0006: `main` carries
+  guidance, not a result for `0.32.1-dynres`. **Superseded for this lineage by
+  [ADR 0025](0025-think-stays-off-on-gfx1151.md) (2026-08-14)**, which ran the deferred
+  reconfirmation against this branch's own build: two of the three verdicts below
+  transfer, but **gemma4's permission does not** — document IoU is negative in all three
+  on-policy reps here. `think` on this lineage is now measured, and the answer is off for
+  every family tested. Adapted per ADR 0006: `main` carries
   `runaway-reasoning-under-think.md` and ADRs 0005/0012, which this branch does not, so
   those references are named rather than linked.
 - **Related:** [ADR 0022](0022-thinking-is-off-for-vision-work.md) (superseded by this),
