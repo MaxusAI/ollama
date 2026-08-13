@@ -23,11 +23,17 @@ Reproducible ground-truth benchmarks behind the measured tables in
   `FONT_PATH`, e.g. to matplotlib's bundled `DejaVuSansMono.ttf`; applies to
   `finetext_probe.py gen` too). Regenerate any time; edit sizes/content to
   extend coverage — scoring reads `ground_truth.json`, not hardcoded values.
-- `vision_suite.py <host> <tag> [model] [test]` — runs three long-prompt JSON
-  extractions (single scene w/ pixel bboxes, single invoice, 3-image cross-analysis)
-  and scores objectively (label recall, color accuracy, qty/price exactness, bbox
-  center-hits, cross-image answers). Env: `THINK=on|false` (default `false`),
-  `NUM_PREDICT` (default 2200; ≥4000 with `THINK=on`, 16000 for think-on multi-image),
+- `vision_suite.py <host> <tag> [model] [test]` — runs four long-prompt JSON
+  extractions (single scene w/ pixel bboxes, single invoice, 3-image cross-analysis, and
+  the dense fine-text probe, whose prompt and scorer are imported from `finetext_probe.py`
+  rather than copied) and scores objectively (label recall, color accuracy, qty/price
+  exactness, bbox center-hits, cross-image answers, per-size code recall). All four land in
+  `scores_<tag>.json`, so the fine-text tiers are there without running the standalone
+  probe. Env: `THINK=on|false` (default `false` — must be the literal `on`),
+  `NUM_PREDICT` (default 2200; **no fixed think-on floor** — the once-documented ≥4000 was
+  measured on 2026-08-09 and does not hold, every empty cell in that run sat at exactly
+  eval=4000. Think-on budgets are derived from the `num_ctx` rung by the runners as
+  `num_ctx - CTX_PROMPT_RESERVE`),
   `IMAGE_MIN_TOKENS` / `IMAGE_MAX_TOKENS` (fork-only per-request vision budget,
   arch-gated to gemma4 and nemotron_h_omni; unset = build default. Recorded in the
   scores as `req_image_*_tokens` so a control run is identifiable after the fact),
@@ -64,8 +70,13 @@ Reproducible ground-truth benchmarks behind the measured tables in
   `refcoco` mode reports the winning coordinate dialect and JSON key per item, so it doubles
   as a dialect probe. See [../vision-benchmark-survey.md](../vision-benchmark-survey.md) for
   why the external harnesses' own grounding scorers cannot be trusted with our models.
-- `run_grid.sh` — model × think-mode grid against one host, with an optional restart
-  hook between runs (see below).
+- `run_grid.sh <host> <tag-prefix>` — model × think-mode grid against one host, with an
+  optional restart hook between runs (see below). Budgets are **per think-mode** and set by
+  the runner: think-off `num_predict` 4000, think-on `num_ctx - CTX_PROMPT_RESERVE` (8192 at
+  the 16384 start rung). Do **not** export `NUM_PREDICT` or `NUM_CTX` unless you mean to pin
+  *both* modes to one value — use `NUM_PREDICT_THINKON` / `NUM_CTX_THINKON` to move think-on
+  alone. Unlike `run_engine_compare.sh` it does not auto-escalate; it reports a capped cell
+  and the rung to retry at.
 - `run_engine_compare.sh <host>` — **engine-parity campaign** (MLX safetensors vs
   llama-server GGUF): cold server per model via `RESTART_CMD`, then the three-suite
   run and the fine-text probe per model. `summarize_engine_compare.py <model…>`
@@ -75,8 +86,9 @@ Reproducible ground-truth benchmarks behind the measured tables in
 - `run_compare.sh <tag-prefix>` — **stock vs fork, with a budget-matched control arm.**
   Use this rather than eyeballing two separate runs: a bare stock-vs-fork comparison
   moves two variables at once. See "Comparing against stock" below.
-- `variants.py <host> <nogrammar|thinkon> [model]` — scene-test probes that isolate
-  the `format:"json"` grammar constraint and reasoning mode as variables.
+- `variants.py <nogrammar|thinkon> [host]` — scene-test probes that isolate
+  the `format:"json"` grammar constraint and reasoning mode as variables. Mode comes
+  **first**, host second; the model is hardcoded to `nemotron3:33b-q4_K_M`.
 
 ## Scoring note: markdown-fence tolerance (2026-08-08)
 
@@ -89,7 +101,10 @@ is a no-op there; the MLX runner did not enforce format until x/structured
 
 ## Method (match this or numbers aren't comparable)
 
-- `temperature 0`, `format:"json"`, `num_ctx 16384`, `NUM_PREDICT=4000` for grids.
+- `temperature 0`, `format:"json"`, `num_ctx 16384`. **Let the runner set the budgets** —
+  they are per think-mode and exporting `NUM_PREDICT` pins both. A single 4000 across both
+  modes, which this line used to prescribe, caps think-on inside its own reasoning block and
+  scores the truncation as a vision failure ([ADR 0022](../adr/0022-thinking-is-off-for-vision-work.md)).
 - **Cold server per model run** when payloads under test have cross-request leakage
   (upstream #17475 reproduced on b10091): restart the serving container/process
   between runs — `run_grid.sh` does this via `RESTART_CMD`.

@@ -91,9 +91,9 @@ degrades on both.
 Cost matters independently of quality: qwen3.6's 19,160-token scene answer is ~5.5 min at
 57 tok/s against ~15 s with thinking off.
 
-## Two harness traps — both look exactly like vision failures
+## Three harness traps — each looks exactly like a vision failure
 
-Recorded because either one, taken at face value, produces a false regression report.
+Recorded because each one, taken at face value, produces a false regression report.
 
 **Budget exhaustion masquerading as failure.** The first run returned `json_valid=false`
 and `bbox_mean_iou=0.0` on all three vision tests, which reads as "think-on catastrophically
@@ -110,8 +110,11 @@ both runners now derive `num_predict` from the rung as `num_ctx - CTX_PROMPT_RES
 multi-image prompt overran the original 4096).
 
 **`THINK` must be the literal string `on`.** `vision_suite.py` and `finetext_probe.py` both
-test `== "on"`, and `run_engine_compare.sh` defaults it to `false`. Passing `THINK=true`
-silently runs with thinking **off** — a "thinking benchmark" that isn't one.
+test `== "on"` (`vision_suite.py:52`, `finetext_probe.py:110`), and `run_compare.sh:60` and
+`run_budget_sweep.sh:53` default it to `false`. Passing `THINK=true` silently runs with
+thinking **off** — a "thinking benchmark" that isn't one. `run_engine_compare.sh` and
+`run_grid.sh` cannot be caught this way: they ignore an inherited `THINK` and set it per
+cell from `THINK_MODES`.
 
 ## Limitations
 

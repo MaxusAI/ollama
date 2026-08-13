@@ -12,9 +12,16 @@
 
 ## Context
 
-`think` was never measured against the vision suite. The assumption worth testing was the
-intuitive one — that letting a model reason before answering should improve grounding,
-particularly on bounding boxes. It does not.
+`think` had never been measured across the full vision-suite matrix. The one prior datum is
+the archived nemotron3 think=on arm in
+[the platform baseline](../vision-benchmark-baseline.md) §4.3 — scene 0.598 vs 0.857
+think-off, with scale drift on both axes — which pointed the same way but covered one model
+on one test. Pulling the other direction, [ADR 0002](0002-deferred-format-constraining.md)
+recorded reasoning *helping* nemotron's localisation (scene bbox center-hits 5/6 vs 0–1) and
+concluded think:on was "a quality *option* for extraction". That claim came from the
+deferred-constraining validation, not from the scored suite, and it is what this campaign
+set out to settle. The assumption worth testing was the intuitive one — that letting a model
+reason before answering should improve grounding, particularly on bounding boxes. It does not.
 
 Measured 2026-08-13 on gfx1151/ROCm, server `0.32.1-dynres-296eb020` (`v0.32.1-dynres.3`,
 payload b9888 + compat 001/002/004/005), `/api/chat`, temperature 0, `num_ctx = 65536`.
@@ -79,9 +86,13 @@ default; it is not a per-request preference to tune for quality.
      server checks `prompt + num_predict <= num_ctx` up front. Both runners now derive the
      cap from the rung as `num_ctx - CTX_PROMPT_RESERVE` (`6c90d7bb`, `561e6b98`), so the
      pair cannot drift apart by hand.
-  3. **`THINK` must be the literal string `"on"`.** `run_engine_compare.sh` defaults it to
-     `"false"` and the suite tests `== "on"`, so `THINK=true` silently benchmarks with
-     thinking **off** — a think-mode result that never enabled thinking.
+  3. **`THINK` must be the literal string `"on"`.** `run_compare.sh:60` and
+     `run_budget_sweep.sh:53` default it to `"false"`, and both harnesses test for equality
+     with `"on"` (`vision_suite.py:52`, `finetext_probe.py:110`), so `THINK=true` silently
+     benchmarks with thinking **off** — a think-mode result that never enabled thinking.
+     `run_engine_compare.sh` and `run_grid.sh` are immune: they ignore an inherited `THINK`
+     and set it per cell from `THINK_MODES`, which is why a grid cannot be misconfigured this
+     way but a hand-run probe can.
 - Not measured, and deliberately not extrapolated: nemotron3 multi-image with think-on
   (both measured arms regressed, so it was not pursued), and fine-text beyond qwen3.6.
 
