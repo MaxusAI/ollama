@@ -18,12 +18,18 @@ With thinking enabled, some cells never emit a think-close marker: generation en
 exhausting `num_predict` (`done_reason: "length"`), every token lands in `thinking`,
 and `response` is empty.
 
-The trigger is the sampling configuration. The suite generates at `temperature: 0`
-with no `presence_penalty`, which is off-policy for the models under test. Qwen's
-model card recommends, for thinking mode, `temperature=1.0, top_p=0.95, top_k=20,
-min_p=0.0, presence_penalty=1.5`, and names `presence_penalty` (range 0–2) as the
-lever for reducing repetitive output. We disabled that lever and then measured the
-repetition it exists to prevent.
+The primary trigger is the sampling configuration. The suite generates at
+`temperature: 0` with no `presence_penalty`, which is off-policy for the models under
+test. Qwen's model card recommends, for thinking mode, `temperature=1.0, top_p=0.95,
+top_k=20, min_p=0.0, presence_penalty=1.5`, and names `presence_penalty` (range 0–2)
+as the lever for reducing repetitive output. We disabled that lever and then measured
+the repetition it exists to prevent.
+
+**Two levers, not one.** Sampling on-policy resolves the failure on both affected
+families (Evidence 1). For `qwen3.6` specifically, raising quantization from `q4_K_M`
+to `q8_0` *also* resolves it on its own, at unchanged sampling (Evidence 2) — but that
+does not generalize, since `gemma4:12b` still loops at F16 upstream. Sampling is the
+lever that works everywhere; precision is an additional one on qwen.
 
 ## Evidence 1 — sampling decides the outcome
 
@@ -48,9 +54,37 @@ seconds**.
 That establishes sampling controls the outcome; it does **not** establish gemma4's
 correct settings. A proper gemma4 arm needs gemma4's own card values.
 
-## Evidence 2 — precision is not the cause
+## Evidence 2 — for qwen3.6, quantization is a second, independent lever
 
-Full precision ladders, `think:true`, `multi_3img`. Every rung terminates.
+`qwen3.6:35b-a3b`, `multi_3img`, `num_predict=24000`. A clean 2×2 — the failure
+occupies exactly one cell:
+
+| | `temperature: 0` (suite) | card-recommended |
+|---|---|---|
+| **q4_K_M** | **24 000, EMPTY** | 10 810 / 8 023 ✅ |
+| **q8_0** | 16 677 ✅ | 4 109 / 12 604 ✅ |
+
+Raising precision fixes it *without* touching sampling, and fixing sampling fixes it
+*without* touching precision. Either lever alone is sufficient; the failure needs the
+conjunction `q4_K_M ∧ temperature 0`. This confirms
+[lmstudio-bug-tracker #1907](https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/1907)
+("does not happen on any other Qwen 3.6 quants I tested (8bit …)").
+
+**This is model-specific, not general.** For `gemma4:12b`, precision does *not* rescue
+it: [google/gemma-4-12B-it #41](https://huggingface.co/google/gemma-4-12B-it/discussions/41)
+reports the loop at **37.5 % at F16**. Sampling remains the only lever demonstrated to
+work on both families.
+
+> **Design flaw in the first precision ladder, recorded so it is not repeated.** The
+> ladder below was run on `gemma4:31b` and `nemotron3:33b` — models that do not
+> exhibit the failure at any setting. It could only ever return "no failure at any
+> precision" and had **no power to detect a precision effect**. The 2×2 above is the
+> first ladder run on a model that actually fails, and it reverses the conclusion.
+
+## Evidence 2b — precision does not *cause* non-termination
+
+Full precision ladders on non-failing models, `think:true`, `multi_3img`. Every rung
+terminates. These bound the cost of precision; they do not test the failure.
 
 | model | engine | rung | tokens to terminate |
 |---|---|---|---|
@@ -97,8 +131,11 @@ which removes the main argument for keeping it.
   failure reproduces with `format` omitted entirely.
 - **Not the ADR 0002/0004 empty-response bug.** That was a grammar applied from token 0
   preventing the marker. The reasoning pass here is unconstrained as those ADRs specify.
-- **Not quantization or engine.** See Evidence 2; both failing models recover under
-  arm B at unchanged precision and engine.
+- **Not the engine.** Both failing models recover under arm B at unchanged engine.
+- **Quantization is a contributing factor for qwen3.6, but not the whole story.**
+  `q8_0` converges where `q4_K_M` does not (Evidence 2), yet `gemma4:12b` still loops
+  at F16 upstream. Precision is one lever on one family; sampling is the lever that
+  works on both.
 - **Not a fork regression.** No stock arm was ever run for this failure, so the fork
   is neither implicated nor cleared — but the cause is harness configuration, which is
   identical on stock.

@@ -148,7 +148,12 @@ is a no-op there; the MLX runner did not enforce format until x/structured
   > | model | `temperature: 0` (suite) | card-recommended sampling |
   > |---|---|---|
   > | `qwen3.6:35b-a3b-q4_K_M` | 24 000, **empty** | 10 810 / 8 023, **valid** |
+  > | `qwen3.6:35b-a3b-q8_0` | 16 677, valid | 4 109 / 12 604, **valid** |
   > | `gemma4:12b-nvfp4` | 24 000, **empty** | 3 278 / 2 525, **valid** |
+  >
+  > Note the q8_0 row: for **qwen3.6 only**, raising quantization also fixes it on its
+  > own. That does not generalize — `gemma4:12b` still loops at F16 upstream — so fix
+  > the sampling, which works on both.
   >
   > **Do not escalate `num_ctx` to chase this** — no context size fixes it, and above
   > ~90 K `num_predict` the 1800 s `HTTP_TIMEOUT` expires first, turning a cap into an

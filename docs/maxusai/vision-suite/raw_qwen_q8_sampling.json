@@ -1,0 +1,57 @@
+{
+ "qwen3.6:35b-a3b-q8_0|A:suite-temp0": {
+  "eval_count": 16677,
+  "num_predict": 24000,
+  "converged": true,
+  "json_valid": true,
+  "think_chars": 39536,
+  "resp_chars": 3643,
+  "wall_s": 286.6,
+  "opts": {
+   "temperature": 0,
+   "num_predict": 24000,
+   "num_ctx": 32768
+  },
+  "think_tail": " around there?\nIf DYNAMO is a circle diameter 147.\nAnd it's centered vertically with EMBER (center 720).\nThen y1 = 720 - 73 = 647.\nSo [73, 647, 220, 793].\nThis is close to my estimate.\n\nLet's do this."
+ },
+ "qwen3.6:35b-a3b-q8_0|B:card-rec-seed11": {
+  "eval_count": 4109,
+  "num_predict": 24000,
+  "converged": true,
+  "json_valid": true,
+  "think_chars": 7616,
+  "resp_chars": 3502,
+  "wall_s": 92.5,
+  "opts": {
+   "temperature": 1.0,
+   "top_p": 0.95,
+   "top_k": 20,
+   "min_p": 0.0,
+   "presence_penalty": 1.5,
+   "seed": 11,
+   "num_predict": 24000,
+   "num_ctx": 32768
+  },
+  "think_tail": " Image 3:\nQuarterly unit shipments (k)\n62 Q1\n91 Q2\n47 Q3\n128 Q4\n73 Q5*\n\nThere are definitely no common words between Image 1 and the others. \"Unit\" is in 2 and 3, but not 1.\n\nLet's construct the JSON."
+ },
+ "qwen3.6:35b-a3b-q8_0|B:card-rec-seed22": {
+  "eval_count": 12604,
+  "num_predict": 24000,
+  "converged": true,
+  "json_valid": true,
+  "think_chars": 31237,
+  "resp_chars": 3551,
+  "wall_s": 215.7,
+  "opts": {
+   "temperature": 1.0,
+   "top_p": 0.95,
+   "top_k": 20,
+   "min_p": 0.0,
+   "presence_penalty": 1.5,
+   "seed": 22,
+   "num_predict": 24000,
+   "num_ctx": 32768
+  },
+  "think_tail": " reference INV-2026-0801 on all correspondence.\n\n    Image 3 text:\n    Title: Quarterly unit shipments (k)\n    Values: 62, 91, 47, 128, 73\n    Labels: Q1, Q2, Q3, Q4, Q5*\n\n    Ready to construct JSON."
+ }
+}
