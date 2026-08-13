@@ -76,13 +76,18 @@ def gen(prompt, images, num_predict=None, num_ctx=None):
         msg = r.get("message") or {}
         r["response"] = msg.get("content", "")
         r["thinking"] = msg.get("thinking", "")
+        r["_num_predict"], r["_num_ctx"] = num_predict, num_ctx
         return r
     req = urllib.request.Request(HOST + "/api/generate",
         data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
     try:
-        return json.load(urllib.request.urlopen(req, timeout=int(os.environ.get("HTTP_TIMEOUT", "1800"))))
+        r = json.load(urllib.request.urlopen(req, timeout=int(os.environ.get("HTTP_TIMEOUT", "1800"))))
     except urllib.error.HTTPError as e:
         raise _context_error(e, num_predict, num_ctx) from None
+    # Stamp the EFFECTIVE limits so the caller records what actually ran rather
+    # than what it thought it asked for — gen_opts, env and defaults all feed in.
+    r["_num_predict"], r["_num_ctx"] = num_predict, num_ctx
+    return r
 
 SCENE_PROMPT = """You are a precision visual inspection system deployed in an industrial
 quality-assurance pipeline. Your task on this frame is exhaustive object detection,
@@ -434,6 +439,15 @@ def main():
                          ("IMAGE_MAX_TOKENS", "req_image_max_tokens")):
             if os.environ.get(env):
                 sc[key] = int(os.environ[env])
+        # num_ctx / num_predict are PER MODEL AND PER TEST — nemotron3's
+        # document_single needs 16,421 tokens while its scene_single needs 7,622,
+        # and gemma4 terminates inside 10,691 for every test. A run is not
+        # interpretable without them: an empty response means "truncated" at one
+        # window and "the model would not stop" at another, and the two are
+        # indistinguishable after the fact. Reported in the tables as
+        # "value (num_ctx)". See ADR 0012.
+        sc["req_num_predict"] = r.get("_num_predict")
+        sc["req_num_ctx"] = r.get("_num_ctx")
         results[name] = sc
         print(json.dumps(sc, indent=1), flush=True)
     

@@ -49,7 +49,20 @@ Shared conventions, binding for all three:
 4. **Determinism note**: quality cells are bit-reproducible at temperature 0
    per (payload, backend, budget, image); cross-image noise floor ±0.01 IoU.
    Reports state deviations, not re-derive them.
-5. **Exploratory tables are exempt** from T1/T2 shapes (investigations need
+6. **Quality cells carry their `num_ctx` in brackets: `value (num_ctx)`.**
+   `num_ctx` is per **model and per test**, not per campaign — measured maxima
+   for a valid think-on run span 3,258 (gemma4 fine-text) to 16,421 (nemotron3
+   document), and qwen3.6 does not terminate on two probes at any window tried.
+   It belongs in the table because it changes what a result *means*: an empty
+   response is "truncated by the window" at one value and "the model would not
+   stop" at another, and a bare score cannot distinguish them. That ambiguity
+   already produced a wrong published reading — cells recorded as reproducible
+   model behaviour were context truncation, `eval_count` matching
+   `num_ctx - prompt` exactly. `vision_suite.py` records `req_num_ctx` and
+   `req_num_predict` per test so the generators render this without anyone
+   re-deriving it; `(?)` marks runs predating those fields and is not a defect.
+
+7. **Exploratory tables are exempt** from T1/T2 shapes (investigations need
    free-form arms) but still carry the provenance header and validity marks.
 
 ## Alternatives considered
