@@ -213,20 +213,21 @@ Findings, in contrast to gemma4:
 | Document-row geometry | gemma4 31B @1120 (patched) — only config above 0.7 doc IoU |
 | bbox on 12B specifically | pin `image_max_tokens: 560` (ADR 0008 exception) |
 | Latency-sensitive, coarse tasks | any gemma4 @280 per request (model-card guidance) |
-| Vision with `think` on | **Per model, not blanket** ([ADR 0023](adr/0023-think-mode-is-per-model-and-measured-on-policy.md)): `gemma4` permitted (quality-neutral, ≈4× tokens); `qwen3.6` and `nemotron3` keep `think: false`. Measured on Apple Silicon; **not confirmed on the §4.5 gfx1151 cell** — see the note below |
+| Vision with `think` on | **Per model, per platform** ([ADR 0023](adr/0023-think-mode-is-per-model-and-measured-on-policy.md)). On **this** report's Apple Silicon platform: `gemma4` permitted (quality-neutral, ≈4× tokens), `qwen3.6` and `nemotron3` off. On the **§4.5 gfx1151** platform: **all three off** — gemma4's permission does not transfer ([ADR 0025](adr/0025-think-stays-off-on-gfx1151.md)) |
 
-> **⚠ Scope of the think-mode row.** [ADR 0023](adr/0023-think-mode-is-per-model-and-measured-on-policy.md)
-> retired the blanket `think: false` rule this table used to carry. Its evidence is Apple
-> Silicon on payload **b10353** — the same machine class as §1.1, but a newer payload than
-> any server in §1.2, so treat it as guidance rather than a cell of this report. It has
-> **not** been confirmed on the gfx1151 / ROCm platform of §4.5, and ADR 0023 states the two
-> hosts must not be pooled: the same model's think-off document IoU is 0.760 there against
-> 0.708 here, a host difference *larger* than the effect the retired rule rested on.
+> **⚠ The think-mode row is platform-split, and that is a measured result, not caution.**
+> [ADR 0023](adr/0023-think-mode-is-per-model-and-measured-on-policy.md) retired the blanket
+> `think: false` rule on Apple Silicon / b10353, permitting gemma4. The gfx1151
+> reconfirmation it deferred has now been run
+> ([campaign 2026-08-14](vision-campaign-2026-08-14-onpolicy-rocm.md), on-policy, n=3):
+> **gemma4's permission does not reproduce there.** Document-IoU deltas are −0.062 / −0.012 /
+> −0.010 on gfx1151 against +0.001 / −0.001 / +0.047 here, and reasoning costs 11–16× the
+> think-off tokens there against ≈4× here. qwen3.6 and nemotron3 keep `think: false` on both
+> platforms. See [ADR 0025](adr/0025-think-stays-off-on-gfx1151.md).
 >
-> The [2026-08-13 campaign](vision-campaign-2026-08-13-thinkmode.md), which produced that
-> retired rule, ran on **gfx1151** with its think-on arms at `temperature 0` — off-policy per
-> ADR 0023, and not comparable to a post-`843c5705` run. Its think-**off** arms remain valid.
-> An on-policy think-on re-run on gfx1151 is outstanding.
+> Do not pool the two hosts. The [2026-08-13 campaign](vision-campaign-2026-08-13-thinkmode.md)
+> that produced the retired blanket rule ran on gfx1151 with its think-on arms at
+> `temperature 0`, which is off-policy; its think-**off** arms remain valid.
 
 ---
 
