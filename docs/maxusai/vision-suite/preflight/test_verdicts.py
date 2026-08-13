@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import tomllib
+import pathlib
 import unittest
 from unittest import mock
 
@@ -144,7 +145,12 @@ class TestThinkFormat(unittest.TestCase):
                                   "eval_count": 4000})
         r = checks.check_think_format(c, self.EXPECT, "nemotron_h_omni", 600)
         self.assertEqual(r["status"], FAIL)
-        self.assertIn("num_predict trap", r["diagnosis"])
+        # The diagnosis was rewritten when think-mode sampling was re-measured
+        # (runaway-reasoning-under-think.md). Assert the SEMANTICS that matter —
+        # that it names the cap and denies a vision failure — not a fixed phrase.
+        self.assertIn("eval_count", r["diagnosis"])
+        self.assertIn("num_predict", r["diagnosis"])
+        self.assertIn("NOT a vision failure", r["diagnosis"])
 
     def test_stock_signature_is_distinguished_from_the_trap(self):
         """Empty response well under budget is the stock think+format bug."""
@@ -272,7 +278,7 @@ class TestExpectationsFile(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        with open("expectations.toml", "rb") as fh:
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
             cls.exp = tomllib.load(fh)
 
     def test_every_profile_arch_has_an_expectation_block(self):
