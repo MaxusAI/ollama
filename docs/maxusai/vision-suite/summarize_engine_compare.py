@@ -67,7 +67,9 @@ def main():
         eng = engine_for(model, engine_map)
         eng_cell = f"**{eng}**" if eng == "MLX" else eng
         scores = load(os.path.join(rundir, f"scores_{tag}.json")) or {}
-        ft = load(os.path.join(rundir, f"ft_{tag}.json")) or {}
+        # Suite-produced finetext first; ft_<tag>.json only as the pre-fold
+        # (1db8ec9c) fallback. See summarize_head_to_head.py for why.
+        ft = scores.get("finetext") or load(os.path.join(rundir, f"ft_{tag}.json")) or {}
         sc = scores.get("scene_single", {})
         dc = scores.get("document_single", {})
         mu = scores.get("multi_3img", {})
