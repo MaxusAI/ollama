@@ -128,6 +128,56 @@ Note that upstream's default `n_ubatch` of 512 splits such an image into four ch
 is why this shape is rarely produced by llama.cpp's own defaults — it needs `-ub` raised to
 roughly the image's token count.
 
+#### Copy-pasteable reproduction
+
+Model `qwen3.6:35b-a3b-q4_K_M` (`qwen35moe`: 40 layers, 256 experts, 8 used, `q4_K` gate/up,
+`q6_K` down). Any **1920×1080** image produces exactly 2040 tokens for this model; 1912×1076
+also gives 2040, and 1904×1071 gives 1980 and does **not** fault, so the geometry is worth
+matching. The image content is irrelevant.
+
+```bash
+# Cold server, first request. IMG must be a 1920x1080 PNG/JPG.
+IMG_B64=$(base64 -w0 scene_hd.png)
+
+curl -s http://127.0.0.1:11434/api/generate -d "{
+  \"model\": \"qwen3.6:35b-a3b-q4_K_M\",
+  \"prompt\": \"Describe this image.\",
+  \"images\": [\"${IMG_B64}\"],
+  \"stream\": false,
+  \"options\": { \"num_predict\": 1, \"num_ctx\": 40960, \"temperature\": 0 }
+}"
+```
+
+Expected on an affected build:
+
+```json
+{"error":"an error was encountered while running the model: CUDA error\nCUDA error: an illegal memory access was encountered"}
+```
+
+`num_ctx: 40960` is only there to make the harness choose `-ub 2048`; it is not itself a
+condition. Forcing the batch reproduces the same fault at small context:
+
+```bash
+  \"options\": { \"num_predict\": 1, \"num_ctx\": 8192, \"num_batch\": 2048, \"temperature\": 0 }
+```
+
+**Two things to check before trusting either outcome.** Confirm the server log shows
+`n_tokens_batch = 2040` — if it shows four ~512 chunks, `-ub` was not raised and the shape was
+never produced. And use a **freshly started** server with this as the first request: a runner
+that has already served a larger image will not fault (see below).
+
+For a bare `llama-server` — noting that upstream cannot load ollama's own GGUF of this model
+(`qwen35moe.rope.dimension_sections has wrong array length; expected 4, got 3`), so this needs
+a `qwen35moe` GGUF plus its mmproj from elsewhere:
+
+```bash
+llama-server -m qwen3.6-35b-a3b-Q4_K_M.gguf --mmproj mmproj-qwen3.6-35b-a3b.gguf \
+             -ngl 99 -c 40960 -b 2048 -ub 2048
+```
+
+`-ub 2048` is the load-bearing flag; at the default `-ub 512` the image is split and nothing
+faults.
+
 **How that ubatch arises in the wild.** ollama does not expose `n_ubatch` separately: it
 computes one batch size and passes it as *both* `-b` and `-ub`, tiered purely by context
 length (`server/sched.go`, `llm/llama_server.go`):
