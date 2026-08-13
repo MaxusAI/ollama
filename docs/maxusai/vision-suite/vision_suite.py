@@ -14,6 +14,33 @@ GT = json.load(open(f"{IMG}/ground_truth.json"))
 def b64(name):
     return base64.b64encode(open(f"{IMG}/{name}", "rb").read()).decode()
 
+def _context_error(e, num_predict, num_ctx):
+    """Turn the server's context-overflow 400 into an actionable message.
+
+    The invariant is prompt + num_predict <= num_ctx, and the server enforces it
+    before generating. Raising NUM_PREDICT without raising NUM_CTX therefore does
+    not relieve truncation, it converts it into a bare `HTTP Error 400: Bad
+    Request` that reads as a model or payload fault. It is neither — it is a
+    harness misconfiguration, and this says so with the numbers needed to fix it."""
+    try:
+        body = e.read().decode()
+    except Exception:
+        body = ""
+    m = re.search(r"n_prompt_tokens\\?[\"']?:\s*(\d+).*?n_ctx\\?[\"']?:\s*(\d+)", body, re.S)
+    if e.code == 400 and ("exceed_context_size" in body or m):
+        if m:
+            need, ctx = int(m.group(1)), int(m.group(2))
+            return RuntimeError(
+                f"num_ctx too small: request needs {need} tokens but num_ctx is {ctx}. "
+                f"prompt + num_predict must fit num_ctx (this call used "
+                f"num_predict={num_predict}, num_ctx={num_ctx}). "
+                f"Raise NUM_CTX to at least {need + 2048} (leaving headroom) — "
+                f"raising NUM_PREDICT alone cannot fix this.")
+        return RuntimeError(
+            f"context overflow with num_predict={num_predict}, num_ctx={num_ctx}: {body[:200]}")
+    return RuntimeError(f"HTTP {e.code}: {body[:200]}")
+
+
 def gen(prompt, images, num_predict=None, num_ctx=None):
     if num_ctx is None:
         num_ctx = int(os.environ.get("NUM_CTX", "16384"))
@@ -52,7 +79,10 @@ def gen(prompt, images, num_predict=None, num_ctx=None):
         return r
     req = urllib.request.Request(HOST + "/api/generate",
         data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
-    return json.load(urllib.request.urlopen(req, timeout=int(os.environ.get("HTTP_TIMEOUT", "1800"))))
+    try:
+        return json.load(urllib.request.urlopen(req, timeout=int(os.environ.get("HTTP_TIMEOUT", "1800"))))
+    except urllib.error.HTTPError as e:
+        raise _context_error(e, num_predict, num_ctx) from None
 
 SCENE_PROMPT = """You are a precision visual inspection system deployed in an industrial
 quality-assurance pipeline. Your task on this frame is exhaustive object detection,
