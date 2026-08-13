@@ -59,10 +59,10 @@ def main():
         tag = name if literal else name.replace(":", "_").replace(".", "_")
         s = load(os.path.join(rundir, f"scores_{tag}.json")) or {}
         # Prefer the suite's own finetext block; fall back to the standalone
-        # probe's ft_<tag>.json for runs recorded before the fold (1db8ec9c).
-        # Reading only ft_ silently dropped real measurements: run_grid.sh never
-        # calls the standalone probe, so its fine-text row rendered "—" even
-        # though scores_<tag>.json held the tiers.
+        # probe's ft_<tag>.json for runs recorded before the fold. Reading only
+        # ft_ silently dropped real measurements: run_grid.sh never calls the
+        # standalone probe, so its fine-text row rendered "—" even though
+        # scores_<tag>.json held the tiers.
         ft = s.get("finetext") or load(os.path.join(rundir, f"ft_{tag}.json")) or {}
         sc, dc, mu = (s.get(k, {}) for k in ("scene_single", "document_single", "multi_3img"))
         gen, pre = sc.get("gen_tps"), sc.get("prefill_tps")

@@ -1,0 +1,112 @@
+{
+ "qwen3.6:35b-a3b-q4_K_M|A:suite-temp0": {
+  "eval_count": 24000,
+  "num_predict": 24000,
+  "converged": false,
+  "json_valid": false,
+  "think_chars": 74860,
+  "resp_chars": 0,
+  "wall_s": 341.6,
+  "opts": {
+   "temperature": 0,
+   "num_predict": 24000,
+   "num_ctx": 32768
+  },
+  "think_tail": "is in Image 1? No.\n            - Is it possible that \"price\" is in Image 1? No.\n            - Is it possible that \"kit\" is in Image 1? No.\n            - Is it possible that \"module\" is in Image 1? No."
+ },
+ "qwen3.6:35b-a3b-q4_K_M|B:card-rec-seed11": {
+  "eval_count": 10810,
+  "num_predict": 24000,
+  "converged": true,
+  "json_valid": true,
+  "think_chars": 26424,
+  "resp_chars": 3346,
+  "wall_s": 153.9,
+  "opts": {
+   "temperature": 1.0,
+   "top_p": 0.95,
+   "top_k": 20,
+   "min_p": 0.0,
+   "presence_penalty": 1.5,
+   "seed": 11,
+   "num_predict": 24000,
+   "num_ctx": 32768
+  },
+  "think_tail": "maller diameter?\n    - Let's estimate Dynamo bbox: [90, 570, 250, 750].\n\nLet's refine the text extraction for Image 1.\n\"SN-4921-XK\" is at bottom right. x~1400, y~850.\n\nOkay, I will construct the JSON."
+ },
+ "qwen3.6:35b-a3b-q4_K_M|B:card-rec-seed22": {
+  "eval_count": 8023,
+  "num_predict": 24000,
+  "converged": true,
+  "json_valid": true,
+  "think_chars": 18056,
+  "resp_chars": 3123,
+  "wall_s": 111.0,
+  "opts": {
+   "temperature": 1.0,
+   "top_p": 0.95,
+   "top_k": 20,
+   "min_p": 0.0,
+   "presence_penalty": 1.5,
+   "seed": 22,
+   "num_predict": 24000,
+   "num_ctx": 32768
+  },
+  "think_tail": "ar in Image 2? No.\nDoes \"4921\" appear in Image 2? No.\nSo still null.\n\nWait, is \"EMBER\" a word? Yes.\nIs \"FALCON\" a word? Yes.\nNone of these are in the invoice or chart text.\n\nOkay, ready to write JSON."
+ },
+ "gemma4:12b-nvfp4|A:suite-temp0": {
+  "eval_count": 24000,
+  "num_predict": 24000,
+  "converged": false,
+  "json_valid": false,
+  "think_chars": 62968,
+  "resp_chars": 0,
+  "wall_s": 308.4,
+  "opts": {
+   "temperature": 0,
+   "num_predict": 24000,
+   "num_ctx": 32768
+  },
+  "think_tail": "L\" is in image 1. No.\nLet me check if \"PAYMENT\" is in image 1. No.\nLet me check if \"DUE\" is in image 1. No.\nLet me check if \"QUARTERLY\" is in image 1. No.\nLet me check if \"UNIT\" is in image 1. No.\nLet"
+ },
+ "gemma4:12b-nvfp4|B:card-rec-seed11": {
+  "eval_count": 3278,
+  "num_predict": 24000,
+  "converged": true,
+  "json_valid": true,
+  "think_chars": 6054,
+  "resp_chars": 1958,
+  "wall_s": 72.5,
+  "opts": {
+   "temperature": 1.0,
+   "top_p": 0.95,
+   "top_k": 20,
+   "min_p": 0.0,
+   "presence_penalty": 1.5,
+   "seed": 11,
+   "num_predict": 24000,
+   "num_ctx": 32768
+  },
+  "think_tail": " TOTAL:, $3,447.70, Payment due within 30 days. Quote reference INV-2026-0801 on all correspondence.\nImage 3: Quarterly unit shipments (k), 62, 91, 47, 128, 73, Q1, Q2, Q3, Q4, Q5*\n\nAll seems correct."
+ },
+ "gemma4:12b-nvfp4|B:card-rec-seed22": {
+  "eval_count": 2525,
+  "num_predict": 24000,
+  "converged": true,
+  "json_valid": true,
+  "think_chars": 4151,
+  "resp_chars": 1807,
+  "wall_s": 55.3,
+  "opts": {
+   "temperature": 1.0,
+   "top_p": 0.95,
+   "top_k": 20,
+   "min_p": 0.0,
+   "presence_penalty": 1.5,
+   "seed": 22,
+   "num_predict": 24000,
+   "num_ctx": 32768
+  },
+  "think_tail": "erlap.\n\nFinal check on bounding box for DYNAMO in image 1.\nThe orange circle is roughly centered at (185, 676) with radius ~70-80.\nX range: [113, 256]\nY range: [558, 795]\nMatches my previous estimate."
+ }
+}

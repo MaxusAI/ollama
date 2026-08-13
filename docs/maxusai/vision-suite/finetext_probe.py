@@ -10,6 +10,8 @@ Env: THINK=on|false, ENDPOINT=generate|chat, NUM_CTX, NUM_PREDICT, HTTP_TIMEOUT
 import json
 import re, os, sys, base64, random, urllib.request
 
+from sampling import sampling_for, provenance
+
 DIR = os.path.dirname(os.path.abspath(__file__))
 IMG = os.path.join(DIR, "visimgs", "finetext.png")
 GT = os.path.join(DIR, "visimgs", "finetext_gt.json")
@@ -108,7 +110,11 @@ def run(host, tag, model):
     timeout = int(os.environ.get("HTTP_TIMEOUT", "1800"))
     ep = os.environ.get("ENDPOINT", "generate")
     think = os.environ.get("THINK", "false") == "on"
-    opts = {"num_predict": num_predict, "num_ctx": num_ctx, "temperature": 0}
+    # Per-model sampling, matching vision_suite.py — this probe runs the same
+    # cell through a second code path, so a divergence here shows up as the two
+    # harnesses disagreeing about the same model. See sampling.py.
+    opts = {"num_predict": num_predict, "num_ctx": num_ctx}
+    opts.update(sampling_for(model, think))
     if os.environ.get("KV_CACHE_TYPE"):
         opts["kv_cache_type"] = os.environ["KV_CACHE_TYPE"]
     if ep == "chat":
@@ -129,6 +135,17 @@ def run(host, tag, model):
     s.update(score_codes(body))
     s["prompt_eval_count"] = r.get("prompt_eval_count")
     s["eval_count"] = r.get("eval_count")
+    # The request window these numbers were achieved under. Recall that comes in
+    # low may be the model or may be a capped generation; without num_ctx and
+    # num_predict the two are indistinguishable after the fact. Note this probe
+    # defaults higher than vision_suite.py (32768/4000 vs 16384/2200), so a run
+    # that does not set both explicitly measures the two harnesses at different
+    # windows — run_engine_compare.sh sets them.
+    s["num_ctx"] = num_ctx
+    s["num_predict"] = num_predict
+    # ADR 0005 asks runs to record their runtime configuration. Without this a
+    # capped cell cannot be attributed to a sampling mode after the fact.
+    s.update(provenance(model, think))
     print(f"--- finetext [{tag}] ---")
     print(json.dumps(s, indent=1))
     json.dump(s, open(os.path.join(DIR, f"ft_{tag}.json"), "w"), indent=1)

@@ -213,6 +213,7 @@ Findings, in contrast to gemma4:
 | Document-row geometry | gemma4 31B @1120 (patched) — only config above 0.7 doc IoU |
 | bbox on 12B specifically | pin `image_max_tokens: 560` (ADR 0008 exception) |
 | Latency-sensitive, coarse tasks | any gemma4 @280 per request (model-card guidance) |
+| **Any vision workload** | **`think: false`** — thinking never improves grounding and twice harms it ([ADR 0022](adr/0022-thinking-is-off-for-vision-work.md), [campaign 2026-08-13](vision-campaign-2026-08-13-thinkmode.md)) |
 
 ---
 

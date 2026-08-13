@@ -23,11 +23,17 @@ Reproducible ground-truth benchmarks behind the measured tables in
   `FONT_PATH`, e.g. to matplotlib's bundled `DejaVuSansMono.ttf`; applies to
   `finetext_probe.py gen` too). Regenerate any time; edit sizes/content to
   extend coverage — scoring reads `ground_truth.json`, not hardcoded values.
-- `vision_suite.py <host> <tag> [model] [test]` — runs three long-prompt JSON
-  extractions (single scene w/ pixel bboxes, single invoice, 3-image cross-analysis)
-  and scores objectively (label recall, color accuracy, qty/price exactness, bbox
-  center-hits, cross-image answers). Env: `THINK=on|false` (default `false`),
-  `NUM_PREDICT` (default 2200; ≥4000 with `THINK=on`, 16000 for think-on multi-image),
+- `vision_suite.py <host> <tag> [model] [test]` — runs four long-prompt JSON
+  extractions (single scene w/ pixel bboxes, single invoice, 3-image cross-analysis, and
+  the dense fine-text probe, whose prompt and scorer are imported from `finetext_probe.py`
+  rather than copied) and scores objectively (label recall, color accuracy, qty/price
+  exactness, bbox center-hits, cross-image answers, per-size code recall). All four land in
+  `scores_<tag>.json`, so the fine-text tiers are there without running the standalone
+  probe. Env: `THINK=on|false` (default `false` — must be the literal `on`),
+  `NUM_PREDICT` (default 2200; **no fixed think-on floor** — the once-documented ≥4000 was
+  measured on 2026-08-09 and does not hold, every empty cell in that run sat at exactly
+  eval=4000. Think-on budgets are derived from the `num_ctx` rung by the runners as
+  `num_ctx - CTX_PROMPT_RESERVE`),
   `IMAGE_MIN_TOKENS` / `IMAGE_MAX_TOKENS` (fork-only per-request vision budget,
   arch-gated to gemma4 and nemotron_h_omni; unset = build default. Recorded in the
   scores as `req_image_*_tokens` so a control run is identifiable after the fact),
@@ -64,8 +70,13 @@ Reproducible ground-truth benchmarks behind the measured tables in
   `refcoco` mode reports the winning coordinate dialect and JSON key per item, so it doubles
   as a dialect probe. See [../vision-benchmark-survey.md](../vision-benchmark-survey.md) for
   why the external harnesses' own grounding scorers cannot be trusted with our models.
-- `run_grid.sh` — model × think-mode grid against one host, with an optional restart
-  hook between runs (see below).
+- `run_grid.sh <host> <tag-prefix>` — model × think-mode grid against one host, with an
+  optional restart hook between runs (see below). Budgets are **per think-mode** and set by
+  the runner: think-off `num_predict` 4000, think-on `num_ctx - CTX_PROMPT_RESERVE` (8192 at
+  the 16384 start rung). Do **not** export `NUM_PREDICT` or `NUM_CTX` unless you mean to pin
+  *both* modes to one value — use `NUM_PREDICT_THINKON` / `NUM_CTX_THINKON` to move think-on
+  alone. Unlike `run_engine_compare.sh` it does not auto-escalate; it reports a capped cell
+  and the rung to retry at.
 - `run_engine_compare.sh <host>` — **engine-parity campaign** (MLX safetensors vs
   llama-server GGUF): cold server per model via `RESTART_CMD`, then the three-suite
   run and the fine-text probe per model. `summarize_engine_compare.py <model…>`
@@ -75,8 +86,9 @@ Reproducible ground-truth benchmarks behind the measured tables in
 - `run_compare.sh <tag-prefix>` — **stock vs fork, with a budget-matched control arm.**
   Use this rather than eyeballing two separate runs: a bare stock-vs-fork comparison
   moves two variables at once. See "Comparing against stock" below.
-- `variants.py <host> <nogrammar|thinkon> [model]` — scene-test probes that isolate
-  the `format:"json"` grammar constraint and reasoning mode as variables.
+- `variants.py <nogrammar|thinkon> [host]` — scene-test probes that isolate
+  the `format:"json"` grammar constraint and reasoning mode as variables. Mode comes
+  **first**, host second; the model is hardcoded to `nemotron3:33b-q4_K_M`.
 
 ## Scoring note: markdown-fence tolerance (2026-08-08)
 
@@ -89,7 +101,10 @@ is a no-op there; the MLX runner did not enforce format until x/structured
 
 ## Method (match this or numbers aren't comparable)
 
-- `temperature 0`, `format:"json"`, `num_ctx 16384`, `NUM_PREDICT=4000` for grids.
+- `temperature 0`, `format:"json"`, `num_ctx 16384`. **Let the runner set the budgets** —
+  they are per think-mode and exporting `NUM_PREDICT` pins both. A single 4000 across both
+  modes, which this line used to prescribe, caps think-on inside its own reasoning block and
+  scores the truncation as a vision failure ([ADR 0022](../adr/0022-thinking-is-off-for-vision-work.md)).
 - **Cold server per model run** when payloads under test have cross-request leakage
   (upstream #17475 reproduced on b10091): restart the serving container/process
   between runs — `run_grid.sh` does this via `RESTART_CMD`.
@@ -118,6 +133,40 @@ is a no-op there; the MLX runner did not enforce format until x/structured
   > almost immediately, so it is far slower — not a hang. Same run: stock 21 s for all
   > three tests, fork on Metal ~7 min, fork on the CPU container ~39 min. Raise
   > `HTTP_TIMEOUT` for CPU think-on runs.
+  >
+  > **Amended 2026-08-13 — a think-on cell can still come back empty, and it is the
+  > harness's own fault.** The suite generates at `temperature: 0` with no
+  > `presence_penalty` (hardcoded in `vision_suite.py`, `finetext_probe.py` and
+  > `preflight/probes.py`). That is off-policy for these models: Qwen's card
+  > recommends `temperature=1.0, top_p=0.95, top_k=20, presence_penalty=1.5` for
+  > thinking mode and names `presence_penalty` as the anti-repetition lever. With it
+  > disabled, reasoning can fail to terminate — every token lands in `thinking`,
+  > `eval_count` hits `num_predict`, and `response` is empty.
+  >
+  > Same prompt, same budget (`num_predict=24000`), measured on b10353:
+  >
+  > | model | `temperature: 0` (suite) | card-recommended sampling |
+  > |---|---|---|
+  > | `qwen3.6:35b-a3b-q4_K_M` | 24 000, **empty** | 10 810 / 8 023, **valid** |
+  > | `qwen3.6:35b-a3b-q8_0` | 16 677, valid | 4 109 / 12 604, **valid** |
+  > | `gemma4:12b-nvfp4` | 24 000, **empty** | 3 278 / 2 525, **valid** |
+  >
+  > Note the q8_0 row: for **qwen3.6 only**, raising quantization also fixes it on its
+  > own. That does not generalize — `gemma4:12b` still loops at F16 upstream — so fix
+  > the sampling, which works on both.
+  >
+  > **Do not escalate `num_ctx` to chase this** — no context size fixes it, and above
+  > ~90 K `num_predict` the 1800 s `HTTP_TIMEOUT` expires first, turning a cap into an
+  > error with no data. Fix the sampling instead.
+  >
+  > Two further consequences for anyone reading think-on numbers: the failure is
+  > **stochastic even at `temperature: 0`** (the same `gemma4:12b-nvfp4` finetext cell
+  > converged at 2 761 tokens and capped at 28 672 on identical requests), so a single
+  > capped observation proves nothing — run n ≥ 3. And precision is **not** implicated:
+  > gemma4 31b converges at nvfp4/mxfp8/bf16 and nemotron3 33b at q4_K_M/q8/bf16, though
+  > higher precision costs up to 2.3× more reasoning tokens, which tightens a fixed
+  > `num_predict`. Full evidence:
+  > [runaway-reasoning-under-think.md](../runaway-reasoning-under-think.md).
 - Subtract each model's text baseline when reading `prompt_eval_count`, measured with
   **the same prompt as the probe** — a baseline taken with a different prompt puts the
   text-length difference into every row. Beware also that the prefix can tokenise

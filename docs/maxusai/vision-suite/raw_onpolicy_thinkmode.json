@@ -1,0 +1,541 @@
+{
+ "_note": "On-policy think-mode comparison behind ADR 0023. Apple/b10353, /api/generate, num_ctx 32768, num_predict 24000 (think-on) / 4000 (think-off). think-off is greedy; think-on uses model-card sampling via sampling.py. n=3 think-on.",
+ "runs": {
+  "onpol_gemma4_31b-it-q4_K_M_off": {
+   "scene_single": {
+    "json_valid": true,
+    "eval_count": 538,
+    "num_predict": 4000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": 0.96,
+    "name_bbox_mean_iou": null,
+    "bbox_space": "norm1000/xyxy",
+    "colors_right": 6,
+    "sampling_source": "greedy-think-off",
+    "sampling": {
+     "temperature": 0
+    }
+   },
+   "document_single": {
+    "json_valid": true,
+    "eval_count": 499,
+    "num_predict": 4000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": 0.708,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "greedy-think-off",
+    "sampling": {
+     "temperature": 0
+    }
+   },
+   "multi_3img": {
+    "json_valid": true,
+    "eval_count": 1143,
+    "num_predict": 4000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "greedy-think-off",
+    "sampling": {
+     "temperature": 0
+    }
+   },
+   "finetext": {
+    "json_valid": true,
+    "eval_count": 264,
+    "num_predict": 4000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "greedy-think-off",
+    "sampling": {
+     "temperature": 0
+    }
+   }
+  },
+  "onpol_gemma4_31b-it-q4_K_M_on": {
+   "scene_single": {
+    "json_valid": true,
+    "eval_count": 2196,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": 0.957,
+    "name_bbox_mean_iou": null,
+    "bbox_space": "norm1000/xyxy",
+    "colors_right": 6,
+    "sampling_source": "card:gemma4",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   },
+   "document_single": {
+    "json_valid": true,
+    "eval_count": 2269,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": 0.709,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:gemma4",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   },
+   "multi_3img": {
+    "json_valid": true,
+    "eval_count": 2624,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:gemma4",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   },
+   "finetext": {
+    "json_valid": true,
+    "eval_count": 1307,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:gemma4",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   }
+  },
+  "onpol_gemma4_31b-it-q4_K_M_on2": {
+   "scene_single": {
+    "json_valid": true,
+    "eval_count": 1913,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": 0.963,
+    "name_bbox_mean_iou": null,
+    "bbox_space": "norm1000/xyxy",
+    "colors_right": 6,
+    "sampling_source": "card:gemma4",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   },
+   "document_single": {
+    "json_valid": true,
+    "eval_count": 2639,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": 0.707,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:gemma4",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   },
+   "multi_3img": {
+    "json_valid": true,
+    "eval_count": 2634,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:gemma4",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   },
+   "finetext": {
+    "json_valid": true,
+    "eval_count": 2039,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:gemma4",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   }
+  },
+  "onpol_gemma4_31b-it-q4_K_M_on3": {
+   "scene_single": {
+    "json_valid": true,
+    "eval_count": 1662,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": 0.961,
+    "name_bbox_mean_iou": null,
+    "bbox_space": "norm1000/xyxy",
+    "colors_right": 6,
+    "sampling_source": "card:gemma4",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   },
+   "document_single": {
+    "json_valid": true,
+    "eval_count": 3374,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": 0.755,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:gemma4",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   },
+   "multi_3img": {
+    "json_valid": true,
+    "eval_count": 2745,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:gemma4",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   },
+   "finetext": {
+    "json_valid": true,
+    "eval_count": 1672,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:gemma4",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 64
+    }
+   }
+  },
+  "onpol_qwen3_6_35b-a3b-q4_K_M_off": {
+   "scene_single": {
+    "json_valid": true,
+    "eval_count": 544,
+    "num_predict": 4000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": 0.975,
+    "name_bbox_mean_iou": null,
+    "bbox_space": "norm1000/xyxy",
+    "colors_right": 6,
+    "sampling_source": "greedy-think-off",
+    "sampling": {
+     "temperature": 0
+    }
+   },
+   "document_single": {
+    "json_valid": true,
+    "eval_count": 487,
+    "num_predict": 4000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": 0.686,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "greedy-think-off",
+    "sampling": {
+     "temperature": 0
+    }
+   },
+   "multi_3img": {
+    "json_valid": true,
+    "eval_count": 1163,
+    "num_predict": 4000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "greedy-think-off",
+    "sampling": {
+     "temperature": 0
+    }
+   },
+   "finetext": {
+    "json_valid": true,
+    "eval_count": 311,
+    "num_predict": 4000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "greedy-think-off",
+    "sampling": {
+     "temperature": 0
+    }
+   }
+  },
+  "onpol_qwen3_6_35b-a3b-q4_K_M_on": {
+   "scene_single": {
+    "json_valid": true,
+    "eval_count": 2299,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": 0.963,
+    "name_bbox_mean_iou": null,
+    "bbox_space": "norm1000/xyxy",
+    "colors_right": 6,
+    "sampling_source": "card:qwen3.6",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 1.5
+    }
+   },
+   "document_single": {
+    "json_valid": true,
+    "eval_count": 4814,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": 0.568,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:qwen3.6",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 1.5
+    }
+   },
+   "multi_3img": {
+    "json_valid": true,
+    "eval_count": 14628,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:qwen3.6",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 1.5
+    }
+   },
+   "finetext": {
+    "json_valid": true,
+    "eval_count": 2870,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:qwen3.6",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 1.5
+    }
+   }
+  },
+  "onpol_qwen3_6_35b-a3b-q4_K_M_on2": {
+   "scene_single": {
+    "json_valid": true,
+    "eval_count": 18540,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": 0.281,
+    "name_bbox_mean_iou": null,
+    "bbox_space": "pixel/xyxy",
+    "colors_right": 6,
+    "sampling_source": "card:qwen3.6",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 1.5
+    }
+   },
+   "document_single": {
+    "json_valid": true,
+    "eval_count": 3340,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": 0.63,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:qwen3.6",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 1.5
+    }
+   },
+   "multi_3img": {
+    "json_valid": true,
+    "eval_count": 12404,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:qwen3.6",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 1.5
+    }
+   },
+   "finetext": {
+    "json_valid": true,
+    "eval_count": 1276,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:qwen3.6",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 1.5
+    }
+   }
+  },
+  "onpol_qwen3_6_35b-a3b-q4_K_M_on3": {
+   "scene_single": {
+    "json_valid": false,
+    "eval_count": 24000,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": 0.0,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": 0,
+    "sampling_source": "card:qwen3.6",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 1.5
+    }
+   },
+   "document_single": {
+    "json_valid": true,
+    "eval_count": 6503,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": 0.364,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:qwen3.6",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 1.5
+    }
+   },
+   "multi_3img": {
+    "json_valid": true,
+    "eval_count": 3727,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:qwen3.6",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 1.5
+    }
+   },
+   "finetext": {
+    "json_valid": true,
+    "eval_count": 2053,
+    "num_predict": 24000,
+    "num_ctx": 32768,
+    "bbox_mean_iou": null,
+    "name_bbox_mean_iou": null,
+    "bbox_space": null,
+    "colors_right": null,
+    "sampling_source": "card:qwen3.6",
+    "sampling": {
+     "temperature": 1.0,
+     "top_p": 0.95,
+     "top_k": 20,
+     "min_p": 0.0,
+     "presence_penalty": 1.5
+    }
+   }
+  }
+ }
+}

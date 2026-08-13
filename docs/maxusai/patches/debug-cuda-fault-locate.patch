@@ -1,0 +1,66 @@
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index 05e8d7f73..cfb5bacb8 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -1884,11 +1884,13 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
+             if (ggml_is_quantized(src0->type)) {
+                 const int mmvq_mmid_max = get_mmvq_mmid_max_batch(src0->type, cc);
+                 if (ne2 <= mmvq_mmid_max) {
++                    { fprintf(stderr, "MAXUSAI_MMID branch=%s ids=%p ne0=%lld ne1=%lld ne2=%lld ne02=%lld ne11=%lld ne12=%lld type=%s\n", "mmvq", (void*)ids, (long long)ne0, (long long)ne1, (long long)ne2, (long long)ne02, (long long)ne11, (long long)ne12, ggml_type_name(src0->type)); fflush(stderr); }
+                     ggml_cuda_mul_mat_vec_q(ctx, src0, src1, ids, dst);
+                     return;
+                 }
+             } else {
+                 if (GGML_CUDA_CC_IS_AMD(cc)) {
++                    { fprintf(stderr, "MAXUSAI_MMID branch=%s ids=%p ne0=%lld ne1=%lld ne2=%lld ne02=%lld ne11=%lld ne12=%lld type=%s\n", "mmvf", (void*)ids, (long long)ne0, (long long)ne1, (long long)ne2, (long long)ne02, (long long)ne11, (long long)ne12, ggml_type_name(src0->type)); fflush(stderr); }
+                     ggml_cuda_mul_mat_vec_f(ctx, src0, src1, ids, dst);
+                     return;
+                 }
+@@ -1896,11 +1898,13 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
+         }
+ 
+         if (ggml_cuda_should_use_mmq(src0->type, cc, ne12, /*n_experts=*/ne02)) {
++            { fprintf(stderr, "MAXUSAI_MMID branch=%s ids=%p ne0=%lld ne1=%lld ne2=%lld ne02=%lld ne11=%lld ne12=%lld type=%s\n", "mmq", (void*)ids, (long long)ne0, (long long)ne1, (long long)ne2, (long long)ne02, (long long)ne11, (long long)ne12, ggml_type_name(src0->type)); fflush(stderr); }
+             ggml_cuda_mul_mat_q(ctx, src0, src1, ids, dst);
+             return;
+         }
+ 
+         if (ggml_cuda_should_use_mmf(src0->type, cc, WARP_SIZE, src0->ne, src0->nb, src1->ne[2], /*mul_mat_id=*/true)) {
++            { fprintf(stderr, "MAXUSAI_MMID branch=%s ids=%p ne0=%lld ne1=%lld ne2=%lld ne02=%lld ne11=%lld ne12=%lld type=%s\n", "mmf", (void*)ids, (long long)ne0, (long long)ne1, (long long)ne2, (long long)ne02, (long long)ne11, (long long)ne12, ggml_type_name(src0->type)); fflush(stderr); }
+             ggml_cuda_mul_mat_f(ctx, src0, src1, ids, dst);
+             return;
+         }
+@@ -1908,6 +1912,7 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
+ 
+     // note: this path should not be reached when recording CUDA graphs, because it requires stream synchronization
+     // TODO: add asserts to verify this. should work with CUDA, HIP, etc.
++    { fprintf(stderr, "MAXUSAI_MMID branch=%s ids=%p ne0=%lld ne1=%lld ne2=%lld ne02=%lld ne11=%lld ne12=%lld type=%s\n", "sorted-fallback", (void*)ids, (long long)ne0, (long long)ne1, (long long)ne2, (long long)ne02, (long long)ne11, (long long)ne12, ggml_type_name(src0->type)); fflush(stderr); }
+     cudaStream_t stream = ctx.stream();
+ 
+     GGML_ASSERT(nb12 % nb11 == 0);
+@@ -2368,9 +2373,25 @@ static bool ggml_cuda_compute_forward(ggml_backend_cuda_context & ctx, struct gg
+             return false;
+     }
+ 
++    // MAXUSAI: synchronise so the error is attributed to the node that caused it
++    cudaStreamSynchronize(ctx.stream());
+     cudaError_t err = cudaGetLastError();
+     if (err != cudaSuccess) {
+         GGML_LOG_ERROR("%s: %s failed\n", __func__, ggml_op_desc(dst));
++        fprintf(stderr, "MAXUSAI_FAULT op=%s name=%s dst_ne=[%lld,%lld,%lld,%lld]",
++                ggml_op_desc(dst), dst->name ? dst->name : "?",
++                (long long)dst->ne[0], (long long)dst->ne[1],
++                (long long)dst->ne[2], (long long)dst->ne[3]);
++        for (int si = 0; si < GGML_MAX_SRC; ++si) {
++            const ggml_tensor * s = dst->src[si];
++            if (!s) continue;
++            fprintf(stderr, " src%d=%s:%s[%lld,%lld,%lld,%lld]", si,
++                    s->name ? s->name : "?", ggml_type_name(s->type),
++                    (long long)s->ne[0], (long long)s->ne[1],
++                    (long long)s->ne[2], (long long)s->ne[3]);
++        }
++        fprintf(stderr, "\n");
++        fflush(stderr);
+         CUDA_CHECK(err);
+     }
+ 
