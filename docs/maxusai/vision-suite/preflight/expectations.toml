@@ -39,9 +39,19 @@ platform = "cuda"
 # Asserted BEFORE any measurement is trusted. 11434/11435/11436 are all occupied
 # on 10.8.0.6 and a canary once answered from the wrong server; only a version
 # mismatch caught it.
-version_pattern = '^0\.32\.5-dynres-[0-9a-f]{7,40}$'
+version_pattern = '^0\.32\.\d+-dynres-[0-9a-f]{7,40}$'
 patchset = ["001", "002", "004", "005"]
-reference_image = "maxusai/ollama:4987dd49-dynres"
+# The payload's real identity, read from `llama-server --version` on the running
+# container. The version string cannot carry this: two builds three upstream
+# releases apart both reported `0.32.5-dynres-*` while the payload moved
+# b10091 -> b10353, so expectations measured on the first were silently applied
+# to the second. It passed, but by luck — a bump that DID move sizing would have
+# surfaced as an unexplained ladder failure rather than a payload change.
+# So the version pattern now only asks "is this a fork dynres build", and this
+# pin answers "is this the payload the numbers below were measured on".
+# b10353 == llama.cpp f8def7fe1; measured 2026-08-12 on :11437.
+llama_cpp_build = "f8def7fe1"
+reference_image = "maxusai/ollama:7b44e3fa-dynres"
 expect_patch_marker = 1          # grep -c -- --image-max-tokens /usr/bin/ollama
 arches = ["nemotron_h_omni", "gemma4"]
 notes = """

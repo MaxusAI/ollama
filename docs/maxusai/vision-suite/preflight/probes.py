@@ -256,6 +256,28 @@ def parse_pixel_lines(text):
             for m in PIXEL_RE.finditer(text)]
 
 
+def llama_cpp_build(container, path="/usr/lib/ollama/llama-server", exec_cmd=None):
+    """The llama.cpp source SHA the *running payload* was compiled from, read
+    from `llama-server --version` (e.g. "version: 1 (f8def7fe1)" -> "f8def7fe1").
+
+    This is the payload's real identity. The ollama version string is not: two
+    builds three releases apart both reported `0.32.5-dynres-*` while their
+    payloads moved b10091 -> b10353, so an expectation set measured on one was
+    silently applied to the other. Read from the container, never from the
+    checkout's LLAMA_CPP_VERSION, which describes whatever is checked out now
+    rather than what the server under test is running."""
+    cmd = ([exec_cmd.format(container=container)] if exec_cmd else
+           ["docker", "exec", container, "sh", "-c",
+            f"{path} --version 2>&1 | head -2 || true"])
+    proc = subprocess.run(cmd, shell=bool(exec_cmd), capture_output=True,
+                          text=True, timeout=120)
+    out = (proc.stdout or "") + (proc.stderr or "")
+    m = re.search(r"version:\s*\d+\s*\(([0-9a-f]{7,40})\)", out)
+    if not m:
+        raise ProbeError(f"no build sha from llama-server --version: {out[:300]!r}")
+    return m.group(1)
+
+
 def grep_binary_marker(container, path="/usr/bin/ollama", exec_cmd=None):
     """grep -c -- --image-max-tokens on the Go binary: 1 on a fork build, 0 on
     stock ollama/ollama. This is a GO-side marker only — it says nothing about

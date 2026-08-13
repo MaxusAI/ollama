@@ -38,7 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import checks  # noqa: E402
 from checks import (CONTENTION, ERROR, FAIL, NEEDS_BASELINE, PASS,  # noqa: E402
                     SKIP)
-from probes import Ollama, ProbeError, find_container  # noqa: E402
+from probes import Ollama, ProbeError, find_container, llama_cpp_build  # noqa: E402
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 RUNS = os.path.join(DIR, "runs")
@@ -318,6 +318,17 @@ def main():
         print(f"container: {container}")
     else:
         print("container: not resolved — binary and log checks will be skipped")
+
+    # Payload identity, recorded before any measurement so every run artefact
+    # names the llama.cpp it was measured on — meta previously carried version,
+    # profile and patchset but nothing identifying the compiled payload.
+    if container:
+        try:
+            meta["llama_cpp_build"] = llama_cpp_build(container, exec_cmd=args.exec_cmd)
+        except Exception:
+            meta["llama_cpp_build"] = None
+    results.append(checks.check_payload_pin(profile, container, args.exec_cmd))
+    flush()
 
     results.append(checks.check_image_tag(client, profile, args.image_tag, container))
     results.append(checks.check_patch_marker(profile, container, args.exec_cmd))
