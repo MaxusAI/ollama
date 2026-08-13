@@ -1,6 +1,14 @@
 # ADR 0022: thinking stays off for vision work; gemma4 is the only lineage where it is even viable
 
-- **Status:** accepted (2026-08-13)
+- **Status:** superseded by [ADR 0023](0023-think-mode-is-per-model-and-measured-on-policy.md) (2026-08-13) — every
+  arm below was measured at `temperature 0`, which is off-policy for thinking mode on both
+  families whose cards we can read and can by itself prevent reasoning from terminating.
+  Re-measured on-policy, the **gemma4** grounding cost reverses sign and **qwen3.6**'s
+  multi-image non-termination disappears; the **qwen3.6** and **nemotron3** verdicts
+  survive, nemotron3's reproducing at 0.870 → 0.627 / 0.460 / 0.462 (n=3). The harness
+  traps and the admissibility rule below carry forward unchanged. **Note for this
+  lineage:** ADR 0023's re-measurement is Apple Silicon / b10353; this branch is gfx1151 /
+  b9888, and neither ADR's think-on numbers have been reproduced on this build.
 - **Date:** 2026-08-13
 - **Deciders:** MaxusAI fork maintainers
 - **Lineage note:** backported from `main` (`d9cce86f`, corrected in `e67dcbdf`) because this
