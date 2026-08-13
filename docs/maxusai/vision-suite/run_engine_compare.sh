@@ -77,6 +77,13 @@ MODELS="${MODELS:?set MODELS to the space-separated model list}"
 THINK_MODES="${THINK_MODES:-false on}"
 CTX_LADDER="${CTX_LADDER:-4096 8192 16384 32768 65536}"
 CTX_MAX="${CTX_MAX:-65536}"
+# Reserved for the prompt when deriving num_predict from a rung. The server
+# HARD-REJECTS (400) a request whose prompt + num_predict exceeds num_ctx —
+# it does not silently truncate — so this must exceed the largest prompt the
+# suite produces. Measured worst case is nemotron3 multi_3img at 6,203
+# tokens (gemma4 is only 3,765, which is why a 4096 reserve appeared to work
+# until nemotron was run). 8192 clears it with margin.
+CTX_PROMPT_RESERVE="${CTX_PROMPT_RESERVE:-8192}"
 
 for m in $MODELS; do
   base=$(printf '%s' "$m" | tr ':.' '__')
@@ -94,12 +101,12 @@ for m in $MODELS; do
       # num_predict is DERIVED from the rung for think-on so the pair stays
       # coherent as we climb; think-off keeps its fixed, comfortably-fitting cap.
       if [ "$think" = "on" ]; then
-        np="${NUM_PREDICT:-${NUM_PREDICT_THINKON:-$((nc - 4096))}}"
+        np="${NUM_PREDICT:-${NUM_PREDICT_THINKON:-$((nc - CTX_PROMPT_RESERVE))}}"
       else
         np="${NUM_PREDICT:-2200}"
       fi
-      if [ "$((np + 4096))" -gt "$nc" ]; then
-        echo "WARNING: num_predict=$np leaves <4096 of num_ctx=$nc for the prompt;" \
+      if [ "$((np + CTX_PROMPT_RESERVE))" -gt "$nc" ]; then
+        echo "WARNING: num_predict=$np leaves <$CTX_PROMPT_RESERVE of num_ctx=$nc for the prompt;" \
              "the effective cap will be (num_ctx - prompt), not num_predict."
       fi
       pmode=$( (pmset -g 2>/dev/null || true) | awk '/powermode/{print $2}')
