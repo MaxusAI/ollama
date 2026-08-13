@@ -1,7 +1,9 @@
 # ADR 0002: Defer `format` constraining for implicit-thinking generates via a stop-split continuation, not lazy grammars
 
 - **Status:** accepted, validated 2026-08-01 on fork `main` (b10091 runners) and
-  `release/0.32.1-dynres` (b9888+002 runners). Full evidence in
+  `release/0.32.1-dynres` (b9888+002 runners). **Its vision-quality claim is reversed by
+  [ADR 0022](0022-thinking-is-off-for-vision-work.md) (2026-08-13)** — see the Consequences
+  note below; the deferral mechanism itself stands. Full evidence in
   [generate-think-format-empty-response.md](../generate-think-format-empty-response.md);
   the resulting contract is specified in
   [SPEC: structured output combined with thinking](../spec/structured-output-with-thinking.md).
@@ -79,11 +81,20 @@ existing double-request mechanism.
   (`925a669a`). Reported metrics count each token once (prompt eval from pass one,
   generated tokens summed) — thinking tokens appear in `eval_count`, never in
   `prompt_eval_count`.
-- Validation surfaced a quality datum worth keeping: with reasoning enabled through
+- ~~Validation surfaced a quality datum worth keeping: with reasoning enabled through
   this path, nemotron's localisation improved markedly (scene bbox center-hits 5/6
   vs 0–1 in every think:false run; invoice name-bbox 5/5) — reasoning helps spatial
   grounding, so think:on is now a quality *option* for extraction, not a forbidden
-  mode.
+  mode.~~
+  **Reversed by [ADR 0022](0022-thinking-is-off-for-vision-work.md) (2026-08-13).** The
+  scored vision suite measured the same model the other way, *on this lineage's own build*
+  (`0.32.1-dynres-296eb020`): nemotron3 scene IoU **0.840 → 0.391** with thinking on, and
+  document extraction dropping an item (5/5 → 4/5). The observation above was a side-effect
+  note from *this* ADR's deferred-constraining validation — center-hit counts on a single
+  unscored run, not the suite — and it does not survive the matrix. Thinking is off for
+  vision work. The mechanism this ADR describes is unaffected: it remains correct for
+  structured output *with* thinking where thinking is wanted for its own sake, which vision
+  is not.
 - The mechanism needs only stop strings + `stopping_word` + `cache_prompt`: no
   llama.cpp feature dependency, so the identical commit cherry-picks to b9888-era
   branches (done: `d1ef5557` on `release/0.32.1-dynres`).
