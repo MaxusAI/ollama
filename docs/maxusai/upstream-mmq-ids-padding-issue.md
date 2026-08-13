@@ -175,10 +175,55 @@ shapes still executes, so the fix corrects the path rather than routing around i
 Happy to open a PR if the approach looks right. `ggml_cuda_mmq_get_J_max()` returning 0 for
 small `ne11` may also deserve a guard in its own right, independently of this call site.
 
-### Possibly related
+### Possibly related — several may be this same bug
 
-- #22867 — same model family, same `find_slot: non-consecutive token position` line
-- #18331 — MMQ illegal access at a ubatch boundary on Blackwell, attributed there to nvcc
-  codegen; worth re-checking against this, since the workaround
-  (`-DCMAKE_CUDA_ARCHITECTURES=89`) would also change pool/allocation behaviour
-- #24399
+Nothing below is fixed; two are closed as "not planned". Where a report was attributed to
+codegen, that attribution is worth revisiting: an under-allocation whose fault depends on
+allocator layout looks exactly like a miscompilation, and every workaround listed in those
+issues also perturbs allocation or bypasses MMQ entirely.
+
+- **#24399 — sm_120 `mul_mat_q` out-of-range shared-memory store. The closest match, and
+  plausibly the same bug.** Same file, same kernel family, same hardware class (RTX 5090,
+  CC 12.0). It was judged a Blackwell int8-MMA write-back codegen problem. Note both
+  workarounds offered there are explained by this defect rather than by codegen:
+  `-DGGML_CUDA_FORCE_CUBLAS=ON` disables the MMQ kernels outright — i.e. it avoids the code
+  path containing the under-allocation — and requantising changes `y_block_size` and
+  `ne10_padded`, which changes the allocation size and therefore whether the fixed-size
+  overrun lands on a mapped page. Closed as not planned.
+- **#19705 — Qwen3-Coder-Next `ggml_mul_mat_id` assertion.** MoE, `mul_mat_id`, reproduces
+  only at full GPU offload (`-ngl 99`) and is fine on CPU — consistent with a fault confined
+  to the CUDA MMQ path, since no CPU path shares this allocation. Explicitly references
+  Nemotron-3-nano and gpt-oss-120b, so it was already understood as MoE-wide rather than
+  model-specific. Closed as not planned; the suggested CPU/partial-offload workaround is not
+  viable at production scale.
+- **#18331 — Blackwell MUL_MAT illegal access, attributed to an nvcc O3 codegen bug.** Its
+  workaround (`-DCMAKE_CUDA_ARCHITECTURES=89`) changes the generated code *and* the fatbin,
+  so it cannot distinguish a codegen fault from an allocation-layout one. Worth re-testing
+  against this fix.
+- **#22867 — same model family, same `find_slot: non-consecutive token position` line.** That
+  log line comes from the recurrent memory (`llama-memory-recurrent.cpp`) and also appears on
+  runs that do **not** crash, so it marks the code path rather than the fault.
+- **#22032 — MoE flash-attention crash above 24K context.** Probably distinct (flash
+  attention, not MMQ), but it shares the misleading "context threshold" framing described
+  below.
+
+### Two things this report deliberately does not claim
+
+Both are natural readings of the evidence, and both are wrong. They are stated here because
+believing either sends the investigation somewhere unproductive — as it did for us.
+
+**It is not a context-size threshold.** The apparent "crashes above 32768, never below" is an
+artifact of the harness tiering the batch by context length. Force the batch directly and it
+reproduces at small context (`num_ctx=8192`, `num_batch=2048`); raise the ceiling and it still
+faults (`-b 4096 -ub 4096`) on the same 2040-row ubatch. The single variable is the number of
+rows in one MUL_MAT_ID ubatch, and any threshold in a report that varied only context length
+is measuring the harness, not the kernel.
+
+**It is not deterministic.** It looks deterministic because it is normally tested cold. The
+overrun is a fixed size past the end and faults only when it crosses an unmapped page, so the
+same request that crashes on a fresh pool **passes** once the pool has served a larger
+allocation — measured, with a 4080-token image warming it. This is very likely why several of
+the reports above read as stochastic and were attributed to codegen. It also means a green run
+is not evidence of absence, and that `test-backend-ops` cannot decide it: the over-read lands
+in padding rows the kernel discards, so output is byte-identical and NMSE is unaffected.
+`compute-sanitizer --tool memcheck` is the instrument that does.
