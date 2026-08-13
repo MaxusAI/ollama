@@ -428,8 +428,14 @@ def check_think_format(client, expect, arch, min_num_predict):
         if eval_count >= np_:
             diagnosis = (f"eval_count ({eval_count}) hit num_predict ({np_}) with an "
                          f"empty response and {len(thinking)} chars of thinking — "
-                         f"this is the num_predict trap, NOT a vision failure. "
-                         f"Raise num_predict for this arch.")
+                         f"NOT a vision failure. This gate samples at temperature 0, "
+                         f"which is off-policy for thinking mode and can stop "
+                         f"reasoning from ever terminating; raising num_predict does "
+                         f"NOT fix that (measured: five num_ctx rungs to 128K, never "
+                         f"converged). Re-run the probe with the model card's "
+                         f"sampling before touching the budget — see "
+                         f"docs/maxusai/runaway-reasoning-under-think.md. Only if it "
+                         f"still caps on-policy is the budget genuinely too low.")
         else:
             diagnosis = (f"Generated {eval_count} tokens then emitted no JSON body, "
                          f"well under the {np_} budget. That is the stock "

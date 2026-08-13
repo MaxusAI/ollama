@@ -1,0 +1,26 @@
+{
+ "gemma-card|seed11": {
+  "eval": 4316,
+  "resp_chars": 1835,
+  "converged": true,
+  "wall_s": 58.0
+ },
+ "gemma-card|seed22": {
+  "eval": 5014,
+  "resp_chars": 2079,
+  "converged": true,
+  "wall_s": 67.1
+ },
+ "gemma-card+pp1.5|seed11": {
+  "eval": 4580,
+  "resp_chars": 2020,
+  "converged": true,
+  "wall_s": 67.1
+ },
+ "gemma-card+pp1.5|seed22": {
+  "eval": 6044,
+  "resp_chars": 1928,
+  "converged": true,
+  "wall_s": 107.2
+ }
+}

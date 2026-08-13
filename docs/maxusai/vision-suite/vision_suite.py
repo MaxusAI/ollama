@@ -6,6 +6,8 @@ e.g.   vision_suite.py http://127.0.0.1:11435 patched nemotron3:33b-q4_K_M
 import json
 import re, sys, base64, os, urllib.request
 
+from sampling import sampling_for, provenance
+
 HOST = TAG = MODEL = None  # set in main()
 DIR = os.path.dirname(os.path.abspath(__file__))
 IMG = os.path.join(DIR, "visimgs")
@@ -31,10 +33,18 @@ def gen(prompt, images, num_predict=None, num_ctx=None):
         num_ctx = default_num_ctx()
     if num_predict is None:
         num_predict = default_num_predict()
+    # Sampling is per-model and per-think-mode, NOT a hardcoded temperature 0.
+    # Think-off is still greedy (every published baseline depends on that);
+    # think-on uses the model card's values, because greedy decoding is what
+    # made reasoning fail to terminate. See sampling.py and
+    # ../runaway-reasoning-under-think.md.
+    think_on = os.environ.get("THINK", "false") == "on"
+    opts = {"num_predict": num_predict, "num_ctx": num_ctx}
+    opts.update(sampling_for(MODEL, think_on))
     payload = {
         "model": MODEL, "prompt": prompt, "images": images,
         "stream": False, "format": "json",
-        "options": {"num_predict": num_predict, "num_ctx": num_ctx, "temperature": 0},
+        "options": opts,
     }
     if os.environ.get("KV_CACHE_TYPE"):
         payload["options"]["kv_cache_type"] = os.environ["KV_CACHE_TYPE"]
@@ -49,7 +59,7 @@ def gen(prompt, images, num_predict=None, num_ctx=None):
                      ("IMAGE_MAX_TOKENS", "image_max_tokens")):
         if os.environ.get(env):
             payload["options"][opt] = int(os.environ[env])
-    if os.environ.get("THINK", "false") != "on":
+    if not think_on:
         payload["think"] = False
     endpoint = os.environ.get("ENDPOINT", "generate")
     if endpoint == "chat":
@@ -414,6 +424,11 @@ def main():
         # comparable on throughput (KV size affects decode speed).
         sc["num_ctx"] = default_num_ctx()
         sc["num_predict"] = default_num_predict()
+        # Which sampling this cell was measured under. ADR 0005 asks for the
+        # runtime configuration to be recorded; without it, a capped cell cannot
+        # be attributed to greedy decoding after the fact — which is exactly
+        # what happened to the b10353 think-on campaign.
+        sc.update(provenance(MODEL, os.environ.get("THINK", "false") == "on"))
         # Record the requested vision budget so a scores file is self-describing:
         # absent means "build default", present means this was a budget-matched
         # control arm. Without this a control run is indistinguishable from a
