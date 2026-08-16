@@ -3,6 +3,7 @@ package mlxrunner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -333,19 +335,76 @@ func (r *Runner) Run(host, port string, mux http.Handler) error {
 				}
 
 				close(request.Responses)
+
+				// Report first, stop second. The caller gets a StatusError
+				// describing the failure; only then does the runner exit, so
+				// the scheduler reloads a clean one rather than this process
+				// continuing on MLX state a failed evaluation abandoned.
+				var fatal fatalRunnerError
+				if errors.As(err, &fatal) {
+					return err
+				}
 			}
 		}
 	})
 
+	srv := &http.Server{Addr: net.JoinHostPort(host, port), Handler: mux}
+
+	// Without this the worker returning an error cancels ctx but ListenAndServe
+	// keeps running, so g.Wait() never returns and the "stop second" above
+	// never takes effect.
+	g.Go(func() error {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	})
+
 	g.Go(func() error {
 		slog.Info("Starting HTTP server", "host", host, "port", port)
-		return http.ListenAndServe(net.JoinHostPort(host, port), mux)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
 	})
 
 	return g.Wait()
 }
 
-func (r *Runner) runRequest(request Request) error {
+// fatalRunnerError marks a failure the runner must not continue past. MLX
+// treats a failed graph evaluation as unrecoverable and mlxthread re-panics it
+// onto this goroutine deliberately; recovering lets the caller be told what
+// happened instead of reading a stack from a dead subprocess, but the runner
+// still stops afterwards rather than serving on state MLX has abandoned.
+type fatalRunnerError struct{ err error }
+
+func (e fatalRunnerError) Error() string { return e.err.Error() }
+func (e fatalRunnerError) Unwrap() error { return e.err }
+
+// recoverRequest converts a panic raised while evaluating a request into an
+// error, so the existing error path in Run reports it as a StatusError to the
+// client. Allocation failures get the one thing a stack trace cannot give the
+// operator: what to change.
+func recoverRequest(err *error) {
+	v := recover()
+	if v == nil {
+		return
+	}
+
+	msg := fmt.Sprint(v)
+	wrapped := fmt.Errorf("mlx runner aborted: %s", msg)
+	if strings.Contains(msg, "out of memory") {
+		wrapped = fmt.Errorf("%w; the device ran out of memory during evaluation — "+
+			"lower num_ctx or free VRAM on the device", wrapped)
+	}
+	slog.Error("Recovered a panic while evaluating a request; stopping the runner",
+		"error", msg)
+	*err = fatalRunnerError{err: wrapped}
+}
+
+func (r *Runner) runRequest(request Request) (err error) {
+	defer recoverRequest(&err)
+
 	if r.mlxThread == nil {
 		return request.Pipeline(request.Ctx, request)
 	}
