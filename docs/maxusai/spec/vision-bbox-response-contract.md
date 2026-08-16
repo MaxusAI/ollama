@@ -146,6 +146,25 @@ Both tests use the response alone: no ground truth, no image content, not even
 the image dimensions. They therefore run unchanged on an image nobody has
 measured, which is the point.
 
+> **The 42/42 separation is a property of the original 42 responses, not of the
+> mechanism.** Re-measured over 107 anchored cells in the
+> [18-model campaign](../vision-campaign-2026-08-17-eighteen-model.md), C7 has
+> **one silent failure and one false reject**:
+>
+> - **Silent failure** — `qwen3.6:35b-a3b-q4_K_M` think-on `adv_real`: the anchor
+>   claimed `real/[1200, 900]`, a frame that was never sent, and **both range and
+>   aspect passed** while `hits_anchor` was 3 against a `hits_bestfit` of 6. A
+>   fabricated frame whose aspect happens to match the objects' extent defeats
+>   both checks. This is the known gap.
+> - **False reject** — `nemotron3:33b-bf16` think-on `adv_real`: rejected on
+>   aspect (anchor 1.00 vs extent 1.43) while the anchor was in fact correct. The
+>   aspect test assumes the objects span the frame; when they cluster, a correct
+>   normalized anchor looks inconsistent with them.
+>
+> Treat C7 as a strong filter, not a proof. It remains worth running — it caught
+> 14 of 16 genuinely unusable anchors — but a passing `self_check` is not a
+> guarantee, and a failing one on a sparse scene deserves a second look.
+
 **C8 — A response failing either check MUST be rejected, not converted.**
 Rejection MUST NOT fall back to a best-fit dialect search (C9). A caller with no
 ground truth cannot verify a best-fit result, and it fails hardest where it is
