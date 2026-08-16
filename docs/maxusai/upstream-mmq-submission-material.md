@@ -127,7 +127,8 @@ occurred.
 | | |
 |---|---|
 | Environment | RTX PRO 6000 Blackwell (sm_120), CUDA 13.0 |
-| Also reproduced on | `cb295bf59`, `b4d6c7d8f`, `f8def7fe1` |
+| Confirmed on | `f8def7fe1` (b10353) |
+| Clean on | `cb295bf59` (b9888), 3/3 cold trials, same host and config — a regression, bisectable in b9888..b10353 |
 | Unaffected by | `GGML_CUDA_DISABLE_GRAPHS=1` (env verified reaching the runner) |
 | Verification | 4 cold runs patched, no fault; 2 unpatched controls from the same tree, both fault |
 | Added allocation | ≤ `512 * sizeof(block_q8_1_mmq)` = **72 KB per call**, constant, does not scale with `ne12` |

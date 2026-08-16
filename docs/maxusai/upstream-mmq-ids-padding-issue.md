@@ -114,7 +114,11 @@ CUDA error: an illegal memory access was encountered (ggml-cuda.cu:2374)
 ### Environment
 
 - RTX PRO 6000 Blackwell (sm_120), CUDA 13.0, driver-JIT from PTX (`120-virtual`)
-- llama.cpp `f8def7fe1`; also reproduced on `cb295bf59` and `b4d6c7d8f`
+- llama.cpp `f8def7fe1` (b10353). **This is a regression with a bisectable window.**
+  `cb295bf59` (b9888) does not contain the defect — it sizes the padding from
+  `get_mmq_x_max_host(cc)`, a compute-capability constant, never `ne11` — and is clean in
+  3/3 cold trials on the same host and configuration (`n_ubatch = 2048`,
+  `n_tokens_batch = 2040`). So the defect entered somewhere in b9888..b10353.
 - MoE model with 256 experts, 8 used, `q4_K` gate/up and `q6_K` down
 - CUDA graphs disabled (`GGML_CUDA_DISABLE_GRAPHS=1`) — the fault is unaffected by them
 
