@@ -42,13 +42,42 @@ The required wording, or a paraphrase preserving both clauses:
 Both clauses are required. Free choice scores 5/21; adding the pin *and* the
 statement of the space reaches 21/21. Do not shorten this to "use norm-1000".
 
+> **C1 fixes the type, not the order — and the 21/21 does not generalise past
+> 31b.** The 21/21 above was measured on `gemma4:31b`, `qwen3.6:35b`,
+> `qwen3.8:27b` and `nemotron3:33b`. On **every `gemma4:26b` variant** — a4b-MoE,
+> nvfp4, mxfp8 and mlx-bf16 alike — a pinned request using a *positional array*
+> comes back `norm1000/`**`yxyx`** while declaring `xyxy`, scoring 0/6. The
+> pinned type is obeyed; the axis order is not, and C1 has no power over it.
+> **C2 is what fixes the order**, and the separation is clean: across the models
+> measured so far, a positional array emits `yxyx` while declaring `xyxy` in
+> **11 of 26** cells, and named coordinates in **0 of 13**. Treat C1 and C2 as
+> independent requirements, not belt-and-braces — dropping C2 because "we pinned
+> the convention" reintroduces the one error no numeric check can detect.
+>
+> Interim, from the 18-model × both-think-modes run of 2026-08-16 (n=1 per cell,
+> run still in progress). The direction is not in doubt — 0/13 against 11/26 —
+> but the exact rates will be restated when the run completes.
+
 **C2 — Coordinates MUST be named fields (`x1`, `y1`, `x2`, `y2`), never a
 positional array.** A positional array is the only reason a `coord_order` field
 has to exist, and axis order is the one error no numeric check can detect: a
 transposed box in a normalized space has the same range, the same extent aspect
 and no scale error. Naming the fields makes the transposition unrepresentable
-rather than discouraged. gemma4 has been measured emitting `yxyx` while
-declaring `xyxy`, conditionally, on both engines.
+rather than discouraged.
+
+This is the requirement with the largest measured effect, and it is **not**
+subsumed by C1 (see the note there). Across the models measured so far:
+
+| coordinate form | emitted `yxyx` while declaring `xyxy` |
+|---|---|
+| positional array (`bbox_contract_pinned`, `bbox_contract_perobject`) | **11 of 26** |
+| named fields (`bbox_contract_anchored`) | **0 of 13** |
+
+Every flip is a `gemma4` cell, but it spans sizes (12b and 26b), engines (GGUF
+and MLX) and quantisations (q4_K_M, nvfp4, mxfp8, bf16), so it is a property of
+the family rather than of one build. It is also **not** reliably escaped by
+thinking: three of the four `gemma4:26b` variants stop flipping with think-on,
+but `gemma4:26b-a4b-it-q4_K_M` flips in **both** modes.
 
 **C3 — Requests MUST require an `__IMAGE__` entry** covering the whole image,
 in the same convention as every other entry, listed first.
