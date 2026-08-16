@@ -377,6 +377,189 @@ def score_multi(resp_text):
             s["chart_values_found"] += 1
     return s
 
+
+# --- bbox contract probe -----------------------------------------------------
+#
+# A NEW test, not an edit of scene_single. score_scene deliberately tries every
+# coordinate dialect and keeps the best, because models answer in their native
+# space whatever the prompt says. That tolerance is right for measuring
+# grounding, but it makes one boolean do two jobs: a hit can mean "located it
+# correctly" or "located it correctly AND obeyed the requested space", and the
+# two are indistinguishable afterwards. Measured on qwen3.8 2026-08-16: MLX put
+# DYNAMO's centre within 2px of truth but answered normalized-1000 when asked
+# for pixels, and scored the same tick as an engine that had obeyed.
+#
+# Here the model DECLARES its space instead, so grounding is scored in the space
+# it named — no guessing — and the declaration is scored separately. Either
+# field name is accepted: gemma4/Gemini are trained toward box_2d and qwen-vl
+# toward bbox_2d, so demanding one measures naming compliance, not vision. Which
+# name the model chose is recorded instead.
+#
+# Kept as its own test so every historical scores_*.json stays comparable; the
+# committed fine-text assets exist for the same reason.
+BBOX_CONTRACT_PROMPT = """You are a localization service. Find every distinct
+coloured shape in this image and report where each one is.
+
+Declare the convention you used, then follow it exactly.
+
+"bbox_type" — one of:
+  - "real":     coordinates in pixels. You MUST also give "ref_size": [W, H],
+                the width and height of the image those pixels refer to. If you
+                resized the image internally, give the size YOU used, not the
+                original.
+  - "norm1":    coordinates scaled to 0.0-1.0 on both axes
+  - "norm1000": coordinates scaled to 0-1000 on both axes
+
+"coord_order" — one of:
+  - "xyxy": [x1, y1, x2, y2]          (qwen-vl convention)
+  - "yxyx": [y1, x1, y2, x2]          (gemma/Gemini box_2d convention)
+
+No convention is preferred; pick the one you are most reliable in. But a box
+that disagrees with your own declaration is worse than no answer at all,
+because a consumer trusts the declaration.
+
+Each box covers the shape itself, not its label text. Name the box field
+"box_2d" or "bbox_2d", whichever is natural to you.
+
+Respond with a SINGLE JSON object, no prose:
+{{
+  "bbox_type": "real" | "norm1" | "norm1000",
+  "ref_size": [W, H],
+  "coord_order": "xyxy" | "yxyx",
+  "objects": [{{"label": "<uppercase code word above the shape>",
+                "box_2d": [ , , , ]}}]
+}}"""
+
+
+def score_bbox_contract(resp_text):
+    """Grounding and instruction-following, scored separately.
+
+    Field names follow ms-swift's grounding schema (bbox_type real/norm1) so a
+    passing response is directly usable as fine-tuning data; norm1000 is added
+    because that is what gemma/Gemini emit and what ms-swift converts to for
+    qwen3-vl.
+
+    ref_size exists because "real" is meaningless on its own. Qwen-VL's absolute
+    coordinates are relative to the RESIZED image, not the original, and a model
+    can invent a scale outright: measured 2026-08-16, qwen3.8 GGUF returned
+    DYNAMO at a uniform 1.30x the truth box — raw IoU 0.079, but 0.909 once
+    divided by that factor. The shape was found; only the frame was wrong. A
+    scorer that tries a fixed set of dialects reports that as a clean miss,
+    which is how it was first mis-read as a grounding failure. implied_scale
+    records the factor instead.
+    """
+    g = GT["scene_hd"]
+    W, H = g["size"]
+    s = {"json_valid": False, "declared_type": None, "declared_order": None,
+         "declared_ref": None, "field_name": None,
+         "labels_found": 0, "labels_total": len(g["objects"]),
+         "hits_declared": 0, "iou_declared": 0.0,
+         "hits_bestfit": 0, "bestfit_dialect": None,
+         "implied_scale": None, "iou_at_implied_scale": None,
+         "declaration_valid": False, "declaration_matches_boxes": False,
+         "contract_followed": False}
+    r, fenced = parse_json_response(resp_text)
+    if fenced:
+        s["fenced"] = True
+    if r is None:
+        return s
+    s["json_valid"] = True
+
+    btype = (r.get("bbox_type") or "").strip().lower()
+    order = (r.get("coord_order") or "").strip().lower()
+    ref = r.get("ref_size")
+    s["declared_type"], s["declared_order"] = btype or None, order or None
+    if isinstance(ref, list) and len(ref) == 2:
+        s["declared_ref"] = [ref[0], ref[1]]
+    # "real" is only a complete declaration with a reference size.
+    s["declaration_valid"] = (
+        order in ("xyxy", "yxyx")
+        and (btype in ("norm1", "norm1000")
+             or (btype == "real" and s["declared_ref"] is not None)))
+
+    objs = r.get("objects") or []
+    for o in objs:
+        for k in ("box_2d", "bbox_2d", "bbox"):
+            if o.get(k):
+                s["field_name"] = k
+                break
+        if s["field_name"]:
+            break
+
+    by_label = {o.get("label"): o for o in objs if o.get("label")}
+    matched = []
+    for gto in g["objects"]:
+        o = by_label.get(gto["label"])
+        if o:
+            s["labels_found"] += 1
+            bb = get_bbox(o)
+            if len(bb) == 4:
+                matched.append((bb, gto["bbox"]))
+    if not matched:
+        return s
+
+    def factors(btype, ref):
+        if btype == "norm1":
+            return W, H
+        if btype == "norm1000":
+            return W / 1000.0, H / 1000.0
+        if btype == "real" and ref:
+            try:
+                return W / float(ref[0]), H / float(ref[1])
+            except Exception:
+                return 1.0, 1.0
+        return 1.0, 1.0
+
+    def tally(btype, order, ref=None):
+        fx, fy = factors(btype, ref)
+        hits, ious = 0, []
+        for bb, gtb in matched:
+            x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if order == "xyxy"
+                              else (bb[1], bb[0], bb[3], bb[2]))
+            px = [x1 * fx, y1 * fy, x2 * fx, y2 * fy]
+            hits += center_in(px, gtb)
+            ious.append(iou(px, gtb))
+        return hits, round(sum(ious) / len(ious), 3) if ious else 0.0
+
+    if s["declaration_valid"]:
+        s["hits_declared"], s["iou_declared"] = tally(btype, order, s["declared_ref"])
+
+    best = (0, 0.0, None)
+    for bt in ("real", "norm1", "norm1000"):
+        for od in ("xyxy", "yxyx"):
+            hits, mi = tally(bt, od)          # "real" here means the native frame
+            if (hits, mi) > (best[0], best[1]):
+                best = (hits, mi, f"{bt}/{od}")
+    s["hits_bestfit"], s["bestfit_dialect"] = best[0], best[2]
+
+    # Diagnostic: if the boxes are the right SHAPE in the wrong FRAME, recover
+    # the uniform factor rather than reporting a bare miss.
+    od = order if order in ("xyxy", "yxyx") else "xyxy"
+    ratios = []
+    for bb, gtb in matched:
+        x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if od == "xyxy"
+                          else (bb[1], bb[0], bb[3], bb[2]))
+        for pv, tv in zip((x1, y1, x2, y2), gtb):
+            if tv:
+                ratios.append(pv / tv)
+    if ratios:
+        k = sum(ratios) / len(ratios)
+        if k > 0:
+            s["implied_scale"] = round(k, 3)
+            ious = []
+            for bb, gtb in matched:
+                x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if od == "xyxy"
+                                  else (bb[1], bb[0], bb[3], bb[2]))
+                ious.append(iou([x1 / k, y1 / k, x2 / k, y2 / k], gtb))
+            s["iou_at_implied_scale"] = round(sum(ious) / len(ious), 3)
+
+    s["declaration_matches_boxes"] = bool(
+        s["declaration_valid"] and s["hits_declared"] == len(matched))
+    s["contract_followed"] = bool(
+        s["declaration_matches_boxes"] and s["hits_declared"] >= s["hits_bestfit"])
+    return s
+
+
 # The dense fine-text probe joins the suite rather than living as a second
 # entry point. Prompt and scorer are IMPORTED from finetext_probe, not copied:
 # the probe's assets are committed precisely so the same input scores the same
@@ -393,6 +576,24 @@ tests = [
     ("scene_single", SCENE_PROMPT.format(w=1920, h=1080), ["scene_hd.png"], score_scene),
     ("document_single", DOC_PROMPT.format(w=1568, h=1568), ["document.png"], score_doc),
     ("multi_3img", MULTI_PROMPT, ["scene_hd.png", "document.png", "chart.png"], score_multi),
+    ("bbox_contract", BBOX_CONTRACT_PROMPT.format(w=1920, h=1080), ["scene_hd.png"],
+     score_bbox_contract),
+    # Same contract with distractor images attached. This is a CONTROL, not the
+    # reproducer: measured 2026-08-16, both qwen3.8 builds stay honest here
+    # (absolute/xyxy, 6/6, declaration matches), so merely attaching images does
+    # not break the declaration.
+    #
+    # What does break it is cross-image REASONING. Adding a coord_space field to
+    # multi_3img's schema and asking its q1-q4 chain, qwen3.8 MLX declared
+    # "absolute" and emitted normalized-1000 boxes — a false declaration, which
+    # is worse than none because a consumer trusts it. That condition is not yet
+    # covered by a committed test; this pair brackets it, showing the failure
+    # needs the reasoning load rather than the image count.
+    ("bbox_contract_multi",
+     BBOX_CONTRACT_PROMPT.format(w=1920, h=1080)
+     + "\n\nOnly the FIRST image contains the shapes to report; the others are "
+       "distractors and must be ignored.",
+     ["scene_hd.png", "document.png", "chart.png"], score_bbox_contract),
     # Env still wins, as it does for the standalone probe — the override only
     # replaces the suite's default with this probe's, it does not pin it.
     ("finetext", FINETEXT_PROMPT, ["finetext.png"], score_finetext,
