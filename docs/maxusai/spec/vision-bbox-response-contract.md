@@ -181,6 +181,28 @@ relaxing a scorer to best-fit.
 of the image as sent: `norm1000` ⇒ `x·W/1000`, `y·H/1000`; `norm1` ⇒ `x·W`,
 `y·H`; `real` in frame `X×Y` ⇒ `x·W/X`, `y·H/Y`.
 
+**C12 — Boxes MUST be well-formed, and a malformed box MUST be dropped
+individually rather than invalidating the response.** Every box must satisfy
+`x1 < x2` and `y1 < y2` **in the order its declaration implies**. A response
+carrying one malformed box among five good ones is not a C8 rejection: the
+coordinate space is fine and only that box is unusable.
+
+The evaluation order is load-bearing. Testing raw coordinates would flag every
+legitimately transposed box as degenerate, and gemma4 emits `yxyx` across four
+quantisations — a large fraction of a perfectly good corpus would be discarded.
+Transpose first, then test.
+
+Measured across 439 contract responses on this host, exactly **one** box is
+degenerate: `gemma4:26b-mxfp8` think-off returned `ANCHOR` as
+`x1=0.74, x2=0.215`, a digit slip for `0.074`, inside an otherwise correct
+`norm1/xyxy` response. `hits_bestfit` was 5 as well, so no dialect recovers it —
+it is one bad box, not a bad convention, and that is precisely the distinction
+C12 exists to draw.
+
+This requirement deliberately does **not** feed `self_check` (C6/C7). That gates
+the coordinate space for the whole response and its remedy is wholesale
+rejection; conflating the two would discard five good boxes over one digit slip.
+
 ## 3. Legacy responses
 
 **C11 — Responses that predate this contract fall back to the heuristic ladder,
@@ -202,6 +224,7 @@ objects spread across the frame.
 | C6, C7 | `bbox_self_check()`; separates usable from unusable anchors **42/42** across the adversarial arms — 27 accepted and all correct, 15 rejected and all genuinely bad, zero silent failures, zero good answers discarded |
 | C8, C9 | `self_check` recorded next to `hits_anchor` precisely so `self_check == true` with `hits_anchor < 6` is visible; that pairing is the signature that would falsify C7 |
 | C10 | `factors()` in `score_bbox_contract` — the same three conversions, applied per box under the declared or anchor-derived space |
+| C12 | `degenerate_boxes` / `degenerate_labels` on every contract score, evaluated in the declared order. 1 of 439 responses on this host; verified not to fire on any of the 11 `yxyx`-transposed cells |
 | C11 | **Nothing enforces this.** The ladder is documented prose, exercised only by the `implied_scale` / `iou_at_implied_scale` diagnostics. Legacy handling is best-effort by construction |
 
 All rates: server `0.32.5-maxusai-a5d65906`, powermode 2, think-off per
