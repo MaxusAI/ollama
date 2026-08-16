@@ -139,8 +139,20 @@ grounding.
 
 - One fixture, one image size, one prompt, think-off, `n=1` per configuration.
   Conventions could vary with image size or prompt shape.
-- The single-image probe does **not** reproduce the failure seen under
-  cross-image reasoning, where qwen3.8 MLX declared `absolute` while emitting
-  normalized boxes. `bbox_contract_multi` attaches distractor images and both
-  builds stay honest, so image count is not the trigger — the reasoning load is.
-  That condition is bracketed but not yet covered by a committed test.
+- The failure **is** covered by a committed test, and it is not the one first
+  suspected. Under the `bbox_type`/`ref_size` schema, qwen3.8 GGUF fails
+  `bbox_contract_multi` **3/3**: it declares `norm1000` while emitting real
+  coordinates in a ~1.33× frame, giving `hits_declared` 0/6 against a
+  `hits_bestfit` 6/6 on `real/xyxy`. The single-image probe passes 3/3 and
+  `bbox_contract_reasoning` — where the model must *use* the other images —
+  passes 3/3.
+
+  So neither image count nor reasoning load is the trigger on its own. What
+  distinguishes the failing cell is being told to **ignore** the other images.
+  The mechanism is unexplained; the rate is reproducible. This characterisation
+  changed three times before the repeats were run, each earlier version drawn
+  from a single observation — the rates are the record, not the narrative.
+
+- qwen3.8 GGUF's declared frame is itself approximate and unstable: 2500×1406,
+  2560×1440 and 2324×1312 across runs on the same 1920×1080 input, all ≈1.30–1.33×.
+  It knows it is working in a rescaled frame and does not know the frame exactly.
