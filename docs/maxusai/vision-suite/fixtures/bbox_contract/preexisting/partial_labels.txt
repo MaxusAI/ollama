@@ -1,0 +1,46 @@
+{
+ "bbox_type": "real",
+ "ref_size": [
+  1920,
+  1080
+ ],
+ "coord_order": "xyxy",
+ "objects": [
+  {
+   "label": "ANCHOR",
+   "box_2d": [
+    140,
+    160,
+    420,
+    360
+   ]
+  },
+  {
+   "label": "BEACON",
+   "box_2d": [
+    620,
+    120,
+    900,
+    330
+   ]
+  },
+  {
+   "label": "CIPHER",
+   "box_2d": [
+    1150,
+    180,
+    1500,
+    420
+   ]
+  },
+  {
+   "label": "DYNAMO",
+   "box_2d": [
+    220,
+    600,
+    480,
+    860
+   ]
+  }
+ ]
+}

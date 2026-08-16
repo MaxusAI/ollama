@@ -1,0 +1,60 @@
+{
+ "bbox_type": "real",
+ "coord_order": "xyxy",
+ "objects": [
+  {
+   "label": "ANCHOR",
+   "box_2d": [
+    73,
+    148,
+    219,
+    333
+   ]
+  },
+  {
+   "label": "BEACON",
+   "box_2d": [
+    323,
+    111,
+    469,
+    306
+   ]
+  },
+  {
+   "label": "CIPHER",
+   "box_2d": [
+    599,
+    167,
+    781,
+    389
+   ]
+  },
+  {
+   "label": "DYNAMO",
+   "box_2d": [
+    115,
+    556,
+    250,
+    796
+   ]
+  },
+  {
+   "label": "EMBER",
+   "box_2d": [
+    396,
+    593,
+    542,
+    852
+   ]
+  },
+  {
+   "label": "FALCON",
+   "box_2d": [
+    703,
+    574,
+    896,
+    815
+   ]
+  }
+ ]
+}
