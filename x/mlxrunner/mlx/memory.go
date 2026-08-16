@@ -108,6 +108,37 @@ func SetWiredLimit(limit int) (int, error) {
 	return int(previous), nil
 }
 
+// MemoryLimit returns MLX's current allocator limit. Unlike the wired limit
+// this is backend-independent: on CUDA it is the only cap available, since
+// "wired" residency and the max-recommended-working-set device key are both
+// Metal concepts.
+func MemoryLimit() (int, error) {
+	var size C.size_t
+	if err := mlxCall("get memory limit failed", func() C.int {
+		return C.mlx_get_memory_limit(&size)
+	}); err != nil {
+		return 0, err
+	}
+	return int(size), nil
+}
+
+// SetMemoryLimit sets MLX's allocator limit and returns the previous one.
+// Allocations beyond it fail rather than being served, so the caller gets an
+// error instead of the backend aborting the process.
+func SetMemoryLimit(limit int) (int, error) {
+	if limit < 0 {
+		return 0, fmt.Errorf("mlx: memory limit must be non-negative")
+	}
+
+	var previous C.size_t
+	if err := mlxCall("set memory limit failed", func() C.int {
+		return C.mlx_set_memory_limit(&previous, C.size_t(limit))
+	}); err != nil {
+		return 0, err
+	}
+	return int(previous), nil
+}
+
 type Memory struct{}
 
 func (Memory) LogValue() slog.Value {

@@ -299,6 +299,11 @@ func (c *Client) HasExited() bool {
 
 // Load checks whether the model fits in GPU memory and starts the subprocess.
 func (c *Client) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.DeviceInfo, requireFull bool) ([]ml.DeviceID, error) {
+	// Budget handed to the runner so MLX caps its allocator at what is actually
+	// free. MLX's own CUDA default comes from TOTAL device memory and therefore
+	// overcommits whenever anything else is resident on the card.
+	var vramBudget uint64
+
 	if len(gpus) > 0 {
 		modelSize := c.memory.Load()
 		// We currently only use the first GPU with MLX
@@ -309,6 +314,7 @@ func (c *Client) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.DeviceInfo
 		} else {
 			available = 0
 		}
+		vramBudget = available
 
 		if modelSize > available {
 			if requireFull {
@@ -407,6 +413,11 @@ func (c *Client) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.DeviceInfo
 	// from seeing concurrent stdout/stderr fragments.
 	cmd.Stdout = status
 	cmd.Stderr = status
+
+	if vramBudget > 0 {
+		setEnv(cmd, MemoryLimitEnv, strconv.FormatUint(vramBudget, 10))
+		slog.Debug("mlx subprocess memory budget", MemoryLimitEnv, format.HumanBytes2(vramBudget))
+	}
 
 	slog.Info("starting mlx runner subprocess", "model", c.modelName, "port", c.port)
 	if err := cmd.Start(); err != nil {

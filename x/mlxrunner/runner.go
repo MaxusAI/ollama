@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -141,6 +144,73 @@ func newDraftCaches(draft base.DraftModel) []cache.Cache {
 	return draft.NewCaches()
 }
 
+// MemoryLimitEnv carries the parent's view of FREE device memory, in bytes, to
+// the runner subprocess. Set by the MLX client, which computes it from
+// ml.DeviceInfo.FreeMemory less the per-device minimum and OLLAMA_GPU_OVERHEAD.
+const MemoryLimitEnv = "OLLAMA_MLX_MEMORY_LIMIT"
+
+// configureMemoryLimit caps the allocator on backends with no wired-residency
+// concept — everything except Metal.
+//
+// MLX is not uncapped on CUDA: it defaults the limit to a fraction of TOTAL
+// device memory (measured 90.22 GiB on a 95.6 GiB card). That is the wrong
+// denominator on a shared GPU. With other processes already holding tens of
+// gigabytes, MLX still believes the whole card is its own, so a growing KV
+// cache allocates past what is actually free and cudaMallocAsync fails. MLX
+// aborts the process on a failed allocation rather than returning an error, so
+// the runner dies and the request 500s.
+//
+// The parent already computes the right number and previously discarded it
+// after an admission check. Prefer it; fall back to reporting MLX's own default
+// so the ceiling is visible rather than assumed.
+func configureMemoryLimit(active int, wsErr error) {
+	limit, err := mlx.MemoryLimit()
+	if err != nil {
+		slog.Warn("Unable to query MLX recommended working set; using pageable memory",
+			"error", wsErr, "memory_limit_error", err)
+		return
+	}
+
+	budget, ok := parseMemoryBudget(os.Getenv(MemoryLimitEnv))
+	if !ok {
+		slog.Warn("Unable to query MLX recommended working set (Metal-only device key); "+
+			"relying on the backend default, which is derived from TOTAL device memory",
+			"error", wsErr,
+			"active", mlx.PrettyBytes(active),
+			"backend_limit", mlx.PrettyBytes(limit))
+		return
+	}
+
+	// Never raise the backend's own ceiling — only lower it to what is free.
+	if budget >= limit {
+		slog.Debug("MLX memory budget is not below the backend limit; leaving it alone",
+			"budget", mlx.PrettyBytes(budget), "backend_limit", mlx.PrettyBytes(limit))
+		return
+	}
+
+	previous, err := mlx.SetMemoryLimit(budget)
+	if err != nil {
+		slog.Warn("Unable to apply MLX memory limit; keeping the backend default",
+			"budget", mlx.PrettyBytes(budget), "error", err)
+		return
+	}
+	slog.Info("Configured MLX memory limit from free device memory",
+		"active", mlx.PrettyBytes(active),
+		"limit", mlx.PrettyBytes(budget),
+		"previous", mlx.PrettyBytes(previous))
+}
+
+func parseMemoryBudget(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil || v == 0 || v > math.MaxInt {
+		return 0, false
+	}
+	return int(v), true
+}
+
 func configureWiredMemory() {
 	if !mlx.GPUIsAvailable() {
 		return
@@ -149,7 +219,14 @@ func configureWiredMemory() {
 	active := mlx.ActiveMemory()
 	maxRecommended, err := mlx.MaxRecommendedWorkingSetSize()
 	if err != nil {
-		slog.Warn("Unable to query MLX recommended working set; using pageable memory", "error", err)
+		// max_recommended_working_set_size is a Metal device key, and so is the
+		// wired-residency concept it feeds. Returning here left non-Metal
+		// backends with NO cap at all: on CUDA a growing KV cache allocated
+		// until cudaMallocAsync failed, and MLX aborts the process on a failed
+		// allocation rather than returning an error, so the runner died and the
+		// request 500'd. Report the allocator limit that IS portable so the
+		// backend's own ceiling is visible rather than assumed.
+		configureMemoryLimit(active, err)
 		return
 	}
 
