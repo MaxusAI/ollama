@@ -12,20 +12,32 @@ and, either way, to tell us whether the gate can ever lift.
 > [!IMPORTANT]
 > **Both were reported against 0.32.5 (payload b10091). Our host runs 0.32.1 (b9888).**
 > Reproducing them therefore requires building and running the payload the gate blocks.
-> That is allowed **for testing on a scratch port**, and only that. Do not `docker restart`
-> the production container onto it, do not touch `ollama-rocm`, and do not change what
-> `:11434` serves. Roll back to the running image the moment a test finishes.
+> That is allowed **in a scratch container on port 11435**, and only that. Do not
+> `docker restart` the production container onto it, do not touch `ollama-rocm`, and do not
+> change what `:11434` serves. Stop and remove the scratch container the moment a test
+> finishes — there is nothing to "roll back", because production is never swapped.
+>
+> **One iGPU, one pool of memory.** The scratch container competes with `ollama-rocm` for
+> the same Radeon 8060S and the same system RAM, and the models here are 18–24 GB. Unload
+> production's resident model before a test —
+> `curl -s localhost:11434/api/generate -d '{"model":"<resident>","keep_alive":0}'` — or
+> record the contention as a run condition. Degenerate output observed while both containers
+> hold a model is confounded, and that is precisely the failure mode the MMQ investigation
+> kept hitting.
 >
 > **Synthetic documents only.** #17475 is a PII leak; its reporter used real insurance
-> records. Generate stand-ins (the vision-suite `visimgs/` invoice generator is fine) and
-> put a unique marker string in the donor. Never use customer data for this.
+> records. Generate stand-ins and put a unique marker string in the donor: the vision-suite
+> generator `gen_scenes.py` writes a 1568×1568 fake invoice to `visimgs/document.png`, but it
+> takes no arguments — edit the field dict at `gen_scenes.py:84` (`invoice_no`, currently
+> `INV-2026-0801`) to plant the marker. Its 1568×1568 also answers the maintainer's
+> image-dimensions question directly. Never use customer data for this.
 
 ## Host facts
 
 | | |
 |---|---|
 | Host | `10.8.0.4`, `glenn-NucBox-EVO-X2`, Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151** (RDNA 3.5) |
-| SSH | `ssh -i ~/.ssh/id_ed25519_NucBox-EVO-X2-glenn glenn@10.8.0.4` |
+| SSH | `ssh -i ~/.ssh/id_ed25519_NucBox-EVO-X2-glenn glenn@10.8.0.4` — for reaching the host **from 10.8.0.6**; the key does not live on 10.8.0.4 itself. An agent already running on the host needs none of this. |
 | ROCm | 7.2.1 · HIP 7.2.53211 |
 | Production container | `ollama-rocm`, image `maxusai-ollama:0.32.1-rocm-dynres-296eb020`, port 11434 — **leave alone** |
 | Deployment defs | `~/deployments/ollama/docker/ollama-rocm/` (compose, Makefile, `.env`) |
@@ -49,6 +61,11 @@ just as useful to a maintainer stuck on "can you even reproduce this".
 `<unused49>`; the same request is fine with `"think": true`. Also breaks the VS Code
 extension, which disables thinking.
 
+**Which gemma4.** The reported tag is the 31b. On this host that is
+`gemma4:31b-it-q4_K_M` (digest `6316f0629137`) — the bare `gemma4:31b` tag is not local.
+`26b-a4b`, `e2b` and `e4b` are also present and are *not* the reported model; do not
+silently test one of those. Record the digest you actually ran.
+
 **What to produce:**
 
 1. A minimal `/api/chat` request with `"think": false` that shows the tokens, and the same
@@ -66,6 +83,12 @@ extension, which disables thinking.
 comparison on **stock `ollama/ollama:0.32.5`** as well as our build, or a maintainer will
 rightly discount it. If stock is clean and ours is not, that is our bug, not theirs — and
 we need to know that.
+
+**Prove the stock container reached the GPU before you trust a clean stock run.** gfx1151 is
+in upstream's `AMDGPU_TARGETS` (`llama/server/CMakePresets.json`), so it should offload — but
+a silent CPU fallback also produces a clean run, and it would read as "stock is clean,
+therefore our bug", which is the most consequential conclusion in this task. Quote the
+offload lines from the stock container's log. Observed, not inferred — ADR 0024.
 
 ---
 
@@ -96,6 +119,13 @@ So neither slot reuse nor abort residue alone triggers it; the combination does.
 **Why we are well placed:** this fork already cold-restarts the server between every
 benchmark cell *because of this bug* — `run_grid.sh` cites it by number. We have the
 harness, two VLMs, and a text model for the noise loop.
+
+**Use the reporter's model.** `qwen3-vl:30b-a3b-thinking` is **not** on this host, but the
+tag resolves in the registry — pull it and run the protocols on it. Only if the pull fails
+should you substitute the nearest MoE VLM we carry (`qwen3.6:35b-a3b-q4_k_m`), and then the
+substitution goes in the **first paragraph** of the write-up, not a footnote. An undeclared
+model swap earns the same discount as an undeclared fork patch does for #17459 above — and
+here it is load-bearing, because a slot-reuse race may not survive a change of model.
 
 **What to produce:**
 
