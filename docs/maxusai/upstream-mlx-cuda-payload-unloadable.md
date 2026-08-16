@@ -2,9 +2,27 @@
 
 ### Summary
 
-`mlx_cuda_v13` is built, installed and shipped in the Linux image, and cannot be
-`dlopen`ed. Every safetensors model is therefore refused on Linux with a message
-that reads like a missing feature rather than a packaging fault.
+The bundled `mlx_cuda_v13` payload is **not self-contained**. It loads only where
+the host already provides CUDA, cuDNN, NCCL and libquadmath on the system search
+path, and fails everywhere else — including the official Docker image, where
+every safetensors model is then refused with a message that reads like a missing
+feature rather than a packaging fault.
+
+That conditional is the whole reason this survives: a developer machine with
+CUDA 13 and cuDNN installed satisfies the payload's dependencies from `/usr/lib`
+and `/usr/local/cuda-13.0/...`, so the missing RPATH never bites. Measured here,
+same libraries and same command:
+
+| | `libmlxc.so` | `libmlx.so` |
+|---|---|---|
+| host with CUDA/cuDNN/NCCL installed | 1 unresolved | **0** |
+| inside `ollama/ollama` (nothing system-wide) | 1 unresolved | **12** |
+
+MLX on CUDA does work in the field — see ollama#14046, an unrelated FLUX.2 fault
+on an RTX PRO 6000 Blackwell which notes that other image-generation models run
+correctly on Linux/NVIDIA. This report is **not** "MLX-CUDA is broken". It is
+"the bundled payload relies on the host to complete its dependency closure, and
+should not".
 
 Two independent causes, both in CMake:
 
@@ -133,6 +151,75 @@ DEBUG MLX dynamic library loaded  path=/usr/lib/ollama/mlx_cuda_v13/libmlxc.so
 
 `CheckInit()` passes and a safetensors pull proceeds past the MLX guard.
 
+### What the fix reaches, and what it does not
+
+Verified 2026-08-16 with the corrected payload and no workarounds — no
+`LD_LIBRARY_PATH`, no bind mounts — pulling and loading `qwen3.5:0.8b-mlx`
+(safetensors, 1.2 GB, arch `qwen3_5`):
+
+```
+DEBUG MLX dynamic library loaded    path=/usr/lib/ollama/mlx_cuda_v13/libmlxc.so
+INFO  MLX engine initialized        "MLX version"=0.32.0-213-gadf21de device=gpu
+INFO  Loaded tensors from manifest  count=623
+INFO  mlx runner is ready           port=39675
+DEBUG finished setting up           runner.vram="1.1 GiB"
+```
+
+So the payload loads, MLX initialises on the GPU, and a model is resident on
+CUDA. That is the whole of what this fix claims, and it holds.
+
+**And it serves.** Measured on an otherwise idle host, same prompt, greedy:
+
+| model | arch | decode | notes |
+|---|---|---|---|
+| `gemma4:31b-nvfp4` | gemma4 | **41.5 tok/s** | 188 tokens, correct output, 22 GiB VRAM |
+| `qwen3.5:0.8b-mlx` | qwen3_5 | **83.8 tok/s** | correct output with `think:false` |
+| `qwen3.6:35b-a3b-nvfp4` | qwen3_5_moe | not characterised | correct output; 24 GiB VRAM |
+
+The MoE row carries no rate deliberately: one 20-token run on a busy host is not
+a benchmark, and most of its wall-clock sat outside decode. It is here because
+*what* it produced matters — see below.
+
+The gemma4 figure is corroborated by the runner's own speculation controller,
+which independently reported `expected_tps="0:35.2 1:47.2"` for that load.
+
+**A warning worth not over-reading.** Both loads log, for `qwen3_5`:
+
+```
+WARN custom GPU kernel backend disabled kernel=depthwise_conv_silu backend=cuda reason="no source"
+WARN custom GPU kernel backend disabled kernel=gated_delta        backend=cuda reason="no source"
+```
+
+`getCUDA()` disables a kernel when `k.cuda.source == ""`, and of the custom set
+only `gated_delta_recurrence` carries a CUDA source — the rest are Metal-only.
+That much is real and read from source. But the generic fallbacks are
+**adequate**, and the evidence is direct: `qwen3_5` trips two of these warnings
+and is the fastest model measured here, while `qwen3_5_moe` trips **three** —
+`gated_delta`, `gated_delta_states` and `depthwise_conv_silu` — and still emits
+correct output. The warnings mark a missing fast path, not a missing capability,
+and must not be reported as a serving blocker.
+
+Note also that a file-level grep for these kernels under `x/models/` does **not**
+predict which architectures hit them: `qwen3_5_moe` shows no direct reference and
+trips the most warnings of the three. Read the load log, not the call sites.
+
+That correction was earned the hard way. An earlier reading of this same setup
+recorded "loads but cannot generate — 4 tokens, 6 minutes, GPU at 0%". Both
+numbers were artefacts: three multi-gigabyte model pulls were saturating the host
+during the run, and `num_predict` was set low enough that a thinking model spent
+its whole allowance inside the thinking block and returned an empty `response`
+with `eval_count == num_predict` — the trap this repo's own preflight harness
+refuses to run into. On a quiet box with a sane allowance, both models generate
+correctly.
+
+So only one layer here is a defect:
+
+| layer | state |
+|---|---|
+| distribution — registry gates MLX tags on reported `GOOS` | outside this repo |
+| packaging — bundled payload not self-contained | **the bug; fixed here** |
+| serving — MLX CUDA runs these models | works, measured above |
+
 ### Suggested fix
 
 Give the ELF build the RPATH it needs, in both files:
@@ -159,10 +246,21 @@ Landed here as `fix/mlx-cuda-payload-cannot-load`.
 
 ### Two things this report deliberately does not claim
 
-**That MLX then serves a model on CUDA.** This is a loading fault and the fix
-addresses loading. Whether inference works on this path is untested — and that is
-the likely reason the bug survived: as shipped, the path cannot be reached, so
-nothing downstream of `dlopen` has ever run in this configuration.
+**That every MLX model runs well on CUDA.** Three were measured, all producing correct output. The
+Metal-only kernels are a real gap in the fast path and some architecture may yet
+depend on one badly enough to matter; that would be a separate report, with its
+own measurement, taken on an idle host.
+
+**That the tarball is a safe alternative.** `scripts/build_linux.sh` builds
+`ollama-linux-amd64-mlx.tar.zst` from the same `dist/linux_amd64/lib/ollama/mlx*`
+artifacts, so it carries the same defect; on a CUDA-equipped host the host hides
+it, exactly as above.
+
+**That ollama#14322 covers this.** That change (merged 2026-02-19) makes the
+loader try an rpath-based `dlopen` of `libmlxc` by name before searching
+directories, which addresses how *ollama* finds libmlxc. The failure here is
+libmlxc's own dependency chain — `libmlx.so` and the twelve CUDA libraries
+beneath it — and is untouched by it.
 
 **That the registry gate is related.** `qwen3.8:27b-nvfp4` is refused on Linux by
 `registry.ollama.ai` with `412: this model requires macOS`, decided from the
