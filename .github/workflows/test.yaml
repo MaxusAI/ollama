@@ -216,7 +216,12 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates cmake curl git ninja-build
+            ca-certificates curl git ninja-build
+          # Ubuntu 22.04 ships CMake 3.22; llama.cpp needs >= 3.24. Same
+          # Kitware tarball and version the `linux` job installs.
+          curl -fsSL "https://github.com/Kitware/CMake/releases/download/v3.31.2/cmake-3.31.2-linux-$(uname -m).tar.gz" \
+            | tar xz -C /usr/local --strip-components 1
+          cmake --version
       - name: Verify ggml patches compile
         shell: bash
         run: |
