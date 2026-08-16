@@ -53,18 +53,28 @@ hour.
 symbol**, which is why `bbox_contract` now exists (`vision_suite.py`). MLX put
 DYNAMO's centre within 2px of truth (348.5, 729.5 against 350, 730) but
 answered normalized-1000 when the prompt asked for pixels; the scorer's
-dialect tolerance rescued it into a ✅. GGUF obeyed the space and mislocated
-the shape by ~250px, earning a ❌ indistinguishable from a units mistake. The
-new probe scores grounding in the space the model declares and scores the
-declaration separately.
+dialect tolerance rescued it into a ✅. GGUF answered in a frame of its own and
+earned a ❌ indistinguishable from a units mistake. The new probe scores
+grounding in the space the model declares and scores the declaration
+separately.
+
+> **Correction (2026-08-16).** This section originally said GGUF "obeyed the
+> space and mislocated the shape by ~250px", and the paragraph below called it
+> "genuine grounding error, not upscaling". Both are wrong. The GGUF boxes are
+> truth × **1.304** uniformly: raw IoU 0.079, but **0.909** once the factor is
+> divided out. The shape was always found; only the frame was wrong. The
+> `bbox_contract` probe later had the model declare that frame itself —
+> `ref_size [2500, 1406]` for a 1920×1080 input, the same ≈1.30×. See
+> [vision-bbox-coordinate-conventions.md](vision-bbox-coordinate-conventions.md).
 
 **The `--image-min-tokens 1024` floor is not implicated.** `prompt_eval_count`
 is identical across engines on every test (2615 / 2743 / 6136 vs 6135 / 2484),
-so both saw the same image geometry and the GGUF miss is genuine grounding
-error, not upscaling. The floor only binds below ~1024 visual tokens and every
-fixture here is well above it — `scene_hd` alone costs ~2042. See
+so both saw the same image geometry, and the floor only binds below ~1024
+visual tokens while every fixture here is well above it — `scene_hd` alone
+costs ~2042. See
 [vision-token-budgets-by-arch.md](vision-token-budgets-by-arch.md) for whose
-floor that is.
+floor that is. What the floor does not explain, the model's own declared
+`ref_size` does.
 
 ## Caveat on the throughput rows
 

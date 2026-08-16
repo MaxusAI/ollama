@@ -625,17 +625,28 @@ tests = [
     ("bbox_contract", BBOX_CONTRACT_PROMPT.format(w=1920, h=1080), ["scene_hd.png"],
      score_bbox_contract),
     # THE REPRODUCER. Distractor images attached, with an instruction to ignore
-    # them. Measured 2026-08-16 under the bbox_type/ref_size schema, qwen3.8
-    # GGUF fails this 3/3: it declares "norm1000" while emitting real
-    # coordinates in a ~1.33x frame, so hits_declared is 0/6 while
-    # hits_bestfit is a real/xyxy match. Perfect vision, false self-description
-    # — the exact defect a fixed-dialect scorer reports as a bare miss.
+    # them. Measured 2026-08-16 under the bbox_type/ref_size schema, this cell is
+    # followed in only 5 of 21 runs across the seven-model corpus (3 repeats
+    # each) — see docs/maxusai/vision-campaign-2026-08-16-seven-model.md. It is
+    # NOT a qwen3.8 quirk, which is how it was first written up:
     #
-    # The single-image probe passes 3/3 and the reasoning variant below passes
-    # 3/3, so neither image count nor reasoning load is the trigger on its own.
-    # What distinguishes this cell is being told to IGNORE the other images.
-    # The mechanism is unexplained; the rate is not. Do not "fix" a failure here
-    # by relaxing the scorer.
+    #   gemma4 GGUF   0/3  declares xyxy, emits yxyx
+    #   gemma4 MLX    2/3  yxyx on one run of three
+    #   qwen3.6 GGUF  0/3  declares real [1920,1080], emits norm-1000
+    #   qwen3.6 MLX   0/3  declares real [1024,768] — a frame never sent
+    #   qwen3.8 GGUF  0/3  declares norm1000, emits real in a ~1.33x frame
+    #   qwen3.8 MLX   3/3  —
+    #   nemotron GGUF 0/3  declares real, no ref_size, emits norm-1000
+    #
+    # No GGUF configuration passes, in nine attempts. Every failing cell still
+    # LOCATES all six shapes: perfect vision, false self-description — the exact
+    # defect a fixed-dialect scorer reports as a bare miss.
+    #
+    # For qwen3.8 GGUF the single-image probe passes 3/3 and the reasoning
+    # variant below passes 3/3, so neither image count nor reasoning load is the
+    # trigger on its own. What distinguishes this cell is being told to IGNORE
+    # the other images. The mechanism is unexplained; the rates are not. Do not
+    # "fix" a failure here by relaxing the scorer.
     ("bbox_contract_multi",
      BBOX_CONTRACT_PROMPT.format(w=1920, h=1080)
      + "\n\nOnly the FIRST image contains the shapes to report; the others are "

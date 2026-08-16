@@ -23,20 +23,27 @@ data.
 
 ## Measured, this corpus
 
-`bbox_contract`, think-off, single 1920×1080 image, six labelled shapes,
-server `0.32.5-maxusai-1de352ef`, powermode 2.
+`bbox_contract`, think-off, single 1920×1080 image, six labelled shapes, from
+the seven-model sweep in
+[vision-campaign-2026-08-16-seven-model.md](vision-campaign-2026-08-16-seven-model.md)
+— server `0.32.5-maxusai-a5d65906`, powermode 2, one provenance for every row.
 
 | model | engine | declared | `ref_size` | hits | IoU | contract |
 | --- | --- | --- | --- | --- | --- | --- |
 | gemma4:31b-it-q4_K_M | GGUF | `norm1000/xyxy` | — | 6/6 | 0.961 | ✅ |
 | gemma4:31b-nvfp4 | MLX | `norm1000/xyxy` | — | 6/6 | 0.962 | ✅ |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | `real/xyxy` | [1920, 1080] | **1/6** | 0.045 | ❌ |
+| qwen3.6:35b-a3b-nvfp4 | MLX | `norm1000/xyxy` | [1920, 1080] | 6/6 | 0.957 | ✅ |
 | qwen3.8:27b-q4_K_M | GGUF | `real/xyxy` | **[2500, 1406]** | 6/6 | 0.971 | ✅ |
-| qwen3.8:27b-nvfp4 | MLX | `norm1/xyxy` | — | 6/6 | **0.990** | ✅ |
-| qwen3.6:35b-a3b-nvfp4 | MLX | `norm1000/xyxy` | [1920, 1080] | 6/6 | 0.964 | ✅ |
+| qwen3.8:27b-nvfp4 | MLX | `norm1/xyxy` | [1000, 1000] | 6/6 | **0.990** | ✅ |
 | nemotron3:33b-q4_K_M | GGUF | `real/xyxy` | **missing** | **0/6** | — | ❌ |
 
-Five of six are honest, across **four** conventions. Every one of the six
-located all six shapes.
+Five of seven are honest, across **four** conventions. Every one of the seven
+located all six shapes; both failures score `hits_bestfit` 6/6.
+
+The two failures share a direction: **declare `real`, emit normalized**. That is
+the direction that silently halves every box, and it is the one a fixed-dialect
+scorer reports as a grounding miss.
 
 ### qwen3.8 GGUF reports in a 1.302× frame, and will say so
 
@@ -50,21 +57,55 @@ pixels" is not a convention — it is a convention *plus a frame*, and Qwen-VL's
 documented behaviour (coordinates relative to the resized image) means the frame
 is routinely not the one the caller sent.
 
-### gemma4 emits `xyxy`, not the documented `yxyx`
+`ref_size` is also the only thing that recovers this row. Best-fit search over
+type × order scores **1/6** on it, because no search over dialects can guess a
+1.3× frame. The declaration outperforms the search.
 
-On both engines. Gemma's `box_2d` is documented as `[ymin, xmin, ymax, xmax]`,
-but given an explicit choice and a duty to declare, gemma4 used `xyxy` and
-declared it honestly. Treat `yxyx` as a **chat-template artifact, not a fixed
-property of the model** — do not hard-code it.
+### gemma4's axis order is condition-dependent, and it does not say when it flips
 
-## Recovering coordinates from nemotron3
+Gemma's `box_2d` is documented as `[ymin, xmin, ymax, xmax]`. On the
+single-image probe, both engines emit `xyxy` and declare `xyxy` — honest, and
+contrary to the documentation. Attach distractor images and the *same model*
+emits the same numbers transposed, while `coord_order` still reads `xyxy`:
 
-nemotron is the one model that gets the declaration wrong, and it gets it wrong
-in the dangerous direction: it declares `real`, omits the required `ref_size`,
-and its boxes are actually **norm-1000**. `hits_bestfit` is 6/6 on
-`norm1000/xyxy` — it **located every shape** and described the convention
-wrongly. A consumer trusting the declaration would place every box at roughly
-half scale.
+| label | `bbox_contract` | `bbox_contract_multi` |
+| --- | --- | --- |
+| ANCHOR | `[72, 147, 220, 335]` | `[146, 72, 334, 221]` |
+| BEACON | `[321, 108, 470, 304]` | `[107, 321, 303, 469]` |
+| DYNAMO | `[114, 555, 251, 796]` | `[555, 114, 795, 251]` |
+
+Best-fit resolves the right column as `norm1000/yxyx` at 6/6; scored in the
+declared dialect it is 0/6, IoU 0.044.
+
+So the documented `yxyx` is real, but it is a **mode the model slips into**, not
+a fixed property — and the declaration does not track it. Do not hard-code
+either order, and do not assume a declaration verified on one prompt shape holds
+on another.
+
+**This is the worst failure in the corpus, because none of the recovery steps
+below catch it.** The aspect test discriminates normalized from real, not `xyxy`
+from `yxyx`: in a normalized space both axes span 0–1000 whichever order they
+are written in, so the extent looks identical. The range test sees nothing. The
+`implied_scale` diagnostic sees no scale error, because there isn't one. A
+transposed box is only detectable against ground truth the consumer does not
+have. Treat axis order as requiring per-model *and per-prompt-shape*
+calibration — step 4 below is the only defence.
+
+## Recovering coordinates from nemotron3 (and qwen3.6 GGUF)
+
+nemotron gets the declaration wrong in the dangerous direction: it declares
+`real`, omits the required `ref_size`, and its boxes are actually **norm-1000**.
+`hits_bestfit` is 6/6 on `norm1000/xyxy` — it **located every shape** and
+described the convention wrongly. A consumer trusting the declaration would
+place every box at roughly half scale.
+
+**qwen3.6 GGUF has the same defect**, and supplies the missing `ref_size`
+rather than omitting it: `real`, `ref_size [1920, 1080]`, boxes in norm-1000.
+That is worse to consume, because the declaration is *complete* and therefore
+looks trustworthy. Its MLX sibling — same weights — declares `norm1000`
+correctly. The strategy below is written for nemotron and applies unchanged to
+qwen3.6 GGUF; the lesson is that this is a **class** of failure, not one model's
+quirk, and that it can be introduced by the serving path.
 
 Its actual output for the 1920×1080 fixture:
 
@@ -118,7 +159,8 @@ Record the mismatch, then correct it deliberately.
 
 ## Reading the probe's metrics
 
-`bbox_contract` (and its `bbox_contract_multi` control) emit:
+`bbox_contract`, its `bbox_contract_multi` reproducer and its
+`bbox_contract_reasoning` control all emit:
 
 | key | meaning |
 | --- | --- |
@@ -131,27 +173,48 @@ Record the mismatch, then correct it deliberately.
 | `field_name` | `box_2d` \| `bbox_2d` \| `bbox`, recorded rather than mandated |
 
 A model that scores `hits_bestfit` 6/6 with `contract_followed` false has
-**perfect vision and an unreliable self-description**. That is nemotron's row,
-and it is a different defect from a low `hits_bestfit`, which is genuinely poor
-grounding.
+**perfect vision and an unreliable self-description**. That is nemotron's row
+and qwen3.6 GGUF's, and it is a different defect from a low `hits_bestfit`,
+which is genuinely poor grounding.
+
+The converse also occurs and is easy to misread: qwen3.8 GGUF scores
+`hits_declared` 6/6 with `hits_bestfit` **1/6**. A low `hits_bestfit` is not
+evidence of poor grounding when `ref_size` is present — it can simply mean the
+frame is one no dialect search would try.
 
 ## Limits of what was measured
 
-- One fixture, one image size, one prompt, think-off, `n=1` per configuration.
-  Conventions could vary with image size or prompt shape.
-- The failure **is** covered by a committed test, and it is not the one first
-  suspected. Under the `bbox_type`/`ref_size` schema, qwen3.8 GGUF fails
-  `bbox_contract_multi` **3/3**: it declares `norm1000` while emitting real
-  coordinates in a ~1.33× frame, giving `hits_declared` 0/6 against a
-  `hits_bestfit` 6/6 on `real/xyxy`. The single-image probe passes 3/3 and
-  `bbox_contract_reasoning` — where the model must *use* the other images —
-  passes 3/3.
+- One fixture, one image size, one prompt, think-off. `n=1` per configuration
+  except `bbox_contract_multi`, which is `n=3`. Conventions could vary with
+  image size or prompt shape — and gemma4's axis flip proves prompt shape alone
+  is enough to change one.
+- The failure **is** covered by a committed test, and it is corpus-wide. Under
+  the `bbox_type`/`ref_size` schema, `bbox_contract_multi` — distractor images
+  attached with an instruction to ignore them — is followed in only **5 of 21**
+  runs across seven configurations
+  ([campaign](vision-campaign-2026-08-16-seven-model.md)):
 
-  So neither image count nor reasoning load is the trigger on its own. What
-  distinguishes the failing cell is being told to **ignore** the other images.
-  The mechanism is unexplained; the rate is reproducible. This characterisation
-  changed three times before the repeats were run, each earlier version drawn
-  from a single observation — the rates are the record, not the narrative.
+  | model | engine | followed | how it fails |
+  | --- | --- | --- | --- |
+  | gemma4:31b-it-q4_K_M | GGUF | 0/3 | declares `xyxy`, emits `yxyx` |
+  | gemma4:31b-nvfp4 | MLX | 2/3 | `yxyx` on one run of three |
+  | qwen3.6:35b-a3b-q4_K_M | GGUF | 0/3 | declares `real` [1920,1080], emits norm-1000 |
+  | qwen3.6:35b-a3b-nvfp4 | MLX | 0/3 | declares `real` [1024, 768] — a frame never sent |
+  | qwen3.8:27b-q4_K_M | GGUF | 0/3 | declares `norm1000`, emits real in a ~1.33× frame |
+  | qwen3.8:27b-nvfp4 | MLX | 3/3 | — |
+  | nemotron3:33b-q4_K_M | GGUF | 0/3 | declares `real`, no `ref_size`, emits norm-1000 |
+
+  No GGUF configuration passes, in nine attempts. For qwen3.8 GGUF the
+  single-image probe passes 3/3 and `bbox_contract_reasoning` — where the model
+  must *use* the other images — passes 3/3, so neither image count nor reasoning
+  load is the trigger on its own. What distinguishes the failing cell is being
+  told to **ignore** the other images.
+
+  The mechanism is unexplained; the rates are reproducible. This
+  characterisation changed three times before repeats were run, each earlier
+  version drawn from a single observation — the rates are the record, not the
+  narrative. The gemma4 MLX cell is the standing reminder: the one-shot sweep
+  caught its 1-in-3 outcome and would have been written up as "always flips".
 
 - qwen3.8 GGUF's declared frame is itself approximate and unstable: 2500×1406,
   2560×1440 and 2324×1312 across runs on the same 1920×1080 input, all ≈1.30–1.33×.
