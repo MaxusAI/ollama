@@ -144,6 +144,21 @@ occurred.
   passes once that pool has served a larger allocation.
 - **Reproduction needs a non-ollama GGUF.** Upstream cannot load ollama's qwen3.6
   (`qwen35moe.rope.dimension_sections has wrong array length; expected 4, got 3`).
+- **There IS a GPU-free regression test**, which is worth offering if a maintainer asks for
+  one. `get_J_max` and `ggml_cuda_mmq_get_config` are pure `__host__` functions of
+  `(type, J, fallback, cc)` — no `ggml_cuda_info()`, no device queries — so the degenerate
+  range is assertable on a CPU-only runner. `tasks/jmax-padding-gate.cu` compiles against the
+  real `mmq.cuh` and, run with `CUDA_VISIBLE_DEVICES=""`, reports **1380 of 2240** cases
+  returning zero padding across 14 architectures (Pascal→Blackwell, RDNA2–4, CDNA2/3, Vega),
+  5 quant types, both `fallback` values, `ne11` in 1..16.
+
+  Two things to keep straight when offering it. The zero range reaches `ne11 = 15`, not the
+  1..7 that `ret -= ret % 8` alone predicts — for some `(type, cc, fallback)` no valid config
+  exists at `J = 8` either, so the loop steps down to zero. And "`get_J_max` must return > 0"
+  is a *contract* claim upstream may reject, since the function can legitimately mean "no tile
+  fits"; the defensible invariant is at the call site — the `ids` branch must size its padding
+  from the row count it actually writes. Offer the host test as a regression net, not as proof
+  that `get_J_max` is itself wrong.
 
 ### Related issues — flag, do not claim
 
