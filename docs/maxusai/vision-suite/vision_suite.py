@@ -438,6 +438,62 @@ Respond with a SINGLE JSON object, no prose:
 }}"""
 
 
+def bbox_self_check(objs, anchor_type, anchor_ref):
+    """Is this response internally consistent? (ok, reason)
+
+    Uses ONLY the response. No ground truth, no image content, not even the
+    image dimensions — so it runs unchanged on an image nobody has measured,
+    which is the whole point.
+
+    Measured 2026-08-16 against the two adversarial arms (7 models x 3 repeats
+    x 2 arms = 42 responses, each deliberately pinned to a convention the model
+    resists): this separates usable from unusable anchors 42/42, with zero
+    silent failures and zero good answers thrown away. Neither check alone is
+    sufficient — each catches exactly what the other is blind to.
+
+    1. RANGE catches a pure SCALE lie. gemma4 declares norm1 and emits
+       norm-1000; both spaces are square so no shape test can see it, but a
+       coordinate of 856 in a 0.0-1.0 space is a flat contradiction. 6 of the
+       15 bad responses are caught only here.
+    2. ASPECT catches a FRAME fabrication. Asked for "real" pixels, gemma4 MLX
+       returns an anchor of [0,0,1920,1080] — the true image size, answered
+       from knowledge rather than measured — while its boxes are norm-1000. The
+       anchor's shape (1.778) then disagrees with the objects' extent shape
+       (1.099). 9 of the 15 are caught only here.
+
+    That second case is why an anchor is not automatically trustworthy: a model
+    can answer "where is the whole image" semantically instead of emitting a box
+    in the space it is actually working in, and when it does, the anchor stops
+    being a calibration and becomes a second copy of the declaration.
+    """
+    anc = next((o for o in objs
+                if str(o.get("label", "")).strip().upper().strip("_") == "IMAGE"), None)
+    others = [o for o in objs if o is not anc and get_bbox(o)]
+    ab = get_bbox(anc) if anc else []
+    if len(ab) != 4 or not others:
+        return False, "no usable anchor"
+
+    limit = (1.0 if anchor_type == "norm1" else
+             1000.0 if anchor_type == "norm1000" else
+             max(anchor_ref) if anchor_ref else None)
+    if limit:
+        mx = max(abs(c) for o in others for c in get_bbox(o))
+        if mx > limit * 1.02:          # 2% for rounding at the edges
+            return False, f"range: max coordinate {mx:g} exceeds {limit:g}"
+
+    aw = max(ab[0], ab[2]) - min(ab[0], ab[2])
+    ah = max(ab[1], ab[3]) - min(ab[1], ab[3])
+    xs = [c for o in others for c in (get_bbox(o)[0], get_bbox(o)[2])]
+    ys = [c for o in others for c in (get_bbox(o)[1], get_bbox(o)[3])]
+    ew, eh = max(xs) - min(xs), max(ys) - min(ys)
+    if not (ah and eh):
+        return False, "degenerate extent"
+    ratio = (aw / ah) / (ew / eh)
+    if not 0.8 <= ratio <= 1.25:
+        return False, f"aspect: anchor {aw / ah:.2f} vs object extent {ew / eh:.2f}"
+    return True, "ok"
+
+
 def score_bbox_contract(resp_text):
     """Grounding and instruction-following, scored separately.
 
@@ -467,6 +523,7 @@ def score_bbox_contract(resp_text):
          "anchor_present": False, "anchor_implied_type": None,
          "anchor_implied_ref": None, "hits_anchor": 0, "iou_anchor": 0.0,
          "anchor_beats_declared": False,
+         "self_check": None, "self_check_reason": None,
          "declaration_valid": False, "declaration_matches_boxes": False,
          "contract_followed": False}
     r, fenced = parse_json_response(resp_text)
@@ -666,6 +723,11 @@ def score_bbox_contract(resp_text):
             s["hits_anchor"], s["iou_anchor"] = tally(at, od, aref)
             s["anchor_beats_declared"] = bool(
                 s["hits_anchor"] > s["hits_declared"])
+        # Would a consumer with no ground truth have accepted this response?
+        # Recorded next to hits_anchor precisely so the two can be compared:
+        # self_check true with hits_anchor < 6 is a silent failure, and is the
+        # signature that would falsify the validator.
+        s["self_check"], s["self_check_reason"] = bbox_self_check(objs, at, aref)
 
     s["declaration_matches_boxes"] = bool(
         s["declaration_valid"] and s["hits_declared"] == len(matched))
@@ -856,6 +918,73 @@ Respond with a SINGLE JSON object, no prose:
 }"""
 
 
+# --- the ADVERSARIAL arms ----------------------------------------------------
+#
+# bbox_contract_anchored showed 21/21 compliance and anchor_beats_declared false
+# in every cell — under a pinned norm1000 nothing lied, so the anchor never had
+# to fire. That leaves the load-bearing question open: when a model DOES emit
+# coordinates that disagree with its declaration, does the anchor land in the
+# space the boxes are actually in, or does it land in the same false space the
+# declaration claims? If the latter, the anchor is not a calibration at all —
+# it is a second copy of the same claim, and ADR 0027 rests on nothing.
+#
+# These two arms provoke the disagreement instead of waiting for it, by pinning
+# a convention each model has been measured resisting:
+#
+#   adv_real  — pins "real" and DELIBERATELY WITHHOLDS the image dimensions.
+#               "Absolute pixels" is what the suite's original prompts assumed
+#               and what no model matched: qwen3.8 GGUF answers in a ~1.30x
+#               frame of its own. ref_size is still requested, so the model's
+#               CLAIMED frame and the anchor's DERIVED frame can be compared
+#               directly on the same response — the sharpest available test of
+#               "derive, do not trust".
+#   adv_norm1 — pins "norm1" (0.0-1.0) against a corpus that emits norm-1000 by
+#               habit, stated as tersely as the original free-choice prompt so
+#               the pin is weak on purpose.
+#
+# No dimensions appear in either prompt. A prompt that states 1920x1080 hands
+# the model a number to copy into the anchor, which would fake a pass.
+#
+# Read the result on hits_anchor, not on contract_followed. A cell where
+# hits_declared is 0 and hits_anchor is 6 is the anchor doing its job; a cell
+# where both are 0 is the anchor inheriting the lie, and would falsify ADR 0027.
+_BBOX_ADV_TAIL = """
+Give each coordinate its own named field: "x1", "y1", "x2", "y2". Do not use a
+positional array.
+
+The FIRST entry must be a calibration entry with label "__IMAGE__" whose
+coordinates cover the ENTIRE first image, corner to corner, in the same
+convention as everything else. Then list the shapes.
+
+Each box covers the shape itself, not its label text.
+
+Respond with a SINGLE JSON object, no prose:
+{
+  "objects": [{"label": "__IMAGE__", "bbox_type": "...", "x1": , "y1": , "x2": , "y2": },
+              {"label": "<uppercase code word above the shape>",
+               "bbox_type": "...", "x1": , "y1": , "x2": , "y2": }]
+}"""
+
+BBOX_CONTRACT_ADV_REAL_PROMPT = """You are a localization service. Find every
+distinct coloured shape in the FIRST image and report where each one is.
+
+Only the FIRST image contains the shapes to report; the others are distractors
+and must be ignored.
+
+Use "bbox_type": "real" — absolute pixel coordinates. Give "ref_size": [W, H] on
+every object as well: the width and height of the image those pixels refer to.
+""" + _BBOX_ADV_TAIL
+
+BBOX_CONTRACT_ADV_NORM1_PROMPT = """You are a localization service. Find every
+distinct coloured shape in the FIRST image and report where each one is.
+
+Only the FIRST image contains the shapes to report; the others are distractors
+and must be ignored.
+
+Use "bbox_type": "norm1" — coordinates scaled to 0.0-1.0 on both axes.
+""" + _BBOX_ADV_TAIL
+
+
 # The dense fine-text probe joins the suite rather than living as a second
 # entry point. Prompt and scorer are IMPORTED from finetext_probe, not copied:
 # the probe's assets are committed precisely so the same input scores the same
@@ -916,6 +1045,14 @@ tests = [
      ["scene_hd.png", "document.png", "chart.png"], score_bbox_contract),
     ("bbox_contract_anchored",
      BBOX_CONTRACT_ANCHORED_PROMPT,
+     ["scene_hd.png", "document.png", "chart.png"], score_bbox_contract),
+    # The adversarial arms. Read hits_anchor, not contract_followed: these pin a
+    # convention the corpus resists, so a low hits_declared is the POINT.
+    ("bbox_contract_adv_real",
+     BBOX_CONTRACT_ADV_REAL_PROMPT,
+     ["scene_hd.png", "document.png", "chart.png"], score_bbox_contract),
+    ("bbox_contract_adv_norm1",
+     BBOX_CONTRACT_ADV_NORM1_PROMPT,
      ["scene_hd.png", "document.png", "chart.png"], score_bbox_contract),
     # Env still wins, as it does for the standalone probe — the override only
     # replaces the suite's default with this probe's, it does not pin it.
