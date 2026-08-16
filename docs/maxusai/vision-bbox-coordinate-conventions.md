@@ -104,10 +104,21 @@ seven-model corpus, 3 repeats each
 ([campaign](vision-campaign-2026-08-16-seven-model.md)); the resulting contract
 is [ADR 0027](adr/0027-bbox-requests-pin-norm1000-and-carry-an-anchor.md).
 
-### 1. Pin the convention — 5/21 → 21/21
+### 1. Pin norm-1000 — 5/21 → 21/21, and the choice of convention is not free
 
-Do not let the model choose. Ask for norm-1000 explicitly, and **state what the
-space is**, because the wording is load-bearing:
+Do not let the model choose. Ask for norm-1000 **specifically** — pinning some
+*other* convention is not equivalent, and one of them is worse than free choice:
+
+| pinned convention | declarations usable |
+| --- | --- |
+| **norm-1000** | **21/21** |
+| norm-1 (0.0–1.0) | 15/21 — gemma4 emits norm-1000 anyway, on both engines |
+| real pixels | **3/21** |
+
+norm-1000 is this corpus's native space. Pinning `real` asks four of seven
+configurations to work in a frame they do not have, and they invent one.
+
+**State what the space is**, because the wording is load-bearing:
 
 > Use `"bbox_type": "norm1000"` — each axis scaled independently to 0-1000, x by
 > 1000/width and y by 1000/height. The coordinate space is 1000x1000 whatever
@@ -157,13 +168,47 @@ The third row is the load-bearing one: it recovers the frame **without trusting
 entirely. Measured: **21/21** returned `__IMAGE__` at exactly
 `[0, 0, 1000, 1000]`.
 
-**What this has not shown.** `anchor_beats_declared` is false in all 21 cells,
-because under pinning nothing lied and the anchor never had to rescue anything.
-Its recovery behaviour is verified only against synthetic responses: a payload
-declaring `norm1000` while emitting real pixels in a 1.302× frame is recovered
-to 6/6 at IoU 0.997, with `ref [2500, 1406]` derived. Treat the anchor as a
-cheap per-request check that has been shown to be *complied with*, not as a
-rescue that has been shown to *fire in the wild*.
+### 3. Validate the anchor — it is not automatically trustworthy
+
+**An anchor can inherit the very lie it is supposed to catch.** Asked "where is
+the whole image", a model that is *not* actually working in the requested space
+can answer from **semantic knowledge of the image dimensions** rather than by
+emitting a box in its working space. When it does, the anchor stops being a
+calibration and becomes a second copy of the declaration.
+
+Measured across the two adversarial arms — 7 models × 3 repeats × 2 arms, each
+pinned to a convention the model resists, producing 15 genuinely mis-declared
+responses out of 42:
+
+| outcome | cells |
+| --- | --- |
+| anchor recovers what the declaration could not | **12/42** |
+| anchor and declaration both already correct | 15/42 |
+| anchor inherits the declaration's error | **9/42** |
+| anchor invents a third, also-wrong frame | **6/42** |
+
+The rescue is real and it is the case nothing else solves: qwen3.8 on both
+engines declares `real` with `ref_size` **absent** — declaration unusable, 0/6 —
+and its anchor derives `[2338, 1316]` for **6/6**, where a best-fit dialect
+search manages only **1/6** because no search can guess that frame.
+
+The failure is gemma4: asked for `real` it returns `[0, 0, 1920, 1080]`, correct
+about the image and useless as calibration, while its boxes are norm-1000.
+
+**Two response-only checks separate them, 42/42.** Neither is sufficient alone:
+
+- **Range** — every coordinate must fit the space the anchor implies. Catches a
+  pure *scale* lie: gemma4 declares `norm1` and emits norm-1000, and since both
+  spaces are square no shape test can see it. **6 of the 15**, caught only here.
+- **Aspect** — the anchor's own aspect ratio must match the objects' extent
+  aspect. Catches a *fabricated frame*: anchor 1.778 against an extent of 1.099.
+  **9 of the 15**, caught only here.
+
+Together: **27 accepted and all 27 correct, 15 rejected and all 15 genuinely
+bad** — zero silent failures, zero good answers discarded, and no ground truth,
+image content or image dimensions required. Implemented as `bbox_self_check` in
+`vision-suite/vision_suite.py`; `self_check` / `self_check_reason` appear on
+every contract score.
 
 ### The recommended request shape
 
@@ -174,9 +219,15 @@ rescue that has been shown to *fire in the wild*.
               "x1": 72, "y1": 148, "x2": 219, "y2": 333}]}
 ```
 
-Then, on receipt: derive the space from `__IMAGE__`, ignore any `ref_size`
-claim, and convert with `x·W/1000`, `y·H/1000`. Fall back to the heuristic
-ladder below only when the anchor is missing or malformed.
+On receipt, in order:
+
+1. Derive the space from `__IMAGE__`. **Ignore any `ref_size` claim.**
+2. Run the range and aspect checks. **Reject the response if either fails** —
+   do not convert it, and do not fall back to best-fit, which scores 1/6 exactly
+   where it is needed most.
+3. Convert with `x·W/1000`, `y·H/1000`.
+4. Only if the anchor is missing or malformed, fall back to the heuristic ladder
+   below — and treat its output as provisional.
 
 ## Recovering coordinates from nemotron3 (and qwen3.6 GGUF)
 

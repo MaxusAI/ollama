@@ -276,7 +276,7 @@ Always check `prompt_eval_count` before attributing such a delta to a patch.
 
 ## Bounding-box contract probes (2026-08-16)
 
-Six probes measure whether a model's *declaration* of its coordinate convention
+Eight probes measure whether a model's *declaration* of its coordinate convention
 matches the numbers it emitted — a different axis from grounding, and one the
 older scorers could not separate. Superseded guidance: the norm-1000 advice
 above is right but was measured on three models; it is now seven, and the
@@ -291,6 +291,16 @@ mechanism is settled in
 | `bbox_contract_pinned` | + distractors, "ignore them" | pinned norm-1000, top-level | **21/21** |
 | `bbox_contract_perobject` | + distractors, "ignore them" | pinned norm-1000, per object | **21/21** |
 | `bbox_contract_anchored` | + distractors, "ignore them" | pinned, named keys, `__IMAGE__` anchor | **21/21** |
+| `bbox_contract_adv_real` | as above, dimensions withheld | pinned **`real`** — resisted on purpose | **3/21** |
+| `bbox_contract_adv_norm1` | as above | pinned **`norm1`** — resisted on purpose | **15/21** |
+
+The two `adv_*` arms exist to make models mis-declare, so read them on
+`hits_anchor` and `self_check`, **not** on `contract_followed` — a low
+`hits_declared` there is the point. They establish that which convention you pin
+is not free (norm-1000 21/21, norm-1 15/21, real 3/21), and that an
+`__IMAGE__` anchor can *inherit* a false declaration rather than correct it.
+`bbox_self_check` (range + aspect, response-only) separates usable from
+unusable anchors 42/42 across those arms.
 
 Reading the metrics: `hits_declared` scores grounding **only** in the dialect the
 model named, `hits_bestfit` is the legacy search over type × order, and the gap

@@ -227,10 +227,42 @@ truth. 21/21 used named `x1/y1/x2/y2` coordinates verbatim, and 21/21 returned
 an `__IMAGE__` calibration entry at exactly `[0, 0, 1000, 1000]`. Compliance
 with the protocol is not the weak link.
 
-What it does **not** show: `anchor_beats_declared` is false in all 21 cells,
-because under pinning nothing lied and the anchor never had to fire. Its
-recovery is verified only synthetically. The decision this feeds is
-[ADR 0027](adr/0027-bbox-requests-pin-norm1000-and-carry-an-anchor.md).
+`anchor_beats_declared` is false in all 21 cells of that arm, because under
+pinning nothing lied and the anchor never had to fire — which is what the
+adversarial arms below were run to settle.
+
+## Adversarial arms: the anchor rescues, and the anchor lies
+
+Two further arms pin a convention the corpus **resists**, with the image
+dimensions withheld so there is no number in the prompt to copy into the anchor.
+7 models × 3 repeats each; 15 of the 42 responses are genuinely mis-declared,
+which is what they were for.
+
+| pinned convention | declarations usable |
+|---|---|
+| norm-1000 (`pinned` / `perobject` / `anchored`) | **21/21** |
+| `norm1` (`adv_norm1`) | 15/21 — gemma4 emits norm-1000 anyway, both engines |
+| `real` (`adv_real`) | **3/21** |
+
+**Which convention you pin is not free.** Pinning `real` asks four of seven
+configurations to work in a frame they do not have, and they fabricate one.
+
+Of the 15 mis-declared responses, the anchor **recovers 12/42**, **inherits the
+declaration's error in 9/42**, and **invents a third wrong frame in 6/42**.
+
+The rescue: qwen3.8, both engines, 3/3 each — declares `real` with `ref_size`
+absent (0/6), anchor derives `[2338, 1316]`, boxes score **6/6** against a
+best-fit of **1/6**.
+
+The failure: gemma4 answers "where is the whole image" from knowledge of the
+image size, returning `[0,0,1920,1080]` while its boxes are norm-1000. An anchor
+produced that way is not a calibration.
+
+`bbox_self_check` — range plus aspect, response-only — separates the two
+**42/42**, with zero silent failures and zero good answers discarded. The
+decision this feeds is
+[ADR 0027](adr/0027-bbox-requests-pin-norm1000-and-carry-an-anchor.md), amended
+accordingly.
 
 ## Engine split
 
