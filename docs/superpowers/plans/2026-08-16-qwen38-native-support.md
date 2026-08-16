@@ -1,8 +1,11 @@
 # Plan: native Qwen3.8 support
 
-- **Status:** Phases 0–3 complete (2026-08-16); Phases 4–5 not started.
-  Phase 1 shipped in #111, Phase 2 in #112, open question 2 in #113,
-  Phase 3 as ADR 0026. Grounded against `main` at `677915ad` and `upstream/main` at `d67ad834`.
+- **Status:** Phases 0–3 and 5 complete; Phase 4 half complete (2026-08-16).
+  Phase 1 shipped in #111, Phase 2 in #112, open question 2 in #113, Phase 3 as
+  ADR 0026 (#116), Phase 4's Apple Silicon half in #118, Phase 5 in #119.
+  **Outstanding: a measured `cuda-dynres-005` row, on a CUDA host.**
+- **Grounding:** written against `main` at `677915ad` and `upstream/main` at
+  `d67ad834`; the findings below were re-verified as each phase shipped.
 - **Scope:** land Qwen3.8 on the fork across the engines we ship, and know it works.
 - **Not an ADR.** Decisions that get made while executing this belong in ADRs;
   this file is disposable once the work ships.
@@ -52,8 +55,8 @@ MLX-specific.
 | Model impl | llama.cpp `qwen35`/`qwen35moe` — present in the payload | b9888 payload — unverified | `x/models/qwen3_5` — present | llama.cpp `qwen35`/`qwen35moe` |
 | The 3 picks give | renderer + parser | — (not backported) | renderer + parser + `x/create` import | renderer + parser |
 | How a model arrives | `ollama pull` | `ollama pull` | `ollama pull` **or** `x/create` import | `ollama pull` |
-| Preflight arches today | `nemotron_h_omni`, `gemma4` | `nemotron_h_omni`, `gemma4` | `gemma4`, `gemma4_unified`, `qwen35moe` | `gemma4`, `qwen35moe` |
-| Status after Phase 1 | works, unmeasured | **blocked — see below** | works, unmeasured | works, unmeasured |
+| Preflight arches | `nemotron_h_omni`, `gemma4` | `nemotron_h_omni`, `gemma4` | + **`qwen35`** (added, measured) | `gemma4`, `qwen35moe` |
+| Status now | **works**, verified live; baseline outstanding | **blocked — see below** | **works**, verified live and baselined | **works**, verified live; unmeasured |
 
 **`ollama pull` works for MLX.** `Model.IsMLX()` is `Config.ModelFormat ==
 "safetensors"` (`server/images.go:84`), a manifest field, so a pulled model
@@ -202,27 +205,65 @@ does not hold.
 The `CARD_THINKING` guidance stands unchanged: do **not** add a `qwen3.8`
 entry by analogy to qwen3.6.
 
-### Phase 4 — preflight baselines (ADR 0011)
+### Phase 4 — preflight baselines (ADR 0011) — **HALF DONE 2026-08-16**
 
-Two targets, not one: `apple-silicon-mlx` **and** `cuda-dynres-005`. Neither has a
-`qwen35moe` row today, and ADR 0011 rule 4 makes an unmeasured (platform, arch)
-combination a `NEEDS_BASELINE` failure. Measure; never copy a row across.
+**`apple-silicon-mlx`: measured and passing.** `[expect.apple-silicon-mlx.qwen35]`
+anchored to `qwen3.8:27b-nvfp4`; harness verdict `PASS`, exit 0 — prefix 13,
+ladder 5/5 within ±2.
 
-Related gap: the `think_format` probe **skips on apple-silicon-mlx** — the exact
-profile where Qwen3.8 runs natively, and the flow Phase 2's defect lives in.
-Adding a block to the `qwen35moe` arch also changes what that existing measured
-row asserts for qwen3.6, so it is a change to a measured row, not a pure addition.
+It needed **its own arch row**, for two independent reasons found while doing it:
 
-### Phase 5 — vision registration
+- `run_arch` probes exactly the model its row names (`expect["model"]`), so
+  hanging qwen3.8 off `qwen35moe` would silently re-point qwen3.6's measured
+  baseline — an *edit* to a measured row, which ADR 0011 rule 4 treats
+  differently from an addition.
+- It would be wrong on the facts. qwen3.8:27b is the **dense** member of the
+  qwen3_5 architecture (`text_config`: 64 layers, no expert keys) where
+  qwen3.6:35b-a3b is MoE. llama.cpp draws the same line, `LLM_ARCH_QWEN35` vs
+  `LLM_ARCH_QWEN35MOE`.
 
-Upstream registers qwen3.8 for **tools only** — it is absent from
-`releaseVisionModels` and `releaseVisionTextModels` despite the manifest declaring
-vision capability and shipping a projector. For a fork whose differentiator is
-vision, taking upstream's registration verbatim leaves that untested.
+The measured ladder `[68, 146, 578, 2306, 5186]` is **the same five numbers as
+the qwen35moe row** — the exact shape ADR 0011 exists to stop being faked, so the
+evidence was built in order: predict from the shared preprocessor parameters
+(`patch_size 16`, `spatial_merge_size 2`, window `65536..16777216`), then
+*validate the method* by re-measuring qwen3.6 and reproducing its recorded prefix
+and all five rungs exactly, and only then measure qwen3.8. The agreement is
+evidence the sizing is genuinely shared between the dense and MoE members, not
+licence to copy.
 
-Splits by engine: MLX goes through `x/models/qwen3_5` vision; GGUF goes through
-`visionServerArgs` and the image-token B-invariants, where `qwen35`/`qwen35moe`
-already carry the 1024 floor.
+Operational note: the binary must be **stamped**. A plain `go build .` reports
+`0.0.0` and fails the profile's `version_pattern` gate; measure with
+`-ldflags "-X=github.com/ollama/ollama/version.Version=0.32.5-maxusai-<sha>"`.
+
+**`cuda-dynres-005`: still outstanding.** It has no `qwen35` or `qwen35moe` row
+and needs a measured run on a CUDA host. The Apple numbers must not be carried
+across — the qwen35moe block already records that the same weights as GGUF give a
+different ladder (`[1034, 1034, 1034, 2306, 4082]`) because llama-server launches
+qwen-VL with `--image-min-tokens 1024` while MLX honours the model's own
+64..16384 range.
+
+Still open: the `think_format` probe **skips on apple-silicon-mlx** for every arch
+on that profile — visible in the run output. It predates qwen3.8, and adding a
+block to the `qwen35moe` arch changes what that existing measured row asserts for
+qwen3.6, so it stays a separate decision (open question 4).
+
+### Phase 5 — vision registration — **DONE 2026-08-16**
+
+`qwen3.8:27b` added to `releaseVisionModels` and `releaseVisionTextModels`;
+upstream had registered it for tools only, despite the manifest shipping a
+projector layer and the MLX config declaring
+`capabilities: ["completion","vision","tools","thinking"]`.
+
+Registered only after verifying vision on both engines rather than trusting the
+capability flag: `27b-q4_K_M` (llama-server) and `27b-nvfp4` (MLX) both read the
+vision suite's fine-text probe correctly, resolving the 22/16/12/9/7px tiers, and
+both reported `prompt_eval` **2424** for the same image — cross-engine parity on
+image-token accounting, which is stronger evidence than two independent passes.
+
+Confined to the release sweep (`//go:build integration && release`);
+`reg_fast_test.go` carries only 2b-class models. `releaseVisionModels` also feeds
+`registerVisionOCRDocumentCases`, so this enrols qwen3.8 in the OCR document
+cases too.
 
 ## Out of scope
 
