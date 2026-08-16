@@ -65,6 +65,29 @@ def family(model):
     return (model or "").split(":", 1)[0].strip().lower()
 
 
+# The one-off probe overrides. Kept as a module constant rather than inline in
+# sampling_for, because provenance() has to report exactly the set that
+# sampling_for applies — two hand-maintained copies would drift, and a drifted
+# copy is worse than no label at all: it would assert an override that was
+# never applied, or hide one that was.
+OVERRIDE_ENV = (("TEMPERATURE", "temperature", float),
+                ("TOP_P", "top_p", float),
+                ("TOP_K", "top_k", int),
+                ("MIN_P", "min_p", float),
+                ("PRESENCE_PENALTY", "presence_penalty", float))
+
+
+def active_overrides():
+    """The overrides currently set in the environment, {key: raw string}.
+
+    Presence here does NOT mean they were applied — sampling_for only reaches
+    the override loop on the think-on, non-legacy, has-a-card path. Callers
+    must gate on that themselves; provenance() does.
+    """
+    return {key: os.environ[env] for env, key, _ in OVERRIDE_ENV
+            if os.environ.get(env)}
+
+
 def sampling_for(model, think, warn=True):
     """Options dict for this model in this think mode.
 
@@ -96,11 +119,7 @@ def sampling_for(model, think, warn=True):
         return {}
     opts = dict(opts)
 
-    for env, key, cast in (("TEMPERATURE", "temperature", float),
-                           ("TOP_P", "top_p", float),
-                           ("TOP_K", "top_k", int),
-                           ("MIN_P", "min_p", float),
-                           ("PRESENCE_PENALTY", "presence_penalty", float)):
+    for env, key, cast in OVERRIDE_ENV:
         if os.environ.get(env):
             opts[key] = cast(os.environ[env])
     return opts
@@ -112,9 +131,22 @@ def provenance(model, think):
     ADR 0005 asks benchmark runs to record their runtime configuration; the
     suite did not, which is why the b10353 caps could not be attributed to a
     sampling mode without re-running them.
+
+    An env-overridden run is NOT card-sourced and must not claim to be. Until
+    2026-08-16 this returned a bare `card:<fam>` whichever values were actually
+    sent, so a `TEMPERATURE=0.01` probe was archived as though it carried the
+    card's temperature 1.0 — the resolved `sampling` dict told the truth, but
+    the field everyone filters on did not. The suffix below closes that.
+
+    The gate mirrors sampling_for's control flow exactly. Overrides reach the
+    resolved options ONLY on the think-on, non-legacy, has-a-card path: legacy
+    and think-off return GREEDY before the override loop, and a family with no
+    card entry returns {} before it. Labelling any of those as overridden would
+    be the same class of lie in the opposite direction.
     """
     fam = family(model)
-    if os.environ.get("SAMPLING", "").lower() == "legacy":
+    legacy = os.environ.get("SAMPLING", "").lower() == "legacy"
+    if legacy:
         source = "legacy-greedy"
     elif not think:
         source = "greedy-think-off"
@@ -122,4 +154,10 @@ def provenance(model, think):
         source = f"card:{fam}"
     else:
         source = "packaged-defaults-no-card"
+
+    if think and not legacy and fam in CARD_THINKING:
+        ov = active_overrides()
+        if ov:
+            source += "+override(" + ",".join(
+                f"{k}={v}" for k, v in sorted(ov.items())) + ")"
     return {"sampling_source": source, "sampling": sampling_for(model, think, warn=False)}
