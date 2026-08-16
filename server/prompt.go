@@ -29,6 +29,26 @@ type tokenizeFunc func(context.Context, string) ([]int, error)
 // chatPrompt truncates any messages that exceed the context window of the model, making sure to always include 1) the
 // latest message and 2) system messages
 func chatPrompt(ctx context.Context, m *Model, tokenize tokenizeFunc, opts *api.Options, msgs []api.Message, tools []api.Tool, think *api.ThinkValue, truncate bool) (prompt string, media []llm.MediaData, _ error) {
+	p, media, _, err := chatPromptFrom(ctx, m, tokenize, opts, msgs, tools, think, truncate, noTruncateBound)
+	return p, media, err
+}
+
+// noTruncateBound lets chatPromptFrom truncate as far as it needs to.
+const noTruncateBound = -1
+
+// chatPromptFrom is chatPrompt with a ceiling on how far truncation may
+// advance, and it reports the window it settled on.
+//
+// The ADR 0004 double request needs both. Pass two re-renders the same
+// conversation with the thinking appended as an assistant turn, so its prompt
+// is strictly longer than pass one's and can truncate further — silently
+// continuing against less context than the thinking was produced with. Passing
+// pass one's window as maxIdx pins pass two to at least that much history; if
+// the result no longer fits, the caller's continuation-headroom check turns it
+// into a clean length exit instead of a quiet context loss.
+//
+// maxIdx of noTruncateBound means unbounded.
+func chatPromptFrom(ctx context.Context, m *Model, tokenize tokenizeFunc, opts *api.Options, msgs []api.Message, tools []api.Tool, think *api.ThinkValue, truncate bool, maxIdx int) (prompt string, media []llm.MediaData, usedIdx int, _ error) {
 	var system []api.Message
 
 	// This is only a truncation heuristic; llama-server handles the actual
@@ -64,7 +84,7 @@ func chatPrompt(ctx context.Context, m *Model, tokenize tokenizeFunc, opts *api.
 				// under the ADR 0004 double request it dies mid-stream after
 				// pass one's content has already reached the client.
 				if i == 0 {
-					return "", nil, err
+					return "", nil, 0, err
 				}
 				currMsgIdx = i - 1
 				system = system[:0]
@@ -78,7 +98,7 @@ func chatPrompt(ctx context.Context, m *Model, tokenize tokenizeFunc, opts *api.
 
 			s, err := tokenize(ctx, p)
 			if err != nil {
-				return "", nil, err
+				return "", nil, 0, err
 			}
 
 			ctxLen := len(s)
@@ -87,6 +107,17 @@ func chatPrompt(ctx context.Context, m *Model, tokenize tokenizeFunc, opts *api.
 			}
 
 			if ctxLen <= opts.NumCtx {
+				currMsgIdx = i
+				break
+			}
+
+			// Do not cut past the caller's ceiling. Pass two of the ADR 0004
+			// double request pins itself to pass one's window: dropping more
+			// history here would continue against context the thinking was
+			// never produced with, and the caller would have no way to tell.
+			// Stopping leaves an over-long prompt, which the caller's
+			// continuation-headroom check reports as a clean length exit.
+			if maxIdx != noTruncateBound && i >= maxIdx {
 				currMsgIdx = i
 				break
 			}
@@ -105,16 +136,16 @@ func chatPrompt(ctx context.Context, m *Model, tokenize tokenizeFunc, opts *api.
 
 	renderMsgs, media, err := imageTaggedMessages(m, msgs, currMsgIdx, false)
 	if err != nil {
-		return "", nil, err
+		return "", nil, 0, err
 	}
 
 	// truncate any messages that do not fit into the context window
 	p, err := renderPrompt(m, append(system, renderMsgs[currMsgIdx:]...), tools, think)
 	if err != nil {
-		return "", nil, err
+		return "", nil, 0, err
 	}
 
-	return p, media, nil
+	return p, media, currMsgIdx, nil
 }
 
 // visionTokenArch returns the architecture used for image-token accounting
