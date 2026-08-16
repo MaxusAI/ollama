@@ -71,7 +71,7 @@ platform = "cuda"
 # passing VERSION= by hand -- one release build shipped reporting 0.0.0.
 version_pattern = '^0\.32\.\d+(-rc\d+)?-dynres(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
 patchset = ["001", "002", "004", "005", "903"]
-arches = ["nemotron_h_omni", "gemma4"]
+arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # The real payload identity. b10434 = 7e4c0a96880d, upstream v0.32.14-rc0's pin.
 # 903 fixes the MMQ ids-path tail-padding under-allocation and is still required
 # here: ggml-org/llama.cpp#27044 is open, and b10434 still carries the defect.
@@ -598,6 +598,91 @@ num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
 require_nonempty_thinking = false
+
+[expect.cuda-dynres-903.qwen35]
+status = "measured"
+measured_on = "2026-08-16"
+model = "qwen3.8:27b-q4_K_M"   # the GGUF, which routes to llama-server. The
+                               # sibling 27b-nvfp4 tag is the MLX export and
+                               # CANNOT be pulled here: the registry gates it on
+                               # the client's reported GOOS, so it anchors
+                               # [expect.apple-silicon-mlx.qwen35] instead.
+patch_stride = 32              # patch_size 16 * spatial_merge_size 2
+budget_min_tokens = 1024       # 1048576 / 32^2
+budget_max_tokens = 4096       # 4194304 / 32^2
+image_min_pixels = 1048576     # read from the load log, logged "(custom value)"
+image_max_pixels = 4194304     # read from the load log, NOT marked custom
+custom_bounds = ["min"]        # only the min is ours to set -- see below
+scaling = "dynamic"
+ladder_tolerance = 2
+ladder = [1034, 1034, 1034, 2306, 4082]
+
+# Qwen3.8 is the DENSE member of the qwen3_5 family; qwen3.6:35b-a3b is the MoE
+# sibling and llama.cpp draws the same line (LLM_ARCH_QWEN35 vs
+# LLM_ARCH_QWEN35MOE). Confirmed here rather than assumed: the load log prints
+# general.architecture = qwen35, head_count 24, embedding_length 5120, against
+# the MoE's 16 / 2048.
+#
+# These are NOT the numbers in [expect.apple-silicon-mlx.qwen35], and the
+# difference is the whole reason this row exists. Same model family, same stride
+# 32, but a different pixel window -- 1048576..4194304 here against the MLX
+# export's 65536..16777216 -- so the ladder diverges at both ends and agrees only
+# where neither clamp binds:
+#
+#   size        this row   MLX row   why
+#   256x144       1034        68     both clamp UP, to different floors
+#   512x288       1034       146       "
+#   1024x576      1034       578       "
+#   2048x1152     2306      2306     inside both windows: identical, as it must be
+#   3072x1728     4082      5186     both clamp DOWN, to different ceilings
+#
+# Copying the MLX row across would therefore have been wrong on four of five
+# rungs while looking plausible on the fifth.
+#
+# Every rung reproduces from the arithmetic, which is what makes this a
+# measurement rather than five recorded numbers: align each edge to 32, clamp
+# total pixels into the window, take (w/32)*(h/32), add the 2-marker allowance.
+# 256x144 upscales to 1376x768 -> 43*24+2 = 1034; 2048x1152 is untouched at
+# 64*36+2 = 2306; 3072x1728 downscales to 2720x1536 -> 85*48+2 = 4082. The first
+# three rungs are equal because all three are below the floor and land on the
+# same clamped geometry -- a floor, not a flat budget, so `scaling` is "dynamic".
+#
+# custom_bounds is ["min"] because only the min is ours to set. visionServerArgs
+# gives the whole qwen VL family -- qwen2vl, qwen25vl, qwen3vl, qwen3vlmoe,
+# qwen35, qwen35moe -- a single flag, `--image-min-tokens 1024`
+# (qwenVLImageMinTokens), and 1024 * 32^2 = 1048576 is exactly the custom min
+# above. The max is llama.cpp's own set_limit_image_tokens(8, 4096) ceiling,
+# which llm/llama_server.go states is "not tunable through --image-max-tokens"
+# (qwenVLImageMaxTokens = 4096, and 4096 * 32^2 = 4194304 is what the log shows,
+# unmarked). This differs from nemotron_h_omni and gemma4, whose cases pass both
+# flags and therefore mark both bounds.
+#
+# Found by this row failing. payload_proof asserted "(custom value)" on both
+# bounds, which no qwen build can satisfy, so the check now takes the expected
+# bounds from the arch instead of assuming. The values were never in question --
+# the ladder passed 5/5 in the same run.
+#
+# prefix == text_only == 13, so this arch has no B8 offset (nemotron has 1).
+#
+# Measured with probes.Ollama.image_prefix against 0.32.14-rc0-dynres-0-ga5d6590
+# on :11497, after a forced unload so the load_hparams block is this model's.
+# The first attempt read a stale log window and surfaced qwen35moe lines from an
+# earlier session; the values above come from a `--since 3m` window that names
+# qwen35.
+
+[expect.cuda-dynres-903.qwen35.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured: eval_count 330 against the 4000 allowance, 951 chars of thinking,
+# valid JSON. Nowhere near the num_predict trap, so the floor is not load-bearing
+# for this arch -- but it is kept at nemotron's 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer prompt.
+
+# No [.pinned] block: the 005 defect was found on nemotron and this arch's
+# pinned-budget probe has not been measured. check_pinned_budget skips with that
+# reason rather than inventing a pass, exactly as gemma4 does above.
 
 [quality.cuda-dynres-005.nemotron_h_omni]
 status = "measured"

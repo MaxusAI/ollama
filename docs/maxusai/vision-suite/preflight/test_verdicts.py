@@ -273,6 +273,66 @@ class TestContention(unittest.TestCase):
         self.assertEqual(checks.check_exclusivity(StubClient([]), 10.0)["status"], PASS)
 
 
+class TestPayloadProofCustomBounds(unittest.TestCase):
+    """Which bounds carry '(custom value)' is per-arch, not universal.
+
+    visionServerArgs passes both --image-min-tokens and --image-max-tokens for
+    gemma4 and nemotron_h_omni, but only the min for the qwen VL family, whose
+    max is llama.cpp's structural set_limit_image_tokens(8, 4096) ceiling. A
+    check that demands "(custom value)" on both fails a correct qwen build.
+    """
+
+    QWEN = {"image_min_pixels": 1048576, "image_max_pixels": 4194304,
+            "patch_stride": 32, "budget_min_tokens": 1024,
+            "budget_max_tokens": 4096, "custom_bounds": ["min"]}
+    BOTH = {"image_min_pixels": 262144, "image_max_pixels": 3407872,
+            "patch_stride": 32, "budget_min_tokens": 256,
+            "budget_max_tokens": 3328}
+
+    @staticmethod
+    def log(minv, maxv, min_custom=True, max_custom=True):
+        c = " (custom value)"
+        return (f"load_hparams: image_min_pixels:   {minv}"
+                f"{c if min_custom else ''}\n"
+                f"load_hparams: image_max_pixels:   {maxv}"
+                f"{c if max_custom else ''}\n")
+
+    def proof(self, expect, log):
+        with mock.patch.object(checks, "container_logs", return_value=log):
+            return checks.check_payload_proof(expect, "arch", "container", 0)
+
+    def test_min_only_custom_passes_when_declared(self):
+        r = self.proof(self.QWEN,
+                       self.log(1048576, 4194304, max_custom=False))
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_min_only_custom_fails_when_both_are_declared(self):
+        """The pre-existing behaviour, unchanged for arches that set both."""
+        r = self.proof(self.BOTH, self.log(262144, 3407872, max_custom=False))
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("not marked", r["summary"])
+
+    def test_unexpected_custom_marking_fails(self):
+        """A bound declared untunable that starts logging custom means the arch
+        gate changed. As much a finding as a flag going missing."""
+        r = self.proof(self.QWEN, self.log(1048576, 4194304, max_custom=True))
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("arch gate changed", r["summary"])
+
+    def test_wrong_value_still_fails_on_an_uncustomised_bound(self):
+        """Relaxing the marking must not relax the value."""
+        r = self.proof(self.QWEN,
+                       self.log(1048576, 9999999, max_custom=False))
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("expected 4194304", r["summary"])
+
+    def test_default_is_both_bounds(self):
+        """An arch that says nothing keeps the strict behaviour."""
+        self.assertNotIn("custom_bounds", self.BOTH)
+        r = self.proof(self.BOTH, self.log(262144, 3407872))
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+
 class TestExpectationsFile(unittest.TestCase):
     """The data file is the contract; keep it internally consistent."""
 
