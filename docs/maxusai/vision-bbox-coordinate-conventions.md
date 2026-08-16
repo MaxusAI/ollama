@@ -93,141 +93,49 @@ calibration — step 4 below is the only defence.
 
 ## Determining the format on an image you cannot check
 
-Everything below this section infers the convention from the numbers, and every
-one of those steps needs something you do not have in production: a non-square
-image with spread objects, a coordinate range that happens to be unambiguous,
-or ground truth. On an arbitrary caller-supplied image none of that is
-guaranteed, and an axis swap is invisible to all of it.
+The normative answer is a SPEC, not this file:
+**[SPEC: vision bounding-box response contract](spec/vision-bbox-response-contract.md)**
+(C1–C11), decided in
+[ADR 0027](adr/0027-bbox-requests-pin-norm1000-and-carry-an-anchor.md).
 
-Two mechanisms remove the guessing. Both were measured 2026-08-16 across the
-seven-model corpus, 3 repeats each
-([campaign](vision-campaign-2026-08-16-seven-model.md)); the resulting contract
-is [ADR 0027](adr/0027-bbox-requests-pin-norm1000-and-carry-an-anchor.md).
+In one line: **pin norm-1000 and say what the space is, name the coordinates,
+require an `__IMAGE__` anchor, derive the space from that anchor rather than
+from any `ref_size`, validate it with the range and aspect checks, and reject
+rather than convert on failure.**
 
-### 1. Pin norm-1000 — 5/21 → 21/21, and the choice of convention is not free
+This file is the *measurement record* behind that contract — what each model
+actually does, and how to cope with responses that predate it. The headline
+numbers it rests on, all 7 configurations × 3 repeats:
 
-Do not let the model choose. Ask for norm-1000 **specifically** — pinning some
-*other* convention is not equivalent, and one of them is worse than free choice:
-
-| pinned convention | declarations usable |
+| condition | declarations usable |
 | --- | --- |
-| **norm-1000** | **21/21** |
-| norm-1 (0.0–1.0) | 15/21 — gemma4 emits norm-1000 anyway, on both engines |
-| real pixels | **3/21** |
+| free choice of convention | 5/21 |
+| pinned norm-1000 | **21/21** |
+| pinned `norm1` | 15/21 |
+| pinned `real` | 3/21 |
+| anchor alone, adversarial arms | 27/42 |
+| anchor + range/aspect validation | **42/42 correctly classified** |
 
-norm-1000 is this corpus's native space. Pinning `real` asks four of seven
-configurations to work in a frame they do not have, and they invent one.
+Three findings from that record are worth carrying in the reader's head, because
+each one broke an assumption:
 
-**State what the space is**, because the wording is load-bearing:
+**norm-1000 divides each axis by its own dimension**, so the space is square and
+does **not** preserve aspect ratio. Scaling both axes by `1000/W` is wrong and
+produces a plausible-looking result. This is the most commonly got-wrong part of
+the convention, and stating it explicitly in the prompt is what moves 5/21 to
+21/21 — the pin alone does not.
 
-> Use `"bbox_type": "norm1000"` — each axis scaled independently to 0-1000, x by
-> 1000/width and y by 1000/height. The coordinate space is 1000x1000 whatever
-> the image's shape is.
+**Where the declaration sits is irrelevant.** Top-level and per-object are 21/21
+each. An earlier ad-hoc run suggested per-object rescued top-level 3/3 vs 0/3;
+it does not reproduce, because that prompt lacked the sentence above.
 
-Under free choice, `bbox_contract_multi` is followed in **5 of 21** runs. Under
-that pinned wording, `bbox_contract_pinned` and `bbox_contract_perobject` are
-both **21 of 21** — every model, every repeat, `norm1000/xyxy` at 6/6, nemotron
-and qwen3.6 GGUF included.
-
-Where the declaration sits is **irrelevant**: top-level and per-object score
-identically, 21/21 each. An earlier ad-hoc run suggested per-object rescued
-top-level 3/3 vs 0/3; it does not reproduce, because that prompt lacked the
-sentence above. The explicit statement of the space was doing the work.
-
-Note the emphasis: both axes are divided by their *own* dimension, so norm-1000
-is a **square space that does not preserve aspect ratio**. This is the most
-commonly got-wrong part of the convention — scaling both axes by `1000/W` is
-wrong and produces a plausible-looking result.
-
-### 2. Make compliance checkable — named keys and a self-calibrating anchor
-
-Pinning fixes behaviour but not *verifiability*: a model that ignores the pin
-and emits real pixels produces output indistinguishable from an honest reply.
-Two additions close that, neither needing ground truth.
-
-**Named coordinates.** Ask for `"x1"`, `"y1"`, `"x2"`, `"y2"` as separate
-fields rather than a positional array. A positional array is the sole reason
-`coord_order` has to exist; naming the fields makes gemma4's silent `yxyx` flip
-*unrepresentable* rather than merely discouraged. Measured: **21/21** used them
-verbatim.
-
-**A full-image anchor.** Require one extra entry, `__IMAGE__`, whose box covers
-the whole image. It is the one box whose answer you already know on *any*
-image, so it converts an uncalibrated image into a calibrated one for the cost
-of one box. Read the space straight off it:
-
-| anchor returns | space is |
-| --- | --- |
-| `[0, 0, ~1, ~1]` | `norm1` |
-| `[0, 0, ~1000, ~1000]` | `norm1000` |
-| `[0, 0, X, Y]` | `real`, in a frame of **X × Y** |
-
-The third row is the load-bearing one: it recovers the frame **without trusting
-`ref_size`** — the field qwen3.8 GGUF only gets approximately right (2500×1406,
-2560×1440, 2324×1312 across runs on one 1920×1080 input) and nemotron omits
-entirely. Measured: **21/21** returned `__IMAGE__` at exactly
-`[0, 0, 1000, 1000]`.
-
-### 3. Validate the anchor — it is not automatically trustworthy
-
-**An anchor can inherit the very lie it is supposed to catch.** Asked "where is
-the whole image", a model that is *not* actually working in the requested space
-can answer from **semantic knowledge of the image dimensions** rather than by
-emitting a box in its working space. When it does, the anchor stops being a
-calibration and becomes a second copy of the declaration.
-
-Measured across the two adversarial arms — 7 models × 3 repeats × 2 arms, each
-pinned to a convention the model resists, producing 15 genuinely mis-declared
-responses out of 42:
-
-| outcome | cells |
-| --- | --- |
-| anchor recovers what the declaration could not | **12/42** |
-| anchor and declaration both already correct | 15/42 |
-| anchor inherits the declaration's error | **9/42** |
-| anchor invents a third, also-wrong frame | **6/42** |
-
-The rescue is real and it is the case nothing else solves: qwen3.8 on both
-engines declares `real` with `ref_size` **absent** — declaration unusable, 0/6 —
-and its anchor derives `[2338, 1316]` for **6/6**, where a best-fit dialect
-search manages only **1/6** because no search can guess that frame.
-
-The failure is gemma4: asked for `real` it returns `[0, 0, 1920, 1080]`, correct
-about the image and useless as calibration, while its boxes are norm-1000.
-
-**Two response-only checks separate them, 42/42.** Neither is sufficient alone:
-
-- **Range** — every coordinate must fit the space the anchor implies. Catches a
-  pure *scale* lie: gemma4 declares `norm1` and emits norm-1000, and since both
-  spaces are square no shape test can see it. **6 of the 15**, caught only here.
-- **Aspect** — the anchor's own aspect ratio must match the objects' extent
-  aspect. Catches a *fabricated frame*: anchor 1.778 against an extent of 1.099.
-  **9 of the 15**, caught only here.
-
-Together: **27 accepted and all 27 correct, 15 rejected and all 15 genuinely
-bad** — zero silent failures, zero good answers discarded, and no ground truth,
-image content or image dimensions required. Implemented as `bbox_self_check` in
-`vision-suite/vision_suite.py`; `self_check` / `self_check_reason` appear on
-every contract score.
-
-### The recommended request shape
-
-```json
-{"objects": [{"label": "__IMAGE__", "bbox_type": "norm1000",
-              "x1": 0, "y1": 0, "x2": 1000, "y2": 1000},
-             {"label": "…", "bbox_type": "norm1000",
-              "x1": 72, "y1": 148, "x2": 219, "y2": 333}]}
-```
-
-On receipt, in order:
-
-1. Derive the space from `__IMAGE__`. **Ignore any `ref_size` claim.**
-2. Run the range and aspect checks. **Reject the response if either fails** —
-   do not convert it, and do not fall back to best-fit, which scores 1/6 exactly
-   where it is needed most.
-3. Convert with `x·W/1000`, `y·H/1000`.
-4. Only if the anchor is missing or malformed, fall back to the heuristic ladder
-   below — and treat its output as provisional.
+**An anchor can inherit the lie it exists to catch.** Asked "where is the whole
+image", a model not actually working in the requested space can answer from
+semantic knowledge of the image dimensions instead of emitting a box in its
+working space. gemma4 returns `[0,0,1920,1080]` — correct about the image,
+useless as calibration — while its boxes are norm-1000. That is why C6/C7
+mandate validation rather than trust, and why the anchor alone is 27/42 while
+the validated anchor is 42/42.
 
 ## Recovering coordinates from nemotron3 (and qwen3.6 GGUF)
 

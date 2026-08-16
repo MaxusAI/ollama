@@ -279,8 +279,10 @@ Always check `prompt_eval_count` before attributing such a delta to a patch.
 Eight probes measure whether a model's *declaration* of its coordinate convention
 matches the numbers it emitted — a different axis from grounding, and one the
 older scorers could not separate. Superseded guidance: the norm-1000 advice
-above is right but was measured on three models; it is now seven, and the
-mechanism is settled in
+above is right but was measured on three models; it is now seven. The normative
+contract is
+[SPEC: vision bounding-box response contract](../spec/vision-bbox-response-contract.md)
+(C1–C11), decided in
 [ADR 0027](../adr/0027-bbox-requests-pin-norm1000-and-carry-an-anchor.md).
 
 | probe | condition | declaration | `contract_followed` |
