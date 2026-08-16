@@ -665,6 +665,20 @@ func getParserName(modelDir string) string {
 	return ""
 }
 
+// qwen35RendererName distinguishes Qwen3.8 from the rest of the qwen3.5 family.
+// Both share the Qwen3_5 architecture stem; only Qwen3.8's chat template carries
+// the reasoning-effort and preserved-thinking controls. The parser is "qwen3.5"
+// for the whole family, so only the renderer needs splitting.
+func qwen35RendererName(modelDir string) string {
+	template := readChatTemplate(modelDir)
+	if strings.Contains(template, "resolved_reasoning_effort") &&
+		strings.Contains(template, "preserve_thinking") {
+		return "qwen3.8"
+	}
+
+	return "qwen3.5"
+}
+
 // getRendererName returns the renderer name for a model based on its architecture.
 // This reads the config.json from the model directory and determines the appropriate renderer.
 func getRendererName(modelDir string) string {
@@ -701,7 +715,7 @@ func getRendererName(modelDir string) string {
 			return "deepseek3"
 		}
 		if isQwen35Family(archLower) {
-			return "qwen3.5"
+			return qwen35RendererName(modelDir)
 		}
 		if strings.Contains(archLower, "qwen3") {
 			return "qwen3-coder"
@@ -727,7 +741,7 @@ func getRendererName(modelDir string) string {
 			return "deepseek3"
 		}
 		if isQwen35Family(typeLower) {
-			return "qwen3.5"
+			return qwen35RendererName(modelDir)
 		}
 		if strings.Contains(typeLower, "qwen3") {
 			return "qwen3-coder"
