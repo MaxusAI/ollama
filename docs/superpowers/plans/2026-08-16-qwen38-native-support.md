@@ -1,7 +1,7 @@
 # Plan: native Qwen3.8 support
 
-- **Status:** proposed, not started. Grounded against `main` at `677915ad` and
-  `upstream/main` at `d67ad834` on 2026-08-16.
+- **Status:** Phase 0 complete (all assumptions held, 2026-08-16); Phases 1–5 not
+  started. Grounded against `main` at `677915ad` and `upstream/main` at `d67ad834`.
 - **Scope:** land Qwen3.8 on the fork across the engines we ship, and know it works.
 - **Not an ADR.** Decisions that get made while executing this belong in ADRs;
   this file is disposable once the work ships.
@@ -87,25 +87,56 @@ with ADR 0023" claim does not survive contact with the code.
 
 ## Phases
 
-### Phase 0 — resolve the gating unknown (blocking)
+### Phase 0 — resolve the gating unknown — **DONE 2026-08-16, all clear**
 
-Everything below rests on three unverified assumptions about a real checkpoint.
-Pull one and check. This is inspection, not research — real tags are published.
+Answered by reading the published registry manifests and their config/JSON layers
+directly (no weight download):
+`curl https://registry.ollama.ai/v2/library/qwen3.8/manifests/{latest,27b-mxfp8}`
+then fetching the `config` blob and the small `json` layers by digest.
 
-- Does it declare a `Qwen3_5*` / `Qwen3Next*` architecture? If it declares
-  `Qwen3_8*`, both `isQwen35Family` and `base.Register` miss; only the latter
-  fails loudly.
-- Do the template markers (`resolved_reasoning_effort`, `preserve_thinking`) live
-  in `chat_template.jinja`? Upstream's detection reads only that. A checkpoint
-  shipping a legacy `chat_template` inside `tokenizer_config.json` is detected as
-  **qwen3.5 — wrong renderer, no error, model imports and serves.**
-- If it has a `vision_config`, does it omit `deepstack_visual_indexes`? Our tower
-  hard-rejects that (`vision.go:27-29`).
-- For the GGUF flavour: what arch string does it declare? `qwen35`/`qwen35moe`
-  means CUDA works immediately; anything else needs a llama.cpp-side change, and
-  spec B4 warns that adding to `visionServerArgs` alone is half a change.
+| question | answer | verdict |
+| --- | --- | --- |
+| Architecture string | `architectures: ["Qwen3_5ForConditionalGeneration"]`, `model_type: qwen3_5` | **holds** — `isQwen35Family` and `base.Register` both match; no alias needed |
+| Template markers | `resolved_reasoning_effort` **and** `preserve_thinking` both present | **holds** |
+| …and reachable by detection? | they live in `tokenizer_config.json`'s `chat_template`; there is no separate `chat_template.jinja` layer | **holds** — `readChatTemplate` reads `tokenizer_config.json` *first*, then falls back to the `.jinja` file |
+| `deepstack_visual_indexes` | present but **empty** (`[]`) | **holds** — our tower rejects only a *non-empty* value |
+| GGUF arch | `model_family: "qwen35"`, `model_families: ["qwen35"]` | **holds** — llama.cpp already supports `qwen35`; CUDA needs no payload change |
 
-**Gate:** the four answers written down. Do not start Phase 1 without them.
+Published config blobs, verbatim:
+
+```json
+// 27b-mxfp8 (MLX)
+{"model_format":"safetensors","file_type":"mxfp8","renderer":"qwen3.8",
+ "parser":"qwen3.5","requires":"0.32.12",
+ "capabilities":["completion","vision","tools","thinking"]}
+
+// latest (GGUF)
+{"model_format":"gguf","model_family":"qwen35","model_families":["qwen35"],
+ "model_type":"27.3B","file_type":"Q4_K_M","renderer":"qwen3.8",
+ "parser":"qwen3.5","requires":"0.32.12"}
+```
+
+What this changes:
+
+- **`parser: "qwen3.5"` is confirmed from the shipped artifact**, not inferred. The
+  marker-flow inheritance and the R4 argument now rest on published metadata.
+- **`model_format: "safetensors"` confirms `ollama pull` routes to the MLX runner**
+  — `IsMLX()` reads exactly this field.
+- **The renderer comes from the manifest for pulled models.** Template-marker
+  detection only runs on `x/create` import of a local directory, which narrows the
+  blast radius of any detection bug to that path.
+- **The "silent wrong renderer" risk is refuted for this checkpoint.** The concern
+  assumed `readChatTemplate` consults only `chat_template.jinja`; it consults
+  `tokenizer_config.json` first, which is where this model's template lives. The
+  residual is hypothetical — a checkpoint shipping a *stale* template in
+  `tokenizer_config.json` alongside a fresh `.jinja`. This one does not.
+- **`requires: "0.32.12"` is not a gate.** `Config.Requires` is only surfaced by
+  `ollama show` (`cmd/cmd.go:1344`) and propagated on create; nothing enforces it
+  on pull. Our `version.Version` dev default of `0.0.0` will not block anything.
+- Vision preprocessing is `Qwen3VLProcessor` / `Qwen2VLImageProcessorFast`,
+  patch 16, merge 2, mean/std 0.5 — relevant to Phase 5, not to landing.
+
+**Phase 1 is unblocked.** Every assumption the plan rested on held.
 
 ### Phase 1 — land the cherry-picks
 
@@ -192,9 +223,11 @@ already carry the 1024 floor.
    default is medium and the publisher's is xhigh?
 4. Phase 4: a `think_format` block for `apple-silicon-mlx`, or cheaper coverage as
    a Go-level format+think regression test through the qwen3.8 renderer?
-5. Harden `qwen35RendererName` to read `chat_template.jinja` independently, as the
-   laguna and nemotron paths already do? It is fork divergence on a line upstream
-   keeps editing — the drift that produced our existing `qwen35.go` divergence.
+5. ~~Harden `qwen35RendererName` to read `chat_template.jinja` independently?~~
+   **Closed by Phase 0.** `readChatTemplate` already reads `tokenizer_config.json`
+   first and falls back to `chat_template.jinja`, and the shipped checkpoint keeps
+   its template in the former. No fork divergence needed — which is the better
+   outcome, since it would have sat on a line upstream keeps editing.
 
 ## Caveat on a related record
 
