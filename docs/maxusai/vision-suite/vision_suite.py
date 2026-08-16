@@ -377,6 +377,127 @@ def score_multi(resp_text):
             s["chart_values_found"] += 1
     return s
 
+
+# --- bbox contract probe -----------------------------------------------------
+#
+# A NEW test, not an edit of scene_single. score_scene deliberately tries every
+# coordinate dialect and keeps the best, because models answer in their native
+# space whatever the prompt says. That tolerance is right for measuring
+# grounding, but it makes one boolean do two jobs: a hit can mean "located it
+# correctly" or "located it correctly AND obeyed the requested space", and the
+# two are indistinguishable afterwards. Measured on qwen3.8 2026-08-16: MLX put
+# DYNAMO's centre within 2px of truth but answered normalized-1000 when asked
+# for pixels, and scored the same tick as an engine that had obeyed.
+#
+# Here the model DECLARES its space instead, so grounding is scored in the space
+# it named — no guessing — and the declaration is scored separately. Either
+# field name is accepted: gemma4/Gemini are trained toward box_2d and qwen-vl
+# toward bbox_2d, so demanding one measures naming compliance, not vision. Which
+# name the model chose is recorded instead.
+#
+# Kept as its own test so every historical scores_*.json stays comparable; the
+# committed fine-text assets exist for the same reason.
+BBOX_CONTRACT_PROMPT = """You are a localization service. Find every distinct
+coloured shape in this image and report where each one is.
+
+You may answer in EITHER coordinate space:
+  - "absolute": pixel coordinates in the original image, which is {w} wide and {h} tall
+  - "normalized": coordinates scaled to a 0-1000 range on both axes
+
+Pick whichever you are most reliable in — neither is preferred — but you MUST
+declare which one you used in the top-level "coord_space" field, and every box
+MUST be in that declared space. A box whose space disagrees with your
+declaration is worse than no answer at all.
+
+Give each box as [x1, y1, x2, y2] with (x1, y1) top-left and (x2, y2)
+bottom-right of the shape itself, not including its label text. Name the field
+either "box_2d" or "bbox_2d" — whichever is natural to you.
+
+Respond with a SINGLE JSON object, no prose:
+{{
+  "coord_space": "absolute" | "normalized",
+  "objects": [{{"label": "<uppercase code word above the shape>",
+                "box_2d": [x1, y1, x2, y2]}}]
+}}"""
+
+
+def score_bbox_contract(resp_text):
+    """Grounding and instruction-following, scored separately.
+
+    hits_declared uses ONLY the space the model declared. hits_bestfit reuses
+    the legacy dialect search, so the gap between the two is exactly the cost
+    of the model ignoring the contract.
+    """
+    g = GT["scene_hd"]
+    W, H = g["size"]
+    s = {"json_valid": False, "declared_space": None, "field_name": None,
+         "labels_found": 0, "labels_total": len(g["objects"]),
+         "hits_declared": 0, "hits_bestfit": 0, "bestfit_space": None,
+         "declaration_valid": False, "declaration_matches_boxes": False,
+         "contract_followed": False, "iou_declared": 0.0}
+    r, fenced = parse_json_response(resp_text)
+    if fenced:
+        s["fenced"] = True
+    if r is None:
+        return s
+    s["json_valid"] = True
+
+    declared = (r.get("coord_space") or "").strip().lower()
+    s["declared_space"] = declared or None
+    s["declaration_valid"] = declared in ("absolute", "normalized")
+
+    objs = r.get("objects") or []
+    for o in objs:
+        for k in ("box_2d", "bbox_2d", "bbox"):
+            if o.get(k):
+                s["field_name"] = k
+                break
+        if s["field_name"]:
+            break
+
+    by_label = {o.get("label"): o for o in objs if o.get("label")}
+    matched = []
+    for gto in g["objects"]:
+        o = by_label.get(gto["label"])
+        if o:
+            s["labels_found"] += 1
+            bb = get_bbox(o)
+            if len(bb) == 4:
+                matched.append((bb, gto["bbox"]))
+    if not matched:
+        return s
+
+    scales = {"absolute": (1.0, 1.0), "normalized": (W/1000.0, H/1000.0)}
+
+    def tally(fx, fy):
+        hits, ious = 0, []
+        for bb, gtb in matched:
+            px = [bb[0]*fx, bb[1]*fy, bb[2]*fx, bb[3]*fy]
+            hits += center_in(px, gtb)
+            ious.append(iou(px, gtb))
+        return hits, round(sum(ious)/len(ious), 3) if ious else 0.0
+
+    if s["declaration_valid"]:
+        fx, fy = scales[declared]
+        s["hits_declared"], s["iou_declared"] = tally(fx, fy)
+
+    best = (0, None)
+    for name, (fx, fy) in scales.items():
+        hits, _ = tally(fx, fy)
+        if hits > best[0]:
+            best = (hits, name)
+    s["hits_bestfit"], s["bestfit_space"] = best
+
+    # The declaration is only meaningful if the numbers agree with it. A model
+    # that declares "absolute" and emits normalized boxes is worse than one that
+    # declares nothing, because a downstream consumer would trust it.
+    s["declaration_matches_boxes"] = bool(
+        s["declaration_valid"] and best[1] is not None and best[1] == declared)
+    s["contract_followed"] = bool(
+        s["declaration_matches_boxes"] and s["hits_declared"] == s["hits_bestfit"])
+    return s
+
+
 # The dense fine-text probe joins the suite rather than living as a second
 # entry point. Prompt and scorer are IMPORTED from finetext_probe, not copied:
 # the probe's assets are committed precisely so the same input scores the same
@@ -393,6 +514,8 @@ tests = [
     ("scene_single", SCENE_PROMPT.format(w=1920, h=1080), ["scene_hd.png"], score_scene),
     ("document_single", DOC_PROMPT.format(w=1568, h=1568), ["document.png"], score_doc),
     ("multi_3img", MULTI_PROMPT, ["scene_hd.png", "document.png", "chart.png"], score_multi),
+    ("bbox_contract", BBOX_CONTRACT_PROMPT.format(w=1920, h=1080), ["scene_hd.png"],
+     score_bbox_contract),
     # Env still wins, as it does for the standalone probe — the override only
     # replaces the suite's default with this probe's, it does not pin it.
     ("finetext", FINETEXT_PROMPT, ["finetext.png"], score_finetext,
