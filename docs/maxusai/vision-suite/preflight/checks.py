@@ -148,6 +148,15 @@ def check_payload_proof(expect, arch, container, since, log_cmd=None):
     want = {"min": expect["image_min_pixels"], "max": expect["image_max_pixels"]}
     stride, bmin, bmax = (expect["patch_stride"], expect["budget_min_tokens"],
                           expect["budget_max_tokens"])
+
+    # Which bounds the FORK sets, and so must appear marked "(custom value)".
+    # Defaults to both, which is what gemma4 and nemotron_h_omni do — do not
+    # narrow this to make a run go green. qwen35/qwen35moe legitimately set only
+    # the floor: visionServerArgs passes --image-min-tokens and no max, so the
+    # ceiling is llama.cpp's own set_limit_image_tokens default and is NOT custom.
+    # The VALUE is still asserted for every bound either way; this only governs
+    # whether the "(custom value)" marker is required.
+    custom_kinds = set(expect.get("custom_budget_bounds", want.keys()))
     derivation = (f"min {bmin}*{stride}^2={want['min']}, "
                   f"max {bmax}*{stride}^2={want['max']}")
 
@@ -187,7 +196,7 @@ def check_payload_proof(expect, arch, container, since, log_cmd=None):
             bad.append(f"{kind}: missing")
         elif got[kind]["value"] != value:
             bad.append(f"{kind}: expected {value}, got {got[kind]['value']}")
-        elif not got[kind]["custom"]:
+        elif kind in custom_kinds and not got[kind]["custom"]:
             bad.append(f"{kind}: value right but not marked '(custom value)' — "
                        f"the flags were not applied")
     actual = {k: f"{v['value']}{' (custom value)' if v['custom'] else ''}"
