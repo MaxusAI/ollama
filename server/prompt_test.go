@@ -852,3 +852,42 @@ func TestImageTokenCosts(t *testing.T) {
 		t.Errorf("projector costs mismatch (-got +want):\n%s", diff)
 	}
 }
+
+// TestChatPromptQwen38TruncationDropsUserQuery reproduces the failure where a
+// validating renderer rejects a truncation candidate and the whole request
+// dies. qwen3.8's validateMessages requires a user turn that is not purely a
+// tool response; truncation removes messages from the front, so a long enough
+// conversation reaches a window with no user query left.
+//
+// Covered with thinking both on and off. The fork's ADR 0004 pass two makes
+// this reachable in practice only when thinking is on — it re-renders with the
+// thinking appended as a trailing assistant message, on a strictly longer
+// prompt — but validateMessages does not consult think, so a plain long
+// conversation ending in assistant turns hits it either way. Asserting both
+// pins that the fix is not think-dependent.
+func TestChatPromptQwen38TruncationDropsUserQuery(t *testing.T) {
+	long := strings.Repeat("token ", 400)
+
+	for _, think := range []bool{false, true} {
+		name := "think_off"
+		if think {
+			name = "think_on"
+		}
+		t.Run(name, func(t *testing.T) {
+			msgs := []api.Message{
+				{Role: "user", Content: "the original question " + long},
+				{Role: "assistant", Content: "an answer " + long},
+				{Role: "assistant", Thinking: "still reasoning " + long},
+			}
+
+			m := Model{Config: testConfigWithRenderer("qwen3.8")}
+			// Small enough that truncation must drop the leading user turn.
+			opts := api.Options{Runner: api.Runner{NumCtx: 512}}
+
+			_, _, err := chatPrompt(t.Context(), &m, mockRunner{}.Tokenize, &opts, msgs, nil, &api.ThinkValue{Value: think}, true)
+			if err != nil {
+				t.Fatalf("chatPrompt failed instead of finding a usable window: %v", err)
+			}
+		})
+	}
+}

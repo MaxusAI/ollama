@@ -52,7 +52,28 @@ func chatPrompt(ctx context.Context, m *Model, tokenize tokenizeFunc, opts *api.
 
 			p, err := renderPrompt(m, append(system, msgs[i:]...), tools, think)
 			if err != nil {
-				return "", nil, err
+				// A renderer that validates its input can reject a candidate
+				// this loop has cut too far: qwen3.8 requires a user turn that
+				// is not purely a tool response, and truncation drops messages
+				// from the front. Windows only shrink as i grows, so no later
+				// candidate can recover — the previous one is the smallest
+				// renderable window. Keep it instead of failing the request.
+				// The fit check here is a heuristic and llama-server performs
+				// the real truncation, so an over-long window degrades far
+				// better than a hard error: without this the request dies, and
+				// under the ADR 0004 double request it dies mid-stream after
+				// pass one's content has already reached the client.
+				if i == 0 {
+					return "", nil, err
+				}
+				currMsgIdx = i - 1
+				system = system[:0]
+				for j := range currMsgIdx {
+					if msgs[j].Role == "system" {
+						system = append(system, msgs[j])
+					}
+				}
+				break
 			}
 
 			s, err := tokenize(ctx, p)
