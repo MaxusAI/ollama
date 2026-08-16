@@ -560,6 +560,52 @@ def score_bbox_contract(resp_text):
     return s
 
 
+
+# The cross-image reasoning CONTROL. Same three images as bbox_contract_multi,
+# but the model must USE the other two to answer q1/q2 before enumerating image
+# one. It was added expecting to be the reproducer, on the strength of an
+# ad-hoc run under the earlier two-field schema; under the current schema it
+# passes 3/3 on qwen3.8 GGUF while bbox_contract_multi fails 3/3.
+#
+# Kept because that contrast is the finding: engaging with the distractors
+# preserves an honest declaration, being told to ignore them does not. It
+# carries the full six-box enumeration rather than one box, since a single box
+# scores 0 or 1 and cannot separate a frame error from a miss.
+BBOX_CONTRACT_REASONING_PROMPT = """You are given THREE images. Study all three,
+then answer.
+
+First, two questions that require comparing the images:
+  q1: which image contains a bar chart, and how many bars does it have?
+  q2: which image contains an invoice, and what is its invoice number?
+
+Then, from the FIRST image only, find every distinct coloured shape and report
+where each one is.
+
+Declare the convention you used for those boxes, then follow it exactly.
+
+"bbox_type" — one of:
+  - "real":     coordinates in pixels. You MUST also give "ref_size": [W, H],
+                the width and height of the image those pixels refer to. If you
+                resized the image internally, give the size YOU used.
+  - "norm1":    coordinates scaled to 0.0-1.0 on both axes
+  - "norm1000": coordinates scaled to 0-1000 on both axes
+
+"coord_order" — "xyxy" for [x1, y1, x2, y2], or "yxyx" for [y1, x1, y2, x2].
+
+No convention is preferred. But a box that disagrees with your own declaration
+is worse than no answer at all, because a consumer trusts the declaration.
+
+Respond with a SINGLE JSON object, no prose:
+{{
+  "answers": {{"q1": <string>, "q2": <string>}},
+  "bbox_type": "real" | "norm1" | "norm1000",
+  "ref_size": [W, H],
+  "coord_order": "xyxy" | "yxyx",
+  "objects": [{{"label": "<uppercase code word above the shape>",
+                "box_2d": [ , , , ]}}]
+}}"""
+
+
 # The dense fine-text probe joins the suite rather than living as a second
 # entry point. Prompt and scorer are IMPORTED from finetext_probe, not copied:
 # the probe's assets are committed precisely so the same input scores the same
@@ -578,22 +624,26 @@ tests = [
     ("multi_3img", MULTI_PROMPT, ["scene_hd.png", "document.png", "chart.png"], score_multi),
     ("bbox_contract", BBOX_CONTRACT_PROMPT.format(w=1920, h=1080), ["scene_hd.png"],
      score_bbox_contract),
-    # Same contract with distractor images attached. This is a CONTROL, not the
-    # reproducer: measured 2026-08-16, both qwen3.8 builds stay honest here
-    # (absolute/xyxy, 6/6, declaration matches), so merely attaching images does
-    # not break the declaration.
+    # THE REPRODUCER. Distractor images attached, with an instruction to ignore
+    # them. Measured 2026-08-16 under the bbox_type/ref_size schema, qwen3.8
+    # GGUF fails this 3/3: it declares "norm1000" while emitting real
+    # coordinates in a ~1.33x frame, so hits_declared is 0/6 while
+    # hits_bestfit is a real/xyxy match. Perfect vision, false self-description
+    # — the exact defect a fixed-dialect scorer reports as a bare miss.
     #
-    # What does break it is cross-image REASONING. Adding a coord_space field to
-    # multi_3img's schema and asking its q1-q4 chain, qwen3.8 MLX declared
-    # "absolute" and emitted normalized-1000 boxes — a false declaration, which
-    # is worse than none because a consumer trusts it. That condition is not yet
-    # covered by a committed test; this pair brackets it, showing the failure
-    # needs the reasoning load rather than the image count.
+    # The single-image probe passes 3/3 and the reasoning variant below passes
+    # 3/3, so neither image count nor reasoning load is the trigger on its own.
+    # What distinguishes this cell is being told to IGNORE the other images.
+    # The mechanism is unexplained; the rate is not. Do not "fix" a failure here
+    # by relaxing the scorer.
     ("bbox_contract_multi",
      BBOX_CONTRACT_PROMPT.format(w=1920, h=1080)
      + "\n\nOnly the FIRST image contains the shapes to report; the others are "
        "distractors and must be ignored.",
      ["scene_hd.png", "document.png", "chart.png"], score_bbox_contract),
+    ("bbox_contract_reasoning",
+     BBOX_CONTRACT_REASONING_PROMPT, ["scene_hd.png", "document.png", "chart.png"],
+     score_bbox_contract),
     # Env still wins, as it does for the standalone probe — the override only
     # replaces the suite's default with this probe's, it does not pin it.
     ("finetext", FINETEXT_PROMPT, ["finetext.png"], score_finetext,
