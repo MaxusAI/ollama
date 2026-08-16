@@ -174,6 +174,11 @@ CUDA. That is the whole of what this fix claims, and it holds.
 |---|---|---|---|
 | `gemma4:31b-nvfp4` | gemma4 | **41.5 tok/s** | 188 tokens, correct output, 22 GiB VRAM |
 | `qwen3.5:0.8b-mlx` | qwen3_5 | **83.8 tok/s** | correct output with `think:false` |
+| `qwen3.6:35b-a3b-nvfp4` | qwen3_5_moe | not characterised | correct output; 24 GiB VRAM |
+
+The MoE row carries no rate deliberately: one 20-token run on a busy host is not
+a benchmark, and most of its wall-clock sat outside decode. It is here because
+*what* it produced matters — see below.
 
 The gemma4 figure is corroborated by the runner's own speculation controller,
 which independently reported `expected_tps="0:35.2 1:47.2"` for that load.
@@ -188,9 +193,15 @@ WARN custom GPU kernel backend disabled kernel=gated_delta        backend=cuda r
 `getCUDA()` disables a kernel when `k.cuda.source == ""`, and of the custom set
 only `gated_delta_recurrence` carries a CUDA source — the rest are Metal-only.
 That much is real and read from source. But the generic fallbacks are
-**adequate**: the arch that trips both warnings is the faster of the two measured
-here. The warnings mark a missing fast path, not a missing capability, and must
-not be reported as a serving blocker.
+**adequate**, and the evidence is direct: `qwen3_5` trips two of these warnings
+and is the fastest model measured here, while `qwen3_5_moe` trips **three** —
+`gated_delta`, `gated_delta_states` and `depthwise_conv_silu` — and still emits
+correct output. The warnings mark a missing fast path, not a missing capability,
+and must not be reported as a serving blocker.
+
+Note also that a file-level grep for these kernels under `x/models/` does **not**
+predict which architectures hit them: `qwen3_5_moe` shows no direct reference and
+trips the most warnings of the three. Read the load log, not the call sites.
 
 That correction was earned the hard way. An earlier reading of this same setup
 recorded "loads but cannot generate — 4 tokens, 6 minutes, GPU at 0%". Both
@@ -235,7 +246,7 @@ Landed here as `fix/mlx-cuda-payload-cannot-load`.
 
 ### Two things this report deliberately does not claim
 
-**That every MLX model runs well on CUDA.** Two were measured, both fine. The
+**That every MLX model runs well on CUDA.** Three were measured, all producing correct output. The
 Metal-only kernels are a real gap in the fast path and some architecture may yet
 depend on one badly enough to matter; that would be a separate report, with its
 own measurement, taken on an idle host.
