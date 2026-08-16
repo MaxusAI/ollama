@@ -230,6 +230,59 @@ Consequences worth knowing:
    being > 0, and a projector that never calls `set_limit_image_tokens()` leaves them at the
    `-1` sentinel.
 
+## The qwen floor: which half is upstream's (2026-08-16)
+
+The row is a **split inheritance**, and the split matters when reproducing numbers
+against stock ollama.
+
+**Upstream `ollama/ollama` owns the floor itself.** `visionServerArgs` upstream reads:
+
+```go
+case "qwen2vl", "qwen25vl", "qwen3vl", "qwen3vlmoe":
+    return []string{"--image-min-tokens", "1024"}
+```
+
+with the value hardcoded. The rationale — mtmd warns Qwen-VL needs at least 1,024
+image tokens for correct grounding and counting, and the GGUF metadata default is
+too low — is upstream's too.
+
+**This fork owns the extension to the qwen3.5 family.** `87cf1100` adds
+`qwen35`/`qwen35moe` to that case; upstream's list does **not** contain them.
+`cd98f642` later replaced the literal with the named constant
+`qwenVLImageMinTokens = 1024` (`llm/llama_server.go`).
+
+The extension is not arbitrary — it follows from another fork-only change. Our
+`handle_qwen35_like_clip()` (`llama/compat/llama-ollama-compat.cpp`, absent
+upstream) sets `clip.projector_type = "qwen3vl_merger"`, so these GGUFs load as
+`PROJECTOR_TYPE_QWEN3VL`: the same branch that calls
+`set_limit_image_tokens(8, 4096)` and then logs the "requires at minimum 1024
+image tokens" warning. Having made them qwen3vl-family projectors, the fork owes
+them the qwen3vl floor. Upstream, lacking the compat patch, has no such obligation.
+
+### Qwen3.8 lands on the fork-added arm
+
+Qwen3.8's GGUF declares `model_family: "qwen35"` (verified from the published
+registry config blob for `qwen3.8:27b`), so it matches the arch row above — the
+half this fork added, not the half upstream ships. The same is true of qwen3.6.
+
+Two consequences worth stating before anyone reads a number:
+
+- **A qwen3.8 or qwen3.6 GGUF ladder measured here will not reproduce on stock
+  ollama.** Without the fork's case arm, upstream passes no `--image-min-tokens`
+  at all and the projector falls back to its own `set_limit_image_tokens(8, 4096)`
+  — a floor of **8**, not 1,024. Small geometries diverge sharply; inputs already
+  above the floor are unaffected.
+- **It is the GGUF side only.** The MLX path does not go through
+  `visionServerArgs`; it honours the model's own `65536..16777216` pixel window
+  (64 … 16,384 tokens). That is why the same weights give two different ladders on
+  one host — see the `qwen35moe` and `qwen35` blocks in
+  `vision-suite/preflight/expectations.toml`, where the MLX rung set is
+  `[68, 146, 578, 2306, 5186]` and the GGUF one is `[1034, 1034, 1034, 2306, 4082]`,
+  agreeing exactly at 2048×1152 because that geometry falls inside both windows.
+
+Any `cuda-dynres-005` or Metal row taken for this family therefore records a
+**fork behaviour**, and its provenance comment should say so.
+
 ## The qwen floor, measured (2026-08-02, b9888 + 002)
 
 The `qwen35`/`qwen35moe` row above was added on `main` in `87cf1100` from the projector
