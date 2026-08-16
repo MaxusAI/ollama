@@ -19,9 +19,24 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
+# The payload is dlopen'd from a directory that is on no system search path, so
+# each library has to find its siblings by itself. "@loader_path" is Mach-O; the
+# ELF spelling is "$ORIGIN", and without it a Linux build gets no RPATH at all.
+#
+# Nothing else recovers this on Linux. prependLibraryPath() in
+# x/mlxrunner/mlx/dynamic.go sets LD_LIBRARY_PATH with os.Setenv, but glibc reads
+# that variable once at process start, so it cannot affect a later dlopen -- and
+# it only runs *after* a successful load, which is the step that fails. Measured
+# 2026-08-16 on maxusai/ollama:0.32.14-rc0-dynres: libmlxc.so could not resolve
+# libmlx.so, and libmlx.so could not resolve 12 CUDA libraries, every one of them
+# sitting in the same directory.
 if(APPLE)
     set(CMAKE_BUILD_RPATH "@loader_path")
     set(CMAKE_INSTALL_RPATH "@loader_path")
+    set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
+elseif(UNIX)
+    set(CMAKE_BUILD_RPATH "$ORIGIN")
+    set(CMAKE_INSTALL_RPATH "$ORIGIN")
     set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
 endif()
 
@@ -86,7 +101,12 @@ list(APPEND MLX_RUNTIME_DIRS ${CMAKE_BINARY_DIR}/_deps/openblas-src/bin)
 list(APPEND MLX_RUNTIME_DIRS ${CMAKE_BINARY_DIR}/_deps/mlx-build/mlx/distributed/nccl/nccl_stub-prefix/src/nccl_stub-build/Release)
 
 # Base regexes for runtime dependencies (cross-platform).
-set(MLX_INCLUDE_REGEXES cublas cublasLt cudart cufft nvrtc nvrtc-builtins cudnn nccl openblas gfortran)
+# quadmath belongs with gfortran, not beside it as an afterthought: libgfortran
+# links against libquadmath, so bundling one without the other ships a payload
+# that cannot load. Measured 2026-08-16 -- with the RPATH above in place, a
+# missing libquadmath.so.0 was the single remaining unresolved symbol chain on
+# CUDA, and the whole MLX runtime failed CheckInit() because of it.
+set(MLX_INCLUDE_REGEXES cublas cublasLt cudart cufft nvrtc nvrtc-builtins cudnn nccl openblas gfortran quadmath)
 # On Windows, also include dl.dll (dlfcn-win32 POSIX emulation layer).
 if(WIN32)
     list(APPEND MLX_INCLUDE_REGEXES "^dl\\.dll$")

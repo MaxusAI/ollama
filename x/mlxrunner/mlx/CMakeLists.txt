@@ -11,7 +11,15 @@ set(MLX_BUILD_SAFETENSORS ON CACHE BOOL "" FORCE)
 set(MLX_C_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 
-set(CMAKE_INSTALL_RPATH "@loader_path")
+# Directory-scoped, so this overrides whatever the parent set for the targets
+# created below -- which is why it has to be platform-correct here too. Setting
+# the Mach-O spelling on ELF writes a literal "@loader_path" RPATH that resolves
+# nothing. See cmake/mlx/CMakeLists.txt for the failure this causes.
+if(APPLE)
+    set(CMAKE_INSTALL_RPATH "@loader_path")
+elseif(UNIX)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN")
+endif()
 
 include(FetchContent)
 
