@@ -1,8 +1,19 @@
 # ADR 0027: bounding-box requests pin norm-1000 and carry a self-calibrating anchor; `ref_size` is never trusted
 
-- **Status:** accepted 2026-08-16, on fork `main`. Exercised by
-  `bbox_contract_pinned`, `bbox_contract_perobject` and `bbox_contract_anchored`
-  in `docs/maxusai/vision-suite/vision_suite.py`.
+- **Status:** accepted 2026-08-16, **amended the same day** after the
+  adversarial arms measured what the original text had explicitly left open.
+  The amendment is material: **an anchor is not automatically trustworthy.**
+  When a model is asked for a space it does not actually work in, it can answer
+  "where is the whole image" from semantic knowledge of the image dimensions
+  rather than by emitting a box in its working space — and the anchor then
+  becomes a second copy of the false declaration rather than a calibration.
+  Measured: the anchor alone is usable in **27 of 42** adversarial responses.
+  Adding the `bbox_self_check` validator (range + aspect, response-only) takes
+  that to a clean **42/42** separation. Decision items 1 and 4 below are
+  rewritten accordingly; the rest stands. Exercised by `bbox_contract_pinned`,
+  `bbox_contract_perobject`, `bbox_contract_anchored`,
+  `bbox_contract_adv_real` and `bbox_contract_adv_norm1` in
+  `docs/maxusai/vision-suite/vision_suite.py`.
 - **Date:** 2026-08-16
 - **Deciders:** MaxusAI fork maintainers
 - **Related:**
@@ -70,9 +81,21 @@ Both axes are divided by their own dimension, so the space is square and does
 consumer derives the coordinate space from the response; it never trusts a
 declared `ref_size`.**
 
-1. **Pin norm-1000 explicitly, and state what the space is.** Do not offer the
-   model a choice of convention. The statement of the space is part of the
-   contract, not commentary — it is what the 5/21 → 21/21 result rests on.
+1. **Pin norm-1000 specifically — not "a" convention — and state what the space
+   is.** The choice of *which* convention is not free. Measured across the same
+   seven configurations × 3 repeats, pinning:
+
+   | pinned convention | declarations usable |
+   | --- | --- |
+   | **norm-1000** | **21/21** |
+   | norm-1 (0.0–1.0) | 15/21 — gemma4 emits norm-1000 regardless, on both engines |
+   | real pixels | **3/21** |
+
+   norm-1000 is the corpus's native space and the only pin that reaches 100%.
+   Pinning `real` is actively harmful: it asks four of seven configurations to
+   work in a frame they do not have, and they fabricate one. The statement of
+   the space is part of the contract, not commentary — it is what the 5/21 →
+   21/21 result rests on.
 2. **Request named coordinates** — `x1`, `y1`, `x2`, `y2` as separate fields,
    never a positional array. A positional array is the sole reason `coord_order`
    has to exist; named fields make the transposition *unrepresentable* rather
@@ -82,10 +105,25 @@ declared `ref_size`.**
    calibrates an image nobody has measured, for the cost of one box:
    `[0,0,~1,~1]` → `norm1`; `[0,0,~1000,~1000]` → `norm1000`; `[0,0,X,Y]` →
    `real` in a frame of X × Y.
-4. **Derive, do not trust.** Convert using the space the anchor implies and
-   ignore any declared `ref_size`. qwen3.8 GGUF reports that frame as
-   2500×1406, 2560×1440 and 2324×1312 across runs on one 1920×1080 input;
-   nemotron3 omits it while declaring `real`.
+4. **Derive, then validate — do not trust either the declaration or the
+   anchor.** Convert using the space the anchor implies and ignore any declared
+   `ref_size` (qwen3.8 GGUF reports that frame as 2500×1406, 2560×1440 and
+   2324×1312 across runs on one 1920×1080 input; nemotron3 omits it while
+   declaring `real`). **Then run `bbox_self_check` before using the result.**
+   Two response-only tests, neither sufficient alone:
+
+   - **Range** — every coordinate must fit the space the anchor implies. Catches
+     a pure *scale* lie: gemma4 declares `norm1` and emits norm-1000, and since
+     both spaces are square, no shape test can see it. 6 of 15 bad responses are
+     caught only here.
+   - **Aspect** — the anchor's own aspect ratio must match the objects' extent
+     aspect. Catches a *frame fabrication*: asked for `real`, gemma4 MLX returns
+     an anchor of `[0,0,1920,1080]` — the true image size, answered from
+     knowledge — while its boxes are norm-1000, so the anchor reads 1.778
+     against an extent of 1.099. 9 of 15 are caught only here.
+
+   A response that fails either check is rejectable **without ground truth**.
+   Reject it or fall back; do not convert it.
 5. **Placement of the declaration is free.** Measured null; choose whichever
    suits the schema. Per object is marginally more robust to truncation, which
    is the only reason to prefer it.
@@ -102,15 +140,28 @@ declared `ref_size`.**
 - Compliance is now checkable **per request** rather than per model: a response
   whose anchor disagrees with its declaration is rejectable without ground
   truth.
-- **Not established: that the anchor rescues a real failure in the field.**
-  `anchor_beats_declared` is false in all 21 cells, because under pinning
-  nothing lied and the anchor never had to fire. Its recovery behaviour is
-  verified only against synthetic responses — a payload declaring `norm1000`
-  while emitting real pixels in a 1.302× frame recovers to 6/6 at IoU 0.997 with
-  `ref [2500, 1406]` derived. What is measured is that all seven configurations
-  *comply* with the protocol (21/21 named coordinates, 21/21 anchors at exactly
-  `[0,0,1000,1000]`, nemotron3 included). Do not cite the anchor as a
-  demonstrated field rescue.
+- **The anchor's rescue is now established, and so is its failure mode.** The
+  adversarial arms pinned conventions the corpus resists, producing 15 genuinely
+  mis-declared responses out of 42. Results:
+
+  | outcome | cells |
+  | --- | --- |
+  | anchor recovers what the declaration could not | **12/42** |
+  | anchor and declaration both already correct | 15/42 |
+  | anchor inherits the declaration's error | **9/42** |
+  | anchor invents a third, also-wrong frame | **6/42** |
+
+  The clean rescue is qwen3.8, both engines, 3/3 each: declares `real` with
+  `ref_size` **absent** (declaration unusable, 0/6), anchor derives
+  `[2338, 1316]`, boxes score **6/6** — while a best-fit dialect search manages
+  only **1/6**, because no search can guess a 2338×1316 frame. That is the case
+  nothing else solves.
+  The inheritance failure is gemma4, and it is why item 4 now mandates
+  validation rather than trust.
+- **`bbox_self_check` separates the two, 42/42, with no ground truth**: 27
+  accepted and all 27 correct, 15 rejected and all 15 genuinely bad. Zero silent
+  failures, zero good answers discarded. This is the load-bearing consequence —
+  the anchor is a *usable* signal only because its failures are detectable.
 - Rates are one fixture at one image size, think-off. A square image, or one
   where the anchor is ambiguous between `real` and `norm1000` because
   `max(W,H) ≤ 1000`, is not covered.
