@@ -62,6 +62,20 @@ payload, not of the arch — recorded in the table rather than silently tolerate
 load as `PROJECTOR_TYPE_QWEN3VL` — the branch that emits the "requires at minimum
 1024 image tokens" warning.
 
+**The row is a split inheritance, and measurements must say so.** Upstream
+`ollama/ollama` owns the 1,024 floor and applies it to `qwen2vl`, `qwen25vl`,
+`qwen3vl` and `qwen3vlmoe` with the value hardcoded. This fork owns the rest:
+`87cf1100` extends the case to `qwen35`/`qwen35moe`, `cd98f642` names the constant
+`qwenVLImageMinTokens`, and `handle_qwen35_like_clip()` — which is what makes the
+extension follow — exists only here. **Qwen3.8 lands on the fork-added arm**: its
+GGUF declares `model_family: "qwen35"`, as does qwen3.6. So a GGUF ladder measured
+for either model is a **fork behaviour** and will not reproduce on stock ollama,
+where the projector falls back to its own `set_limit_image_tokens(8, 4096)` — a
+floor of 8, not 1,024. This is the GGUF side only; the MLX path never reaches
+`visionServerArgs` and honours the model's own pixel window instead, which is why
+one host yields two ladders for the same weights. Any expectations row taken for
+this family records that in its provenance comment.
+
 ### 2.1 Gemma 4's vendor-documented budget ladder
 
 Google's model card — **<https://ai.google.dev/gemma/docs/core/model_card_4>** —
