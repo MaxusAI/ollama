@@ -165,13 +165,17 @@ jobs:
       # drift, which is why the configure step above is not sufficient on its
       # own -- see "Regenerating the Patch Files" in llama/compat/README.md.
       #
-      # `mtmd` pulls in llama, so this compiles every file the patch set
-      # touches: llama-model-loader.cpp (001), clip.cpp (001/002/004),
+      # `mtmd` pulls in llama, so this compiles every file the 0xx patches
+      # touch: llama-model-loader.cpp (001), clip.cpp (001/002/004),
       # nemotron-v2-vl.cpp + mtmd.cpp (002), models/laguna.cpp (003),
       # mtmd-image.cpp (004/005), plus the compat sources themselves. Building
       # it here rather than against a standalone llama.cpp checkout is what
       # makes 001 reachable at all: it includes llama-ollama-compat.h, which
       # only Ollama's build tree supplies.
+      #
+      # It does NOT reach the 9xx band. Those patch ggml/src/ggml-cuda/*, which
+      # is compiled only with a GPU backend enabled, and this tree enables none
+      # -- see the patches-ggml job below.
       #
       # Linux only. The drift this catches is upstream renaming things, which
       # is platform-independent, and a second full native build would dominate
@@ -183,6 +187,76 @@ jobs:
         run: |
           cmake --build "$RUNNER_TEMP/llama-server-patch-check" \
             --target mtmd --parallel "$(nproc)"
+
+  # The 9xx half of the patch set (903 patches ggml/src/ggml-cuda/mmq.cu) is
+  # invisible to the job above: `mtmd` never pulls in ggml-cuda, and that tree
+  # is configured with no GPU backend, so no .cu file is compiled at all. 903
+  # was application-checked but never compiled until this job existed.
+  #
+  # The `linux` job's CUDA/ROCm presets do compile it, but they are gated on
+  # vars.SELF_HOSTED_RUNNERS and skip entirely when no self-hosted runner is
+  # attached -- which is the normal state of this fork. Coverage that only
+  # exists when a runner happens to be present is not coverage.
+  #
+  # Compiling all of ggml-cuda would be disproportionate (~140 translation
+  # units per architecture), so this builds only the objects for the ggml
+  # sources the patch set actually touches, at one virtual arch. The source
+  # list is read out of the patch headers rather than hardcoded, so a future
+  # 9xx patch is picked up without editing this job.
+  #
+  # Ungated for the same reason as `patches`: it reports a broken patch set.
+  patches-ggml:
+    runs-on: ubuntu-latest
+    container: nvidia/cuda:13.0.0-devel-ubuntu22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates cmake curl git ninja-build
+      - name: Verify ggml patches compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t srcs < <(
+            grep -rhE '^\+\+\+ b/ggml/.*\.(cu|cpp)$' llama/compat --include='*.patch' \
+              | sed 's|^+++ b/||' | sort -u)
+          if [ "${#srcs[@]}" -eq 0 ]; then
+            echo "No patch touches ggml/; nothing to compile."
+            exit 0
+          fi
+          printf 'patched ggml source: %s\n' "${srcs[@]}"
+
+          dir="$RUNNER_TEMP/ggml-patch-check"
+          cmake -S llama/server -B "$dir" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DGGML_BACKEND_DL=ON \
+            -DGGML_NATIVE=OFF \
+            -DGGML_OPENMP=OFF \
+            -DGGML_CUDA=ON \
+            -DCMAKE_CUDA_ARCHITECTURES=80-virtual \
+            -DOLLAMA_RUNNER_DIR=
+
+          # Ninja names each object after its source path, so the object to
+          # build is derivable from the patch header. A source that resolves to
+          # no object is a hard failure: it means the patch is editing a file
+          # this configuration never compiles, and the check would silently
+          # pass while proving nothing.
+          objs=()
+          for src in "${srcs[@]}"; do
+            obj=$(ninja -C "$dir" -t targets all \
+              | grep -oE "[^ :]*${src}\.o" | head -1 || true)
+            if [ -z "$obj" ]; then
+              echo "::error::no build object for patched source $src"
+              exit 1
+            fi
+            objs+=("$obj")
+          done
+          ninja -C "$dir" "${objs[@]}"
 
   linux:
     needs: [changes]
