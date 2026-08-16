@@ -6,9 +6,15 @@ back to `0.32.1-gemma4budget-85ebcb79`.
 
 > **The one thing to take away:** do **not** upgrade the AMD/gfx1151 deployment past
 > **0.32.1** until [#17459](https://github.com/ollama/ollama/issues/17459) and
-> [#17475](https://github.com/ollama/ollama/issues/17475) are closed **and**
-> `--direct-io` is confirmed safe on ROCm iGPUs. The deployed image is
-> `maxusai-ollama:0.32.1-rocm-dynres-35d9e58e` (see Status). This gate is about the
+> [#17475](https://github.com/ollama/ollama/issues/17475) are **fixed, with the fix in the
+> target tag**, **and** `--direct-io` is confirmed safe on ROCm iGPUs. The deployed image is
+> `maxusai-ollama:0.32.1-rocm-dynres-296eb020` (see Status).
+>
+> **"Closed" is not the bar, and this already matters.** As of 2026-08-16 #17475 is closed as
+> **`not_planned`** — declined, not repaired; the cross-request PII leak it documents stands.
+> #17459 is still open. Read condition 1 and 2 of the normative spec, which have always said
+> *with the fix in the target tag*; the summary above previously said only "closed" and could
+> be read as half-satisfied. This gate is about the
 > **upstream payload**, not about anything the fork changed — moving *within* the b9888
 > lineage, as the 2026-08-08 deploy did, is not an upgrade and is not gated.
 
@@ -16,14 +22,15 @@ back to `0.32.1-gemma4budget-85ebcb79`.
 
 | | |
 |---|---|
-| Deployed image | `maxusai-ollama:0.32.1-rocm-dynres-35d9e58e` (since 2026-08-08) |
-| Deployed version | `0.32.1-dynres-35d9e58e` |
+| Deployed image | `maxusai-ollama:0.32.1-rocm-dynres-296eb020` (verified on host 2026-08-16) |
+| Deployed version | `0.32.1-dynres-296eb020` |
 | Build type | **full** `FLAVOR=rocm` from `release/0.32.1-dynres`; compat **002 + 004 + 005** |
 | Payload | **b9888** — gate-safe; no `--direct-io` |
 | Previous image | `maxusai-ollama:0.32.1-rocm-gemma4budget` (`0.32.1-gemma4budget-85ebcb79`) — retained for rollback |
 | Blocked target | `0.32.5-gemma4budget-4259c191` (built, verified, **rolled back**) |
 | Host | Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151**, ROCm, Linux |
-| Gate lifts when | #17459 **and** #17475 closed, **and** `--direct-io` re-validated on ROCm iGPU |
+| Gate lifts when | #17459 **and** #17475 **fixed** (not merely closed), **and** `--direct-io` re-validated on ROCm iGPU — see the normative spec |
+| Issue status 2026-08-16 | #17459 **open**; #17475 **closed as `not_planned`** — declined, not fixed. Gate holds. |
 
 The 2026-08-08 change swapped one b9888 image for another and **did not touch the gate**.
 The overlay image it replaced could not carry `llama/compat/*.patch` at all, so shipping
@@ -134,6 +141,31 @@ The overlay rebuilds only the Go binary, so the llama.cpp bump is never compiled
 here; it arrives wholesale inside `ollama/ollama:0.32.5-rocm`. That is the largest and least
 inspected surface in any base bump, and it is where slot, checkpoint and prompt-cache logic
 lives.
+
+## The lift path has no owner — review this, do not wait on it
+
+Checked 2026-08-16. Neither gate issue has a fix, a PR, or an assignee:
+
+| | |
+|---|---|
+| #17459 | **open**. A contributor offered to take it; nothing landed. A maintainer has since questioned the reproduction itself ("the gemma output files show no sign of `<unused49>`. Was the model reloaded?"), so it is still in triage. |
+| #17475 | **closed `not_planned`** after a *single* maintainer comment asking for server logs, image dimensions and the prompt. There is no sign the reporter replied. Closed for silence, not because it was judged harmless or repaired. |
+
+So conditions 1 and 2 have no visible route to being satisfied. Treating this gate as
+"wait until upstream fixes them" means waiting indefinitely.
+
+That is not a reason to lift it — the defects are real and the 2026-07-31 rollback is the
+evidence. It is a reason to give the gate an **owner-decided review date** rather than a
+passive condition, and to decide deliberately between: keep gfx1151 on b9888 indefinitely;
+validate a newer payload ourselves against conditions 3-5 and accept 1-2 as unmet with the
+risk documented; or push the upstream issues forward.
+
+On the last option, we are unusually well placed for #17475. Its reproduction needs
+concurrent vision requests with client aborts across model swaps, on hardware where the
+leak appears — and this fork already cold-restarts between every benchmark cell *because of
+this bug* (`run_grid.sh` cites it by number). The maintainer asked for exactly what the
+vision suite captures routinely. Reopening it with a controlled reproduction is a real
+option; it is a third-party issue touching PII, so it is a decision, not a task.
 
 ## Spec — normative gate
 
