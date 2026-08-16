@@ -223,15 +223,32 @@ def check_payload_proof(expect, arch, container, since, log_cmd=None):
         usable = [b for b in blocks if not is_pinned(b)] or blocks
     got = usable[-1] if usable else {}
 
+    # Which bounds this arch's flags actually set. Both, for the arches whose
+    # visionServerArgs case passes --image-min-tokens AND --image-max-tokens
+    # (gemma4, nemotron_h_omni). The qwen VL family passes only the min: its max
+    # is llama.cpp's structural set_limit_image_tokens(8, 4096) ceiling and is
+    # "not tunable through --image-max-tokens" (llm/llama_server.go, on
+    # qwenVLImageMaxTokens). Demanding "(custom value)" on a bound no flag can
+    # set makes a correct build fail, so the arch declares what to expect.
+    #
+    # Checked in BOTH directions. A bound declared uncustomised that starts
+    # logging as custom means a flag began being passed, which is as much a
+    # change as one going missing — and silently tolerating it would hide the
+    # arch gate being edited.
+    custom_bounds = set(expect.get("custom_bounds", ["min", "max"]))
+
     bad = []
     for kind, value in want.items():
         if kind not in got:
             bad.append(f"{kind}: missing")
         elif got[kind]["value"] != value:
             bad.append(f"{kind}: expected {value}, got {got[kind]['value']}")
-        elif not got[kind]["custom"]:
+        elif kind in custom_bounds and not got[kind]["custom"]:
             bad.append(f"{kind}: value right but not marked '(custom value)' — "
                        f"the flags were not applied")
+        elif kind not in custom_bounds and got[kind]["custom"]:
+            bad.append(f"{kind}: marked '(custom value)' but this arch passes no "
+                       f"flag for it — the arch gate changed")
     actual = {k: f"{v['value']}{' (custom value)' if v['custom'] else ''}"
               for k, v in got.items()}
     if bad:
@@ -240,7 +257,9 @@ def check_payload_proof(expect, arch, container, since, log_cmd=None):
                       diagnosis="The Go binary passes the flags but the llama.cpp "
                                 "payload is not honouring them, or the budget "
                                 "defaults changed without this file being updated.")
-    return result(name, PASS, f"budget logged as custom ({derivation})",
+    marked = "/".join(sorted(custom_bounds)) if custom_bounds else "neither bound"
+    return result(name, PASS,
+                  f"budget logged as custom on {marked} ({derivation})",
                   arch=arch, expected=derivation, actual=actual)
 
 
