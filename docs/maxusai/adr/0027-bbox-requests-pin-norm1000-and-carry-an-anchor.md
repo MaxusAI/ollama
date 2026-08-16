@@ -17,8 +17,10 @@
 - **Date:** 2026-08-16
 - **Deciders:** MaxusAI fork maintainers
 - **Related:**
+  [SPEC: vision bounding-box response contract](../spec/vision-bbox-response-contract.md)
+  (C1–C11, the normative form of this decision),
   [vision-bbox-coordinate-conventions.md](../vision-bbox-coordinate-conventions.md)
-  (the consumer-side procedure this ADR fixes),
+  (the per-model measurement record and the legacy recovery ladder),
   [campaign 2026-08-16 seven-model](../vision-campaign-2026-08-16-seven-model.md)
   (the measurements this rests on),
   [ADR 0022](0022-thinking-is-off-for-vision-work.md) (think off for vision — all
