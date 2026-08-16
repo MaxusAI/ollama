@@ -555,6 +555,7 @@ def score_bbox_contract(resp_text):
          "anchor_implied_ref": None, "hits_anchor": 0, "iou_anchor": 0.0,
          "anchor_beats_declared": False,
          "self_check": None, "self_check_reason": None,
+         "degenerate_boxes": 0, "degenerate_labels": [],
          "declaration_valid": False, "declaration_matches_boxes": False,
          "contract_followed": False}
     r, fenced = parse_json_response(resp_text)
@@ -654,6 +655,7 @@ def score_bbox_contract(resp_text):
     # declaration, which is exactly the class of error this probe exists to
     # catch.
     decls = []
+    matched_labels = []
     for gto in g["objects"]:
         o = by_label.get(gto["label"])
         if o:
@@ -661,6 +663,7 @@ def score_bbox_contract(resp_text):
             bb = get_bbox(o)
             if len(bb) == 4:
                 matched.append((bb, gto["bbox"]))
+                matched_labels.append(gto["label"])
                 decls.append(read_decl(o)
                              if s["declaration_scope"] == "perobject"
                              else (btype, order, ref))
@@ -731,6 +734,30 @@ def score_bbox_contract(resp_text):
                                   else (bb[1], bb[0], bb[3], bb[2]))
                 ious.append(iou([x1 / k, y1 / k, x2 / k, y2 / k], gtb))
             s["iou_at_implied_scale"] = round(sum(ious) / len(ious), 3)
+
+    # --- per-box well-formedness (SPEC C12) --------------------------------
+    #
+    # A box needs x1 < x2 and y1 < y2. Measured 2026-08-16, gemma4:26b-mxfp8
+    # returned ANCHOR as x1=0.74, x2=0.215 — a digit slip for 0.074 — in an
+    # otherwise correct norm1 response. hits_bestfit was 5 too, so no dialect
+    # recovers it: it is one bad box, not a bad convention.
+    #
+    # Deliberately does NOT touch self_check. That gates the coordinate SPACE
+    # for the whole response, and its remedy (SPEC C8) is to reject everything;
+    # discarding five good boxes over one digit slip would be the wrong trade.
+    # C12's remedy is to drop the named boxes individually.
+    #
+    # The order matters: this must be evaluated in the order the declaration
+    # implies, or every legitimately transposed box reads as degenerate. gemma4
+    # emits yxyx across four quantisations, so testing raw would have flagged
+    # a large fraction of a perfectly good corpus.
+    for (bb, _gtb), (_bt, dod, _ref), label in zip(matched, decls, matched_labels):
+        order = dod if dod in ("xyxy", "yxyx") else od
+        x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if order == "xyxy"
+                          else (bb[1], bb[0], bb[3], bb[2]))
+        if x1 >= x2 or y1 >= y2:
+            s["degenerate_boxes"] += 1
+            s["degenerate_labels"].append(label)
 
     # --- the self-calibrating anchor ---------------------------------------
     #
