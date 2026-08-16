@@ -59,11 +59,20 @@ Deterministic — same ground truth in, same bytes out. Regenerate only when
 adding a case. Changing an existing fixture changes what the guarantee covers,
 so treat it as a deliberate edit, not a refresh.
 
-## Known gap pinned here
+## What `named_coords.txt` covers
 
-`named_coords.txt` records a defect, not correct behaviour: with a top-level
-declaration and `x1`/`y1`/`x2`/`y2` on each object — the schema the prompt asks
-for — the boxes are read correctly but the declaration never validates, because
-`read_decl` looks for the coordinate keys on the dict carrying the declaration.
-`hits_declared` is 0 while `hits_bestfit` is 6. The test pins it so that fixing
-it shows up as a deliberate change rather than a surprise.
+A top-level declaration with `x1`/`y1`/`x2`/`y2` on each object — the schema the
+prompt asks for. This fixture originally pinned a defect: the boxes were read
+correctly but the declaration never validated (`hits_declared` 0 against
+`hits_bestfit` 6), because `read_decl` looks for the coordinate keys on the dict
+carrying the declaration, and for a top-level declaration that is the root while
+the keys are on the objects.
+
+Fixed by inferring the order from the boxes when every boxed object uses named
+keys. The fixture now asserts the working behaviour, and a sibling case pins the
+mixed response — named keys on one object, a positional array on another — where
+there is no single order to infer and none is assumed.
+
+Nothing in `preexisting/` moved: those responses use positional arrays, so the
+inference never fires for them. That is the guarantee this corpus exists to hold,
+and it was confirmed by running the rescore comparison across the fix.

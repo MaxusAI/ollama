@@ -203,6 +203,22 @@ def center_in(pred, gtb):
     except Exception:
         return False
 
+NAMED_COORDS = ("x1", "y1", "x2", "y2")
+
+
+def has_named_coords(o):
+    """True when o carries numeric x1/y1/x2/y2.
+
+    Named keys state the axis order themselves, so a response using them has
+    nothing left to transpose and nothing to declare. Defined once because
+    three call sites depend on agreeing about it: get_bbox reads the box,
+    read_decl infers the order from a dict that carries both, and the top-level
+    path infers it from the objects.
+    """
+    return isinstance(o, dict) and all(
+        isinstance(o.get(k), (int, float)) for k in NAMED_COORDS)
+
+
 def get_bbox(o):
     # Models speak different schema dialects: qwen-vl grounding uses "bbox_2d".
     for k in ("bbox", "bbox_2d", "box_2d"):
@@ -213,8 +229,8 @@ def get_bbox(o):
     # (2026-08-16) — an error nothing downstream can detect without ground
     # truth. Named keys make the transposition unrepresentable rather than
     # merely discouraged. Checked last so no existing response changes meaning.
-    if all(isinstance(o.get(k), (int, float)) for k in ("x1", "y1", "x2", "y2")):
-        return [o["x1"], o["y1"], o["x2"], o["y2"]]
+    if has_named_coords(o):
+        return [o[k] for k in NAMED_COORDS]
     return []
 
 
@@ -542,9 +558,11 @@ def score_bbox_contract(resp_text):
         # Named coordinates ARE their own order: get_bbox emits [x1,y1,x2,y2]
         # from the field names, so there is nothing left to transpose and
         # nothing to declare. Only inferred when the model gave no explicit
-        # order, so an array-shaped response is untouched.
-        if not od and all(isinstance(d.get(k), (int, float))
-                          for k in ("x1", "y1", "x2", "y2")):
+        # order, so an array-shaped response is untouched. This covers the
+        # dicts that carry the keys themselves — a per-object declaration, or a
+        # root holding one box. The top-level case is handled after `boxed`,
+        # where the objects are in scope.
+        if not od and has_named_coords(d):
             od = "xyxy"
         return bt or None, od or None, rf
 
@@ -571,6 +589,22 @@ def score_bbox_contract(resp_text):
     # differently: per-object boxes are each converted in THEIR OWN dialect,
     # so one object may be norm1000 while its neighbour is real.
     boxed = [o for o in objs if get_bbox(o)]
+
+    # A top-level declaration cannot state the axis order when the coordinates
+    # are named: read_decl above only sees the root, and x1/y1/x2/y2 live on
+    # the objects. Infer it from the boxes, which is where the order was in
+    # fact stated. Without this the schema the prompt asks for — one
+    # declaration, named coordinates per object — reads every box correctly and
+    # still scores the declaration invalid, hits_declared 0 against a clean
+    # hits_bestfit.
+    #
+    # Required of EVERY boxed object. A response mixing named keys with
+    # positional arrays has no single order to infer, and assuming one would
+    # score the arrays against a convention they never claimed — the same
+    # unearned-trust error the probe exists to catch.
+    if not order and boxed and all(has_named_coords(o) for o in boxed):
+        order = "xyxy"
+
     if btype:
         s["declaration_scope"] = "toplevel"
     elif boxed and all(read_decl(o)[0] for o in boxed):

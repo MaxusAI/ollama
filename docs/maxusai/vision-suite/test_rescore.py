@@ -205,24 +205,34 @@ class TestNewFeatures(unittest.TestCase):
         self.assertEqual(s["hits_bestfit"], 6)
         self.assertEqual(s["bestfit_dialect"], "real/xyxy")
 
-    def test_named_coords_do_not_satisfy_a_toplevel_declaration(self):
-        """A GAP, pinned so a fix is visible as a deliberate change.
+    def test_named_coords_satisfy_a_toplevel_declaration(self):
+        """The schema the prompt asks for: one declaration, named coords per object.
 
-        `read_decl` infers coord_order from named coordinates, but only off the
-        dict it is handed. For a top-level declaration that dict is the response
-        root, while x1/y1/x2/y2 live on each object — so the inference never
-        fires for the schema the prompt actually asks for. The boxes are read
-        correctly (hits_bestfit 6) yet the declaration scores invalid and
-        hits_declared is 0.
-
-        It fires in the two shapes where the keys and the declaration share a
-        dict: per-object declarations, and a root that carries coordinates
-        itself. Both are covered below.
+        `read_decl` only sees the root, where the coordinate keys are not, so
+        the order is inferred from the boxes instead. Before that inference this
+        response read every box correctly and still scored the declaration
+        invalid — hits_declared 0 against hits_bestfit 6.
         """
         s = self.score("named_coords")
+        self.assertEqual(s["declared_order"], "xyxy")
+        self.assertTrue(s["declaration_valid"])
+        self.assertEqual(s["hits_declared"], 6)
+        self.assertTrue(s["contract_followed"])
+
+    def test_mixed_named_and_positional_infers_nothing(self):
+        """One named object and one array: no single order to infer.
+
+        Assuming xyxy here would score the array against a convention it never
+        claimed — the unearned trust this probe exists to catch.
+        """
+        mixed = json.dumps({"bbox_type": "real", "ref_size": [1920, 1080],
+                            "objects": [
+                                {"label": "ANCHOR",
+                                 "x1": 140, "y1": 160, "x2": 420, "y2": 360},
+                                {"label": "BEACON", "box_2d": [620, 120, 900, 330]}]})
+        s = NEW.score_bbox_contract(mixed)
         self.assertIsNone(s["declared_order"])
         self.assertFalse(s["declaration_valid"])
-        self.assertEqual(s["hits_declared"], 0)
 
     def test_named_coords_infer_order_where_the_keys_share_the_dict(self):
         perobject = json.dumps({"objects": [
