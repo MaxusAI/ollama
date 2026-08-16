@@ -219,10 +219,25 @@ def has_named_coords(o):
         isinstance(o.get(k), (int, float)) for k in NAMED_COORDS)
 
 
+def _numeric4(v):
+    """A box is four numbers. Anything else is not a box.
+
+    Measured 2026-08-17: nemotron3 think-on answered `"bbox_2d": "real"` — it
+    put the TYPE in the coordinate field — alongside perfectly good x1/y1/x2/y2.
+    A bare truthiness test accepted that string, and `len("real") == 4` then
+    satisfied every downstream length check, so scoring reached `"r" * 0.52` and
+    raised TypeError. Booleans are excluded deliberately: bool is an int
+    subclass, so `[True, False, True, False]` would otherwise pass.
+    """
+    return (isinstance(v, (list, tuple)) and len(v) == 4
+            and all(isinstance(c, (int, float)) and not isinstance(c, bool)
+                    for c in v))
+
+
 def get_bbox(o):
     # Models speak different schema dialects: qwen-vl grounding uses "bbox_2d".
     for k in ("bbox", "bbox_2d", "box_2d"):
-        if o.get(k):
+        if _numeric4(o.get(k)):
             return o[k]
     # NAMED coordinates. A positional array is the sole reason coord_order
     # exists, and gemma4 has been measured emitting yxyx while declaring xyxy
@@ -1134,7 +1149,19 @@ def main():
             continue
         text = r.get("response", "")
         open(f"{DIR}/resp_{TAG}_{name}.json", "w").write(text)
-        sc = scorer(text)
+        # A SCORER CRASH MUST NOT ABORT THE CAMPAIGN. gen() has always been
+        # guarded; scoring was not, so one malformed response killed the whole
+        # run. That cost two models and four model-modes on 2026-08-17 — the
+        # process died on nemotron3's `"bbox_2d": "real"` partway through the
+        # 18-model sweep, and nemotron3:33b-q8 and :33b-bf16 never ran at all.
+        # The generation is already on disk by this point, so a scorer fixed
+        # later can rescore it; losing the remaining models cannot be undone
+        # without re-running them.
+        try:
+            sc = scorer(text)
+        except Exception as e:
+            print(f"SCORER ERROR: {type(e).__name__}: {e}")
+            sc = {"scorer_error": f"{type(e).__name__}: {e}"}
         sc["prompt_eval_count"] = r.get("prompt_eval_count")
         sc["eval_count"] = r.get("eval_count")
         # Throughput. Ollama reports durations in nanoseconds. Recorded so a run
