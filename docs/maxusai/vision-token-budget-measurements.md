@@ -206,9 +206,19 @@ it.
 
 - `gemma4:e2b-it-q4_K_M` and `gemma4:31b-it-q4_K_M` returned **identical** counts on every
   row, so within an arch the budget does not vary by parameter count or quant.
-- qwen35 was probed with `qwen3.5:0.8b-q8_0` only. The flag applies to all six
-  qwen35/qwen35moe models; identical counts across them is likely (it held for gemma4) but
-  **not verified**.
+- qwen35 was probed with `qwen3.5:0.8b-q8_0` for the rows above. The flag applies to all
+  six qwen35/qwen35moe models; identical counts across them is likely (it held for gemma4)
+  but **not verified at these geometries**.
+
+  Partly closed since. `qwen3.8:27b-q4_K_M` — a different member, quant and parameter
+  count — was measured on CUDA 2026-08-16 and lands in the same 1,024 … 4,096 window
+  (`image_min_pixels` 1,048,576, `image_max_pixels` 4,194,304, stride 32), confirming the
+  budget does not vary by model within the family. It does **not** fill a row above: it
+  was taken at the preflight ladder's five 16:9 geometries, not these five, so the two
+  sets of numbers are not comparable cell by cell. Its ladder is
+  `[1034, 1034, 1034, 2306, 4082]` at 256×144 … 3072×1728, recorded with provenance in
+  `[expect.cuda-dynres-903.qwen35]`. Filling a row here still needs a run at the
+  geometries this table uses.
 - nemotron was probed on `q8`; the by-arch doc measured `q4_K_M`. Both give 256, so the
   behaviour is not quant-specific.
 - Aspect ratios covered: 1:1, 4:3, 3:4, 16:9, 9:16, 3:1, 1:3, 3:2. Audio input on
