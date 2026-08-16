@@ -1,0 +1,3 @@
+Here are the shapes I found in the image:
+
+{"bbox_type": "real", "objects": [{"label": "ANCHOR", "box_2d": [140, 160,
