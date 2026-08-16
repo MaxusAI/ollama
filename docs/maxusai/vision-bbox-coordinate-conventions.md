@@ -91,6 +91,93 @@ transposed box is only detectable against ground truth the consumer does not
 have. Treat axis order as requiring per-model *and per-prompt-shape*
 calibration — step 4 below is the only defence.
 
+## Determining the format on an image you cannot check
+
+Everything below this section infers the convention from the numbers, and every
+one of those steps needs something you do not have in production: a non-square
+image with spread objects, a coordinate range that happens to be unambiguous,
+or ground truth. On an arbitrary caller-supplied image none of that is
+guaranteed, and an axis swap is invisible to all of it.
+
+Two mechanisms remove the guessing. Both were measured 2026-08-16 across the
+seven-model corpus, 3 repeats each
+([campaign](vision-campaign-2026-08-16-seven-model.md)); the resulting contract
+is [ADR 0027](adr/0027-bbox-requests-pin-norm1000-and-carry-an-anchor.md).
+
+### 1. Pin the convention — 5/21 → 21/21
+
+Do not let the model choose. Ask for norm-1000 explicitly, and **state what the
+space is**, because the wording is load-bearing:
+
+> Use `"bbox_type": "norm1000"` — each axis scaled independently to 0-1000, x by
+> 1000/width and y by 1000/height. The coordinate space is 1000x1000 whatever
+> the image's shape is.
+
+Under free choice, `bbox_contract_multi` is followed in **5 of 21** runs. Under
+that pinned wording, `bbox_contract_pinned` and `bbox_contract_perobject` are
+both **21 of 21** — every model, every repeat, `norm1000/xyxy` at 6/6, nemotron
+and qwen3.6 GGUF included.
+
+Where the declaration sits is **irrelevant**: top-level and per-object score
+identically, 21/21 each. An earlier ad-hoc run suggested per-object rescued
+top-level 3/3 vs 0/3; it does not reproduce, because that prompt lacked the
+sentence above. The explicit statement of the space was doing the work.
+
+Note the emphasis: both axes are divided by their *own* dimension, so norm-1000
+is a **square space that does not preserve aspect ratio**. This is the most
+commonly got-wrong part of the convention — scaling both axes by `1000/W` is
+wrong and produces a plausible-looking result.
+
+### 2. Make compliance checkable — named keys and a self-calibrating anchor
+
+Pinning fixes behaviour but not *verifiability*: a model that ignores the pin
+and emits real pixels produces output indistinguishable from an honest reply.
+Two additions close that, neither needing ground truth.
+
+**Named coordinates.** Ask for `"x1"`, `"y1"`, `"x2"`, `"y2"` as separate
+fields rather than a positional array. A positional array is the sole reason
+`coord_order` has to exist; naming the fields makes gemma4's silent `yxyx` flip
+*unrepresentable* rather than merely discouraged. Measured: **21/21** used them
+verbatim.
+
+**A full-image anchor.** Require one extra entry, `__IMAGE__`, whose box covers
+the whole image. It is the one box whose answer you already know on *any*
+image, so it converts an uncalibrated image into a calibrated one for the cost
+of one box. Read the space straight off it:
+
+| anchor returns | space is |
+| --- | --- |
+| `[0, 0, ~1, ~1]` | `norm1` |
+| `[0, 0, ~1000, ~1000]` | `norm1000` |
+| `[0, 0, X, Y]` | `real`, in a frame of **X × Y** |
+
+The third row is the load-bearing one: it recovers the frame **without trusting
+`ref_size`** — the field qwen3.8 GGUF only gets approximately right (2500×1406,
+2560×1440, 2324×1312 across runs on one 1920×1080 input) and nemotron omits
+entirely. Measured: **21/21** returned `__IMAGE__` at exactly
+`[0, 0, 1000, 1000]`.
+
+**What this has not shown.** `anchor_beats_declared` is false in all 21 cells,
+because under pinning nothing lied and the anchor never had to rescue anything.
+Its recovery behaviour is verified only against synthetic responses: a payload
+declaring `norm1000` while emitting real pixels in a 1.302× frame is recovered
+to 6/6 at IoU 0.997, with `ref [2500, 1406]` derived. Treat the anchor as a
+cheap per-request check that has been shown to be *complied with*, not as a
+rescue that has been shown to *fire in the wild*.
+
+### The recommended request shape
+
+```json
+{"objects": [{"label": "__IMAGE__", "bbox_type": "norm1000",
+              "x1": 0, "y1": 0, "x2": 1000, "y2": 1000},
+             {"label": "…", "bbox_type": "norm1000",
+              "x1": 72, "y1": 148, "x2": 219, "y2": 333}]}
+```
+
+Then, on receipt: derive the space from `__IMAGE__`, ignore any `ref_size`
+claim, and convert with `x·W/1000`, `y·H/1000`. Fall back to the heuristic
+ladder below only when the anchor is missing or malformed.
+
 ## Recovering coordinates from nemotron3 (and qwen3.6 GGUF)
 
 nemotron gets the declaration wrong in the dangerous direction: it declares
