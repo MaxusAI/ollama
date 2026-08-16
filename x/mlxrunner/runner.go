@@ -3,12 +3,17 @@ package mlxrunner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -141,6 +146,73 @@ func newDraftCaches(draft base.DraftModel) []cache.Cache {
 	return draft.NewCaches()
 }
 
+// MemoryLimitEnv carries the parent's view of FREE device memory, in bytes, to
+// the runner subprocess. Set by the MLX client, which computes it from
+// ml.DeviceInfo.FreeMemory less the per-device minimum and OLLAMA_GPU_OVERHEAD.
+const MemoryLimitEnv = "OLLAMA_MLX_MEMORY_LIMIT"
+
+// configureMemoryLimit caps the allocator on backends with no wired-residency
+// concept — everything except Metal.
+//
+// MLX is not uncapped on CUDA: it defaults the limit to a fraction of TOTAL
+// device memory (measured 90.22 GiB on a 95.6 GiB card). That is the wrong
+// denominator on a shared GPU. With other processes already holding tens of
+// gigabytes, MLX still believes the whole card is its own, so a growing KV
+// cache allocates past what is actually free and cudaMallocAsync fails. MLX
+// aborts the process on a failed allocation rather than returning an error, so
+// the runner dies and the request 500s.
+//
+// The parent already computes the right number and previously discarded it
+// after an admission check. Prefer it; fall back to reporting MLX's own default
+// so the ceiling is visible rather than assumed.
+func configureMemoryLimit(active int, wsErr error) {
+	limit, err := mlx.MemoryLimit()
+	if err != nil {
+		slog.Warn("Unable to query MLX recommended working set; using pageable memory",
+			"error", wsErr, "memory_limit_error", err)
+		return
+	}
+
+	budget, ok := parseMemoryBudget(os.Getenv(MemoryLimitEnv))
+	if !ok {
+		slog.Warn("Unable to query MLX recommended working set (Metal-only device key); "+
+			"relying on the backend default, which is derived from TOTAL device memory",
+			"error", wsErr,
+			"active", mlx.PrettyBytes(active),
+			"backend_limit", mlx.PrettyBytes(limit))
+		return
+	}
+
+	// Never raise the backend's own ceiling — only lower it to what is free.
+	if budget >= limit {
+		slog.Debug("MLX memory budget is not below the backend limit; leaving it alone",
+			"budget", mlx.PrettyBytes(budget), "backend_limit", mlx.PrettyBytes(limit))
+		return
+	}
+
+	previous, err := mlx.SetMemoryLimit(budget)
+	if err != nil {
+		slog.Warn("Unable to apply MLX memory limit; keeping the backend default",
+			"budget", mlx.PrettyBytes(budget), "error", err)
+		return
+	}
+	slog.Info("Configured MLX memory limit from free device memory",
+		"active", mlx.PrettyBytes(active),
+		"limit", mlx.PrettyBytes(budget),
+		"previous", mlx.PrettyBytes(previous))
+}
+
+func parseMemoryBudget(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil || v == 0 || v > math.MaxInt {
+		return 0, false
+	}
+	return int(v), true
+}
+
 func configureWiredMemory() {
 	if !mlx.GPUIsAvailable() {
 		return
@@ -149,7 +221,14 @@ func configureWiredMemory() {
 	active := mlx.ActiveMemory()
 	maxRecommended, err := mlx.MaxRecommendedWorkingSetSize()
 	if err != nil {
-		slog.Warn("Unable to query MLX recommended working set; using pageable memory", "error", err)
+		// max_recommended_working_set_size is a Metal device key, and so is the
+		// wired-residency concept it feeds. Returning here left non-Metal
+		// backends with NO cap at all: on CUDA a growing KV cache allocated
+		// until cudaMallocAsync failed, and MLX aborts the process on a failed
+		// allocation rather than returning an error, so the runner died and the
+		// request 500'd. Report the allocator limit that IS portable so the
+		// backend's own ceiling is visible rather than assumed.
+		configureMemoryLimit(active, err)
 		return
 	}
 
@@ -256,19 +335,76 @@ func (r *Runner) Run(host, port string, mux http.Handler) error {
 				}
 
 				close(request.Responses)
+
+				// Report first, stop second. The caller gets a StatusError
+				// describing the failure; only then does the runner exit, so
+				// the scheduler reloads a clean one rather than this process
+				// continuing on MLX state a failed evaluation abandoned.
+				var fatal fatalRunnerError
+				if errors.As(err, &fatal) {
+					return err
+				}
 			}
 		}
 	})
 
+	srv := &http.Server{Addr: net.JoinHostPort(host, port), Handler: mux}
+
+	// Without this the worker returning an error cancels ctx but ListenAndServe
+	// keeps running, so g.Wait() never returns and the "stop second" above
+	// never takes effect.
+	g.Go(func() error {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	})
+
 	g.Go(func() error {
 		slog.Info("Starting HTTP server", "host", host, "port", port)
-		return http.ListenAndServe(net.JoinHostPort(host, port), mux)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
 	})
 
 	return g.Wait()
 }
 
-func (r *Runner) runRequest(request Request) error {
+// fatalRunnerError marks a failure the runner must not continue past. MLX
+// treats a failed graph evaluation as unrecoverable and mlxthread re-panics it
+// onto this goroutine deliberately; recovering lets the caller be told what
+// happened instead of reading a stack from a dead subprocess, but the runner
+// still stops afterwards rather than serving on state MLX has abandoned.
+type fatalRunnerError struct{ err error }
+
+func (e fatalRunnerError) Error() string { return e.err.Error() }
+func (e fatalRunnerError) Unwrap() error { return e.err }
+
+// recoverRequest converts a panic raised while evaluating a request into an
+// error, so the existing error path in Run reports it as a StatusError to the
+// client. Allocation failures get the one thing a stack trace cannot give the
+// operator: what to change.
+func recoverRequest(err *error) {
+	v := recover()
+	if v == nil {
+		return
+	}
+
+	msg := fmt.Sprint(v)
+	wrapped := fmt.Errorf("mlx runner aborted: %s", msg)
+	if strings.Contains(msg, "out of memory") {
+		wrapped = fmt.Errorf("%w; the device ran out of memory during evaluation — "+
+			"lower num_ctx or free VRAM on the device", wrapped)
+	}
+	slog.Error("Recovered a panic while evaluating a request; stopping the runner",
+		"error", msg)
+	*err = fatalRunnerError{err: wrapped}
+}
+
+func (r *Runner) runRequest(request Request) (err error) {
+	defer recoverRequest(&err)
+
 	if r.mlxThread == nil {
 		return request.Pipeline(request.Ctx, request)
 	}
