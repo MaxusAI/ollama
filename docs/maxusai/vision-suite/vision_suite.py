@@ -400,45 +400,64 @@ def score_multi(resp_text):
 BBOX_CONTRACT_PROMPT = """You are a localization service. Find every distinct
 coloured shape in this image and report where each one is.
 
-You may answer in EITHER coordinate space:
-  - "absolute": pixel coordinates in the original image, which is {w} wide and {h} tall
-  - "normalized": coordinates scaled to a 0-1000 range on both axes
+Declare the convention you used, then follow it exactly.
 
-and in EITHER axis order:
-  - "xyxy": [x1, y1, x2, y2]
-  - "yxyx": [y1, x1, y2, x2]  (the order gemma4/Gemini box_2d uses)
+"bbox_type" — one of:
+  - "real":     coordinates in pixels. You MUST also give "ref_size": [W, H],
+                the width and height of the image those pixels refer to. If you
+                resized the image internally, give the size YOU used, not the
+                original.
+  - "norm1":    coordinates scaled to 0.0-1.0 on both axes
+  - "norm1000": coordinates scaled to 0-1000 on both axes
 
-Pick whichever you are most reliable in — neither is preferred — but you MUST
-declare BOTH in the top-level "coord_space" and "coord_order" fields, and every
-box MUST match what you declared. A box that disagrees with your own
-declaration is worse than no answer at all: a consumer trusts the declaration.
+"coord_order" — one of:
+  - "xyxy": [x1, y1, x2, y2]          (qwen-vl convention)
+  - "yxyx": [y1, x1, y2, x2]          (gemma/Gemini box_2d convention)
 
-Each box covers the shape itself, not including its label text. Name the field
-either "box_2d" or "bbox_2d" — whichever is natural to you.
+No convention is preferred; pick the one you are most reliable in. But a box
+that disagrees with your own declaration is worse than no answer at all,
+because a consumer trusts the declaration.
+
+Each box covers the shape itself, not its label text. Name the box field
+"box_2d" or "bbox_2d", whichever is natural to you.
 
 Respond with a SINGLE JSON object, no prose:
 {{
-  "coord_space": "absolute" | "normalized",
+  "bbox_type": "real" | "norm1" | "norm1000",
+  "ref_size": [W, H],
   "coord_order": "xyxy" | "yxyx",
   "objects": [{{"label": "<uppercase code word above the shape>",
-                "box_2d": [x1, y1, x2, y2]}}]
+                "box_2d": [ , , , ]}}]
 }}"""
 
 
 def score_bbox_contract(resp_text):
     """Grounding and instruction-following, scored separately.
 
-    hits_declared uses ONLY the space the model declared. hits_bestfit reuses
-    the legacy dialect search, so the gap between the two is exactly the cost
-    of the model ignoring the contract.
+    Field names follow ms-swift's grounding schema (bbox_type real/norm1) so a
+    passing response is directly usable as fine-tuning data; norm1000 is added
+    because that is what gemma/Gemini emit and what ms-swift converts to for
+    qwen3-vl.
+
+    ref_size exists because "real" is meaningless on its own. Qwen-VL's absolute
+    coordinates are relative to the RESIZED image, not the original, and a model
+    can invent a scale outright: measured 2026-08-16, qwen3.8 GGUF returned
+    DYNAMO at a uniform 1.30x the truth box — raw IoU 0.079, but 0.909 once
+    divided by that factor. The shape was found; only the frame was wrong. A
+    scorer that tries a fixed set of dialects reports that as a clean miss,
+    which is how it was first mis-read as a grounding failure. implied_scale
+    records the factor instead.
     """
     g = GT["scene_hd"]
     W, H = g["size"]
-    s = {"json_valid": False, "declared_space": None, "declared_order": None,
-         "field_name": None, "labels_found": 0, "labels_total": len(g["objects"]),
-         "hits_declared": 0, "hits_bestfit": 0, "bestfit_dialect": None,
+    s = {"json_valid": False, "declared_type": None, "declared_order": None,
+         "declared_ref": None, "field_name": None,
+         "labels_found": 0, "labels_total": len(g["objects"]),
+         "hits_declared": 0, "iou_declared": 0.0,
+         "hits_bestfit": 0, "bestfit_dialect": None,
+         "implied_scale": None, "iou_at_implied_scale": None,
          "declaration_valid": False, "declaration_matches_boxes": False,
-         "contract_followed": False, "iou_declared": 0.0}
+         "contract_followed": False}
     r, fenced = parse_json_response(resp_text)
     if fenced:
         s["fenced"] = True
@@ -446,11 +465,17 @@ def score_bbox_contract(resp_text):
         return s
     s["json_valid"] = True
 
-    declared = (r.get("coord_space") or "").strip().lower()
+    btype = (r.get("bbox_type") or "").strip().lower()
     order = (r.get("coord_order") or "").strip().lower()
-    s["declared_space"], s["declared_order"] = declared or None, order or None
-    s["declaration_valid"] = (declared in ("absolute", "normalized")
-                              and order in ("xyxy", "yxyx"))
+    ref = r.get("ref_size")
+    s["declared_type"], s["declared_order"] = btype or None, order or None
+    if isinstance(ref, list) and len(ref) == 2:
+        s["declared_ref"] = [ref[0], ref[1]]
+    # "real" is only a complete declaration with a reference size.
+    s["declaration_valid"] = (
+        order in ("xyxy", "yxyx")
+        and (btype in ("norm1", "norm1000")
+             or (btype == "real" and s["declared_ref"] is not None)))
 
     objs = r.get("objects") or []
     for o in objs:
@@ -473,37 +498,65 @@ def score_bbox_contract(resp_text):
     if not matched:
         return s
 
-    scales = {"absolute": (1.0, 1.0), "normalized": (W/1000.0, H/1000.0)}
+    def factors(btype, ref):
+        if btype == "norm1":
+            return W, H
+        if btype == "norm1000":
+            return W / 1000.0, H / 1000.0
+        if btype == "real" and ref:
+            try:
+                return W / float(ref[0]), H / float(ref[1])
+            except Exception:
+                return 1.0, 1.0
+        return 1.0, 1.0
 
-    def tally(space, order):
-        fx, fy = scales[space]
+    def tally(btype, order, ref=None):
+        fx, fy = factors(btype, ref)
         hits, ious = 0, []
         for bb, gtb in matched:
             x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if order == "xyxy"
                               else (bb[1], bb[0], bb[3], bb[2]))
-            px = [x1*fx, y1*fy, x2*fx, y2*fy]
+            px = [x1 * fx, y1 * fy, x2 * fx, y2 * fy]
             hits += center_in(px, gtb)
             ious.append(iou(px, gtb))
-        return hits, round(sum(ious)/len(ious), 3) if ious else 0.0
+        return hits, round(sum(ious) / len(ious), 3) if ious else 0.0
 
     if s["declaration_valid"]:
-        s["hits_declared"], s["iou_declared"] = tally(declared, order)
+        s["hits_declared"], s["iou_declared"] = tally(btype, order, s["declared_ref"])
 
-    best = (0, None)
-    for space in scales:
+    best = (0, 0.0, None)
+    for bt in ("real", "norm1", "norm1000"):
         for od in ("xyxy", "yxyx"):
-            hits, _ = tally(space, od)
-            if hits > best[0]:
-                best = (hits, f"{space}/{od}")
-    s["hits_bestfit"], s["bestfit_dialect"] = best
+            hits, mi = tally(bt, od)          # "real" here means the native frame
+            if (hits, mi) > (best[0], best[1]):
+                best = (hits, mi, f"{bt}/{od}")
+    s["hits_bestfit"], s["bestfit_dialect"] = best[0], best[2]
 
-    # The declaration is only meaningful if the numbers agree with it. A model
-    # that declares "absolute" and emits normalized boxes is worse than one that
-    # declares nothing, because a downstream consumer would trust it.
+    # Diagnostic: if the boxes are the right SHAPE in the wrong FRAME, recover
+    # the uniform factor rather than reporting a bare miss.
+    od = order if order in ("xyxy", "yxyx") else "xyxy"
+    ratios = []
+    for bb, gtb in matched:
+        x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if od == "xyxy"
+                          else (bb[1], bb[0], bb[3], bb[2]))
+        for pv, tv in zip((x1, y1, x2, y2), gtb):
+            if tv:
+                ratios.append(pv / tv)
+    if ratios:
+        k = sum(ratios) / len(ratios)
+        if k > 0:
+            s["implied_scale"] = round(k, 3)
+            ious = []
+            for bb, gtb in matched:
+                x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if od == "xyxy"
+                                  else (bb[1], bb[0], bb[3], bb[2]))
+                ious.append(iou([x1 / k, y1 / k, x2 / k, y2 / k], gtb))
+            s["iou_at_implied_scale"] = round(sum(ious) / len(ious), 3)
+
     s["declaration_matches_boxes"] = bool(
-        s["declaration_valid"] and best[1] == f"{declared}/{order}")
+        s["declaration_valid"] and s["hits_declared"] == len(matched))
     s["contract_followed"] = bool(
-        s["declaration_matches_boxes"] and s["hits_declared"] == s["hits_bestfit"])
+        s["declaration_matches_boxes"] and s["hits_declared"] >= s["hits_bestfit"])
     return s
 
 
