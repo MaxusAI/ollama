@@ -25,6 +25,8 @@ Zero on all of them. The AMD tensor-capable parts have a wider range because no 
 
 Whether a part actually reaches this code is a separate question, and I only read that one rather than running it — `ggml_cuda_should_use_mmq` queries `smpbo` so it needs a real device. For `q4_K` with `ne11 = 2040` and 256 experts it returns true on everything I traced except Volta, which needs `ne11 < 64` once fp16 MMA is available and so leaves the MMQ path entirely at this batch size.
 
+Worth noting what the fix costs, because it is nothing. `get_J_max` caps at `min(ne11, 512)` and then saturates on the largest valid config, so for `q4_K` it returns 128 for any row count at or above 512 — the same 128 that `get_mmq_x_max_host(cc)` returned for every part with `turing_mma || amd_wmma`. Passing the flattened row count therefore **restores the pre-refactor padding** for large batches rather than adding to it, and gives a smaller value than that for small ones.
+
 Last clean build is b9990 (259ae1df8b52), first affected is b9992. b9991 is not tagged and the only other commit in that range is Vulkan-only.
 
 Bisected by source, then checked at runtime on both sides of the boundary. Same GPU, same request, cold server, first request each time, `n_ubatch = 2048` and `n_tokens_batch = 2040` in every log:
