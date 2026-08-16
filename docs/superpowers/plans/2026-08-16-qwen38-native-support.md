@@ -1,7 +1,8 @@
 # Plan: native Qwen3.8 support
 
-- **Status:** Phase 0 complete (all assumptions held, 2026-08-16); Phases 1–5 not
-  started. Grounded against `main` at `677915ad` and `upstream/main` at `d67ad834`.
+- **Status:** Phases 0–3 complete (2026-08-16); Phases 4–5 not started.
+  Phase 1 shipped in #111, Phase 2 in #112, open question 2 in #113,
+  Phase 3 as ADR 0026. Grounded against `main` at `677915ad` and `upstream/main` at `d67ad834`.
 - **Scope:** land Qwen3.8 on the fork across the engines we ship, and know it works.
 - **Not an ADR.** Decisions that get made while executing this belong in ADRs;
   this file is disposable once the work ships.
@@ -162,22 +163,44 @@ equally.
 **Gate:** a regression test through the qwen3.8 renderer exercising format+think,
 in the CI-gated job. It must fail before the fix.
 
-### Phase 3 — settle measurement provenance before any benchmark
+### Phase 3 — settle measurement provenance — **DONE 2026-08-16**
 
-`ThinkValue.String()` returns `"medium"` for boolean `true`, so `think:true`
-renders at **medium** effort while *omitting* `think` yields the publisher's
-**xhigh** default — the explicit request is quieter than the implicit one. `xhigh`
-is unreachable through our API (`IsValid()` accepts only high/medium/low/max), and
-our preflight sends `think=True` (`checks.py:417`).
+Recorded as [ADR 0026](../../maxusai/adr/0026-qwen38-baselines-record-the-effort-directive.md)
+and pinned by `TestQwen38ReasoningEffortMapping`
+(`model/renderers/qwen38_effort_test.go`).
 
-So a qwen3.8 number recorded as "model default" is in fact medium effort.
+**This phase's original premise was wrong, in the direction that would have
+invalidated a benchmark.** It claimed `think:true` renders at a quieter
+"medium" while omitting `think` yields the publisher's xhigh — the explicit
+request weaker than the implicit one. Measured by rendering rather than
+reading:
 
-**Do not** add a `CARD_THINKING` entry by analogy to qwen3.6 — `family()` falling
-through to packaged defaults is the *correct*, ADR-0023-admissible behaviour here,
-because qwen3.8 ships its own effort default.
+| `think` | directive emitted |
+| --- | --- |
+| `nil` | **xhigh** |
+| `true` | **none** |
+| `"medium"` | **none** |
+| `"low"` | low |
+| `"high"` / `"max"` | **xhigh** |
 
-**Gate:** the effort label is decided and written into whatever record becomes a
-baseline. This is a decision, not code.
+Two corrections:
+
+- `"medium"` is **not a middle setting** — the renderer emits *no directive*
+  for it, so `think:"medium"` and `think:true` are the same prompt.
+- The `nil` row is **unreachable over HTTP**. `server/routes.go` coerces a nil
+  think to `true` for thinking-capable models (`:462`, `:2927`), and Qwen3.8
+  declares `thinking`. Omitting `think` and sending `think:true` are therefore
+  byte-identical; there is no explicit-is-quieter trap.
+
+What survives: the API default emits **no effort directive**, so a run
+labelled "model default" must say so rather than implying the publisher's
+xhigh — which is reachable only via `think:"high"`/`"max"`. The preflight
+harness sends `think=True`, so its runs *are* the no-directive default and
+need no change; the earlier worry that preflight secretly measured "medium"
+does not hold.
+
+The `CARD_THINKING` guidance stands unchanged: do **not** add a `qwen3.8`
+entry by analogy to qwen3.6.
 
 ### Phase 4 — preflight baselines (ADR 0011)
 
@@ -213,14 +236,17 @@ already carry the 1024 floor.
 
 ## Open questions
 
-1. Phase 2 fix shape: make truncation treat a renderer error as "unusable window,
-   keep going" (general, protects every validating renderer, but touches the
-   image-token accounting function), or downgrade qwen3.8's rejection to a warning?
-2. Does the ADR 0004 pass-two continuation need a structural guarantee that the
-   re-rendered window keeps a user turn? Pass two re-runs truncation on a strictly
-   longer prompt, so a request that fit on pass one can fail mid-stream.
-3. Phase 3: how is reasoning effort labelled in a baseline, given our practical
-   default is medium and the publisher's is xhigh?
+1. ~~Phase 2 fix shape?~~ **Closed by #112**: neither option. "Keep going"
+   would only defer the failure, because windows shrink as truncation
+   advances — the fix keeps the smallest *renderable* window instead.
+2. ~~Does the ADR 0004 pass-two continuation need a structural guarantee?~~
+   **Closed by #113**: pass two now pins itself to pass one's truncation
+   window, and an over-long pinned window becomes a clean `length` exit via
+   the existing continuation-headroom check rather than a silent context loss.
+3. ~~Phase 3: how is reasoning effort labelled in a baseline?~~ **Closed by
+   ADR 0026.** The premise was wrong — the API default emits *no* directive,
+   not "medium", and omitting `think` is identical to `think:true`. Baselines
+   record the emitted directive.
 4. Phase 4: a `think_format` block for `apple-silicon-mlx`, or cheaper coverage as
    a Go-level format+think regression test through the qwen3.8 renderer?
 5. ~~Harden `qwen35RendererName` to read `chat_template.jinja` independently?~~
