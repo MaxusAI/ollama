@@ -18,8 +18,21 @@ CUDA error: an illegal memory access was encountered   (ggml-cuda.cu:2374)
 ```
 
 `qwen3.6:35b-a3b-q4_K_M` + an image + `num_ctx > 32768` → HTTP 500, runner core-dumps,
-ollama restarts it. Present on every payload from `cb295bf59` (0.32.0) through `f8def7fe1`,
-and on stock `ollama/ollama` images. Not a fork regression.
+ollama restarts it. Not a *fork* regression — stock `ollama/ollama` images crash too — but it
+**is** an upstream regression, and the window is narrow. Measured on the same sm_120 host,
+same configuration, cold: `f8def7fe1` (b10353) faults; `cb295bf59` (b9888, stock
+`ollama/ollama:0.32.1`) is clean in **3/3 cold trials** with `n_ubatch = 2048` and
+`n_tokens_batch = 2040` confirmed in the runner log.
+
+b9888 does not contain the defect: it sizes the padding term from `get_mmq_x_max_host(cc)`, a
+compute-capability constant (128 for WMMA/Turing, else 64), never from `ne11`. The
+`get_J_max(..., ne11)` expression came later. So the defect was introduced somewhere in
+b9888..b10353 and is bisectable.
+
+An earlier round of this investigation recorded "0.32.1 is clean", then retracted it as a
+reload artifact and concluded every payload crashed. **The retraction was the error, not the
+original observation.** The lesson is symmetrical to the rest of this document: a retraction
+needs evidence too.
 
 ## Hypotheses, in order
 
