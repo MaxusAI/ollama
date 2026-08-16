@@ -246,20 +246,26 @@ jobs:
             -DCMAKE_CUDA_ARCHITECTURES=80-virtual \
             -DOLLAMA_RUNNER_DIR=
 
-          # Ninja names each object after its source path, so the object to
-          # build is derivable from the patch header. A source that resolves to
-          # no object is a hard failure: it means the patch is editing a file
-          # this configuration never compiles, and the check would silently
-          # pass while proving nothing.
+          # Ninja names each object after its source, so the object to build is
+          # derivable from the patch header -- but not from the full source
+          # path: ggml-cuda compiles these sources in place, while ggml-hip
+          # reaches them through relative ../ hops, giving two different object
+          # path shapes for the same file. Match the basename instead, keep
+          # every ggml target that compiles it, and build them all.
+          #
+          # A source that resolves to no object is a hard failure: it means the
+          # patch edits a file this configuration never compiles, and the check
+          # would otherwise pass while proving nothing.
           objs=()
           for src in "${srcs[@]}"; do
-            obj=$(ninja -C "$dir" -t targets all \
-              | grep -oE "[^ :]*${src}\.o" | head -1 || true)
-            if [ -z "$obj" ]; then
+            mapfile -t found < <(ninja -C "$dir" -t targets all \
+              | grep -oE "[^ :]*/$(basename "$src")\.o" | grep ggml | sort -u || true)
+            if [ "${#found[@]}" -eq 0 ]; then
               echo "::error::no build object for patched source $src"
               exit 1
             fi
-            objs+=("$obj")
+            printf '  -> %s\n' "${found[@]}"
+            objs+=("${found[@]}")
           done
           ninja -C "$dir" "${objs[@]}"
 
