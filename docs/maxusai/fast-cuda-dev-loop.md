@@ -24,10 +24,33 @@ the arch matrix is the whole cost.
 
 Two further findings worth knowing:
 
-- The Dockerfile already mounts a ccache at `/root/.ccache`, but the base image ships ccache
-  3.7.7, which refuses `-x cu` — so the CUDA hit rate is **0%** and every object is cold.
+- The Dockerfile mounts a ccache at `/root/.ccache` in five steps, but until `46074e5` nothing
+  ever invoked it: no `CMAKE_<LANG>_COMPILER_LAUNCHER` was set and no shim was on `PATH`, so
+  the mounts were decorative and every object was cold. (EPEL's ccache 3.7.7 refusing `-x cu`
+  is a real second-order problem, but it was not the reason the hit rate was 0%.) It is wired
+  in now — see below.
 - The final `docker` export writes a 2.52 GB tarball (167–235 s) which then has to be
   `docker load`ed separately. The dev loop skips both.
+
+### ccache, once it is actually invoked
+
+A *repeat* build whose sources are unchanged no longer pays the arch matrix. Measured on this
+host: two consecutive `--target publish-llama-server-cuda_v13` builds, full 12-architecture
+matrix both times (not the dev loop's two).
+
+| run | cache | compile step `#14` | total wall |
+|---|---|---|---|
+| 1 — populate | cold | **2152.6 s** (`ccache-run1.log`) | **2816 s** |
+| 2 — patch-only change | warm | **43.0 s** (`ccache-run2.log`) | **58 s** |
+
+Run 2 appended a comment to `llama/compat/903-fix-mmq-ids-padding.patch`. That busts the
+`COPY llama/compat` layer, so BuildKit re-runs the compile step — the log records `#14 DONE
+43.0s`, not `CACHED` — and the recompile is served from ccache. This is the frequent real
+case: a patch edit that recompiles identical source.
+
+It does nothing for a first build, or for one where a CUDA source genuinely changed; the 90
+minutes above still stands for those. It is also not a substitute for the dev loop, which
+avoids the other 11 architectures rather than caching them.
 
 ## The loop
 

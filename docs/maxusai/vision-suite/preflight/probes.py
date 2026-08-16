@@ -272,7 +272,14 @@ def llama_cpp_build(container, path="/usr/lib/ollama/llama-server", exec_cmd=Non
     proc = subprocess.run(cmd, shell=bool(exec_cmd), capture_output=True,
                           text=True, timeout=120)
     out = (proc.stdout or "") + (proc.stderr or "")
-    m = re.search(r"version:\s*\d+\s*\(([0-9a-f]{7,40})\)", out)
+    # Two formats in the wild, because llama.cpp changed it between b10353 and
+    # b10434 and the fork spans both:
+    #   b10353: "version: 1 (f8def7fe1)"
+    #   b10434: "version: 0.1.0-dev (build 1, commit 7e4c0a968)"
+    # Matching only the first turns a payload bump into "could not read build
+    # sha", which reads as a broken probe rather than a new format.
+    m = (re.search(r"commit\s+([0-9a-f]{7,40})", out)
+         or re.search(r"version:\s*\S+\s*\(([0-9a-f]{7,40})\)", out))
     if not m:
         raise ProbeError(f"no build sha from llama-server --version: {out[:300]!r}")
     return m.group(1)

@@ -27,6 +27,27 @@ RUN yum install -y yum-utils epel-release \
 ENV CC=clang CXX=clang++
 
 FROM base-${TARGETARCH} AS base
+# ccache: the distro package (EPEL 8) is too old to cache nvcc reliably, so install
+# an upstream static build. Nothing referenced ccache before this -- the cache mounts
+# at /root/.ccache existed but no COMPILER_LAUNCHER was ever set and no shim was on
+# PATH, so ccache was never invoked and the mounts did nothing.
+ARG CCACHEVERSION=4.10.2
+RUN set -eu; \
+    arch="$(uname -m)"; case "$arch" in x86_64) a=x86_64 ;; aarch64) a=aarch64 ;; *) a="" ;; esac; \
+    if [ -n "$a" ]; then \
+        curl -fsSL "https://github.com/ccache/ccache/releases/download/v${CCACHEVERSION}/ccache-${CCACHEVERSION}-linux-${a}.tar.xz" \
+          | tar -xJ -C /tmp && install -m0755 "/tmp/ccache-${CCACHEVERSION}-linux-${a}/ccache" /usr/local/bin/ccache; \
+    fi; \
+    ccache --version | head -1
+# Wire it in. CMake initialises CMAKE_<LANG>_COMPILER_LAUNCHER from the environment,
+# so this needs no change to any preset or cmake invocation.
+ENV CMAKE_C_COMPILER_LAUNCHER=ccache \
+    CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    CMAKE_CUDA_COMPILER_LAUNCHER=ccache \
+    CMAKE_HIP_COMPILER_LAUNCHER=ccache \
+    CCACHE_DIR=/root/.ccache \
+    CCACHE_MAXSIZE=25G \
+    CCACHE_SLOPPINESS=locale,time_macros,include_file_ctime,include_file_mtime
 ARG CMAKEVERSION
 ARG NINJAVERSION
 RUN curl -fsSL https://github.com/Kitware/CMake/releases/download/v${CMAKEVERSION}/cmake-${CMAKEVERSION}-linux-$(uname -m).tar.gz | tar xz -C /usr/local --strip-components 1
