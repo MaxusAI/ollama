@@ -31,6 +31,24 @@
 //
 // A clean memcheck report is meaningful. A green test run is not.
 // ---------------------------------------------------------------------------
+//
+// ---------------------------------------------------------------------------
+// WHERE YOU PUT THESE MATTERS — a green run can mean they never executed.
+//
+// Insert into make_test_cases_eval(). Inserting after the LAST test_mul_mat_id
+// line in the file lands them in make_test_cases_perf() instead, which
+// `-o MUL_MAT_ID` compiles but never evaluates. The total stays at exactly
+// 790/790 and reads as a clean pass while none of these cases ran at all.
+// (Hit on ROCm/gfx1151 — see rocm-mmq-ids-padding-result.md §4.)
+//
+// Check the case count moves before believing any verdict: the total must rise
+// by the number of cases added here.
+//
+// Building llama.cpp standalone from ollama's vendored tree also needs
+// -I<ollama>/llama/compat, plus llama-ollama-compat.cpp and
+// llama-ollama-compat-util.cpp added to the `llama` target, or the link fails
+// on llama_ollama_compat:: symbols.
+// ---------------------------------------------------------------------------
 
 // --- the live crashing shapes: MoE gate/up, broadcast activations (ne11 == 1)
 // b=true is the whole point: it sets ne11 == 1, which makes get_J_max() return 0
