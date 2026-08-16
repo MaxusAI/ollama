@@ -2181,7 +2181,7 @@ func (s *llamaServerRunner) runCompletionPhase(ctx context.Context, req Completi
 			promptStr = strings.Replace(promptStr, marker, s.llamaServerMediaMarker(), 1)
 			data, err := llamaServerMediaBytes(media.Data)
 			if err != nil {
-				return err
+				return result, err
 			}
 			mediaData = append(mediaData, base64.StdEncoding.EncodeToString(data))
 		}
