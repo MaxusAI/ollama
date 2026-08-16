@@ -2,9 +2,27 @@
 
 ### Summary
 
-`mlx_cuda_v13` is built, installed and shipped in the Linux image, and cannot be
-`dlopen`ed. Every safetensors model is therefore refused on Linux with a message
-that reads like a missing feature rather than a packaging fault.
+The bundled `mlx_cuda_v13` payload is **not self-contained**. It loads only where
+the host already provides CUDA, cuDNN, NCCL and libquadmath on the system search
+path, and fails everywhere else — including the official Docker image, where
+every safetensors model is then refused with a message that reads like a missing
+feature rather than a packaging fault.
+
+That conditional is the whole reason this survives: a developer machine with
+CUDA 13 and cuDNN installed satisfies the payload's dependencies from `/usr/lib`
+and `/usr/local/cuda-13.0/...`, so the missing RPATH never bites. Measured here,
+same libraries and same command:
+
+| | `libmlxc.so` | `libmlx.so` |
+|---|---|---|
+| host with CUDA/cuDNN/NCCL installed | 1 unresolved | **0** |
+| inside `ollama/ollama` (nothing system-wide) | 1 unresolved | **12** |
+
+MLX on CUDA does work in the field — see ollama#14046, an unrelated FLUX.2 fault
+on an RTX PRO 6000 Blackwell which notes that other image-generation models run
+correctly on Linux/NVIDIA. This report is **not** "MLX-CUDA is broken". It is
+"the bundled payload relies on the host to complete its dependency closure, and
+should not".
 
 Two independent causes, both in CMake:
 
@@ -160,9 +178,22 @@ Landed here as `fix/mlx-cuda-payload-cannot-load`.
 ### Two things this report deliberately does not claim
 
 **That MLX then serves a model on CUDA.** This is a loading fault and the fix
-addresses loading. Whether inference works on this path is untested — and that is
-the likely reason the bug survived: as shipped, the path cannot be reached, so
-nothing downstream of `dlopen` has ever run in this configuration.
+addresses loading. Inference on this path is untested *here*. It evidently works
+elsewhere — ollama#14046 reports image-generation models running on Linux/NVIDIA
+— which is consistent with the summary above: those hosts complete the
+dependency closure themselves. What has never run is this payload standing on
+its own.
+
+**That the tarball is a safe alternative.** `scripts/build_linux.sh` builds
+`ollama-linux-amd64-mlx.tar.zst` from the same `dist/linux_amd64/lib/ollama/mlx*`
+artifacts, so it carries the same defect; on a CUDA-equipped host the host hides
+it, exactly as above.
+
+**That ollama#14322 covers this.** That change (merged 2026-02-19) makes the
+loader try an rpath-based `dlopen` of `libmlxc` by name before searching
+directories, which addresses how *ollama* finds libmlxc. The failure here is
+libmlxc's own dependency chain — `libmlx.so` and the twelve CUDA libraries
+beneath it — and is untouched by it.
 
 **That the registry gate is related.** `qwen3.8:27b-nvfp4` is refused on Linux by
 `registry.ollama.ai` with `412: this model requires macOS`, decided from the
