@@ -507,6 +507,9 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 	// it enables re-rendering the prompt with the emitted thinking appended for
 	// the structured-outputs double request (transition flow).
 	var generateMsgs []api.Message
+	// genPassOneIdx is the truncation window the chat-like generate prompt
+	// settled on, so the ADR 0004 second pass can pin itself to it.
+	genPassOneIdx := noTruncateBound
 	if !req.Raw {
 		tmpl := m.Template
 		if req.Template != "" {
@@ -606,7 +609,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 					prompt = b.String()
 				}
 			} else {
-				prompt, media, err = chatPrompt(c.Request.Context(), m, r.Tokenize, optionsForPrompt(opts, r), values.Messages, []api.Tool{}, req.Think, genTruncate)
+				prompt, media, genPassOneIdx, err = chatPromptFrom(c.Request.Context(), m, r.Tokenize, optionsForPrompt(opts, r), values.Messages, []api.Tool{}, req.Think, genTruncate, noTruncateBound)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 					return
@@ -933,7 +936,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 					}
 
 					generateMsgs = append(generateMsgs, msg)
-					prompt, _, err = chatPrompt(c.Request.Context(), m, r.Tokenize, promptOpts, generateMsgs, []api.Tool{}, req.Think, truncate)
+					prompt, _, _, err = chatPromptFrom(c.Request.Context(), m, r.Tokenize, promptOpts, generateMsgs, []api.Tool{}, req.Think, truncate, genPassOneIdx)
 					if err != nil {
 						slog.Error("generate prompt error applying structured outputs", "error", err)
 						ch <- gin.H{"error": err.Error()}
@@ -3003,7 +3006,10 @@ func (s *Server) ChatHandler(c *gin.Context) {
 		truncate = false
 	}
 	promptOpts := optionsForPrompt(opts, r)
-	prompt, media, err := chatPrompt(c.Request.Context(), m, r.Tokenize, promptOpts, msgs, processedTools, req.Think, truncate)
+	// passOneIdx is the window this prompt settled on. The ADR 0004 second
+	// pass pins itself to it so the continuation cannot silently see less
+	// history than the thinking was produced with.
+	prompt, media, passOneIdx, err := chatPromptFrom(c.Request.Context(), m, r.Tokenize, promptOpts, msgs, processedTools, req.Think, truncate, noTruncateBound)
 	if err != nil {
 		slog.Error("chat prompt error", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -3333,7 +3339,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 				}
 
 				msgs = append(msgs, msg)
-				prompt, _, err = chatPrompt(c.Request.Context(), m, r.Tokenize, promptOpts, msgs, processedTools, req.Think, truncate)
+				prompt, _, _, err = chatPromptFrom(c.Request.Context(), m, r.Tokenize, promptOpts, msgs, processedTools, req.Think, truncate, passOneIdx)
 				if err != nil {
 					slog.Error("chat prompt error applying structured outputs", "error", err)
 					ch <- gin.H{"error": err.Error()}

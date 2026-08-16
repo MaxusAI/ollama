@@ -5,6 +5,7 @@ import (
 	"context"
 	"image"
 	"image/png"
+	"slices"
 	"strings"
 	"testing"
 
@@ -889,5 +890,53 @@ func TestChatPromptQwen38TruncationDropsUserQuery(t *testing.T) {
 				t.Fatalf("chatPrompt failed instead of finding a usable window: %v", err)
 			}
 		})
+	}
+}
+
+// TestChatPromptFromPinsWindowForSecondPass covers the ADR 0004 double
+// request's second pass. Pass two re-renders the same conversation with the
+// thinking appended as an assistant turn, so its prompt is strictly longer
+// than pass one's and truncation can cut further — continuing against less
+// history than the thinking was produced with, silently. Pinning pass two to
+// pass one's window keeps that from happening; if the pinned window no longer
+// fits, the caller's continuation-headroom check turns it into a clean length
+// exit rather than a quiet context loss.
+func TestChatPromptFromPinsWindowForSecondPass(t *testing.T) {
+	// Renders .Thinking too, so pass two's prompt is genuinely longer than
+	// pass one's — the condition that makes it truncate further.
+	tmpl, err := template.Parse(`
+{{- range .Messages }}
+{{- if .Content }}{{ .Content }} {{ end }}
+{{- if .Thinking }}{{ .Thinking }} {{ end }}
+{{- end }}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := Model{Template: tmpl}
+	opts := api.Options{Runner: api.Runner{NumCtx: 120}}
+	think := &api.ThinkValue{Value: false}
+
+	msgs := []api.Message{
+		{Role: "user", Content: "ALPHA " + strings.Repeat("a ", 60)},
+		{Role: "user", Content: "BETA the question"},
+	}
+
+	p1, _, idx1, err := chatPromptFrom(t.Context(), &m, mockRunner{}.Tokenize, &opts, msgs, nil, think, true, noTruncateBound)
+	if err != nil {
+		t.Fatalf("pass one: %v", err)
+	}
+	if !strings.Contains(p1, "ALPHA") {
+		t.Fatalf("pass one already truncated the first turn; test needs resizing:\n%s", p1)
+	}
+
+	// Pass two: the same conversation plus the thinking, as routes.go builds it.
+	msgs2 := append(slices.Clone(msgs), api.Message{Role: "assistant", Thinking: strings.Repeat("t ", 120)})
+
+	p2, _, _, err := chatPromptFrom(t.Context(), &m, mockRunner{}.Tokenize, &opts, msgs2, nil, think, true, idx1)
+	if err != nil {
+		t.Fatalf("pass two: %v", err)
+	}
+	if !strings.Contains(p2, "ALPHA") {
+		t.Errorf("pass two dropped history pass one had (window %d): continuation sees less context than the thinking was produced with", idx1)
 	}
 }
