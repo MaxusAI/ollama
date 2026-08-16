@@ -60,6 +60,23 @@ cuda_v13 + vulkan + mlx_cuda_v13. Reference canary for a passing run, verified
 2026-08-08 on :11437.
 """
 
+[profiles.cuda-dynres-903]
+platform = "cuda"
+# Derived, not typed. `main` carries tag v0.32.14-rc0-dynres, so
+# `git describe --tags --first-parent` yields 0.32.14-rc0-dynres-0-ga5d6590 and
+# scripts/env.sh turns that into VERSION automatically. The 005 pattern below
+# cannot match it: it expects a bare hex SHA where git describe writes
+# `-<n>-g<sha>`, and a digit where the tag writes `-rc0`. Before the tag existed
+# git describe returned NOTHING on main and every build depended on someone
+# passing VERSION= by hand -- one release build shipped reporting 0.0.0.
+version_pattern = '^0\.32\.\d+(-rc\d+)?-dynres(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
+patchset = ["001", "002", "004", "005", "903"]
+arches = ["nemotron_h_omni", "gemma4"]
+# The real payload identity. b10434 = 7e4c0a96880d, upstream v0.32.14-rc0's pin.
+# 903 fixes the MMQ ids-path tail-padding under-allocation and is still required
+# here: ggml-org/llama.cpp#27044 is open, and b10434 still carries the defect.
+llama_cpp_build = "7e4c0a968"
+
 [profiles.rocm-0-32-1-dynres]
 platform = "rocm"
 version_pattern = '^0\.32\.1-dynres-[0-9a-f]{7,40}$'
@@ -516,6 +533,71 @@ ladder = [1034, 1034, 1034, 2306, 4082]
 # Scores are noisier than token counts; these are floors that a healthy build
 # clears comfortably, not tight regression pins.
 # =============================================================================
+
+# ---------------------------------------------------------------------------
+# cuda-dynres-903 -- measured 2026-08-16 on 10.6.0.6 against
+# maxusai/ollama:0.32.14-rc0-dynres (payload b10434 / 7e4c0a968).
+#
+# Every value below was re-measured on this payload, not copied from
+# cuda-dynres-005. They came out IDENTICAL to the b10353 profile, which is the
+# useful result: the b10353 -> b10434 bump did not move vision sizing, so a
+# ladder failure on this profile means something really changed rather than a
+# payload drift nobody tracked. Recording it as measured is what makes that
+# statement checkable next time -- copying 005's numbers across would have
+# produced the same file and proved nothing.
+# ---------------------------------------------------------------------------
+
+[expect.cuda-dynres-903.nemotron_h_omni]
+status = "measured"
+measured_on = "2026-08-16"
+model = "nemotron3:33b-q8"
+patch_stride = 32
+budget_min_tokens = 256
+budget_max_tokens = 3328
+image_min_pixels = 262144        # 256 * 32^2, read from the load log
+image_max_pixels = 3407872       # 3328 * 32^2, read from the load log
+scaling = "dynamic"
+ladder_tolerance = 2
+ladder = [266, 266, 578, 2306, 3270]
+# in-image prefix 19, text-only 20 -- the 1-token difference is why image_prefix()
+# is the correct subtrahend and text_baseline() is not (README, B8).
+
+[expect.cuda-dynres-903.nemotron_h_omni.pinned]
+size = "2048x1152"
+pin_tokens = 3328
+expect_tokens = 3270
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 2306
+control_tolerance = 4
+# Measured by pinning image_min_tokens AND image_max_tokens together, as
+# checks.py:335 does. Pinning only the max returns the unpinned 2306 and reads
+# as a 005 regression; it is a probe error. Cost a false alarm here.
+
+[expect.cuda-dynres-903.nemotron_h_omni.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.cuda-dynres-903.gemma4]
+status = "measured"
+measured_on = "2026-08-16"
+model = "gemma4:31b-it-q4_K_M"
+patch_stride = 48
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280        # 70 * 48^2, read from the load log
+image_max_pixels = 2580480       # 1120 * 48^2, read from the load log
+scaling = "flat"                 # 004 budget-fills; flat is correct, not a fault
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.cuda-dynres-903.gemma4.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = false
 
 [quality.cuda-dynres-005.nemotron_h_omni]
 status = "measured"
