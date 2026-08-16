@@ -115,7 +115,7 @@ reference_image = "native macOS build — no container"
 # The fork Go binary carries the --image-max-tokens flag either way; without a
 # container the binary and log checks are skipped by the harness anyway.
 expect_patch_marker = 1
-arches = ["gemma4", "gemma4_unified", "qwen35moe"]
+arches = ["gemma4", "gemma4_unified", "qwen35moe", "qwen35"]
 notes = """
 MLX vision merged to main 2026-08-08 (7380a61f); sizing goes through
 llm.BudgetFillSize. Audio input still returns an explicit 400 on MLX, so no
@@ -410,6 +410,49 @@ image_max_pixels = 16777216       # qwen35moe.vision.longest_edge
 # ceiling), while MLX honours the model's own 64..16384 range. The two agree
 # exactly at 2048x1152 (2306) because that geometry falls inside both windows.
 # See ADR 0003/0007/0008 for the budget policy this divergence sits under.
+scaling = "dynamic"
+ladder_tolerance = 2
+ladder = [68, 146, 578, 2306, 5186]
+
+
+[expect.apple-silicon-mlx.qwen35]
+status = "measured"
+measured_on = "2026-08-16"
+model = "qwen3.8:27b-nvfp4"       # the MLX export; the sibling q4_K_M tag is a
+                                  # GGUF and routes to llama-server, so it
+                                  # CANNOT anchor an MLX row
+patch_stride = 32                 # patch_size 16 * spatial_merge_size 2
+budget_min_tokens = 64            # shortest_edge 65536 / 32^2
+budget_max_tokens = 16384         # longest_edge 16777216 / 32^2
+image_min_pixels = 65536          # preprocessor_config shortest_edge
+image_max_pixels = 16777216       # preprocessor_config longest_edge
+
+# Qwen3.8 is the DENSE member of the qwen3_5 architecture: config.json declares
+# architectures ["Qwen3_5ForConditionalGeneration"] with a text_config carrying
+# 64 layers and no expert keys, where qwen3.6:35b-a3b is the MoE sibling that
+# anchors [expect.apple-silicon-mlx.qwen35moe]. llama.cpp draws the same line
+# (LLM_ARCH_QWEN35 vs LLM_ARCH_QWEN35MOE), so this is a separate arch row rather
+# than a second model on the MoE one. It has to be: run_arch probes exactly the
+# model its row names, so hanging qwen3.8 off the MoE row would silently
+# re-point qwen3.6's measured baseline.
+#
+# Same dynamic smart-resize as the MoE sibling, and the ladder reproduces from
+# the arithmetic: align each edge to 32, clamp total pixels into [65536,
+# 16777216], take (w/32)*(h/32), add the 2-marker allowance — 6x11+2=68,
+# 16x9+2=146, 32x18+2=578, 64x36+2=2306, 96x54+2=5186. 256x144 is the clamp case
+# (32768px is under the 65536 floor, so it scales UP to 66 grid tokens).
+# prefix == text_only == 13.
+#
+# These are the same five numbers as the qwen35moe row. They were MEASURED here,
+# not carried across: the two models share patch_size 16, spatial_merge_size 2
+# and the same 65536..16777216 pixel window, so identical geometry is the
+# expected result, and agreement is evidence the sizing is shared rather than
+# licence to copy a row. Method was validated first by re-measuring
+# qwen3.6:35b-a3b-nvfp4 on this same server and reproducing its recorded prefix
+# and all five rungs exactly.
+#
+# Measured with probes.Ollama.image_prefix (B8 prefix trick) against server
+# 0.32.5-maxusai-c8f26b1b on :11436, native macOS MLX store.
 scaling = "dynamic"
 ladder_tolerance = 2
 ladder = [68, 146, 578, 2306, 5186]
