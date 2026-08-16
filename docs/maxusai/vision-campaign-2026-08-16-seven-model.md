@@ -202,6 +202,36 @@ declaration — `real`, `ref_size [2500, 1406]` — is what rescues it. A best-f
 search over type × order cannot recover a frame it does not know about, and a
 caller without ground truth cannot run one anyway.
 
+## Follow-up: pinning the convention, and the placement null
+
+The matrix above lets each model choose its convention. Three further arms were
+run the same way — 7 models × 3 repeats, same distractor condition, same binary
+and power mode — to find what actually drives the mis-declaration.
+
+| arm | declaration | `contract_followed` |
+|---|---|---|
+| `bbox_contract_multi` | free choice, top-level | **5/21** |
+| `bbox_contract_pinned` | pinned norm-1000, top-level | **21/21** |
+| `bbox_contract_perobject` | pinned norm-1000, per object | **21/21** |
+| `bbox_contract_anchored` | pinned, named keys, `__IMAGE__` anchor | **21/21** |
+
+**Pinning the convention fixes it completely, and where the declaration sits is
+irrelevant.** Both pinned arms return `norm1000/xyxy` at 6/6 in every cell —
+nemotron3, qwen3.6 GGUF and gemma4's axis flip all included. An earlier ad-hoc
+run appeared to show per-object rescuing top-level 3/3 vs 0/3; it does not
+reproduce, because that prompt lacked the explicit statement of the space both
+arms now share. That sentence was the active ingredient, not the placement.
+
+The anchored arm addresses the case this corpus cannot: an image with no ground
+truth. 21/21 used named `x1/y1/x2/y2` coordinates verbatim, and 21/21 returned
+an `__IMAGE__` calibration entry at exactly `[0, 0, 1000, 1000]`. Compliance
+with the protocol is not the weak link.
+
+What it does **not** show: `anchor_beats_declared` is false in all 21 cells,
+because under pinning nothing lied and the anchor never had to fire. Its
+recovery is verified only synthetically. The decision this feeds is
+[ADR 0027](adr/0027-bbox-requests-pin-norm1000-and-carry-an-anchor.md).
+
 ## Engine split
 
 In the 21-cell matrix, MLX declares honestly in **7 of 9** cells and GGUF in

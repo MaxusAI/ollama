@@ -101,7 +101,8 @@ guaranteed, and an axis swap is invisible to all of it.
 
 Two mechanisms remove the guessing. Both were measured 2026-08-16 across the
 seven-model corpus, 3 repeats each
-([campaign](vision-campaign-2026-08-16-seven-model.md)).
+([campaign](vision-campaign-2026-08-16-seven-model.md)); the resulting contract
+is [ADR 0027](adr/0027-bbox-requests-pin-norm1000-and-carry-an-anchor.md).
 
 ### 1. Pin the convention — 5/21 → 21/21
 

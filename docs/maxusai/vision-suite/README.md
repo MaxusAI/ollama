@@ -273,3 +273,34 @@ Always check `prompt_eval_count` before attributing such a delta to a patch.
   thinking and loses geometry doing so (IoU .39 pixel-prompt vs .81
   norm-1000-prompt, think on). The scorer's `bbox_space` field verifies what
   came back.
+
+## Bounding-box contract probes (2026-08-16)
+
+Six probes measure whether a model's *declaration* of its coordinate convention
+matches the numbers it emitted — a different axis from grounding, and one the
+older scorers could not separate. Superseded guidance: the norm-1000 advice
+above is right but was measured on three models; it is now seven, and the
+mechanism is settled in
+[ADR 0027](../adr/0027-bbox-requests-pin-norm1000-and-carry-an-anchor.md).
+
+| probe | condition | declaration | `contract_followed` |
+| --- | --- | --- | --- |
+| `bbox_contract` | single image | free choice, top-level | 5/7 (n=1) |
+| `bbox_contract_multi` | + distractors, "ignore them" | free choice, top-level | **5/21** |
+| `bbox_contract_reasoning` | + distractors, must USE them | free choice, top-level | 5/7 (n=1) |
+| `bbox_contract_pinned` | + distractors, "ignore them" | pinned norm-1000, top-level | **21/21** |
+| `bbox_contract_perobject` | + distractors, "ignore them" | pinned norm-1000, per object | **21/21** |
+| `bbox_contract_anchored` | + distractors, "ignore them" | pinned, named keys, `__IMAGE__` anchor | **21/21** |
+
+Reading the metrics: `hits_declared` scores grounding **only** in the dialect the
+model named, `hits_bestfit` is the legacy search over type × order, and the gap
+between them is the cost of a wrong declaration. `hits_bestfit` 6/6 with
+`contract_followed` false means perfect vision and an unreliable
+self-description — a different defect from poor grounding, and the one that
+motivated these probes. `declaration_scope` records whether the declaration was
+top-level, per-object, or absent; `anchor_implied_type` / `hits_anchor` record
+what the `__IMAGE__` calibration entry says, independently of what the model
+claimed.
+
+Do **not** "fix" a failing cell by relaxing the scorer to best-fit. That
+tolerance is what hid this class of error in the first place.
