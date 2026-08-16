@@ -168,36 +168,46 @@ DEBUG finished setting up           runner.vram="1.1 GiB"
 So the payload loads, MLX initialises on the GPU, and a model is resident on
 CUDA. That is the whole of what this fix claims, and it holds.
 
-**The model still cannot be served, for an unrelated reason.** Two warnings at
-load:
+**And it serves.** Measured on an otherwise idle host, same prompt, greedy:
+
+| model | arch | decode | notes |
+|---|---|---|---|
+| `gemma4:31b-nvfp4` | gemma4 | **41.5 tok/s** | 188 tokens, correct output, 22 GiB VRAM |
+| `qwen3.5:0.8b-mlx` | qwen3_5 | **83.8 tok/s** | correct output with `think:false` |
+
+The gemma4 figure is corroborated by the runner's own speculation controller,
+which independently reported `expected_tps="0:35.2 1:47.2"` for that load.
+
+**A warning worth not over-reading.** Both loads log, for `qwen3_5`:
 
 ```
 WARN custom GPU kernel backend disabled kernel=depthwise_conv_silu backend=cuda reason="no source"
 WARN custom GPU kernel backend disabled kernel=gated_delta        backend=cuda reason="no source"
 ```
 
-`getCUDA()` disables a kernel when `k.cuda.source == ""`. Across the custom
-kernel set, only `gated_delta_recurrence` carries a CUDA source; `gated_delta`,
-`gated_delta_states`, `depthwise_conv_silu` and `depthwise_conv_silu_bias` are
-Metal-only and fall back to their generic implementations. `qwen3_5` is a
-gated-delta-net architecture and depends on exactly those.
+`getCUDA()` disables a kernel when `k.cuda.source == ""`, and of the custom set
+only `gated_delta_recurrence` carries a CUDA source — the rest are Metal-only.
+That much is real and read from source. But the generic fallbacks are
+**adequate**: the arch that trips both warnings is the faster of the two measured
+here. The warnings mark a missing fast path, not a missing capability, and must
+not be reported as a serving blocker.
 
-Measured consequence: a 4-token request returned nothing in ~6 minutes, with the
-runner at **196% CPU and the GPU at 0% utilisation** while 1.1 GiB of weights sat
-in VRAM. Loaded on the GPU, computing on the CPU.
+That correction was earned the hard way. An earlier reading of this same setup
+recorded "loads but cannot generate — 4 tokens, 6 minutes, GPU at 0%". Both
+numbers were artefacts: three multi-gigabyte model pulls were saturating the host
+during the run, and `num_predict` was set low enough that a thinking model spent
+its whole allowance inside the thinking block and returned an empty `response`
+with `eval_count == num_predict` — the trap this repo's own preflight harness
+refuses to run into. On a quiet box with a sane allowance, both models generate
+correctly.
 
-The three layers are worth keeping apart, because only the middle one is a
-packaging fault:
+So only one layer here is a defect:
 
 | layer | state |
 |---|---|
 | distribution — registry gates MLX tags on reported `GOOS` | outside this repo |
-| packaging — bundled payload not self-contained | **fixed here, verified** |
-| kernel coverage — MLX CUDA lacks these custom kernels | upstream work in `x/mlxrunner/mlx` |
-
-This also explains ollama#14046 without contradiction: image-generation models
-run on Linux/NVIDIA because they never touch the gated-delta kernels. What can be
-served on CUDA is decided by **model class**, not by platform.
+| packaging — bundled payload not self-contained | **the bug; fixed here** |
+| serving — MLX CUDA runs these models | works, measured above |
 
 ### Suggested fix
 
@@ -225,11 +235,10 @@ Landed here as `fix/mlx-cuda-payload-cannot-load`.
 
 ### Two things this report deliberately does not claim
 
-**That MLX then serves every model on CUDA.** It does not, and the fix does not
-claim to change that. `qwen3_5` loads and then cannot generate, because the
-gated-delta and depthwise-conv kernels it needs have no CUDA source — measured
-above. Fixing the payload makes MLX *reachable* on CUDA; what runs once you are
-there is a question of kernel coverage, and belongs to a different change.
+**That every MLX model runs well on CUDA.** Two were measured, both fine. The
+Metal-only kernels are a real gap in the fast path and some architecture may yet
+depend on one badly enough to matter; that would be a separate report, with its
+own measurement, taken on an idle host.
 
 **That the tarball is a safe alternative.** `scripts/build_linux.sh` builds
 `ollama-linux-amd64-mlx.tar.zst` from the same `dist/linux_amd64/lib/ollama/mlx*`
