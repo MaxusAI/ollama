@@ -151,6 +151,54 @@ DEBUG MLX dynamic library loaded  path=/usr/lib/ollama/mlx_cuda_v13/libmlxc.so
 
 `CheckInit()` passes and a safetensors pull proceeds past the MLX guard.
 
+### What the fix reaches, and what it does not
+
+Verified 2026-08-16 with the corrected payload and no workarounds — no
+`LD_LIBRARY_PATH`, no bind mounts — pulling and loading `qwen3.5:0.8b-mlx`
+(safetensors, 1.2 GB, arch `qwen3_5`):
+
+```
+DEBUG MLX dynamic library loaded    path=/usr/lib/ollama/mlx_cuda_v13/libmlxc.so
+INFO  MLX engine initialized        "MLX version"=0.32.0-213-gadf21de device=gpu
+INFO  Loaded tensors from manifest  count=623
+INFO  mlx runner is ready           port=39675
+DEBUG finished setting up           runner.vram="1.1 GiB"
+```
+
+So the payload loads, MLX initialises on the GPU, and a model is resident on
+CUDA. That is the whole of what this fix claims, and it holds.
+
+**The model still cannot be served, for an unrelated reason.** Two warnings at
+load:
+
+```
+WARN custom GPU kernel backend disabled kernel=depthwise_conv_silu backend=cuda reason="no source"
+WARN custom GPU kernel backend disabled kernel=gated_delta        backend=cuda reason="no source"
+```
+
+`getCUDA()` disables a kernel when `k.cuda.source == ""`. Across the custom
+kernel set, only `gated_delta_recurrence` carries a CUDA source; `gated_delta`,
+`gated_delta_states`, `depthwise_conv_silu` and `depthwise_conv_silu_bias` are
+Metal-only and fall back to their generic implementations. `qwen3_5` is a
+gated-delta-net architecture and depends on exactly those.
+
+Measured consequence: a 4-token request returned nothing in ~6 minutes, with the
+runner at **196% CPU and the GPU at 0% utilisation** while 1.1 GiB of weights sat
+in VRAM. Loaded on the GPU, computing on the CPU.
+
+The three layers are worth keeping apart, because only the middle one is a
+packaging fault:
+
+| layer | state |
+|---|---|
+| distribution — registry gates MLX tags on reported `GOOS` | outside this repo |
+| packaging — bundled payload not self-contained | **fixed here, verified** |
+| kernel coverage — MLX CUDA lacks these custom kernels | upstream work in `x/mlxrunner/mlx` |
+
+This also explains ollama#14046 without contradiction: image-generation models
+run on Linux/NVIDIA because they never touch the gated-delta kernels. What can be
+served on CUDA is decided by **model class**, not by platform.
+
 ### Suggested fix
 
 Give the ELF build the RPATH it needs, in both files:
@@ -177,12 +225,11 @@ Landed here as `fix/mlx-cuda-payload-cannot-load`.
 
 ### Two things this report deliberately does not claim
 
-**That MLX then serves a model on CUDA.** This is a loading fault and the fix
-addresses loading. Inference on this path is untested *here*. It evidently works
-elsewhere — ollama#14046 reports image-generation models running on Linux/NVIDIA
-— which is consistent with the summary above: those hosts complete the
-dependency closure themselves. What has never run is this payload standing on
-its own.
+**That MLX then serves every model on CUDA.** It does not, and the fix does not
+claim to change that. `qwen3_5` loads and then cannot generate, because the
+gated-delta and depthwise-conv kernels it needs have no CUDA source — measured
+above. Fixing the payload makes MLX *reachable* on CUDA; what runs once you are
+there is a question of kernel coverage, and belongs to a different change.
 
 **That the tarball is a safe alternative.** `scripts/build_linux.sh` builds
 `ollama-linux-amd64-mlx.tar.zst` from the same `dist/linux_amd64/lib/ollama/mlx*`
