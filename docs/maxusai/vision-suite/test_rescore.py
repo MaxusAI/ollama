@@ -50,7 +50,9 @@ OLD_FIELDS = [
     "contract_followed",
 ]
 
-# Added by 9c4416e5 / 5081fcbb. Present on every score, by construction.
+# Fields added since the baseline that every score must still carry. Not an
+# exhaustive list of what the scorer may emit -- later additions are allowed and
+# do not belong here unless something depends on their presence.
 NEW_FIELDS = [
     "declaration_scope", "anchor_present", "anchor_implied_type",
     "anchor_implied_ref", "hits_anchor", "iou_anchor",
@@ -114,12 +116,22 @@ class TestSchemaIsAdditive(unittest.TestCase):
     """No field the old scorer emitted may disappear."""
 
     def test_no_field_removed(self):
+        """Removal breaks consumers; addition cannot. Asserted asymmetrically.
+
+        This originally required `new - old` to equal NEW_FIELDS exactly, which
+        made every later scorer addition a failure. It duly failed when
+        `degenerate_boxes` / `degenerate_labels` landed — a purely additive
+        change that left all 14 pre-existing fixtures scoring identically. The
+        guarantee is that nothing DISAPPEARS and that recorded values do not
+        move; new columns are the feature, not a regression.
+        """
         if OLD is None:
             self.skipTest(f"baseline {BASELINE} unavailable: {BASELINE_ERROR}")
         old = set(OLD.score_bbox_contract("{}").keys())
         new = set(NEW.score_bbox_contract("{}").keys())
         self.assertEqual(old - new, set(), "fields dropped by the change")
-        self.assertEqual(new - old, set(NEW_FIELDS), "unexpected new fields")
+        self.assertEqual(set(NEW_FIELDS) - new, set(),
+                         "a documented field stopped being emitted")
 
     def test_every_score_carries_the_new_fields(self):
         for name, text in read_corpus(os.path.join(FIXTURES, "preexisting")):
