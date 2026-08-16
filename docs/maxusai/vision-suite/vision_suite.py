@@ -404,18 +404,22 @@ You may answer in EITHER coordinate space:
   - "absolute": pixel coordinates in the original image, which is {w} wide and {h} tall
   - "normalized": coordinates scaled to a 0-1000 range on both axes
 
-Pick whichever you are most reliable in — neither is preferred — but you MUST
-declare which one you used in the top-level "coord_space" field, and every box
-MUST be in that declared space. A box whose space disagrees with your
-declaration is worse than no answer at all.
+and in EITHER axis order:
+  - "xyxy": [x1, y1, x2, y2]
+  - "yxyx": [y1, x1, y2, x2]  (the order gemma4/Gemini box_2d uses)
 
-Give each box as [x1, y1, x2, y2] with (x1, y1) top-left and (x2, y2)
-bottom-right of the shape itself, not including its label text. Name the field
+Pick whichever you are most reliable in — neither is preferred — but you MUST
+declare BOTH in the top-level "coord_space" and "coord_order" fields, and every
+box MUST match what you declared. A box that disagrees with your own
+declaration is worse than no answer at all: a consumer trusts the declaration.
+
+Each box covers the shape itself, not including its label text. Name the field
 either "box_2d" or "bbox_2d" — whichever is natural to you.
 
 Respond with a SINGLE JSON object, no prose:
 {{
   "coord_space": "absolute" | "normalized",
+  "coord_order": "xyxy" | "yxyx",
   "objects": [{{"label": "<uppercase code word above the shape>",
                 "box_2d": [x1, y1, x2, y2]}}]
 }}"""
@@ -430,9 +434,9 @@ def score_bbox_contract(resp_text):
     """
     g = GT["scene_hd"]
     W, H = g["size"]
-    s = {"json_valid": False, "declared_space": None, "field_name": None,
-         "labels_found": 0, "labels_total": len(g["objects"]),
-         "hits_declared": 0, "hits_bestfit": 0, "bestfit_space": None,
+    s = {"json_valid": False, "declared_space": None, "declared_order": None,
+         "field_name": None, "labels_found": 0, "labels_total": len(g["objects"]),
+         "hits_declared": 0, "hits_bestfit": 0, "bestfit_dialect": None,
          "declaration_valid": False, "declaration_matches_boxes": False,
          "contract_followed": False, "iou_declared": 0.0}
     r, fenced = parse_json_response(resp_text)
@@ -443,8 +447,10 @@ def score_bbox_contract(resp_text):
     s["json_valid"] = True
 
     declared = (r.get("coord_space") or "").strip().lower()
-    s["declared_space"] = declared or None
-    s["declaration_valid"] = declared in ("absolute", "normalized")
+    order = (r.get("coord_order") or "").strip().lower()
+    s["declared_space"], s["declared_order"] = declared or None, order or None
+    s["declaration_valid"] = (declared in ("absolute", "normalized")
+                              and order in ("xyxy", "yxyx"))
 
     objs = r.get("objects") or []
     for o in objs:
@@ -469,30 +475,33 @@ def score_bbox_contract(resp_text):
 
     scales = {"absolute": (1.0, 1.0), "normalized": (W/1000.0, H/1000.0)}
 
-    def tally(fx, fy):
+    def tally(space, order):
+        fx, fy = scales[space]
         hits, ious = 0, []
         for bb, gtb in matched:
-            px = [bb[0]*fx, bb[1]*fy, bb[2]*fx, bb[3]*fy]
+            x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if order == "xyxy"
+                              else (bb[1], bb[0], bb[3], bb[2]))
+            px = [x1*fx, y1*fy, x2*fx, y2*fy]
             hits += center_in(px, gtb)
             ious.append(iou(px, gtb))
         return hits, round(sum(ious)/len(ious), 3) if ious else 0.0
 
     if s["declaration_valid"]:
-        fx, fy = scales[declared]
-        s["hits_declared"], s["iou_declared"] = tally(fx, fy)
+        s["hits_declared"], s["iou_declared"] = tally(declared, order)
 
     best = (0, None)
-    for name, (fx, fy) in scales.items():
-        hits, _ = tally(fx, fy)
-        if hits > best[0]:
-            best = (hits, name)
-    s["hits_bestfit"], s["bestfit_space"] = best
+    for space in scales:
+        for od in ("xyxy", "yxyx"):
+            hits, _ = tally(space, od)
+            if hits > best[0]:
+                best = (hits, f"{space}/{od}")
+    s["hits_bestfit"], s["bestfit_dialect"] = best
 
     # The declaration is only meaningful if the numbers agree with it. A model
     # that declares "absolute" and emits normalized boxes is worse than one that
     # declares nothing, because a downstream consumer would trust it.
     s["declaration_matches_boxes"] = bool(
-        s["declaration_valid"] and best[1] is not None and best[1] == declared)
+        s["declaration_valid"] and best[1] == f"{declared}/{order}")
     s["contract_followed"] = bool(
         s["declaration_matches_boxes"] and s["hits_declared"] == s["hits_bestfit"])
     return s
@@ -516,6 +525,22 @@ tests = [
     ("multi_3img", MULTI_PROMPT, ["scene_hd.png", "document.png", "chart.png"], score_multi),
     ("bbox_contract", BBOX_CONTRACT_PROMPT.format(w=1920, h=1080), ["scene_hd.png"],
      score_bbox_contract),
+    # Same contract with distractor images attached. This is a CONTROL, not the
+    # reproducer: measured 2026-08-16, both qwen3.8 builds stay honest here
+    # (absolute/xyxy, 6/6, declaration matches), so merely attaching images does
+    # not break the declaration.
+    #
+    # What does break it is cross-image REASONING. Adding a coord_space field to
+    # multi_3img's schema and asking its q1-q4 chain, qwen3.8 MLX declared
+    # "absolute" and emitted normalized-1000 boxes — a false declaration, which
+    # is worse than none because a consumer trusts it. That condition is not yet
+    # covered by a committed test; this pair brackets it, showing the failure
+    # needs the reasoning load rather than the image count.
+    ("bbox_contract_multi",
+     BBOX_CONTRACT_PROMPT.format(w=1920, h=1080)
+     + "\n\nOnly the FIRST image contains the shapes to report; the others are "
+       "distractors and must be ignored.",
+     ["scene_hd.png", "document.png", "chart.png"], score_bbox_contract),
     # Env still wins, as it does for the standalone probe — the override only
     # replaces the suite's default with this probe's, it does not pin it.
     ("finetext", FINETEXT_PROMPT, ["finetext.png"], score_finetext,
