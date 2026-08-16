@@ -208,6 +208,13 @@ def get_bbox(o):
     for k in ("bbox", "bbox_2d", "box_2d"):
         if o.get(k):
             return o[k]
+    # NAMED coordinates. A positional array is the sole reason coord_order
+    # exists, and gemma4 has been measured emitting yxyx while declaring xyxy
+    # (2026-08-16) — an error nothing downstream can detect without ground
+    # truth. Named keys make the transposition unrepresentable rather than
+    # merely discouraged. Checked last so no existing response changes meaning.
+    if all(isinstance(o.get(k), (int, float)) for k in ("x1", "y1", "x2", "y2")):
+        return [o["x1"], o["y1"], o["x2"], o["y2"]]
     return []
 
 
@@ -452,10 +459,14 @@ def score_bbox_contract(resp_text):
     W, H = g["size"]
     s = {"json_valid": False, "declared_type": None, "declared_order": None,
          "declared_ref": None, "field_name": None,
+         "declaration_scope": None,
          "labels_found": 0, "labels_total": len(g["objects"]),
          "hits_declared": 0, "iou_declared": 0.0,
          "hits_bestfit": 0, "bestfit_dialect": None,
          "implied_scale": None, "iou_at_implied_scale": None,
+         "anchor_present": False, "anchor_implied_type": None,
+         "anchor_implied_ref": None, "hits_anchor": 0, "iou_anchor": 0.0,
+         "anchor_beats_declared": False,
          "declaration_valid": False, "declaration_matches_boxes": False,
          "contract_followed": False}
     r, fenced = parse_json_response(resp_text)
@@ -465,17 +476,28 @@ def score_bbox_contract(resp_text):
         return s
     s["json_valid"] = True
 
-    btype = (r.get("bbox_type") or "").strip().lower()
-    order = (r.get("coord_order") or "").strip().lower()
-    ref = r.get("ref_size")
-    s["declared_type"], s["declared_order"] = btype or None, order or None
-    if isinstance(ref, list) and len(ref) == 2:
-        s["declared_ref"] = [ref[0], ref[1]]
-    # "real" is only a complete declaration with a reference size.
-    s["declaration_valid"] = (
-        order in ("xyxy", "yxyx")
-        and (btype in ("norm1", "norm1000")
-             or (btype == "real" and s["declared_ref"] is not None)))
+    def read_decl(d):
+        """(bbox_type, coord_order, ref_size) off a dict, normalized."""
+        bt = (d.get("bbox_type") or "").strip().lower()
+        od = (d.get("coord_order") or "").strip().lower()
+        rf = d.get("ref_size")
+        rf = [rf[0], rf[1]] if isinstance(rf, list) and len(rf) == 2 else None
+        # Named coordinates ARE their own order: get_bbox emits [x1,y1,x2,y2]
+        # from the field names, so there is nothing left to transpose and
+        # nothing to declare. Only inferred when the model gave no explicit
+        # order, so an array-shaped response is untouched.
+        if not od and all(isinstance(d.get(k), (int, float))
+                          for k in ("x1", "y1", "x2", "y2")):
+            od = "xyxy"
+        return bt or None, od or None, rf
+
+    def decl_valid(bt, od, rf):
+        # "real" is only a complete declaration with a reference size.
+        return bool(od in ("xyxy", "yxyx")
+                    and (bt in ("norm1", "norm1000")
+                         or (bt == "real" and rf is not None)))
+
+    btype, order, ref = read_decl(r)
 
     objs = r.get("objects") or []
     for o in objs:
@@ -486,8 +508,46 @@ def score_bbox_contract(resp_text):
         if s["field_name"]:
             break
 
+    # Where the declaration lives. A top-level bbox_type wins; otherwise, if
+    # every object carries its own, this is the per-object variant. Recorded
+    # rather than inferred by the caller, because the two are scored
+    # differently: per-object boxes are each converted in THEIR OWN dialect,
+    # so one object may be norm1000 while its neighbour is real.
+    boxed = [o for o in objs if get_bbox(o)]
+    if btype:
+        s["declaration_scope"] = "toplevel"
+    elif boxed and all(read_decl(o)[0] for o in boxed):
+        s["declaration_scope"] = "perobject"
+    else:
+        s["declaration_scope"] = "none"
+
+    if s["declaration_scope"] == "perobject":
+        # Report the consensus so the existing keys stay meaningful; "mixed"
+        # is itself a finding — a per-object declaration that varies between
+        # objects of one image is a stronger failure than a wrong constant.
+        def consensus(idx):
+            vals = [read_decl(o)[idx] for o in boxed]
+            uniq = {json.dumps(v, sort_keys=True) for v in vals}
+            return vals[0] if len(uniq) == 1 else "mixed"
+        s["declared_type"] = consensus(0)
+        s["declared_order"] = consensus(1)
+        s["declared_ref"] = consensus(2)
+        s["declaration_valid"] = all(decl_valid(*read_decl(o)) for o in boxed)
+    else:
+        s["declared_type"], s["declared_order"] = btype, order
+        s["declared_ref"] = ref
+        s["declaration_valid"] = decl_valid(btype, order, ref)
+
     by_label = {o.get("label"): o for o in objs if o.get("label")}
     matched = []
+    # Declarations, built in the SAME pass so index i of decls always belongs
+    # to index i of matched. Under top-level scope every entry is the one
+    # document declaration; under per-object scope each is that object's own.
+    # Do not rebuild this list separately — a filter that drifts out of step
+    # with `matched` would silently score each box against its neighbour's
+    # declaration, which is exactly the class of error this probe exists to
+    # catch.
+    decls = []
     for gto in g["objects"]:
         o = by_label.get(gto["label"])
         if o:
@@ -495,6 +555,9 @@ def score_bbox_contract(resp_text):
             bb = get_bbox(o)
             if len(bb) == 4:
                 matched.append((bb, gto["bbox"]))
+                decls.append(read_decl(o)
+                             if s["declaration_scope"] == "perobject"
+                             else (btype, order, ref))
     if not matched:
         return s
 
@@ -510,11 +573,16 @@ def score_bbox_contract(resp_text):
                 return 1.0, 1.0
         return 1.0, 1.0
 
-    def tally(btype, order, ref=None):
-        fx, fy = factors(btype, ref)
+    def tally(btype, order, ref=None, per_entry=None):
+        """Convert and score. per_entry supplies one (bt, od, rf) per match,
+        which is how the per-object variant is scored; without it every box is
+        converted in the same dialect, which is both the top-level case and the
+        best-fit search."""
         hits, ious = 0, []
-        for bb, gtb in matched:
-            x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if order == "xyxy"
+        for i, (bb, gtb) in enumerate(matched):
+            bt, od, rf = per_entry[i] if per_entry else (btype, order, ref)
+            fx, fy = factors(bt, rf)
+            x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if od == "xyxy"
                               else (bb[1], bb[0], bb[3], bb[2]))
             px = [x1 * fx, y1 * fy, x2 * fx, y2 * fy]
             hits += center_in(px, gtb)
@@ -522,7 +590,10 @@ def score_bbox_contract(resp_text):
         return hits, round(sum(ious) / len(ious), 3) if ious else 0.0
 
     if s["declaration_valid"]:
-        s["hits_declared"], s["iou_declared"] = tally(btype, order, s["declared_ref"])
+        if s["declaration_scope"] == "perobject":
+            s["hits_declared"], s["iou_declared"] = tally(None, None, per_entry=decls)
+        else:
+            s["hits_declared"], s["iou_declared"] = tally(btype, order, s["declared_ref"])
 
     best = (0, 0.0, None)
     for bt in ("real", "norm1", "norm1000"):
@@ -534,7 +605,9 @@ def score_bbox_contract(resp_text):
 
     # Diagnostic: if the boxes are the right SHAPE in the wrong FRAME, recover
     # the uniform factor rather than reporting a bare miss.
-    od = order if order in ("xyxy", "yxyx") else "xyxy"
+    # Equivalent to `order` under top-level scope; under per-object scope this
+    # is the consensus order, or "xyxy" when the objects disagree.
+    od = s["declared_order"] if s["declared_order"] in ("xyxy", "yxyx") else "xyxy"
     ratios = []
     for bb, gtb in matched:
         x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if od == "xyxy"
@@ -552,6 +625,47 @@ def score_bbox_contract(resp_text):
                                   else (bb[1], bb[0], bb[3], bb[2]))
                 ious.append(iou([x1 / k, y1 / k, x2 / k, y2 / k], gtb))
             s["iou_at_implied_scale"] = round(sum(ious) / len(ious), 3)
+
+    # --- the self-calibrating anchor ---------------------------------------
+    #
+    # The one box whose truth is known on ANY image, including an image nobody
+    # has ever measured: the full extent of the image itself. Ask for it
+    # alongside the real objects and its returned value states the coordinate
+    # space outright, with no ground truth and no per-model calibration:
+    #
+    #   [0, 0, ~1, ~1]        -> norm1
+    #   [0, 0, ~1000, ~1000]  -> norm1000
+    #   [0, 0, X, Y]          -> real, in a frame of X x Y
+    #
+    # The last line is the load-bearing one. It recovers the frame WITHOUT
+    # trusting the model's own ref_size, which is precisely the field qwen3.8
+    # GGUF gets approximately right (2500x1406, 2560x1440, 2324x1312 across
+    # runs on one 1920x1080 input) and nemotron omits entirely.
+    anchor = next((o for o in objs
+                   if str(o.get("label", "")).strip().upper().strip("_") == "IMAGE"),
+                  None)
+    ab = get_bbox(anchor) if anchor else []
+    if len(ab) == 4:
+        s["anchor_present"] = True
+        # Order-free: the extent is max-min on each axis whichever way round
+        # the pairs were written, so a transposed anchor still calibrates.
+        ex, ey = max(ab[0], ab[2]), max(ab[1], ab[3])
+        if ex <= 1.5 and ey <= 1.5:
+            at, aref = "norm1", None
+        elif abs(ex - 1000) <= 50 and abs(ey - 1000) <= 50:
+            at, aref = "norm1000", None
+        elif ex > 0 and ey > 0:
+            at, aref = "real", [ex, ey]
+        else:
+            at, aref = None, None
+        s["anchor_implied_type"], s["anchor_implied_ref"] = at, aref
+        if at:
+            # Score the real objects in the space the ANCHOR implies, using the
+            # declared order (an anchor cannot resolve axis order — named
+            # coordinate keys are what do that; see get_bbox).
+            s["hits_anchor"], s["iou_anchor"] = tally(at, od, aref)
+            s["anchor_beats_declared"] = bool(
+                s["hits_anchor"] > s["hits_declared"])
 
     s["declaration_matches_boxes"] = bool(
         s["declaration_valid"] and s["hits_declared"] == len(matched))
@@ -606,6 +720,142 @@ Respond with a SINGLE JSON object, no prose:
 }}"""
 
 
+# --- declaration PLACEMENT A/B ----------------------------------------------
+#
+# bbox_contract_multi established that six of seven configurations mis-declare
+# when told to ignore attached distractors. These two probes ask WHY, by
+# isolating one variable: where the declaration lives.
+#
+# Both arms run the failing condition and both PIN the convention to
+# norm1000/xyxy, so convention choice is removed as a variable and the
+# declaration becomes purely a claim about what the model actually emitted —
+# which the scorer checks against the numbers. The only difference between the
+# two prompts is whether that claim is made once for the document or once per
+# object. Keep them differing in nothing else; the comparison is the point.
+#
+# MEASURED 2026-08-16, 7 models x 3 repeats, same distractor condition:
+#
+#   bbox_contract_multi      (free choice, top-level)     5/21
+#   bbox_contract_pinned     (pinned, top-level)         21/21
+#   bbox_contract_perobject  (pinned, per-object)        21/21
+#
+# THE PLACEMENT VARIABLE IS NULL. Every cell of both arms returned
+# norm1000/xyxy at 6/6. What fixes mis-declaration is pinning the convention
+# and stating the space unambiguously; moving the declaration onto each object
+# changes nothing. An earlier ad-hoc run appeared to show per-object rescuing
+# top-level 3/3 vs 0/3 — it does not reproduce, because the prompt used there
+# lacked the explicit "each axis scaled independently ... 1000x1000 whatever
+# the image's shape is" wording that both arms now share. That sentence was the
+# active ingredient, not the placement. Both arms are kept: a null result that
+# cost 42 generations is worth not re-deriving, and they are the controls for
+# bbox_contract_anchored below.
+#
+# norm1000 is the pinned convention because every model in the corpus emits it
+# natively (bestfit_dialect resolves to norm1000/* on almost every cell). The
+# one exception is qwen3.8 GGUF, which prefers real coordinates in a ~1.30x
+# frame of its own — which makes it the most interesting subject here, not a
+# reason to pin something else.
+#
+# NOTE ON THE SPACE: norm1000 scales each axis INDEPENDENTLY — x by 1000/W and
+# y by 1000/H — so the coordinate space is square whatever the image's aspect
+# ratio is. The prompts say so explicitly because it is the single most
+# commonly-got-wrong part of the convention.
+_BBOX_PLACEMENT_HEAD = """You are a localization service. Find every distinct
+coloured shape in the FIRST image and report where each one is.
+
+Only the FIRST image contains the shapes to report; the others are distractors
+and must be ignored.
+
+Use "bbox_type": "norm1000" — each axis scaled independently to 0-1000, x by
+1000/width and y by 1000/height. The coordinate space is 1000x1000 whatever the
+image's shape is.
+
+Use "coord_order": "xyxy" — [x1, y1, x2, y2].
+
+Each box covers the shape itself, not its label text. A box that disagrees with
+its declaration is worse than no answer at all, because a consumer trusts the
+declaration.
+"""
+
+# ARM A: one declaration for the whole document. This is the arm that fails.
+BBOX_CONTRACT_PINNED_PROMPT = _BBOX_PLACEMENT_HEAD + """
+Declare the convention once, at the top level, then follow it for every box.
+
+Respond with a SINGLE JSON object, no prose:
+{
+  "bbox_type": "norm1000",
+  "coord_order": "xyxy",
+  "objects": [{"label": "<uppercase code word above the shape>",
+               "box_2d": [ , , , ]}]
+}"""
+
+# ARM B: the same declaration, restated on every object.
+BBOX_CONTRACT_PEROBJECT_PROMPT = _BBOX_PLACEMENT_HEAD + """
+Declare the convention on EVERY object, next to that object's box. There is no
+document-level declaration: each object carries its own.
+
+Respond with a SINGLE JSON object, no prose:
+{
+  "objects": [{"label": "<uppercase code word above the shape>",
+               "bbox_type": "norm1000",
+               "coord_order": "xyxy",
+               "box_2d": [ , , , ]}]
+}"""
+
+
+# ARM C: the UNKNOWN-IMAGE arm. Arms A and B both still depend on a
+# declaration the caller cannot check — on an image with no ground truth, a
+# per-object "norm1000" that is actually real is indistinguishable from an
+# honest one. This arm keeps B's per-object pinned declaration and adds the two
+# mechanisms that do not need ground truth:
+#
+#   1. NAMED coordinates (x1/y1/x2/y2) instead of a positional array. Axis
+#      order is the one error no numeric heuristic detects — a transposed box
+#      in a normalized space has the same range, the same extent aspect and no
+#      scale error. Naming the fields makes the transposition impossible to
+#      express rather than merely discouraged.
+#   2. A FULL-IMAGE ANCHOR object. The caller always knows the answer to "where
+#      is the whole image", on any image, so one extra box converts an unknown
+#      image into a calibrated one. Its value states the space directly, and
+#      when the space is real it hands back the actual frame — the thing
+#      ref_size is supposed to carry and demonstrably does not.
+#
+# Together these make the format DERIVABLE rather than declared. The scorer
+# records hits_anchor / anchor_beats_declared so the two routes can be compared
+# on the same response.
+#
+# MEASURED 2026-08-16, 7 models x 3 repeats: 21/21 contract_followed, 21/21
+# named coordinates used verbatim, 21/21 a correct "__IMAGE__" anchor at
+# exactly [0, 0, 1000, 1000] — nemotron included, which mis-declares 3/3 when
+# the convention is free. Compliance with the protocol is not the weak link.
+#
+# WHAT THIS DOES NOT SHOW: anchor_beats_declared is False in all 21 cells,
+# because under pinning nothing lied, so the anchor never had to rescue
+# anything. Its recovery behaviour is demonstrated only against synthetic
+# responses (a declared-norm1000 / actually-real-in-a-1.302x-frame payload is
+# recovered to 6/6 at IoU 0.997, with ref [2500, 1406] derived rather than
+# trusted). The anchor's value here is that it makes compliance CHECKABLE per
+# request for the cost of one box — not that it was needed in these runs.
+BBOX_CONTRACT_ANCHORED_PROMPT = _BBOX_PLACEMENT_HEAD + """
+Give each coordinate its own named field: "x1", "y1", "x2", "y2". Do not use a
+positional array.
+
+Declare the convention on EVERY object, next to that object's coordinates.
+
+The FIRST entry must be a calibration entry with label "__IMAGE__" whose
+coordinates cover the ENTIRE first image, corner to corner, in the same
+convention as everything else. Then list the shapes.
+
+Respond with a SINGLE JSON object, no prose:
+{
+  "objects": [{"label": "__IMAGE__", "bbox_type": "norm1000",
+               "x1": , "y1": , "x2": , "y2": },
+              {"label": "<uppercase code word above the shape>",
+               "bbox_type": "norm1000",
+               "x1": , "y1": , "x2": , "y2": }]
+}"""
+
+
 # The dense fine-text probe joins the suite rather than living as a second
 # entry point. Prompt and scorer are IMPORTED from finetext_probe, not copied:
 # the probe's assets are committed precisely so the same input scores the same
@@ -655,6 +905,18 @@ tests = [
     ("bbox_contract_reasoning",
      BBOX_CONTRACT_REASONING_PROMPT, ["scene_hd.png", "document.png", "chart.png"],
      score_bbox_contract),
+    # The placement A/B (null: 21/21 both arms) and the unknown-image arm
+    # (21/21). See _BBOX_PLACEMENT_HEAD above for the measured rates and what
+    # they do and do not establish.
+    ("bbox_contract_pinned",
+     BBOX_CONTRACT_PINNED_PROMPT,
+     ["scene_hd.png", "document.png", "chart.png"], score_bbox_contract),
+    ("bbox_contract_perobject",
+     BBOX_CONTRACT_PEROBJECT_PROMPT,
+     ["scene_hd.png", "document.png", "chart.png"], score_bbox_contract),
+    ("bbox_contract_anchored",
+     BBOX_CONTRACT_ANCHORED_PROMPT,
+     ["scene_hd.png", "document.png", "chart.png"], score_bbox_contract),
     # Env still wins, as it does for the standalone probe — the override only
     # replaces the suite's default with this probe's, it does not pin it.
     ("finetext", FINETEXT_PROMPT, ["finetext.png"], score_finetext,
