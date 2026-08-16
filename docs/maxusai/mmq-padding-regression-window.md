@@ -41,9 +41,19 @@ so the old code always had padding, and the refactor made it zero whenever `ne11
 | v0.32.10 – v0.32.13 | b10380 | yes |
 | master (2026-08-14) | b10434 | yes |
 
-Confirmed at runtime as well as by source: stock `ollama/ollama:0.32.1` (b9888) is clean in
-**3/3 cold trials** on sm_120 with `n_ubatch = 2048` and `n_tokens_batch = 2040`, against
-`f8def7fe1` (b10353) which faults reliably.
+Confirmed at runtime on **both sides of the boundary**, not just the clean side. Same host
+(sm_120), same request, cold server with the target as the first request, and
+`n_ubatch = 2048` / `n_tokens_batch = 2040` in every runner log:
+
+| build | ollama | result |
+|---|---|---|
+| b9888 | 0.32.1 | no fault, **3/3 cold trials** |
+| b10069 | **0.32.2** | **illegal memory access** |
+| b10353 | 0.32.8/0.32.9 | illegal memory access |
+
+The 0.32.2 run was added after the first version of this document asserted "first affected
+release" from source alone. The source argument was right, but an untested boundary should
+not be written as a measured one — particularly not in text destined for an upstream report.
 
 ## Consequences
 
