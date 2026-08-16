@@ -86,7 +86,7 @@ payload and behaves as measured.
 | `version` | the server on this port is the build under test | **gates the run** — aborts, exit 2 |
 | `image_tag` | the container serving this port runs the named image | FAIL |
 | `go_patch_marker` | `grep -c -- --image-max-tokens /usr/bin/ollama` is 1 | 0 means a stock binary |
-| `payload_proof` | `load_hparams: image_max_pixels: N (custom value)` where `N == max_tokens * S²` | FAIL, with the derivation printed |
+| `payload_proof` | `load_hparams: image_{min,max}_pixels: N (custom value)` where `N == tokens * S²`, on the bounds `custom_bounds` declares | FAIL, with the derivation printed |
 | `token_ladder` | same image at five 16:9 geometries vs a text-only baseline | FAIL, **per-arch** verdict |
 | `pinned_budget` | `image_min_tokens == image_max_tokens` never exceeds the ceiling | FAIL, the 005 defect class |
 | `think_format` | `think:true` + `format:"json"` returns a non-empty valid JSON body | FAIL, distinguishes the fork fix from the `num_predict` trap |
@@ -221,6 +221,28 @@ values the log printed and record the derivation inputs (`patch_stride`,
 **4. Set `scaling` correctly.** `"dynamic"` if cost should track resolution,
 `"flat"` if the payload budget-fills (gemma4 post-004) or is structurally capped
 (nemotron pre-002). This single field is what makes the verdict per-arch.
+
+**4a. Set `custom_bounds` if the arch does not own both bounds.** It lists the
+bounds `payload_proof` should require to be logged `(custom value)`, and defaults
+to `["min", "max"]` — correct for `gemma4` and `nemotron_h_omni`, whose
+`visionServerArgs` cases pass both `--image-min-tokens` and `--image-max-tokens`.
+
+The qwen VL family (`qwen2vl`, `qwen25vl`, `qwen3vl`, `qwen3vlmoe`, `qwen35`,
+`qwen35moe`) gets one flag, `--image-min-tokens 1024`; its max is llama.cpp's
+`set_limit_image_tokens(8, 4096)` ceiling, which `llm/llama_server.go` records as
+"not tunable through `--image-max-tokens`". Those rows set
+`custom_bounds = ["min"]`.
+
+Get this wrong in either direction and it is a finding, not noise. A bound you
+declared custom that stops being marked means the flags were dropped; a bound you
+declared untunable that *starts* being marked means the arch gate in
+`visionServerArgs` changed. Both FAIL. What it must never do is relax the *value*
+check — `N == tokens × S²` is asserted on every bound regardless, and
+`test_verdicts.py` pins that.
+
+This exists because the check originally demanded `(custom value)` on both bounds
+and so failed every correct qwen build. The values were right; the assertion was
+not.
 
 **5. If you cannot measure it, say so.** Set `status = "unmeasured"` with a
 `reason`. The harness reports `NEEDS_BASELINE` and exits 4. That is correct

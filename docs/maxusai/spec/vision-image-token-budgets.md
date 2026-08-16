@@ -156,6 +156,15 @@ survives it: its rows land on grid + 2 exactly (28×28 + 2 = 786, 49×49 + 2 = 2
 is only possible if 14 was also the in-image prefix — so `qwen35moe`'s offset is 0, as
 `gemma4`'s is. `nemotron_h_omni` remains the only arch measured with a non-zero offset.
 
+That zero is no longer only an inference. Measured 2026-08-16 on the dense sibling
+`qwen35` (`qwen3.8:27b-q4_K_M`, CUDA, `0.32.14-rc0-dynres-0-ga5d6590`) with the
+two-image prefix method itself: prefix 13, text-only 13, so the offset is directly
+**0** rather than deduced from grid arithmetic. The family's window measured
+1,024 … 4,096 tokens exactly as §2 states — `image_min_pixels` 1,048,576 and
+`image_max_pixels` 4,194,304 at stride 32, with only the min logged
+`(custom value)` since `--image-max-tokens` is not passed to this family. Ladder
+and provenance are in `[expect.cuda-dynres-903.qwen35]`.
+
 | image | without floor | with `--image-min-tokens 1024` |
 |---|---|---|
 | 224×224 | 51 | 1026 |
