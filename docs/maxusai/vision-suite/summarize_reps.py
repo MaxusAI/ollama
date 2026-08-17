@@ -87,7 +87,19 @@ def cell(runs, section, key, kind):
     mean = sum(vals) / len(vals)
     spread = hi - lo
     if kind == "float":
-        s = f"{mean:.3f}" + (f" ±{spread / 2:.3f}" if spread else "")
+        # The observed range, NOT "mean ±spread/2". A ± interval is symmetric
+        # about what precedes it, so mean ±(hi-lo)/2 describes [lo, hi] only
+        # when the mean happens to be the midrange. At n=2 it always is, which
+        # is why this read correctly for a whole campaign and then did not: the
+        # five think-on name_bbox runs
+        # (../vision-campaign-2026-08-17-qwen38-rocm.md) rendered
+        # "0.742 ±0.103", an interval of [0.639, 0.846] that EXCLUDES the
+        # observed minimum of 0.631 -- the very value the document's argument
+        # rests on -- and claims headroom above a maximum of 0.838 that no run
+        # reached. Printing lo and hi cannot do that, and it is what the
+        # docstring promised: "the range is what a reader can actually reason
+        # about".
+        s = f"{mean:.3f}" + (f" [{lo:.3f}–{hi:.3f}]" if spread else "")
     else:
         s = f"{mean:.1f}".rstrip("0").rstrip(".") + (f" [{lo}–{hi}]" if spread else "")
     return s, spread
@@ -124,16 +136,28 @@ def main():
         if len(runs) < 2:
             print(f"  {tag}: n={len(runs)}, no spread measurable")
             continue
-        worst = []
+        # Grouped by unit, because a single ranking across both is meaningless:
+        # an IoU spread of 0.207 and a count spread of 2 are not comparable, and
+        # sorting them together let four finetext counts fill a top-4 list while
+        # the largest IoU movement in the arm went unprinted. A reader who wants
+        # the IoU spread then reaches for it by hand, which is how the wrong
+        # 0.103 reached the campaign record's prose.
+        worst = {"float": [], "int": []}
         for section, key, label, kind in METRICS:
             if kind == "bool":
                 continue
             _, sp = cell(runs, section, key, kind)
             if sp:
-                worst.append((sp, label))
-        worst.sort(reverse=True)
-        if worst:
-            print(f"  {tag}: " + ", ".join(f"{l} {s:g}" for s, l in worst[:4]))
+                worst[kind].append((sp, label))
+        parts = []
+        for kind, unit in (("float", "ratios"), ("int", "counts")):
+            if not worst[kind]:
+                continue
+            worst[kind].sort(reverse=True)
+            parts.append(f"{unit} — "
+                         + ", ".join(f"{l} {s:g}" for s, l in worst[kind][:4]))
+        if parts:
+            print(f"  {tag}: " + "; ".join(parts))
         else:
             print(f"  {tag}: identical across all {len(runs)} runs")
     return 0

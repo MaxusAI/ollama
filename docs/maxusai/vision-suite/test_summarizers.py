@@ -27,6 +27,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import summarize_engine_compare as sec  # noqa: E402
+import summarize_reps as reps  # noqa: E402
 
 # One model, two think cells. Numbers chosen so every assertion below can name
 # which field it came from: the think-on count is deliberately far larger than
@@ -145,6 +146,92 @@ class TestRenderedTables(unittest.TestCase):
         self.assertEqual(row.count("capped"), 2)   # s/req and req/h
 
 
+class TestRepsInterval(unittest.TestCase):
+    """A rendered interval must contain the data it summarises.
+
+    `mean ±(max-min)/2` does not. It is symmetric about the mean, so it equals
+    [min, max] only when the mean is the midrange -- true for every n=2 arm,
+    which is why this survived a campaign before it bit. At n=5 the qwen3.8
+    name_bbox arm rendered "0.742 ±0.103", excluding the observed 0.631 that the
+    campaign's own argument quotes.
+    """
+
+    def runs(self, values, section="s", key="k"):
+        return [{section: {key: v}} for v in values]
+
+    def test_the_interval_contains_every_observation(self):
+        for values in ([0.900, 0.900, 0.990],
+                       [0.981, 0.992, 0.979, 0.983, 1.000],
+                       [0.790, 0.631, 0.838, 0.742, 0.710],
+                       [0.5, 0.5, 0.5, 0.9]):
+            rendered, _ = reps.cell(self.runs(values), "s", "k", "float")
+            lo, hi = (float(x) for x in
+                      rendered.split("[")[1].rstrip("]").split("–"))
+            self.assertLessEqual(lo, min(values), rendered)
+            self.assertGreaterEqual(hi, max(values), rendered)
+
+    def test_the_published_cell_now_shows_the_value_the_argument_cites(self):
+        rendered, spread = reps.cell(
+            self.runs([0.790, 0.631, 0.838, 0.742, 0.710]), "s", "k", "float")
+        self.assertEqual(rendered, "0.742 [0.631–0.838]")
+        self.assertAlmostEqual(spread, 0.207, places=3)
+
+    def test_no_plus_minus_anywhere(self):
+        """± asserts symmetry this data does not have; the range asserts nothing."""
+        rendered, _ = reps.cell(self.runs([0.1, 0.2, 0.9]), "s", "k", "float")
+        self.assertNotIn("±", rendered)
+
+    def test_an_identical_arm_renders_a_bare_mean(self):
+        rendered, spread = reps.cell(self.runs([0.75, 0.75]), "s", "k", "float")
+        self.assertEqual(rendered, "0.750")
+        self.assertEqual(spread, 0)
+
+    def test_spread_is_still_the_full_range_not_half(self):
+        """The second return value feeds the "bar any claim must clear" list;
+        halving it there understated the bar in the campaign record's prose."""
+        _, spread = reps.cell(self.runs([0.631, 0.838]), "s", "k", "float")
+        self.assertAlmostEqual(spread, 0.207, places=3)
+
+    def test_ratios_are_not_ranked_against_counts(self):
+        """Four count metrics moving by 2 must not crowd out an IoU moving by
+        0.2 -- they are different units, and the top-4 list is per unit."""
+        floats = [m for m in reps.METRICS if m[3] == "float"]
+        ints = [m for m in reps.METRICS if m[3] == "int"]
+        self.assertTrue(floats and len(ints) >= 4, "fixture assumes both kinds")
+        runs = []
+        for i in range(2):
+            r = {}
+            for section, key, _, kind in floats:
+                r.setdefault(section, {})[key] = 0.5 + 0.2 * i
+            for section, key, _, kind in ints:
+                r.setdefault(section, {})[key] = 10 * i
+            runs.append(r)
+        out = io.StringIO()
+        with mock_argv(["summarize_reps.py"]), contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(io.StringIO()):
+            reps_main_with(runs)
+        printed = out.getvalue()
+        self.assertIn("ratios —", printed)
+        self.assertIn("counts —", printed)
+        for section, key, label, kind in floats:
+            self.assertIn(label, printed, f"{label} crowded out by count metrics")
+
+
+def reps_main_with(runs):
+    """Run summarize_reps' spread report over in-memory runs.
+
+    main() reads the filesystem, so the arm is injected at load_arm rather than
+    written to disk -- the report itself is the thing under test.
+    """
+    real = reps.load_arm
+    reps.load_arm = lambda tag: (runs, [f"scores_{tag}.json"])
+    try:
+        sys.argv = ["summarize_reps.py", "arm"]
+        reps.main()
+    finally:
+        reps.load_arm = real
+
+
 class TestSiblingSummarizersDoNotClaimAnswerTokens(unittest.TestCase):
     """The same defect class, across every script that renders the same field.
 
@@ -157,7 +244,8 @@ class TestSiblingSummarizersDoNotClaimAnswerTokens(unittest.TestCase):
     DIR = os.path.dirname(os.path.abspath(__file__))
 
     def unconditional_headers(self, path):
-        tree = ast.parse(open(path).read())
+        with open(path) as fh:
+            tree = ast.parse(fh.read())
         gated = [n for n in ast.walk(tree)
                  if isinstance(n, ast.FunctionDef) and n.name == "token_column"]
         bad = []

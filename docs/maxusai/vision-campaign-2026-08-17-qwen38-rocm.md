@@ -58,28 +58,48 @@ drew two conclusions that do not survive repetition. Now pooled: **n=2 think-off
 n=5 think-on**, all on `0.32.1-dynres-5d5b7a72`, `num_ctx` 16384 throughout.
 Rendered by `summarize_reps.py`, not transcribed.
 
+**Corrected 2026-08-18: the ratio cells show the observed range, not `±`.** They
+previously read `mean ±(max−min)/2`, which is symmetric about the mean and so
+describes [min, max] only when the mean is the midrange — always true at n=2,
+never reliably at n=5. The think-on `name_bbox` cell rendered `0.742 ±0.103`, an
+interval of [0.639, 0.846] that **excluded the observed 0.631** this document's
+own argument quotes, and claimed headroom above a maximum of 0.838 that no run
+reached; scene IoU likewise excluded a run that scored 1.000. The n=2 think-off
+cells were unaffected by the defect and are restated in the new form for
+consistency. **No measurement changed** — same seven score files, re-rendered by
+the fixed `summarize_reps.py` (MaxusAI/ollama#196). The within-arm spread list
+below is also regenerated: it now groups ratios and counts separately, having
+previously ranked them together and pushed every ratio off a top-4 list, and its
+`name_bbox` figure was the halved value (0.103) rather than the spread (0.207).
+
 | metric | think-off (n=2) | think-on (n=5) |
 |---|---|---|
-| scene bbox IoU | 0.990 ±0.002 | 0.987 ±0.011 |
+| scene bbox IoU | 0.990 [0.988–0.991] | 0.987 [0.979–1.000] |
 | scene labels / colors / serial | 6 / 6 / 2✅ | 6 / 6 / 5✅ |
 | doc items / qty+price / total | 5 / 5 / 2✅ | 5 / 5 / 5✅ |
-| **doc name_bbox IoU** | **0.571 ±0.001** | **0.742 ±0.103** |
+| **doc name_bbox IoU** | **0.571 [0.570–0.571]** | **0.742 [0.631–0.838]** |
 | multi q1 / q2 / chart | 2✅ / 2✅ / 5 | 5✅ / 5✅ / 5 |
 | **multi q4-bbox** | **2/2 ✅** | **0/5 ❌** |
 | finetext correct / fabricated (of 20) | 15 / 5 | 13.6 [13–15] / 6.4 [5–7] |
 | latency s/req · req/h | 54.0 · 67 | ~97 · 37 |
 
-Within-arm spread, the bar any cross-arm claim must clear:
+Within-arm spread (max−min), the bar any cross-arm claim must clear:
 
-- think-off: scene IoU **0.003**, name_bbox **0.001**
-- think-on: finetext correct **2**, name_bbox **0.103**, scene IoU **0.021**
+- think-off — ratios: scene bbox IoU **0.003**, doc name_bbox IoU **0.001**
+- think-on — ratios: doc name_bbox IoU **0.207**, scene bbox IoU **0.021**;
+  counts: finetext fabricated **2**, finetext correct **2**, finetext 9px **2**,
+  finetext 7px **1**
 
 ### What repetition changed, including a correction to this document
 
 **The `name_bbox` gain is real.** This is the second reversal on that cell and
 the numbers now settle it: think-on's *lowest* value across five runs is 0.631
-and think-off's *highest* across two is 0.571. The arms never overlap, and the
-~0.17 gap exceeds think-on's own 0.103 spread. An earlier revision of this
+and think-off's *highest* across two is 0.571. The arms never overlap — every
+think-on run scored above every think-off run — and that is the whole of the
+claim. It deliberately does not rest on comparing the gap to a spread, which is
+just as well: think-on's spread is 0.207, *wider* than the 0.171 difference in
+means. Non-overlap is the stronger test precisely because a wide spread cannot
+explain away a gap that no pair of runs crosses. An earlier revision of this
 document called the gain noise on the strength of two think-on samples
 disagreeing by 0.159 — that showed the spread was large, which is true, but not
 that the arms overlapped. Those are different claims and conflating them is what
@@ -207,10 +227,12 @@ rule 4 exists to prevent.
 - **Does:** settle that think-on's `q4_bbox` regression is a reasoning effect,
   not a budget effect — the repeat at `NUM_PREDICT=4400` used 46% of the raised
   ceiling and still failed.
-- **Does:** put a measured number on the noise floor — think-on spread 0.103 on
+- **Does:** put a measured number on the noise floor — think-on spread 0.207 on
   `name_bbox` and 0.021 on scene IoU across five runs, against think-off's 0.001
   and 0.003 across two. Any single-arm reading of a think-on cell is worth less
-  than that spread, which is how this document got `name_bbox` wrong twice.
+  than that spread, which is how this document got `name_bbox` wrong twice. (The
+  `name_bbox` figure read 0.103 until 2026-08-18: that was the halved value the
+  `±` rendering printed, so the noise floor was stated at half its true width.)
 - **Does:** establish that think-off is near-deterministic — an expectation in
   the earlier revision, now measured, and not exactly true (scene IoU moved
   0.003 between two greedy runs).
