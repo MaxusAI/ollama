@@ -212,6 +212,16 @@ wrong one produces budgets that are *arithmetically self-consistent*, so
 `test_verdicts` and `payload_proof` both pass on a wrong row. Without `--stride`
 those fields are emitted as TODO rather than guessed.
 
+It divides the logged pixel counts by `stride²` and **refuses the read on a
+remainder**: an inexact division means the pixels and the stride describe
+different models, which is what a concurrent probe of another model in the log
+window looks like. That refusal takes `patch_stride` down with it — a remainder
+cannot say which of the two is wrong — but it echoes the value you passed in the
+TODO comment. When there is simply *no* budget read (no `--container`, or the
+window held no `load_hparams` pair) nothing contradicts the stride, so it is kept
+and only the budget fields are TODO; the note on stderr says it went
+uncross-checked.
+
 For the payload proof, read the load log directly — and force a reload first, or
 you may be reading the previous build's line:
 

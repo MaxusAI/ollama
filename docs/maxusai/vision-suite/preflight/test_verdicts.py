@@ -21,6 +21,7 @@ from unittest import mock
 sys.path.insert(0, ".")
 
 import checks  # noqa: E402
+import measure_ladder  # noqa: E402
 import probes  # noqa: E402
 from checks import FAIL, PASS, SKIP  # noqa: E402
 
@@ -383,6 +384,74 @@ class TestContainerLogsWindow(unittest.TestCase):
             probes.container_logs("c", 1_755_000_000)
         self.assertIn("--since", seen["argv"])
         self.assertTrue(seen["argv"][seen["argv"].index("--since") + 1].endswith("Z"))
+
+
+class TestMeasureLadderBudgetFields(unittest.TestCase):
+    """What measure_ladder emits for patch_stride and the budget fields.
+
+    Two failure directions, and they pull opposite ways. Emitting a value the
+    tool cannot stand behind puts a wrong row into expectations.toml, which is
+    the worse one; but dropping a value the operator supplied sends them back to
+    retype it, and hand-transcription into this file is what ADR 0012 rule 8 is
+    about. So the rule these pin is: keep the stride when nothing contradicts
+    it, drop it when something does.
+    """
+
+    QWEN35 = (1048576, 4194304, ["min"])   # stride 32, both divide exactly
+    GEMMA4_PIXELS = (161280, 2580480, [])  # another model's line in the window
+
+    def fields(self, stride, budgets):
+        lines, notes = measure_ladder.budget_fields(stride, budgets)
+        return "\n".join(lines), "\n".join(notes)
+
+    def test_measured_budgets_are_converted(self):
+        out, notes = self.fields(32, self.QWEN35)
+        self.assertIn("patch_stride = 32", out)
+        self.assertIn("budget_min_tokens = 1024", out)
+        self.assertIn("budget_max_tokens = 4096", out)
+        self.assertIn("image_min_pixels = 1048576", out)
+        self.assertIn("custom_bounds = [\"min\"]", out)
+        self.assertEqual(notes, "")
+
+    def test_stride_survives_an_empty_budget_read(self):
+        """THE BUG. --stride 32 and no readable log used to emit stride 0."""
+        out, notes = self.fields(32, None)
+        self.assertIn("patch_stride = 32", out)
+        self.assertNotIn("patch_stride = 0", out)
+        self.assertIn("budget_min_tokens = 0   # TODO", out)
+        self.assertIn("cross-checked", notes)
+
+    def test_a_contradicted_stride_is_not_emitted_as_fact(self):
+        """A remainder cannot say which half is wrong, so neither is asserted."""
+        out, notes = self.fields(32, self.GEMMA4_PIXELS)
+        self.assertIn("patch_stride = 0", out)
+        self.assertIn("--stride said 32", out, "the contested value is lost")
+        self.assertIn("budget_min_tokens = 0   # TODO", out)
+        self.assertNotIn("157", out)      # what the unguarded division produced
+        self.assertIn("REFUSING", notes)
+
+    def test_no_stride_is_never_inferred(self):
+        """Both 16 and 32 divide qwen35's counts; a guess would be invisible."""
+        out, notes = self.fields(None, self.QWEN35)
+        self.assertIn("patch_stride = 0", out)
+        self.assertNotIn("budget_min_tokens = 4096", out)
+        self.assertNotIn("budget_min_tokens = 1024", out)
+        self.assertIn("will not guess", notes)
+
+    def test_every_path_emits_the_same_five_keys(self):
+        """A row missing a key reads as "not applicable" rather than TODO."""
+        keys = ["patch_stride", "budget_min_tokens", "budget_max_tokens",
+                "image_min_pixels", "image_max_pixels"]
+        for stride, budgets in [(32, self.QWEN35), (32, None), (None, None),
+                                (32, self.GEMMA4_PIXELS), (None, self.QWEN35)]:
+            out, _ = self.fields(stride, budgets)
+            emitted = [l.split(" =")[0] for l in out.split("\n")]
+            self.assertEqual(emitted[:5], keys, f"stride={stride} budgets={budgets}")
+
+    def test_both_custom_bounds_are_left_implicit(self):
+        """custom_bounds is the exception list; ["min","max"] is the default."""
+        out, _ = self.fields(32, (1048576, 4194304, ["max", "min"]))
+        self.assertNotIn("custom_bounds", out)
 
 
 class TestExpectationsFile(unittest.TestCase):
