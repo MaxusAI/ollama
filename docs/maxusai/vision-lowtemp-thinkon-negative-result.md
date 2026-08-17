@@ -16,32 +16,57 @@ the boxes) where low variance beats realism.
 
 ## It does not work
 
-Nine models, three repeats, both think modes, the eight `bbox_contract` arms,
-`num_predict` 8192 think-on / 2200 think-off, `num_ctx` 16384. A capped cell is
-`eval_count == num_predict`: reasoning never terminated.
+Nine models, three repeats, both think modes, the eight `bbox_contract` arms.
+Rendered by `vision-suite/summarize_lowtemp.py` — exploratory arm, so exempt
+from the T1/T2 shapes under [ADR 0012](adr/0012-benchmark-report-templates.md)
+rule 7, but reporting `(score, num_ctx, num_predict)` per rule 8. **There is no
+ladder in this arm**: it was run directly rather than through
+`run_engine_compare.sh`, so every cell sits at a fixed window and a missing
+score means the model did not finish *at that window*, not that it failed.
 
-| model | engine / quant | capped of 8, per repeat |
-| --- | --- | --- |
-| **gemma4:12b-it-q4_K_M** | GGUF q4_K_M | **6, 6, 5** |
-| **qwen3.6:35b-a3b-q4_K_M** | GGUF q4_K_M | **6, 6, 4** |
-| gemma4:26b-nvfp4 | MLX | 1, 3, 2 |
-| gemma4:26b-a4b-it-q4_K_M | GGUF q4_K_M | 1, 1, 2 |
-| gemma4:31b-mxfp8 | MLX | 1, 2, 1 |
-| gemma4:26b-mxfp8 | MLX | 1, 1, 1 |
-| gemma4:31b-nvfp4 | MLX | 0, 1, 0 |
-| gemma4:26b-mlx-bf16 | MLX | 0, 0, 0 |
-| gemma4:31b-it-q4_K_M | GGUF q4_K_M | 0, 0, 0 |
+| Model | Engine | think | contract_followed | mean IoU (scored cells) | no result | num_ctx | num_predict |
+|---|---|---|---|---|---|---|---|
+| gemma4:12b-it-q4_K_M | GGUF | false | 3/3/3 of 8 | 0.462/0.462/0.462 | 0/0/0 of 8 | 16384 | 2200 |
+| gemma4:12b-it-q4_K_M | GGUF | on | 2/2/3 of 8 | 0.939/0.939/0.939 | 6/6/5 of 8 | 16384 | 8192 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | false | 3/3/3 of 8 | 0.39/0.39/0.39 | 0/0/0 of 8 | 16384 | 2200 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | on | 6/7/4 of 8 | 0.836/0.933/0.659 | 1/1/2 of 8 | 16384 | 8192 |
+| gemma4:26b-mlx-bf16 | **MLX** | false | 3/3/3 of 8 | 0.392/0.392/0.392 | 0/0/0 of 8 | 16384 | 2200 |
+| gemma4:26b-mlx-bf16 | **MLX** | on | 6/8/8 of 8 | 0.71/0.974/0.973 | 0/0/0 of 8 | 16384 | 8192 |
+| gemma4:26b-mxfp8 | **MLX** | false | 2/3/3 of 8 | 0.307/0.39/0.39 | 0/0/0 of 8 | 16384 | 2200 |
+| gemma4:26b-mxfp8 | **MLX** | on | 7/6/7 of 8 | 0.935/0.837/0.934 | 1/1/1 of 8 | 16384 | 8192 |
+| gemma4:26b-nvfp4 | **MLX** | false | 3/3/3 of 8 | 0.439/0.438/0.438 | 0/0/0 of 8 | 16384 | 2200 |
+| gemma4:26b-nvfp4 | **MLX** | on | 7/5/6 of 8 | 0.969/0.968/0.969 | 1/3/2 of 8 | 16384 | 8192 |
+| gemma4:31b-it-q4_K_M | GGUF | false | 5/5/5 of 8 | 0.666/0.666/0.666 | 0/0/0 of 8 | 16384 | 2200 |
+| gemma4:31b-it-q4_K_M | GGUF | on | 7/7/7 of 8 | 0.845/0.845/0.844 | 0/0/0 of 8 | 16384 | 8192 |
+| gemma4:31b-mxfp8 | **MLX** | false | 6/4/6 of 8 | 0.801/0.538/0.78 | 0/0/0 of 8 | 16384 | 2200 |
+| gemma4:31b-mxfp8 | **MLX** | on | 6/5/6 of 8 | 0.828/0.806/0.828 | 1/2/1 of 8 | 16384 | 8192 |
+| gemma4:31b-nvfp4 | **MLX** | false | 5/5/5 of 8 | 0.689/0.679/0.689 | 0/0/0 of 8 | 16384 | 2200 |
+| gemma4:31b-nvfp4 | **MLX** | on | 7/6/7 of 8 | 0.844/0.83/0.844 | 0/1/0 of 8 | 16384 | 8192 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | false | 4/4/4 of 8 | 0.576/0.576/0.576 | 0/0/0 of 8 | 16384 | 2200 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | on | 2/2/4 of 8 | 0.956/0.972/0.967 | 6/6/4 of 8 | 16384 | 8192 |
 
-**The control excludes the budget.** At card sampling with the *same* 8192
-budget, `gemma4:12b-it-q4_K_M`, `qwen3.6:35b-a3b-q4_K_M` and
-`gemma4:31b-it-q4_K_M` all capped **0 of 8** in the
-[18-model campaign](vision-campaign-2026-08-17-eighteen-model.md). The caps are
-caused by the temperature, not by too small an allowance.
+Three values per cell = three repeats. `no result` counts cells whose
+generation never terminated at the stated window, so they carry no score;
+they are excluded from the IoU mean rather than scored as zero.
+
+**Read the `no result` column against `think=false`.** Think-off produces a
+score in every cell for every model. Think-on at `temperature 0.01` loses
+**6 of 8** on `gemma4:12b-it-q4_K_M` and `qwen3.6:35b-a3b-q4_K_M`, and 0–3 on
+everything else.
+
+**The budget is excluded as the cause.** At card sampling with the *same* 8192
+allowance, all three models retested — `gemma4:12b-it-q4_K_M`,
+`qwen3.6:35b-a3b-q4_K_M`, `gemma4:31b-it-q4_K_M` — produced a score in 8 of 8
+cells in the [18-model campaign](vision-campaign-2026-08-17-eighteen-model.md).
+The missing scores are the temperature.
+
+**Where a score survives, it is good.** `gemma4:12b` think-on scores mean IoU
+0.939 on the two cells that terminate; `qwen3.6` scores 0.956–0.972 on its two.
+Low temperature does not degrade the answer — it prevents the answer.
 
 This is exactly what `sampling.py`'s own header predicts: *"The lever is leaving
 greedy decoding, NOT `presence_penalty` specifically."* `0.01` is greedy in all
-but name, and greedy decoding is what makes reasoning fail to terminate. The
-module exists to prevent this and the experiment walked into it.
+but name, and greedy decoding is what makes reasoning fail to terminate.
 
 ## It is not model-family-specific, and there is no structural explanation
 
