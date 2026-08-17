@@ -110,7 +110,11 @@ TAG_PREFIX="${TAG_PREFIX:-}"
 # separate entry point, so it is skipped unless the subset actually asks for it.
 ONLY_TESTS="${ONLY_TESTS:-}"
 
-# THE LADDER IS NOT OPTIONAL FOR THINK-ON, AND THIS REFUSES RATHER THAN WARNS.
+# THE CONTEXT LADDER IS NOT OPTIONAL FOR THINK-ON, AND THIS REFUSES RATHER THAN
+# WARNS. "Context ladder" means CTX_LADDER, the num_ctx rungs below — NOT the
+# token ladder in preflight/expectations.toml, which is image cost across five
+# fixed geometries. Unrelated axes, one overloaded word; see README.md
+# §Terminology.
 #
 # The rung a think-on cell converges at IS A RESULT, not an implementation
 # detail of getting one. KV size drives decode speed, so "this model needs
@@ -138,7 +142,8 @@ case " $THINK_MODES " in
       | awk -v s="$_start" -v m="$CTX_MAX" '$1>s && $1<=m {print; exit}')
     if [ -z "$_higher" ] && [ -z "${ALLOW_NO_LADDER:-}" ]; then
       echo "REFUSING: think-on starts at num_ctx=$_start, and CTX_MAX=$CTX_MAX leaves no" >&2
-      echo "  higher rung in CTX_LADDER='$CTX_LADDER'. A capped cell could never escalate," >&2
+      echo "  higher CONTEXT-ladder rung in CTX_LADDER='$CTX_LADDER'. A capped cell could" >&2
+      echo "  never escalate," >&2
       echo "  so the window it needs would be unmeasurable and its tok/s uninterpretable." >&2
       echo "  Raise CTX_MAX (default 65536), or set ALLOW_NO_LADDER=1 if a fixed-window" >&2
       echo "  arm is genuinely what you want — and say so in the write-up." >&2

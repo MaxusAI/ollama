@@ -39,10 +39,15 @@ inherits nothing and silently loses the ladder.
 behaviour must be byte-identical to before, so existing campaigns and every
 summarizer keep working. Verify with `sh -x` on both paths before committing.
 
-**H4a — The think-on ladder always runs. The rung is a result, not plumbing.**
-`CTX_MAX` MUST leave at least one rung above the think-on start rung.
+**H4a — The CONTEXT ladder always runs for think-on. The rung is a result, not
+plumbing.** `CTX_MAX` MUST leave at least one rung above the think-on start rung.
 `run_engine_compare.sh` refuses (exit 2) otherwise; `ALLOW_NO_LADDER=1` is the
 deliberate opt-out and obliges the write-up to say a fixed window was used.
+
+This is the **context ladder** — `CTX_LADDER`, the `num_ctx` rungs — and not the
+**token ladder** of `expectations.toml`, which is image cost across five fixed
+geometries. The two are unrelated axes and the word is overloaded; see
+README.md §Terminology. Nothing in H4a touches the token ladder.
 
 The window a model needs to *finish* a thinking response is a throughput fact
 about that model — KV size drives decode speed, which is why two cells measured
@@ -101,7 +106,7 @@ existed.
 |---|---|
 | H1, H2 | `run_engine_compare.sh` is the only script in `vision-suite/` that iterates `$MODELS`; a second one is the defect |
 | H3, H4 | `REPEATS` / `TAG_PREFIX` / `ONLY_TESTS` are inert when unset — verified with `sh -x` on both paths |
-| H4a | `run_engine_compare.sh` exits 2 when `CTX_MAX` leaves no rung above the think-on start; think-off is unaffected and `ALLOW_NO_LADDER=1` overrides |
+| H4a | `run_engine_compare.sh` exits 2 when `CTX_MAX` leaves no CONTEXT-ladder rung above the think-on start; think-off is unaffected and `ALLOW_NO_LADDER=1` overrides |
 | H5, H6 | `summarize_lowtemp.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |
