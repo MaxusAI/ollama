@@ -967,7 +967,12 @@ num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
 require_nonempty_thinking = true
-# measured: eval_count 238, thinking 774 chars, body 211 chars, valid JSON
+# Measured: eval_count 238 against the 4000 allowance, 774 chars of
+# thinking, valid JSON. Nowhere near the num_predict trap, so the floor is
+# not load-bearing for this arch -- kept at 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer
+# prompt. The token count itself is indicative only: think-on is stochastic
+# and a preflight re-run of this cell measured a different figure.
 
 [expect.metal-0-32-14.qwen35moe]
 status = "measured"
@@ -989,7 +994,12 @@ num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
 require_nonempty_thinking = true
-# measured: eval_count 1044, thinking 3543 chars, body 349 chars, valid JSON
+# Measured: eval_count 1044 against the 4000 allowance, 3543 chars of
+# thinking, valid JSON. Nowhere near the num_predict trap, so the floor is
+# not load-bearing for this arch -- kept at 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer
+# prompt. The token count itself is indicative only: think-on is stochastic
+# and a preflight re-run of this cell measured a different figure.
 
 # ------------------------------------------- mlx-metal / 0.32.14 think+format --
 # The fork's headline feature had NO gate on either Apple stack until now:
@@ -1008,25 +1018,45 @@ num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
 require_nonempty_thinking = true
-# measured: eval_count 116, thinking 292 chars, body 174 chars, valid JSON
+# Measured: eval_count 116 against the 4000 allowance, 292 chars of
+# thinking, valid JSON. Nowhere near the num_predict trap, so the floor is
+# not load-bearing for this arch -- kept at 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer
+# prompt. The token count itself is indicative only: think-on is stochastic
+# and a preflight re-run of this cell measured a different figure.
 
 [expect.mlx-metal-0-32-14.gemma4_unified.think_format]
 num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
 require_nonempty_thinking = true
-# measured: eval_count 796, thinking 2859 chars, body 241 chars, valid JSON
+# Measured: eval_count 796 against the 4000 allowance, 2859 chars of
+# thinking, valid JSON. Nowhere near the num_predict trap, so the floor is
+# not load-bearing for this arch -- kept at 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer
+# prompt. The token count itself is indicative only: think-on is stochastic
+# and a preflight re-run of this cell measured a different figure.
 
 [expect.mlx-metal-0-32-14.qwen35moe.think_format]
 num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
 require_nonempty_thinking = true
-# measured: eval_count 966, thinking 3664 chars, body 322 chars, valid JSON
+# Measured: eval_count 966 against the 4000 allowance, 3664 chars of
+# thinking, valid JSON. Nowhere near the num_predict trap, so the floor is
+# not load-bearing for this arch -- kept at 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer
+# prompt. The token count itself is indicative only: think-on is stochastic
+# and a preflight re-run of this cell measured a different figure.
 
 [expect.mlx-metal-0-32-14.qwen35.think_format]
 num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
 require_nonempty_thinking = true
-# measured: eval_count 297, thinking 858 chars, body 373 chars, valid JSON
+# Measured: eval_count 297 against the 4000 allowance, 858 chars of
+# thinking, valid JSON. Nowhere near the num_predict trap, so the floor is
+# not load-bearing for this arch -- kept at 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer
+# prompt. The token count itself is indicative only: think-on is stochastic
+# and a preflight re-run of this cell measured a different figure.
