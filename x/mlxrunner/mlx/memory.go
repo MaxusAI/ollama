@@ -139,6 +139,42 @@ func SetMemoryLimit(limit int) (int, error) {
 	return int(previous), nil
 }
 
+// SetCacheLimit caps the buffer cache — the freed blocks MLX RETAINS for reuse
+// rather than returning to the driver — and returns the previous limit.
+//
+// THIS IS NOT SetMemoryLimit. That one caps TOTAL allocation and decides when an
+// allocation fails; it does not make MLX release anything. This one decides how
+// much MLX keeps after it is done with it, which is what governs steady-state
+// footprint. Measured on gemma4:31b-nvfp4, one 3072x1728 image, CUDA:
+//
+//	memory.active 18.29 GiB   (live tensors, ~= the weights)
+//	memory.cache  13.16 GiB   (retained, and the whole difference)
+//	nvidia-smi    32.36 GiB   vs 23.03 GiB for the same work on llama.cpp
+//
+// active + cache accounts for 31.45 of the 32.36 GiB observed, so the excess is
+// MLX's cache and not, as was first assumed, CUDA's async memory pool — which
+// would have needed cudaMemPoolTrimTo and been outside our reach.
+//
+// ClearCache() empties it at a moment in time; this bounds how far it refills.
+// Both are needed: the cache regrew to 13 GiB DURING a single prefill, between
+// two of the ClearCache calls the pipeline already makes.
+//
+// Zero is legal and means "retain nothing", which trades allocator churn for the
+// smallest footprint.
+func SetCacheLimit(limit int) (int, error) {
+	if limit < 0 {
+		return 0, fmt.Errorf("mlx: cache limit must be non-negative")
+	}
+
+	var previous C.size_t
+	if err := mlxCall("set cache limit failed", func() C.int {
+		return C.mlx_set_cache_limit(&previous, C.size_t(limit))
+	}); err != nil {
+		return 0, err
+	}
+	return int(previous), nil
+}
+
 type Memory struct{}
 
 func (Memory) LogValue() slog.Value {

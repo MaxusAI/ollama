@@ -123,6 +123,9 @@ func (r *Runner) Load(modelName string) error {
 	mlx.Sweep()
 	mlx.Eval(collected...)
 	configureWiredMemory()
+	// After the weights are resident, so the "previous" it logs and any cache
+	// it trims reflect a loaded model rather than an empty allocator.
+	configureCacheLimit()
 
 	r.Model = m
 	r.Tokenizer = m.Tokenizer()
@@ -200,6 +203,102 @@ func configureMemoryLimit(active int, wsErr error) {
 		"active", mlx.PrettyBytes(active),
 		"limit", mlx.PrettyBytes(budget),
 		"previous", mlx.PrettyBytes(previous))
+}
+
+// CacheLimitEnv bounds MLX's RETAINED buffer cache, in bytes. Unset leaves
+// MLX's own limit in place; 0 means retain nothing. See configureCacheLimit for
+// the measured trade and why there is no default.
+const CacheLimitEnv = "OLLAMA_MLX_CACHE_LIMIT"
+
+// configureCacheLimit bounds what MLX keeps after it is finished with it.
+//
+// The memory limit above caps TOTAL allocation and decides when an allocation
+// FAILS. It does not make MLX give anything back, and MLX's allocator retains
+// freed blocks for reuse. Measured on gemma4:31b-nvfp4, one 3072x1728 image:
+// active 18.29 GiB against cache 13.16 GiB, for a 32.36 GiB process where
+// llama.cpp does the identical work — same image, same num_ctx, same
+// prompt_eval_count — in 23.03 GiB. The cache IS the difference.
+//
+// That matters beyond tidiness on a shared card: a large retained cache is a
+// candidate cause of an out-of-memory abort seen on qwen3.6:35b-a3b-nvfp4 at
+// the same geometry while nvidia-smi reported 85 GiB free, because the pool
+// holds memory the driver can no longer hand to a big contiguous request.
+//
+// NO DEFAULT, ON MEASUREMENT. A bounded default was shipped and then withdrawn:
+// the trade is sharp and has no comfortable middle. Measured n=3 on
+// gemma4:31b-nvfp4, one 3072x1728 image, decode tok/s against peak footprint:
+//
+//	 4 GiB   29.44 tok/s   28,749 MiB    <- all of the footprint win
+//	 8 GiB   34.73 tok/s   32,779 MiB
+//	16 GiB   34.77 tok/s   33,295 MiB
+//	90 GiB   34.98 tok/s   33,276 MiB    <- MLX's own default
+//
+// Throughput recovers fully by 8 GiB, but 8 GiB saves 497 MiB -- nothing. The
+// entire 4.5 GB saving sits at 4 GiB, and 4 GiB costs 15.8% decode, because the
+// transient working set is ~7 GiB (peak 25.37 against active 18.29) and a
+// smaller cache makes the allocator round-trip to the driver inside every
+// forward.
+//
+// So a default at 8 GiB would buy nothing while adding a surprise, and a default
+// at 4 GiB would silently cost every user a sixth of their throughput to save
+// memory most of them are not short of. Neither is worth doing on the operator's
+// behalf. The knob is opt-in: set OLLAMA_MLX_CACHE_LIMIT when the footprint
+// matters more than the speed -- a shared card, or a model that OOMs at large
+// geometries -- and pay the cost knowingly.
+//
+// AND THE COST IS WORSE ON MULTI-IMAGE WORK THAN THE NUMBERS ABOVE SUGGEST.
+// Every figure in the table is one 3072x1728 image. Starving the allocator from
+// the other direction -- OLLAMA_MLX_MEMORY_LIMIT, full 12-test suite, n=2 --
+// shows the penalty concentrating on the three-image cells:
+//
+//	cell                   24 GiB      82 GiB     delta
+//	scene_single         30.46 t/s   30.87 t/s     +1%
+//	multi_3img           28.46 t/s   29.19 t/s     +3%
+//	bbox_contract_multi  17.71 t/s   27.21 t/s    +54%
+//
+// Peak footprint 33,536 MiB against 67,518 MiB. Stable across both reps on each
+// side (17.73/17.71 vs 25.0/27.21), so the 54% is not noise.
+//
+// The lesson for anyone measuring this next: a single-image prompt CANNOT show
+// it. Three separate sweeps over the allocator ceiling came back flat on
+// scene_single and were reported as "no throughput effect" -- true of that cell,
+// and not true of the workload the suite actually exists to measure.
+func configureCacheLimit() {
+	limit, ok := parseCacheLimit(os.Getenv(CacheLimitEnv))
+	if !ok {
+		return
+	}
+	previous, err := mlx.SetCacheLimit(limit)
+	if err != nil {
+		slog.Warn("Unable to apply MLX cache limit; keeping the backend default",
+			"limit", mlx.PrettyBytes(limit), "error", err)
+		return
+	}
+	slog.Info("Configured MLX buffer cache limit",
+		"limit", mlx.PrettyBytes(limit),
+		"previous", mlx.PrettyBytes(previous),
+		"memory", mlx.Memory{})
+}
+
+// parseCacheLimit is parseMemoryBudget with ZERO ADMITTED. The two look alike
+// and mean different things: a memory budget of 0 is meaningless (it would
+// forbid every allocation), so parseMemoryBudget rejects it, but a CACHE limit
+// of 0 is the most useful value in the range -- "retain nothing", the setting
+// that makes MLX return every freed buffer instead of holding it.
+//
+// Reusing parseMemoryBudget here silently discarded OLLAMA_MLX_CACHE_LIMIT=0
+// and left the backend default in place, so a measurement of that setting
+// reported the DEFAULT's footprint under the cap-0 label -- 33,134 MiB,
+// byte-identical to the unset arm, which is what gave it away.
+func parseCacheLimit(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil || v > math.MaxInt {
+		return 0, false
+	}
+	return int(v), true
 }
 
 func parseMemoryBudget(s string) (int, bool) {
