@@ -31,19 +31,12 @@ func TestZeroIsStillInvalidAsAMemoryBudget(t *testing.T) {
 	}
 }
 
-// Unset must apply the bounded default, not MLX's own -- which is derived from
-// TOTAL device memory (90.22 GiB on the measured card) and is the behaviour
-// this change exists to replace.
-func TestDefaultCacheLimitIsBounded(t *testing.T) {
-	if DefaultCacheLimit <= 0 {
-		t.Fatal("the default must bound the cache")
-	}
-	if DefaultCacheLimit > 16<<30 {
-		t.Errorf("DefaultCacheLimit %d is not a bound worth having", DefaultCacheLimit)
-	}
-	// The env parser must not claim an unset value, so configureCacheLimit
-	// falls through to the default rather than skipping.
+// Unset must leave MLX's own behaviour alone. A bounded default was measured
+// and withdrawn: throughput recovers only by 8 GiB, where the footprint saving
+// is 497 MiB, while the whole 4.5 GB saving sits at 4 GiB and costs 15.8%
+// decode. Neither trade is one to make on the operator's behalf.
+func TestUnsetAppliesNoCacheLimit(t *testing.T) {
 	if _, ok := parseCacheLimit(""); ok {
-		t.Error("empty must not parse; the default applies instead")
+		t.Error("unset must not parse; configureCacheLimit then leaves MLX alone")
 	}
 }
