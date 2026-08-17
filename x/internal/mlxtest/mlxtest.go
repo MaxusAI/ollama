@@ -10,7 +10,7 @@ import (
 
 // SkipIfUnavailable skips the test when the MLX dynamic library cannot be
 // loaded (e.g. no MLX backend built for this platform).
-func SkipIfUnavailable(t *testing.T) {
+func SkipIfUnavailable(t testing.TB) {
 	t.Helper()
 	if err := mlx.CheckInit(); err != nil {
 		t.Skipf("MLX not available: %v", err)
@@ -39,7 +39,7 @@ func SkipIfUnavailable(t *testing.T) {
 // what made x/imagegen segfault: every test passed alone and any two in
 // sequence crashed. mlx.ClaimOSThread is idempotent, so calling it once per
 // test cannot run the runtime's lock counter away across a package.
-func Setup(t *testing.T) {
+func Setup(t testing.TB) {
 	t.Helper()
 
 	SkipIfUnavailable(t)
