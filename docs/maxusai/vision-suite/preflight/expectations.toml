@@ -1018,8 +1018,35 @@ ladder = [68, 146, 578, 2306, 5186]       # prefix == text_only == 13
 # backend.
 
 [expect.mlx-cuda.gemma4]
-status = "unmeasured"
-reason = "No CUDA host has ever served the MLX runtime. The mlx_cuda_v13 payload ships without an ELF RPATH and without libquadmath bundled, so it loads only where the host already provides CUDA, cuDNN, NCCL and libquadmath on the system search path — see ../../upstream-mlx-cuda-payload-unloadable.md. Measure on such a host; do NOT copy the mlx-metal ladder, which describes a different backend."
+status = "measured"
+measured_on = "2026-08-17"
+model = "gemma4:31b-nvfp4"
+# Emitted by measure_ladder.py against :11495 (container mlx-release, server
+# 0.32.14-rc0-dynres-20-geb0ad43) and pasted whole, per ADR 0012 rule 8.
+patch_stride = 48                # BudgetFillSize(w, h, 48, maxTok) — llm/llama_server.go
+budget_min_tokens = 70           # ADR 0008 floor
+budget_max_tokens = 1120         # vendor maximum
+image_min_pixels = 161280        # 70 * 48^2
+image_max_pixels = 2580480       # 1120 * 48^2
+
+# THE LADDER IS MEASURED HERE, NOT CARRIED OVER. It lands on the same values as
+# mlx-metal, which is the expected result — MLX sizing goes through
+# llm.BudgetFillSize, plain Go, identical on both backends — but ADR 0011 rule 4
+# forbids asserting that from expectation rather than measurement, and the
+# earlier draft of this profile said in as many words "do NOT copy the mlx-metal
+# ladder". So it was measured: image_prefix (B8), five geometries, flat 1102
+# throughout, prefix == text_only == 19.
+#
+# The four budget fields above are NOT from a log and could not be. The MLX
+# runner does not emit llama.cpp's `load_hparams: image_*_pixels` lines, so
+# measure_ladder.py's --container path yields nothing here and correctly leaves
+# them TODO rather than inventing them. They are runner constants read from the
+# fork's own source — 70/1120 are the ADR 0008 gemma4 defaults, and the stride
+# is the align argument BudgetFillSize is called with — which is a stronger
+# source than a log line, not a weaker one.
+scaling = "flat"
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]
 
 [expect.mlx-cuda.qwen35moe]
 status = "unmeasured"
