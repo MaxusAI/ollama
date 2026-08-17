@@ -274,6 +274,33 @@ Always check `prompt_eval_count` before attributing such a delta to a patch.
   norm-1000-prompt, think on). The scorer's `bbox_space` field verifies what
   came back.
 
+## Running an ARM (repeats, subsets, sampling overrides)
+
+**Never hand-roll a loop over models.** `run_engine_compare.sh` is the only
+runner, and it is the only thing that climbs the `num_ctx` ladder and derives
+`num_predict` for think-on. Six bespoke loops were written in one week and none
+of them did either, so every one silently measured think-on at the think-off cap
+of 2200 and produced empty responses that looked like model failures.
+
+```sh
+# a repeated, subsetted arm with a sampling override
+TEMPERATURE=0.01 REPEATS=3 TAG_PREFIX=lt \
+  ONLY_TESTS=bbox_contract,bbox_contract_anchored \
+  MODELS="gemma4:31b-it-q4_K_M qwen3.6:35b-a3b-q4_K_M" \
+  RESTART_CMD='sh /tmp/restart-vs.sh' THINK_MODES='false on' \
+  ./run_engine_compare.sh http://127.0.0.1:11436
+```
+
+| knob | effect |
+| --- | --- |
+| `REPEATS` | n runs per cell, tagged `<prefix><rep>_<model>_think<mode>` |
+| `TAG_PREFIX` | names the arm so its scores do not collide with the campaign's |
+| `ONLY_TESTS` | subset passed to `vision_suite.py`; `finetext_probe.py` is skipped unless `finetext` is in the list |
+| `TEMPERATURE`, `TOP_P`, … | inherited by `sampling.py`; the resulting `sampling_source` records the override |
+
+Tags are unchanged when `REPEATS=1` and `TAG_PREFIX` is empty, so campaigns and
+every summarizer keep working.
+
 ## Bounding-box contract probes (2026-08-16)
 
 Eight probes measure whether a model's *declaration* of its coordinate convention

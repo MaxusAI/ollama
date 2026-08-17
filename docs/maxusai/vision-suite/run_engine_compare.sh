@@ -87,10 +87,34 @@ CTX_MAX="${CTX_MAX:-65536}"
 # until nemotron was run). 8192 clears it with margin.
 CTX_PROMPT_RESERVE="${CTX_PROMPT_RESERVE:-8192}"
 
+# REPEATS / TAG_PREFIX / ONLY_TESTS exist so that an ARM — a repeated,
+# subsetted variation like a sampling comparison or an A/B on prompt shape — is
+# run by THIS script rather than by a bespoke loop. Six such loops were
+# hand-written in one week and not one of them climbed the ladder or derived
+# num_predict for think-on, so every one of them silently measured think-on at
+# the think-off cap of 2200 and reported the resulting empty responses as
+# results. There is no reason to write a seventh: whatever the arm needs, add
+# the knob here so it inherits the escalation, the cold restart per cell and the
+# powermode stamp for free.
+#
+# Tags are unchanged when REPEATS=1 and TAG_PREFIX is empty, so existing
+# campaigns and every summarizer keep working.
+REPEATS="${REPEATS:-1}"
+TAG_PREFIX="${TAG_PREFIX:-}"
+# ONLY_TESTS is passed through to vision_suite.py. The fine-text probe is a
+# separate entry point, so it is skipped unless the subset actually asks for it.
+ONLY_TESTS="${ONLY_TESTS:-}"
+
 for m in $MODELS; do
   base=$(printf '%s' "$m" | tr ':.' '__')
   for think in $THINK_MODES; do
-    tag="${base}_think${think}"
+   rep=1
+   while [ "$rep" -le "$REPEATS" ]; do
+    if [ "$REPEATS" -gt 1 ] || [ -n "$TAG_PREFIX" ]; then
+      tag="${TAG_PREFIX}${rep}_${base}_think${think}"
+    else
+      tag="${base}_think${think}"
+    fi
     # Reasoning models think before answering; too small a cap yields an empty
     # response, not a short one. See the header note.
     if [ "$think" = "on" ]; then
@@ -126,9 +150,14 @@ for m in $MODELS; do
         done
       fi
       ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
+        ONLY_TESTS="$ONLY_TESTS" \
         python3 "$DIR/vision_suite.py" "$HOST" "$tag" "$m"
-      ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
-        python3 "$DIR/finetext_probe.py" "$HOST" "$tag" "$m"
+      case ",$ONLY_TESTS," in
+        ,,|*,finetext,*)
+          ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
+            python3 "$DIR/finetext_probe.py" "$HOST" "$tag" "$m" ;;
+        *) echo "##### SKIP finetext_probe (ONLY_TESTS=$ONLY_TESTS)" ;;
+      esac
 
       # Did any test hit the cap? Only then is a bigger window worth paying for.
       capped=$(python3 - "$DIR/scores_${tag}.json" "$np" <<'PYEOF'
@@ -151,7 +180,9 @@ PYEOF
       echo "##### CAPPED $m think=$think at num_ctx=$nc ($capped) -> escalating to $next"
       nc="$next"
     done
-    echo "##### DONE $m think=$think $(date +%T)"
+    echo "##### DONE $m think=$think rep=$rep $(date +%T)"
+    rep=$((rep + 1))
+   done
   done
 done
 echo "ENGINE COMPARE DONE"
