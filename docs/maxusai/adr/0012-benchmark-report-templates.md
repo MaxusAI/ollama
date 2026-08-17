@@ -65,6 +65,25 @@ Shared conventions, binding for all three:
 7. **Exploratory tables are exempt** from T1/T2 shapes (investigations need
    free-form arms) but still carry the provenance header and validity marks.
 
+8. **When the window ladder escalates, the reported `num_ctx` is the final
+   successful rung, and it is a first-class result — not a footnote.** A run that
+   needed 65,536 to terminate has not performed the same as one that finished at
+   16,384, however similar the scores look. Report the rung a model *reached*
+   alongside its score; do not summarise escalation as prose ("the ladder
+   climbed") and do not report cap counts in its place. **Cap counts are harness
+   diagnostics, not results** — the reader wants the answer and what it cost to
+   obtain, which is exactly `(score, num_ctx, num_predict)`.
+
+   **The score file holds only the final rung.** Each escalation re-runs the
+   whole suite and overwrites, so a file read mid-ladder shows a superseded
+   result. Re-render after a campaign fully completes, including any resume, and
+   never transcribe generator output by hand — measured 2026-08-17, a
+   hand-copied table published `nemotron3:33b-bf16` think-on as scene IoU
+   **0.000** (read at the 16,384 rung) when the settled value is **0.872** at
+   32,768. Both the dropped column and the stale number came from typing what a
+   generator had already rendered correctly, which is what rule 1 above exists
+   to prevent.
+
 ## Alternatives considered
 
 - **One universal table.** Rejected: the campaign matrix and the pivot answer
