@@ -292,12 +292,13 @@ budget_max_tokens = 4096          # llama.cpp handle_qwen35_like_clip set_limit_
 image_min_pixels = 1048576        # 1024 * 32^2
 image_max_pixels = 4194304        # 4096 * 32^2
 
-# The fork sets only the FLOOR for this arch (--image-min-tokens 1024), so the
-# ceiling is llama.cpp's own default and is not marked "(custom value)" in the
-# load_hparams block. Both VALUES are still asserted; this only relaxes the
-# marker requirement on max. gemma4 and nemotron_h_omni set both and must stay
-# strict, which is why this is opt-in per row rather than a global loosening.
-custom_budget_bounds = ["min"]
+custom_bounds = ["min"]           # only the min is ours to set: the fork passes
+                                  # --image-min-tokens and no max, so the ceiling
+                                  # is llama.cpp's structural default and is not
+                                  # marked "(custom value)". Both VALUES are still
+                                  # asserted, and the check runs both ways -- a
+                                  # bound declared uncustomised that starts
+                                  # logging as custom fails too.
 
 # Qwen3.8 is the DENSE member of qwen3_5; qwen3.6:35b-a3b is the MoE sibling and
 # llama.cpp draws the same line (LLM_ARCH_QWEN35 vs LLM_ARCH_QWEN35MOE), so this
