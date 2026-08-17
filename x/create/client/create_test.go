@@ -750,9 +750,16 @@ func TestGetParserName(t *testing.T) {
 
 func TestGetRendererName(t *testing.T) {
 	tests := []struct {
-		name       string
+		name string
+		// configJSON is written to config.json.
 		configJSON string
-		want       string
+		// chatTemplate, when set, is written to tokenizer_config.json, or to
+		// chat_template.jinja when standaloneOnly is set. Both are paths
+		// readChatTemplate probes, and qwen3.8 is told apart from the rest of
+		// the qwen3.5 family by the template alone.
+		chatTemplate   string
+		standaloneOnly bool
+		want           string
 	}{
 		{
 			name:       "qwen3 model",
@@ -763,6 +770,19 @@ func TestGetRendererName(t *testing.T) {
 			name:       "qwen3.5 model",
 			configJSON: `{"architectures": ["Qwen3_5ForConditionalGeneration"]}`,
 			want:       "qwen3.5",
+		},
+		{
+			name:         "qwen3.8 embedded template",
+			configJSON:   `{"architectures": ["Qwen3_5ForConditionalGeneration"]}`,
+			chatTemplate: `{% set resolved_reasoning_effort = reasoning_effort|default('xhigh') %}{% if preserve_thinking %}{% endif %}`,
+			want:         "qwen3.8",
+		},
+		{
+			name:           "qwen3.8 standalone template",
+			configJSON:     `{"architectures": ["Qwen3_5ForConditionalGeneration"]}`,
+			chatTemplate:   `{% set resolved_reasoning_effort = reasoning_effort|default('xhigh') %}{% if preserve_thinking %}{% endif %}`,
+			standaloneOnly: true,
+			want:           "qwen3.8",
 		},
 		{
 			name:       "deepseek model",
@@ -790,6 +810,17 @@ func TestGetRendererName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			os.WriteFile(filepath.Join(dir, "config.json"), []byte(tt.configJSON), 0o644)
+			if tt.chatTemplate != "" {
+				if tt.standaloneOnly {
+					os.WriteFile(filepath.Join(dir, "chat_template.jinja"), []byte(tt.chatTemplate), 0o644)
+				} else {
+					cfg, err := json.Marshal(map[string]string{"chat_template": tt.chatTemplate})
+					if err != nil {
+						t.Fatal(err)
+					}
+					os.WriteFile(filepath.Join(dir, "tokenizer_config.json"), cfg, 0o644)
+				}
+			}
 
 			if got := getRendererName(dir); got != tt.want {
 				t.Errorf("getRendererName() = %q, want %q", got, tt.want)

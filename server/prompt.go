@@ -38,6 +38,7 @@ func chatPrompt(ctx context.Context, m *Model, tokenize tokenizeFunc, opts *api.
 
 	lastMsgIdx := len(msgs) - 1
 	currMsgIdx := 0
+	lastRenderable := 0
 
 	if truncate {
 		// Start with all messages and remove from the front until it fits in context
@@ -52,8 +53,43 @@ func chatPrompt(ctx context.Context, m *Model, tokenize tokenizeFunc, opts *api.
 
 			p, err := renderPrompt(m, append(system, msgs[i:]...), tools, think)
 			if err != nil {
-				return "", nil, err
+				// A renderer that validates its input can reject a candidate this
+				// loop has cut too far: qwen3.8 requires a user turn that is not
+				// purely a tool response, and truncation drops messages from the
+				// front. Rather than failing the whole request, fall back to the
+				// last window that did render. The fit check here is only a
+				// heuristic and llama-server performs the real truncation, so an
+				// over-long window degrades far better than a hard error: without
+				// this the request dies, and under ADR 0004's double request it
+				// dies mid-stream, after pass one's content has already reached
+				// the client.
+				//
+				// Keep scanning rather than settling immediately. Later windows
+				// are subsequences of earlier ones, but renderability is not
+				// monotone under that: qwen3.8 only validates the leading run of
+				// system/developer messages, and a `developer` message is not
+				// collected into system above, so advancing past one deletes it
+				// and can un-break a later, smaller window.
+				//
+				// Only renderer-driven models get this recovery. A template that
+				// fails to execute is a real error and must still surface, or
+				// this silently serves an untruncated conversation.
+				if i == 0 || m.Config.Renderer == "" {
+					return "", nil, err
+				}
+				if i < lastMsgIdx {
+					continue
+				}
+				currMsgIdx = lastRenderable
+				system = system[:0]
+				for j := range currMsgIdx {
+					if msgs[j].Role == "system" {
+						system = append(system, msgs[j])
+					}
+				}
+				break
 			}
+			lastRenderable = i
 
 			s, err := tokenize(ctx, p)
 			if err != nil {

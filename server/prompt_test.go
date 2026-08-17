@@ -780,3 +780,113 @@ func TestTruncateNativeChatMessagesChargesImages(t *testing.T) {
 		})
 	}
 }
+
+// TestChatPromptQwen38TruncationDropsUserQuery reproduces the failure where a
+// validating renderer rejects a truncation candidate and the whole request
+// dies. qwen3.8's validateMessages requires a user turn that is not purely a
+// tool response; truncation removes messages from the front, so a long enough
+// conversation reaches a window with no user query left.
+//
+// Covered with thinking both on and off. The fork's ADR 0004 pass two makes
+// this reachable in practice only when thinking is on — it re-renders with the
+// thinking appended as a trailing assistant message, on a strictly longer
+// prompt — but validateMessages does not consult think, so a plain long
+// conversation ending in assistant turns hits it either way. Asserting both
+// pins that the fix is not think-dependent.
+func TestChatPromptQwen38TruncationDropsUserQuery(t *testing.T) {
+	long := strings.Repeat("token ", 400)
+
+	for _, think := range []bool{false, true} {
+		name := "think_off"
+		if think {
+			name = "think_on"
+		}
+		t.Run(name, func(t *testing.T) {
+			msgs := []api.Message{
+				{Role: "user", Content: "the original question " + long},
+				{Role: "assistant", Content: "an answer " + long},
+				{Role: "assistant", Thinking: "still reasoning " + long},
+			}
+
+			m := Model{Config: testConfigWithRenderer("qwen3.8")}
+			// Small enough that truncation must drop the leading user turn.
+			opts := api.Options{Runner: api.Runner{NumCtx: 512}}
+
+			_, _, err := chatPrompt(t.Context(), &m, mockRunner{}.Tokenize, &opts, msgs, nil, &api.ThinkValue{Value: think}, true)
+			if err != nil {
+				t.Fatalf("chatPrompt failed instead of finding a usable window: %v", err)
+			}
+		})
+	}
+}
+
+// TestChatPromptQwen38TruncationSkipsUnrenderableWindow pins that the truncation
+// fallback keeps scanning instead of settling on the last window that rendered.
+//
+// Later windows are subsequences of earlier ones, but renderability is not
+// monotone under that relation: qwen3.8 validates only the leading run of
+// system/developer messages, and a `developer` message is not collected into
+// `system` by the loop above, so advancing past one deletes it and can un-break
+// a smaller window. Settling on i-1 at the first rejection therefore returns a
+// window that does not fit while a fitting, renderable one exists further down.
+//
+// The `developer` role with images is reachable over the OpenAI-compatible
+// surface, which passes the client-supplied role through verbatim.
+func TestChatPromptQwen38TruncationSkipsUnrenderableWindow(t *testing.T) {
+	long := strings.Repeat("token ", 400)
+
+	msgs := []api.Message{
+		{Role: "user", Content: "first question " + long},
+		{Role: "developer", Content: "policy", Images: []api.ImageData{{1, 2, 3}}},
+		{Role: "user", Content: "second question " + long},
+		{Role: "assistant", Content: "an answer " + long},
+	}
+
+	m := Model{Config: testConfigWithRenderer("qwen3.8")}
+	opts := api.Options{Runner: api.Runner{NumCtx: 900}}
+
+	prompt, _, err := chatPrompt(t.Context(), &m, mockRunner{}.Tokenize, &opts, msgs, nil, &api.ThinkValue{Value: false}, true)
+	if err != nil {
+		t.Fatalf("chatPrompt failed: %v", err)
+	}
+
+	if strings.Contains(prompt, "first question") {
+		t.Errorf("fallback pinned the window before the rejection instead of scanning on; prompt still carries the first user turn")
+	}
+	if got := len(strings.Fields(prompt)); got > opts.NumCtx {
+		t.Errorf("selected window is %d tokens, over NumCtx %d, while a fitting window exists", got, opts.NumCtx)
+	}
+}
+
+// TestChatPromptTemplateExecErrorSurfaces pins the `m.Config.Renderer == ""`
+// half of the truncation guard. The unrenderable-window recovery exists for
+// validating renderers only; a template that fails to execute is a real error
+// and must still surface, or truncation silently serves the untruncated
+// conversation.
+func TestChatPromptTemplateExecErrorSurfaces(t *testing.T) {
+	// Executes on the full window, fails once truncation cuts below 3 messages.
+	tmpl, err := template.Parse(`{{ range .Messages }}{{ .Role }}: {{ .Content }}
+{{ end }}{{ if lt (len .Messages) 3 }}{{ index .Messages 9 }}{{ end }}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	long := strings.Repeat("word ", 200)
+	msgs := []api.Message{
+		{Role: "user", Content: "one " + long},
+		{Role: "assistant", Content: "two " + long},
+		{Role: "user", Content: "three " + long},
+		{Role: "assistant", Content: "four " + long},
+	}
+
+	m := Model{Template: tmpl}
+	opts := api.Options{Runner: api.Runner{NumCtx: 10}}
+
+	p, _, err := chatPrompt(t.Context(), &m, mockRunner{}.Tokenize, &opts, msgs, nil, &api.ThinkValue{Value: false}, true)
+	if err == nil {
+		t.Fatalf("template execution error was swallowed; chatPrompt returned %d words against NumCtx %d", len(strings.Fields(p)), opts.NumCtx)
+	}
+	if p != "" {
+		t.Errorf("expected empty prompt alongside the error, got %d bytes", len(p))
+	}
+}
