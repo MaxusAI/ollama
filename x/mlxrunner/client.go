@@ -316,6 +316,14 @@ func (c *Client) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.DeviceInfo
 		}
 		vramBudget = available
 
+		if capped, overridden := budgetWithOverride(available, os.Getenv(MemoryLimitEnv)); overridden {
+			vramBudget = capped
+			slog.Info("MLX memory limit overridden from the environment",
+				"requested", os.Getenv(MemoryLimitEnv),
+				"derived", format.HumanBytes2(available),
+				"using", format.HumanBytes2(vramBudget))
+		}
+
 		if modelSize > available {
 			if requireFull {
 				return nil, llm.ErrLoadRequiredFull
@@ -536,4 +544,35 @@ func setEnv(cmd *exec.Cmd, key, value string) {
 		}
 	}
 	cmd.Env = append(cmd.Env, entry)
+}
+
+// budgetWithOverride applies an operator-set OLLAMA_MLX_MEMORY_LIMIT on top of
+// the budget derived from free device memory, returning the value to use and
+// whether an override was applied.
+//
+// WHY AN OVERRIDE EXISTS AT ALL. setEnv REPLACES whatever the environment
+// holds, so a limit set on the container was silently overwritten by the
+// derivation and the knob did nothing. That is not merely inconvenient: MLX's
+// allocator grows toward whatever ceiling it is given, so the ceiling is the
+// main lever on steady-state footprint — and on a shared card an 18 GB model
+// handed 82 GiB is a bad neighbour. It was also untestable: a sweep over
+// 24/48/82 GiB produced three identical runs, all at 82, because nothing in the
+// output revealed that the request had been discarded.
+//
+// AN OVERRIDE MAY ONLY ASK FOR LESS. Clamping to the derived value is what
+// keeps this from reintroducing the overcommit that motivated deriving from
+// FREE memory rather than MLX's own default, which comes from TOTAL device
+// memory and overcommits whenever anything else is resident.
+func budgetWithOverride(available uint64, env string) (uint64, bool) {
+	v, ok := parseMemoryBudget(env)
+	if !ok || v <= 0 {
+		return available, false
+	}
+	if uint64(v) >= available {
+		// Reported as an override so the log records that a request was seen
+		// and what it resolved to; silently ignoring it is the behaviour this
+		// function exists to remove.
+		return available, true
+	}
+	return uint64(v), true
 }
