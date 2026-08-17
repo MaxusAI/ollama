@@ -27,8 +27,20 @@
 # unrelated work. The cap costs a reload between models, which every runner here
 # pays anyway for cold-cache reasons.
 #
+# BIND defaults to 0.0.0.0 so remote agents and other machines on the network
+# can drive a benchmark host. WHAT THAT MEANS, stated once so it is a choice
+# rather than a surprise: ollama has no authentication, so every interface this
+# binds reaches /api/generate, /api/pull, /api/delete and the whole model store
+# with no credential. Narrow it with OLLAMA_BIND=127.0.0.1 (loopback only) or to
+# a specific interface address; that is the right setting on any host whose
+# network you do not control.
+#
+# It was 127.0.0.1 until 2026-08-17, which is why a remote agent could not reach
+# :11436 while the server was plainly up and answering locally.
+#
 # Override any of these from the environment.
 set -u
+BIND="${OLLAMA_BIND:-0.0.0.0}"
 BIN="${OLLAMA_BIN:-/tmp/ollama-vs}"
 PORT="${OLLAMA_PORT:-11436}"
 STORE="${OLLAMA_STORE:-$HOME/.ollama/models-mlx}"
@@ -43,7 +55,7 @@ sleep 3
 # Start from the repo root: llama-server is resolved relative to the working
 # directory, and starting elsewhere fails with "llama-server binary not found".
 cd "$REPO" || exit 1
-OLLAMA_HOST="127.0.0.1:$PORT" OLLAMA_MODELS="$STORE" \
+OLLAMA_HOST="$BIND:$PORT" OLLAMA_MODELS="$STORE" \
   OLLAMA_MAX_LOADED_MODELS="$MAX_LOADED" \
   "$BIN" serve > "$LOG" 2>&1 &
 
