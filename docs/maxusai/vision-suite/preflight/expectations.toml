@@ -82,6 +82,12 @@ platform = "rocm"
 version_pattern = '^0\.32\.1-dynres-[0-9a-f]{7,40}$'
 patchset = ["001", "002", "004", "005"]
 reference_image = "0.32.1-dynres-35d9e58e"
+# b9888. Cross-checked three ways: release/0.32.1-dynres:LLAMA_CPP_VERSION reads
+# b9888, an on-disk b9888 checkout is cb295bf59, and the deployed container's
+# llama-server reports cb295bf59. Without this the profile SKIPped payload_pin,
+# which is the check that stops a llama.cpp bump silently inheriting a previous
+# payload's ladders -- the exact trap b10091 -> b10353 set on the CUDA side.
+llama_cpp_build = "cb295bf59"
 expect_patch_marker = 1
 arches = ["nemotron_h_omni", "gemma4"]
 notes = """
@@ -279,9 +285,10 @@ require_nonempty_thinking = false   # gemma4 handles think+format on stock too
 # ------------------------------------------------------------- ROCm / 0.32.1 --
 # This host carries the SAME compat patches as CUDA but a different llama.cpp
 # payload (b9888 vs b10091), so its numbers must be taken on the host rather than
-# copied across. Both arches are unmeasured at the preflight geometries, so the
-# harness reports NEEDS_BASELINE (exit 4) — an unvalidatable check must never
-# read as a pass.
+# copied across. Both arches were measured on gfx1151 on 2026-08-08 and the rows
+# below are those measurements, carried back from `release/0.32.1-dynres` where
+# they were taken. This file had gone on reporting NEEDS_BASELINE for months
+# after the work was done — the harness was right at the time and wrong since.
 #
 # CONVENTION MISMATCH — read before transplanting any number from that lineage's
 # docs. `release/0.32.1-dynres` spec/vision-image-token-budgets.md §2.3 reports
@@ -295,37 +302,68 @@ require_nonempty_thinking = false   # gemma4 handles think+format on stock too
 # Re-measure with the harness; do not convert.
 
 [expect.rocm-0-32-1-dynres.nemotron_h_omni]
-status = "unmeasured"
+status = "measured"
+measured_on = "2026-08-08"
 model = "nemotron3:33b-q4_K_M"
-reason = """
-Not measured on gfx1151 at the five preflight geometries, and NOT derivable from
-the CUDA row: same patch set, different payload (b9888 vs b10091).
 
-Known from spec/vision-image-token-budgets.md §2.3 on `release/0.32.1-dynres`
-(build 0.32.1-dynres-35d9e58e, deployed 2026-08-08) — but in that doc's own
-convention, and at geometries this ladder does not use:
+# Payload proof read from the MODEL-LOAD LOG on 0.32.1-dynres-e74f16d8, not from
+# the binary (see the CUDA block for why static inspection is unreliable):
+#   load_hparams: image_min_pixels: 262144 (custom value)
+#   load_hparams: image_max_pixels: 3407872 (custom value)
+patch_stride = 32
+budget_min_tokens = 256
+budget_max_tokens = 3328
+image_min_pixels = 262144        # 256 * 32^2
+image_max_pixels = 3407872       # 3328 * 32^2
 
-  * defaults: 2026
-  * pinned 3328: 3254, under the ceiling (was 3388 pre-005)
+scaling = "dynamic"
+ladder_tolerance = 2
+# Measured on gfx1151/ROCm (10.8.0.4), b9888 payload + 001/002/004/005, against the
+# in-image prefix (20; text-only is 21 on this arch — B8). IDENTICAL to the CUDA
+# row despite the different payload, which is a result, not an assumption: the
+# profile was left unmeasured precisely because b9888 vs b10091 could have differed.
+ladder = [266, 266, 578, 2306, 3270]
 
-Expect scaling = "dynamic" once measured. 002 IS present on this lineage, so the
-structural flat 256 of the old gemma4budget build does NOT apply here.
-Measure on 10.8.0.4 per README.md.
-"""
+[expect.rocm-0-32-1-dynres.nemotron_h_omni.pinned]
+size = "2048x1152"
+pin_tokens = 3328
+expect_tokens = 3270
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 2306
+control_tolerance = 4
+
+[expect.rocm-0-32-1-dynres.nemotron_h_omni.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
 
 [expect.rocm-0-32-1-dynres.gemma4]
-status = "unmeasured"
+status = "measured"
+measured_on = "2026-08-08"
 model = "gemma4:31b-it-q4_K_M"
-reason = """
-Not measured at the five preflight geometries. 004 IS present on this lineage
-(`5f6e7fdc`) with defaults 70/1120, so expect scaling = "flat" as on CUDA — but
-the payload underneath is b9888, so the constant must be measured, not copied
-from the CUDA row's 1102.
 
-Known from spec §2.3 (that doc's convention, other geometries): 1920x1080 gives
-grid 1100 = 20x55 and 1568^2 gives 1089 = 33x33, both conforming to the 1120
-ceiling. Measure on 10.8.0.4 per README.md.
-"""
+# Payload proof from the model-load log on 0.32.1-dynres-e74f16d8:
+#   load_hparams: image_min_pixels: 161280 (custom value)
+#   load_hparams: image_max_pixels: 2580480 (custom value)
+patch_stride = 48
+budget_min_tokens = 70           # post-ADR-0008 floor
+budget_max_tokens = 1120         # vendor maximum; ladder rungs 70/140/280/560/1120
+image_min_pixels = 161280        # 70 * 48^2
+image_max_pixels = 2580480       # 1120 * 48^2
+
+scaling = "flat"
+ladder_tolerance = 2
+# Flat 1102 across a 12x pixel range (256x144 .. 3072x1728) — 004 budget-fill
+# confirmed on b9888. Matches the CUDA constant exactly; measured, not copied.
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.rocm-0-32-1-dynres.gemma4.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
 
 
 # ----------------------------------------------------------- Apple Silicon ---
