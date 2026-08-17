@@ -68,7 +68,12 @@
 # macOS + MLX note: a fork server binary must start with the repo root as its
 # working directory (the MLX dylib and llama-server payload resolve relative
 # to cwd/executable), e.g.
+# Prefer serve-mlx.sh, which is in the repo and sets OLLAMA_MAX_LOADED_MODELS=1;
+# without that cap a sweep holds EVERY model it has served resident at once.
+#   RESTART_CMD='sh docs/maxusai/vision-suite/serve-mlx.sh'
+# The equivalent by hand:
 #   RESTART_CMD='pkill -f "ollama serve"; sleep 2; (cd /path/to/repo && \
+#     OLLAMA_MAX_LOADED_MODELS=1 \
 #     OLLAMA_MODELS=$HOME/.ollama/models-mlx OLLAMA_HOST=127.0.0.1:11499 \
 #     ./ollama serve >> /tmp/serve.log 2>&1 &)'
 set -eu

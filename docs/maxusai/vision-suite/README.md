@@ -287,7 +287,7 @@ of 2200 and produced empty responses that looked like model failures.
 TEMPERATURE=0.01 REPEATS=3 TAG_PREFIX=lt \
   ONLY_TESTS=bbox_contract,bbox_contract_anchored \
   MODELS="gemma4:31b-it-q4_K_M qwen3.6:35b-a3b-q4_K_M" \
-  RESTART_CMD='sh /tmp/restart-vs.sh' THINK_MODES='false on' \
+  RESTART_CMD='sh docs/maxusai/vision-suite/serve-mlx.sh' THINK_MODES='false on' \
   ./run_engine_compare.sh http://127.0.0.1:11436
 ```
 
