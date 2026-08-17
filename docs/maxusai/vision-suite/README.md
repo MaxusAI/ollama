@@ -4,6 +4,20 @@ Reproducible ground-truth benchmarks behind the measured tables in
 [nemotron-test-image.md](../nemotron-test-image.md) and the amendments in
 [vision-token-budget-measurements.md](../vision-token-budget-measurements.md).
 
+## Terminology: there are two unrelated "ladders"
+
+The word is overloaded in this directory and in `preflight/`, and the two axes
+have nothing to do with each other. Say which one you mean.
+
+| term | what it is | defined in |
+| --- | --- | --- |
+| **token ladder** — `ladder_sizes`, `ladder`, `ladder_tolerance` | five fixed 16:9 image **geometries**, and the visual-token **cost** measured at each. Answers "what does this arch charge as the image grows"; a flat row means a budget-filling arch, a rising row means it scales with pixels. | `preflight/expectations.toml` |
+| **context ladder** — `CTX_LADDER`, "escalated to 32768" | `num_ctx` **rungs** (4096 / 8192 / 16384 / 32768 / 65536) the runner climbs when a think-on cell exhausts its budget. Answers "how much window did this model need to finish". | `run_engine_compare.sh` |
+
+A row can move on one and not the other: a payload change that leaves the token
+ladder identical can still change which context rung a model needs, because the
+first is image accounting and the second is generation length.
+
 ## Files
 
 - `preflight/` — **the pre-deploy regression gate.** Everything else here reports;
