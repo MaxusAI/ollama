@@ -108,8 +108,8 @@ Do not read the gate as "ROCm is a pre-002 payload". It was that at
 no longer what is deployed.
 """
 
-[profiles.apple-silicon-cpu]
-platform = "apple-silicon"
+[profiles.cpu]
+platform = "cpu"
 version_pattern = '^0\.32\.5-dynres-[0-9a-f]{7,40}$'
 patchset = ["001", "002", "004", "005"]
 reference_image = "maxusai/ollama:4987dd49-dynres-arm64"
@@ -123,8 +123,8 @@ point, so text-comparing generative output across backends is invalid even at
 identical prompt_eval_count. Only the token/quality checks carry over.
 """
 
-[profiles.apple-silicon-mlx]
-platform = "apple-silicon-mlx"
+[profiles.mlx-metal]
+platform = "mlx-metal"
 # Native macOS serve against the MLX store (OLLAMA_MODELS=~/.ollama/models-mlx,
 # conventionally :11436). Same fork Go binary as the CPU profile, but the payload
 # under test is the Go MLX runner, not a llama.cpp patchset — (platform, version)
@@ -147,8 +147,8 @@ load-log payload proof are skipped by design — the token ladder and generative
 probes are the evidence here.
 """
 
-[profiles.apple-silicon-mlx-0-32-14]
-platform = "apple-silicon-mlx"
+[profiles.mlx-metal-0-32-14]
+platform = "mlx-metal"
 # Upstream v0.32.14 merged 2026-08-17 (fork 9594f81e): LLAMA_CPP_VERSION
 # b10353 -> b10434 and MLX_VERSION bumped. The MLX runner is the payload under
 # test here, so the MLX bump alone requires a new profile — ADR 0011 rule: a
@@ -166,8 +166,37 @@ b10434, and TestImageTokensForSize still passes, so the Go-side sizing model is
 unchanged too.
 """
 
-[profiles.apple-silicon-metal]
-platform = "apple-silicon"
+[profiles.mlx-cuda]
+platform = "mlx-cuda"
+# THE MLX RUNTIME ON A CUDA BACKEND — the mlx_cuda_v13 payload the build
+# produces (cmake/local.cmake: mlx_cuda_v13_linux / _windows / _user_arch).
+#
+# NEVER MEASURED, and until 2026-08-17 it had no profile at all. The old naming
+# is why: "apple-silicon-mlx" made MLX read as an Apple concept, so a missing
+# CUDA-side MLX profile looked like a category error rather than a gap. Under
+# backend x runtime naming the empty cell is visible.
+#
+# Expect it to fail before it measures anything. The payload ships NOT
+# self-contained — no ELF RPATH, libquadmath unbundled — so it loads only where
+# the host already provides CUDA, cuDNN, NCCL and libquadmath on the system
+# search path, and every safetensors model is otherwise refused with a message
+# that reads like a missing feature rather than a packaging fault. See
+# ../../upstream-mlx-cuda-payload-unloadable.md. A preflight run here is
+# therefore worth doing precisely because it converts that into a stated verdict.
+version_pattern = '^0\.32\.[0-9]+-maxusai-[0-9a-f]{7,40}$'
+patchset = []                     # llama.cpp compat patches do not apply to MLX
+reference_image = "unmeasured — no CUDA host has served the MLX runtime"
+expect_patch_marker = 1
+arches = ["gemma4", "qwen35moe", "qwen35"]
+notes = """
+Declared so the combination is visible and gated, not so it is claimed. Every
+arch below is status = "unmeasured"; preflight exits 4 (NEEDS_BASELINE) rather
+than implying a pass. Measuring it needs a CUDA host with the MLX store, which
+this fork has never run.
+"""
+
+[profiles.metal]
+platform = "metal"
 version_pattern = '^0\.32\.5-maxusai-[0-9a-f]{7,40}$'
 patchset = ["001", "002", "003", "004", "005"]
 reference_image = "native macOS build — no container"
@@ -448,7 +477,7 @@ ladder = [1034, 1034, 1034, 2306, 4082]
 
 # ----------------------------------------------------------- Apple Silicon ---
 
-[expect.apple-silicon-cpu.nemotron_h_omni]
+[expect.cpu.nemotron_h_omni]
 status = "unmeasured"
 model = "nemotron3:33b-q8"
 reason = """
@@ -457,7 +486,7 @@ but that has not been measured on the arm64 image. Copying the CUDA row without
 measuring is exactly the silent-default failure this file exists to prevent.
 """
 
-[expect.apple-silicon-cpu.gemma4]
+[expect.cpu.gemma4]
 status = "unmeasured"
 model = "gemma4:31b-it-q4_K_M"
 reason = "Not yet measured on the arm64 image. See README.md, Adding an expectation."
@@ -469,7 +498,7 @@ reason = "Not yet measured on the arm64 image. See README.md, Adding an expectat
 # One `model` per arch block is the schema; the bf16 export anchors the
 # baseline and the quant sweep gets blocks as each variant is measured.
 
-[expect.apple-silicon-mlx.gemma4]
+[expect.mlx-metal.gemma4]
 status = "measured"
 measured_on = "2026-08-08"
 model = "gemma4:31b-mlx-bf16"    # bf16 anchors the baseline (quantisation and
@@ -495,7 +524,7 @@ scaling = "flat"
 ladder_tolerance = 2
 ladder = [1102, 1102, 1102, 1102, 1102]
 
-[expect.apple-silicon-mlx.gemma4_unified]
+[expect.mlx-metal.gemma4_unified]
 status = "measured"
 measured_on = "2026-08-08"
 model = "gemma4:12b-nvfp4"
@@ -514,7 +543,7 @@ scaling = "flat"
 ladder_tolerance = 2
 ladder = [1102, 1102, 1102, 1102, 1102]
 
-[expect.apple-silicon-mlx.qwen35moe]
+[expect.mlx-metal.qwen35moe]
 status = "measured"
 measured_on = "2026-08-12"
 model = "qwen3.6:35b-a3b-nvfp4"   # the MLX export anchors this arch; the sibling
@@ -550,7 +579,7 @@ ladder_tolerance = 2
 ladder = [68, 146, 578, 2306, 5186]
 
 
-[expect.apple-silicon-mlx.qwen35]
+[expect.mlx-metal.qwen35]
 status = "measured"
 measured_on = "2026-08-16"
 model = "qwen3.8:27b-nvfp4"       # the MLX export; the sibling q4_K_M tag is a
@@ -565,7 +594,7 @@ image_max_pixels = 16777216       # preprocessor_config longest_edge
 # Qwen3.8 is the DENSE member of the qwen3_5 architecture: config.json declares
 # architectures ["Qwen3_5ForConditionalGeneration"] with a text_config carrying
 # 64 layers and no expert keys, where qwen3.6:35b-a3b is the MoE sibling that
-# anchors [expect.apple-silicon-mlx.qwen35moe]. llama.cpp draws the same line
+# anchors [expect.mlx-metal.qwen35moe]. llama.cpp draws the same line
 # (LLM_ARCH_QWEN35 vs LLM_ARCH_QWEN35MOE), so this is a separate arch row rather
 # than a second model on the MoE one. It has to be: run_arch probes exactly the
 # model its row names, so hanging qwen3.8 off the MoE row would silently
@@ -595,7 +624,7 @@ ladder = [68, 146, 578, 2306, 5186]
 
 # ------------------------------------------- APPLE SILICON / NATIVE METAL GGUF --
 
-[expect.apple-silicon-metal.gemma4]
+[expect.metal.gemma4]
 status = "measured"
 measured_on = "2026-08-12"
 model = "gemma4:31b-it-q4_K_M"    # GGUF tag; routes to llama-server on Metal
@@ -617,7 +646,7 @@ scaling = "flat"
 ladder_tolerance = 2
 ladder = [1102, 1102, 1102, 1102, 1102]
 
-[expect.apple-silicon-metal.qwen35moe]
+[expect.metal.qwen35moe]
 status = "measured"
 measured_on = "2026-08-12"
 model = "qwen3.6:35b-a3b-q4_K_M"  # GGUF sibling of the MLX nvfp4 tag
@@ -724,7 +753,7 @@ model = "qwen3.8:27b-q4_K_M"   # the GGUF, which routes to llama-server. The
                                # sibling 27b-nvfp4 tag is the MLX export and
                                # CANNOT be pulled here: the registry gates it on
                                # the client's reported GOOS, so it anchors
-                               # [expect.apple-silicon-mlx.qwen35] instead.
+                               # [expect.mlx-metal.qwen35] instead.
 patch_stride = 32              # patch_size 16 * spatial_merge_size 2
 budget_min_tokens = 1024       # 1048576 / 32^2
 budget_max_tokens = 4096       # 4194304 / 32^2
@@ -741,7 +770,7 @@ ladder = [1034, 1034, 1034, 2306, 4082]
 # general.architecture = qwen35, head_count 24, embedding_length 5120, against
 # the MoE's 16 / 2048.
 #
-# These are NOT the numbers in [expect.apple-silicon-mlx.qwen35], and the
+# These are NOT the numbers in [expect.mlx-metal.qwen35], and the
 # difference is the whole reason this row exists. Same model family, same stride
 # 32, but a different pixel window -- 1048576..4194304 here against the MLX
 # export's 65536..16777216 -- so the ladder diverges at both ends and agrees only
@@ -827,7 +856,7 @@ min_qty_price_exact = 0.70
 # agreement has to be demonstrated, not assumed. It was demonstrated: all four
 # arches reproduce their 0.32.5 numbers exactly.
 
-[expect.apple-silicon-mlx-0-32-14.gemma4]
+[expect.mlx-metal-0-32-14.gemma4]
 status = "measured"
 measured_on = "2026-08-17"
 model = "gemma4:31b-mlx-bf16"
@@ -840,7 +869,7 @@ scaling = "flat"
 ladder_tolerance = 2
 ladder = [1102, 1102, 1102, 1102, 1102]   # prefix == text_only == 19
 
-[expect.apple-silicon-mlx-0-32-14.gemma4_unified]
+[expect.mlx-metal-0-32-14.gemma4_unified]
 status = "measured"
 measured_on = "2026-08-17"
 model = "gemma4:12b-nvfp4"
@@ -853,7 +882,7 @@ scaling = "flat"
 ladder_tolerance = 2
 ladder = [1102, 1102, 1102, 1102, 1102]   # prefix == text_only == 19
 
-[expect.apple-silicon-mlx-0-32-14.qwen35moe]
+[expect.mlx-metal-0-32-14.qwen35moe]
 status = "measured"
 measured_on = "2026-08-17"
 model = "qwen3.6:35b-a3b-nvfp4"
@@ -866,7 +895,7 @@ scaling = "ladder"
 ladder_tolerance = 2
 ladder = [68, 146, 578, 2306, 5186]       # prefix == text_only == 13
 
-[expect.apple-silicon-mlx-0-32-14.qwen35]
+[expect.mlx-metal-0-32-14.qwen35]
 status = "measured"
 measured_on = "2026-08-17"
 model = "qwen3.8:27b-nvfp4"
@@ -878,3 +907,21 @@ image_max_pixels = 16777216
 scaling = "ladder"
 ladder_tolerance = 2
 ladder = [68, 146, 578, 2306, 5186]       # prefix == text_only == 13
+
+# ------------------------------------------------------------- mlx-cuda --
+# NEVER MEASURED. Declared so the cell is visible; see the profile note. Adding
+# values here means measuring them on a CUDA host serving the MLX store, per
+# ADR 0011 — never by copying the mlx-metal rows, which describe a different
+# backend.
+
+[expect.mlx-cuda.gemma4]
+status = "unmeasured"
+reason = "No CUDA host has ever served the MLX runtime. The mlx_cuda_v13 payload ships without an ELF RPATH and without libquadmath bundled, so it loads only where the host already provides CUDA, cuDNN, NCCL and libquadmath on the system search path — see ../../upstream-mlx-cuda-payload-unloadable.md. Measure on such a host; do NOT copy the mlx-metal ladder, which describes a different backend."
+
+[expect.mlx-cuda.qwen35moe]
+status = "unmeasured"
+reason = "As gemma4 above: no CUDA host has served the MLX runtime. qwen35moe's ladder is a payload property and must be taken on the backend it describes."
+
+[expect.mlx-cuda.qwen35]
+status = "unmeasured"
+reason = "As gemma4 above: no CUDA host has served the MLX runtime."

@@ -57,8 +57,30 @@ class ConfigError(Exception):
     distinct from a check failure, because nothing was actually measured."""
 
 
+# Platform names the (backend, runtime) pair, and nothing else. Backends are
+# metal / cuda / rocm / cpu; the MLX runtime prefixes its backend, matching the
+# payload directories the build produces (mlx_metal_v4, mlx_cuda_v13) so the
+# name is greppable against the artifact.
+#
+# The old names conflated three schemes in four values: "cuda" and "rocm" named
+# the backend, "apple-silicon" named the hardware, and "apple-silicon-mlx"
+# folded the runtime into the same field. That is why a missing mlx-cuda profile
+# read as a category error rather than a gap — MLX looked like an Apple concept
+# when the fork ships mlx_cuda_v13 for Linux.
+PLATFORM_ALIASES = {
+    "apple-silicon": "metal",
+    "apple-silicon-mlx": "mlx-metal",
+    "apple-silicon-cpu": "cpu",
+}
+
+
 def resolve_profile(exp, platform, version):
     """(platform, version) -> profile. Fails loudly rather than defaulting."""
+    if platform in PLATFORM_ALIASES:
+        new = PLATFORM_ALIASES[platform]
+        print(f"preflight: --platform {platform!r} is deprecated; using {new!r}",
+              file=sys.stderr)
+        platform = new
     candidates = {pid: p for pid, p in exp["profiles"].items()
                   if p["platform"] == platform}
     if not candidates:
@@ -223,8 +245,15 @@ def main():
     ap = argparse.ArgumentParser(
         description="Pre-deploy regression harness for ollama images.")
     ap.add_argument("--host", required=True, help="e.g. http://127.0.0.1:11437")
-    ap.add_argument("--platform", required=True,
-                    choices=["cuda", "rocm", "apple-silicon", "apple-silicon-mlx"])
+    # Choices come from the expectations file plus the deprecated aliases, not
+    # from a hardcoded list. The list WAS hardcoded and drifted: renaming the
+    # profiles left argparse rejecting the new names before resolve_profile —
+    # the single place that is supposed to own this — ever ran.
+    _platforms = sorted({p["platform"] for p in
+                         load_expectations(os.path.join(DIR, "expectations.toml"))["profiles"].values()}
+                        | set(PLATFORM_ALIASES))
+    ap.add_argument("--platform", required=True, choices=_platforms,
+                    help="backend, or mlx-<backend> for the MLX runtime")
     ap.add_argument("--image-tag", help="image tag under test; verified against "
                                         "the running container when resolvable")
     ap.add_argument("--arch", action="append",
