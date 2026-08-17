@@ -190,28 +190,62 @@ platform = "mlx-cuda"
 # THE MLX RUNTIME ON A CUDA BACKEND — the mlx_cuda_v13 payload the build
 # produces (cmake/local.cmake: mlx_cuda_v13_linux / _windows / _user_arch).
 #
-# NEVER MEASURED, and until 2026-08-17 it had no profile at all. The old naming
-# is why: "apple-silicon-mlx" made MLX read as an Apple concept, so a missing
-# CUDA-side MLX profile looked like a category error rather than a gap. Under
+# Until 2026-08-17 this had no profile at all. The old naming is why:
+# "apple-silicon-mlx" made MLX read as an Apple concept, so a missing CUDA-side
+# MLX profile looked like a category error rather than a gap. Under
 # backend x runtime naming the empty cell is visible.
 #
-# Expect it to fail before it measures anything. The payload ships NOT
-# self-contained — no ELF RPATH, libquadmath unbundled — so it loads only where
-# the host already provides CUDA, cuDNN, NCCL and libquadmath on the system
-# search path, and every safetensors model is otherwise refused with a message
-# that reads like a missing feature rather than a packaging fault. See
-# ../../upstream-mlx-cuda-payload-unloadable.md. A preflight run here is
-# therefore worth doing precisely because it converts that into a stated verdict.
-version_pattern = '^0\.32\.[0-9]+-maxusai-[0-9a-f]{7,40}$'
+# THE PACKAGING FAULT IS FIXED. This profile was declared expecting the payload
+# to fail to load at all — "no ELF RPATH, libquadmath unbundled". Both were
+# repaired before the profile was written, and the fix is on main:
+#   cmake/mlx/CMakeLists.txt  set(CMAKE_{BUILD,INSTALL}_RPATH "$ORIGIN")
+#   cmake/mlx/CMakeLists.txt  MLX_INCLUDE_REGEXES ... gfortran quadmath
+# and the shipped payload carries libquadmath.so.0. The runtime loads and
+# serves. ../../upstream-mlx-cuda-payload-unloadable.md describes the state
+# BEFORE that fix and must not be read as current.
+#
+# A caution attached to that document: an earlier round of the same
+# investigation published "no RPATH" findings that were FALSE NEGATIVES —
+# readelf is absent from the runtime image and returned nothing, which was read
+# as absence. Any claim that RPATH is missing must name the tool that produced
+# the evidence.
+#
+# THE VERSION PATTERN IS THE CONTAINER'S, NOT THE MAC'S. The first pattern here
+# required "-maxusai-", which is the NATIVE macOS build's stamp. The MLX/CUDA
+# payload ships in a container stamped "-dynres-", so that pattern could not
+# match the only artifact this profile describes: preflight would fail to
+# resolve a profile at all, and the gate was unreachable. Measured server:
+# 0.32.14-rc0-dynres-20-geb0ad43. Same shape as cuda-dynres-903, which is the
+# other profile served from a container on this host.
+version_pattern = '^0\.32\.\d+(-rc\d+)?-dynres(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
 patchset = []                     # llama.cpp compat patches do not apply to MLX
-reference_image = "unmeasured — no CUDA host has served the MLX runtime"
+reference_image = "maxusai/ollama:0.32.14-rc0-dynres-mlxfix"
 expect_patch_marker = 1
 arches = ["gemma4", "qwen35moe", "qwen35"]
 notes = """
-Declared so the combination is visible and gated, not so it is claimed. Every
-arch below is status = "unmeasured"; preflight exits 4 (NEEDS_BASELINE) rather
-than implying a pass. Measuring it needs a CUDA host with the MLX store, which
-this fork has never run.
+The runtime is no longer unexercised: gemma4:31b-nvfp4 served the full vision
+suite on this backend on 2026-08-17 (container mlx-release, :11495), think-off
+n=3 bit-identical across repeats — scene bbox IoU 0.962, boxes/labels/colors
+6/6, serial and invoice exact, fine text 4/4/4/3/3, multi-image all Qs + bbox,
+contract_followed 7/7/7 of 8. Against the mlx-metal row for the SAME model that
+is 0.962 vs 0.964, inside ADR 0012's +/-0.01 noise floor: the runtime behaves
+the same on both backends.
+
+That is a QUALITY result and it is deliberately not written into the arch
+blocks below, which assert TOKEN LADDERS. Those still need the B8 prefix
+measurement on this host, and ADR 0011 rule 4 forbids copying the mlx-metal
+ladder across on the strength of quality parity. Every arch below therefore
+stays status = "unmeasured" and preflight still exits 4.
+
+KNOWN DEFECT, think-on only. Under THINK=on the twelfth consecutive cell
+aborted the runner:
+  mlx: cudaGraphAddDependencies(...) failed: invalid argument
+  at mlx-c-src/mlx/c/transforms.cpp:15
+raised from Runner.prefill -> mlx.Eval, with a second panic during unwind in
+cacheSession.close -> mlx.AsyncEval. The same cell passes with think off at the
+same num_ctx, so window size is not the trigger; prefix-cache state interacting
+with CUDA graph capture is the hypothesis and it has not been reproduced in
+isolation. Think-off is unaffected.
 """
 
 [profiles.metal]
