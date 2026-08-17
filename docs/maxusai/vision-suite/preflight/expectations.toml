@@ -426,6 +426,30 @@ ladder_tolerance = 2
 # confirmed on b9888. Matches the CUDA constant exactly; measured, not copied.
 ladder = [1102, 1102, 1102, 1102, 1102]
 
+[expect.rocm-0-32-1-dynres.gemma4.pinned]
+# Pinned BELOW the ceiling deliberately. 004 budget-fills every image to the
+# budget max, so pinning gemma4 at its own 1120 ceiling delivers 1102 -- exactly
+# what the unpinned control delivers. That assertion would pass even if pinning
+# were completely broken, which is worse than no assertion at all. 560 is a
+# supported ladder rung and is far from the control, so the two arms disagree
+# when the pin works and agree when it does not.
+#
+# Measured 2026-08-17 on 0.32.1-dynres-5d5b7a72 (gfx1151, b9888 + 001/002/004/005),
+# stable across two full reload cycles. The pin floors just UNDER the request at
+# every rung tried -- 280 -> 266, 560 -> 529, 1120 -> 1102 -- never over, which
+# is 005's guarantee: when the min_pixels ceil would overshoot max_pixels, floor
+# just under instead. Pre-005 the same class delivered 1170 against a 1120 pin.
+#
+# Note --image-min-tokens is a no-op for this arch under 004; the max is what
+# drives the fill, so a "pin" here is really the max doing the work.
+size = "2048x1152"
+pin_tokens = 560
+expect_tokens = 529
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 1102
+control_tolerance = 4
+
 [expect.rocm-0-32-1-dynres.gemma4.think_format]
 num_predict = 4000
 require_nonempty_response = true
