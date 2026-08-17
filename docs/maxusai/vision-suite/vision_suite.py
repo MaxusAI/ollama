@@ -1206,8 +1206,28 @@ def main():
         # score is not interpretable: an empty or short result may be the model
         # or may be the cap, and cells measured at different num_ctx are not
         # comparable on throughput (KV size affects decode speed).
-        sc["num_ctx"] = default_num_ctx()
-        sc["num_predict"] = default_num_predict()
+        #
+        # Read the window OFF THE REQUEST, not from the suite defaults. These
+        # are per-test (see the req_* comment below): finetext runs at 32768 /
+        # 4000 while everything else runs at the 16384 / 2200 defaults. Recording
+        # the default here made the field disagree with the sentence above it,
+        # and two consumers read it and were wrong:
+        #
+        #   * summarize_engine_compare.capped() compares eval_count against this
+        #     num_predict, so a finetext cell between 2200 and 3999 was reported
+        #     CAPPED when it terminated freely — and its docstring says such a
+        #     result must never be quoted as a model result. Legitimate numbers
+        #     were being discarded.
+        #   * summarize_engine_compare.ctx_for() exists to render "16384/32768 ⚠"
+        #     when a row mixes windows. Every section reported the same default,
+        #     so the mix it guards against was invisible and the warning could
+        #     never fire.
+        #
+        # finetext_probe.py already records the value it actually used, so this
+        # was the outlier. Falls back to the defaults only if a response was not
+        # stamped, which should not happen — _num_* is set on every path.
+        sc["num_ctx"] = r.get("_num_ctx") or default_num_ctx()
+        sc["num_predict"] = r.get("_num_predict") or default_num_predict()
         # Which sampling this cell was measured under. ADR 0005 asks for the
         # runtime configuration to be recorded; without it, a capped cell cannot
         # be attributed to greedy decoding after the fact — which is exactly
@@ -1228,6 +1248,12 @@ def main():
         # window and "the model would not stop" at another, and the two are
         # indistinguishable after the fact. Reported in the tables as
         # "value (num_ctx)". See ADR 0012.
+        #
+        # These now carry the same values as num_ctx / num_predict above and are
+        # kept deliberately: summarize_head_to_head.ctx() reads req_num_ctx and
+        # prints "(?)" when it is absent, which is how it distinguishes runs
+        # recorded before these fields existed. Dropping them would silently
+        # re-label every historical scores file.
         sc["req_num_predict"] = r.get("_num_predict")
         sc["req_num_ctx"] = r.get("_num_ctx")
         results[name] = sc
