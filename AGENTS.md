@@ -22,6 +22,17 @@ the full development workflow.
 
 ## Invariants
 
+**Serving a benchmark sweep requires `OLLAMA_MAX_LOADED_MODELS=1`.** The
+scheduler keeps every model it has served resident, so a sweep over N models
+holds N models at once — count, not size, is what exhausts the host. Measured
+2026-08-17 on a 128 GB Mac: a four-arch preflight ladder left three runners
+resident at 68.7 + 22.0 + 20.7 GB, reaching 106 GB used and 53.9 GB of swap
+while Docker and two other VMs were live, one allocation from OOM-killing
+unrelated work. Check free memory before loading a >30 GB build
+(`gemma4:31b-mlx-bf16` is 63.5 GB, `nemotron3:33b-bf16` is 66.1 GB), and treat
+"skip model X, not enough headroom" as standing until withdrawn.
+See `docs/maxusai/spec/apple-silicon-build.md`.
+
 **The benchmark harness has one runner and one set of helpers.** Do not write a
 script that loops over models — `docs/maxusai/vision-suite/run_engine_compare.sh`
 is the only entry point that climbs the `num_ctx` ladder, derives `num_predict`

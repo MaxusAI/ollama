@@ -95,6 +95,36 @@ Automatic — no flags. `metal_v4` is chosen when both macOS and the macOS SDK a
 **`metal_v4`**. The version regex captures `major.minor`, so `26.5 ≥ 26.2` compares
 as intended.
 
+### Serving for benchmarks: cap resident models
+
+**`OLLAMA_MAX_LOADED_MODELS=1` is mandatory when serving a benchmark sweep on a
+workstation.** The scheduler otherwise keeps every model it has served resident,
+so a sweep that walks N models holds N models at once — model *count*, not model
+size, is what exhausts the machine.
+
+```sh
+OLLAMA_HOST=127.0.0.1:11436 OLLAMA_MODELS=~/.ollama/models-mlx \
+  OLLAMA_MAX_LOADED_MODELS=1 ollama serve
+```
+
+Measured 2026-08-17 on a 128 GB M-series host: a preflight ladder over four
+arches — `gemma4:31b-mlx-bf16` (63.5 GB), `gemma4:12b-nvfp4`,
+`qwen3.6:35b-a3b-nvfp4`, `qwen3.8:27b-nvfp4` — left three runners resident at
+68.7 + 22.0 + 20.7 GB, reaching **106 GB used and 53.9 GB of swap** while
+Docker's VM (19.9 GB) and two other VMs were live. Unrelated processes were one
+allocation away from being OOM-killed.
+
+The cap costs a reload between models, which a benchmark pays anyway: every
+runner in `vision-suite/` already restarts the server per cell for cold-cache
+reasons. It buys a hard ceiling of one model's residency regardless of how many
+the sweep walks.
+
+**Check headroom before loading a large build.** `gemma4:31b-mlx-bf16` and
+`nemotron3:33b-bf16` are 63.5 GB and 66.1 GB; either alone is half this host.
+`vm_stat` / Activity Monitor before starting is cheap. A "skip model X, not
+enough headroom" instruction applies until withdrawn — not just to the run it
+was said about.
+
 ### Build
 
 ```sh

@@ -77,6 +77,26 @@ Reproducible ground-truth benchmarks behind the measured tables in
   *both* modes to one value — use `NUM_PREDICT_THINKON` / `NUM_CTX_THINKON` to move think-on
   alone. Unlike `run_engine_compare.sh` it does not auto-escalate; it reports a capped cell
   and the rung to retry at.
+- `build-macos.sh` — **macOS/Metal only. Builds the native fork binary with the version
+  stamp preflight gates on.** The binary is the provenance for every measurement
+  here, and assembling the ldflags by hand from `spec/apple-silicon-build.md`
+  got it wrong once (a bare `0.32.14` matches no profile). Derives the base
+  version from the newest reachable upstream tag rather than hardcoding it, warns
+  on a dirty tree because the sha would then be a lie, and takes `CLEAN_DEPS=1`
+  to clear the vendored llama.cpp checkout when `LLAMA_CPP_VERSION` moves — the
+  stash/unstash cycle fails otherwise.
+- `serve-apple-mlx.sh` — **the RESTART_CMD hook, Apple Silicon + MLX store only.**
+  Note "MLX" alone does not imply Apple: the fork also ships an `mlx_cuda_v13`
+  payload for Linux/CUDA ([why it is unloadable](../upstream-mlx-cuda-payload-unloadable.md)).
+  For CUDA/ROCm restart the container instead — `run_grid.sh` shows the docker form. Sets `OLLAMA_MAX_LOADED_MODELS=1`,
+  without which a sweep holds every model it has served resident; measured
+  106 GB used and 53.9 GB swap on a 128 GB host before this existed.
+- `summarize_contract_matrix.py --think <mode> [--log <runner log>] <model…>` —
+  the bbox-contract matrix plus per-model power-mode provenance. Capped cells
+  render as `cap` rather than a false `❌` (ADR 0012 rule 8), and the `num_ctx`
+  column shows the ladder rung each row reached.
+- `summarize_lowtemp.py <tag-prefix>` — repeated ARMs as
+  `(score, num_ctx, num_predict)` per model.
 - `run_engine_compare.sh <host>` — **engine-parity campaign** (MLX safetensors vs
   llama-server GGUF): cold server per model via `RESTART_CMD`, then the three-suite
   run and the fine-text probe per model. `summarize_engine_compare.py <model…>`
@@ -287,7 +307,7 @@ of 2200 and produced empty responses that looked like model failures.
 TEMPERATURE=0.01 REPEATS=3 TAG_PREFIX=lt \
   ONLY_TESTS=bbox_contract,bbox_contract_anchored \
   MODELS="gemma4:31b-it-q4_K_M qwen3.6:35b-a3b-q4_K_M" \
-  RESTART_CMD='sh /tmp/restart-vs.sh' THINK_MODES='false on' \
+  RESTART_CMD='sh docs/maxusai/vision-suite/serve-apple-mlx.sh' THINK_MODES='false on' \
   ./run_engine_compare.sh http://127.0.0.1:11436
 ```
 
