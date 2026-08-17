@@ -245,6 +245,24 @@ const CacheLimitEnv = "OLLAMA_MLX_CACHE_LIMIT"
 // behalf. The knob is opt-in: set OLLAMA_MLX_CACHE_LIMIT when the footprint
 // matters more than the speed -- a shared card, or a model that OOMs at large
 // geometries -- and pay the cost knowingly.
+//
+// AND THE COST IS WORSE ON MULTI-IMAGE WORK THAN THE NUMBERS ABOVE SUGGEST.
+// Every figure in the table is one 3072x1728 image. Starving the allocator from
+// the other direction -- OLLAMA_MLX_MEMORY_LIMIT, full 12-test suite, n=2 --
+// shows the penalty concentrating on the three-image cells:
+//
+//	cell                   24 GiB      82 GiB     delta
+//	scene_single         30.46 t/s   30.87 t/s     +1%
+//	multi_3img           28.46 t/s   29.19 t/s     +3%
+//	bbox_contract_multi  17.71 t/s   27.21 t/s    +54%
+//
+// Peak footprint 33,536 MiB against 67,518 MiB. Stable across both reps on each
+// side (17.73/17.71 vs 25.0/27.21), so the 54% is not noise.
+//
+// The lesson for anyone measuring this next: a single-image prompt CANNOT show
+// it. Three separate sweeps over the allocator ceiling came back flat on
+// scene_single and were reported as "no throughput effect" -- true of that cell,
+// and not true of the workload the suite actually exists to measure.
 func configureCacheLimit() {
 	limit, ok := parseCacheLimit(os.Getenv(CacheLimitEnv))
 	if !ok {
