@@ -1061,11 +1061,11 @@ ladder = [1102, 1102, 1102, 1102, 1102]
 
 [expect.mlx-cuda.qwen35moe]
 status = "unmeasured"
-reason = "As gemma4 above: no CUDA host has served the MLX runtime. qwen35moe's ladder is a payload property and must be taken on the backend it describes."
+reason = "ATTEMPTED 2026-08-17 and it does not complete. qwen3.6:35b-a3b-nvfp4 measured 68 / 146 / 578 / 2306 on the first four geometries and then aborted the runner on the fifth (3072x1728): 'mlx: cudaMallocAsync(&data, size, stream) failed: out of memory'. Not a shortage of card: 85 GiB was free. MLX retains a buffer CACHE -- measured 13.16 GiB of cache against 18.29 GiB of live tensors on gemma4 at that same geometry -- and OLLAMA_MLX_MEMORY_LIMIT was ~82 GiB because client.go derives it from all free VRAM, so the pool had room to grow before the vision tower asked for a large block. Re-measure with the limit pinned well below free VRAM before concluding anything about the arch itself; the first four rungs match qwen35 exactly, so nothing suggests the ladder differs."
 
 [expect.mlx-cuda.qwen35]
 status = "unmeasured"
-reason = "As gemma4 above: no CUDA host has served the MLX runtime."
+reason = "LADDER MEASURED, BUDGETS NOT. qwen3.8:27b-nvfp4 gives [68, 146, 578, 2306, 5186] with prefix == text_only == 13, identical to the mlx-metal row for the same model, measured 2026-08-17 via image_prefix (B8). The budget fields are what is missing: that run read pixel lines belonging to gemma4, because a preflight run was probing gemma4 on the same server inside the log window, and dividing gemma4's 161280/2580480 by qwen's stride 32 produced a plausible-looking 157/2520 that does not round-trip (157*32^2 = 160768, not 161280). measure_ladder.py now refuses that case. Re-run against an idle server with nothing else probing it, and this row can be completed from the ladder above plus a clean budget read."
 
 # ------------------------------------------------------- metal / 0.32.14 --
 # Measured 2026-08-17, native macOS serve (:11436), server
