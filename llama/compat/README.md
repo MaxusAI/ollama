@@ -42,6 +42,20 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   floor just under min instead. The budget is a hard ceiling; measured
   overshoots: nemotron pinned 3328 delivered 3388, gemma4 pinned 1120
   delivered 1170 (pre-004). Affects only the infeasible pinned case.
+- `903-fix-mmq-ids-padding.patch` - **not a compatibility shim** (see "Number
+  bands" below). Sizes the MMQ ids-path tail padding in
+  `ggml/src/ggml-cuda/mmq.cu` from the flattened row count
+  (`ne12*n_expert_used`) instead of `ne11`. Under MoE broadcast `ne11 == 1`, so
+  `ggml_cuda_mmq_get_J_max()` returns 0, `src1_q8_1` gets no tail padding at
+  all, and MMQ overruns the logical end by up to a 512-row tile — an illegal
+  memory access. Stock-ggml defect, not fork-specific; it surfaces under Ollama
+  because one value is passed as both `-b` and `-ub`, so a whole image arrives
+  in a single ubatch. See `docs/maxusai/qwen35moe-mmq-investigation.md` for the
+  diagnosis, `docs/maxusai/mmq-padding-regression-window.md` for the affected
+  build range (b9990 is the last clean build, b9992 the first defective one, so
+  this must not be backported to a lineage pinned at or below b9990 — there is
+  nothing there to fix and the patch will not apply), and
+  `docs/maxusai/upstream-mmq-ids-padding-issue.md` for the upstream report.
 - `compat.cmake`, `apply-patch.cmake` - CMake glue and an idempotent applier
   (used by `llama/server/CMakeLists.txt`) that applies every `*.patch` under
   this directory by numeric filename order — the hooks patch plus each
@@ -53,6 +67,26 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
 
 The compatibility source files stay in this directory and are linked into the
 fetched llama.cpp targets. The patch file only adds call sites.
+
+### Number bands
+
+`apply-patch.cmake` globs `*.patch` recursively and applies them in sorted
+filename order, so the numeric prefix is the apply order. Two bands share that
+sequence and they mean different things:
+
+- **0xx — the compatibility layer.** Translating existing published Ollama
+  GGUFs onto what llama.cpp already expects, plus the `models/` patches that
+  register architectures llama.cpp does not have yet. These leave when the
+  published models do.
+- **9xx — fork-carried fixes for defects in stock llama.cpp/ggml.** Not
+  compatibility work: upstream-reportable bugs we are carrying until upstream
+  takes the fix. They sort last so they apply on top of the compat layer, and
+  they leave when the pinned `LLAMA_CPP_VERSION` moves past the fix.
+
+The distinction matters when a patch fails to apply after a llama.cpp bump. A
+0xx failure means the insertion point moved and the patch needs regenerating. A
+9xx failure often means upstream fixed the defect, and the right response is to
+**delete the patch**, not re-cut it — check before regenerating.
 
 ## Load-Time Hooks
 
@@ -135,8 +169,10 @@ fixed set of files:
 |---|---|
 | `001-llama-cpp-hooks.patch` | `src/llama-model-loader.cpp`, `tools/mtmd/clip.cpp` |
 | `002-llama-cpp-nemotron-dynres.patch` | `tools/mtmd/clip.cpp`, `tools/mtmd/models/nemotron-v2-vl.cpp`, `tools/mtmd/mtmd.cpp` |
+| `models/003-llama-cpp-laguna-metal.patch` | `src/models/laguna.cpp` |
 | `004-llama-cpp-gemma4-budget-fill.patch` | `tools/mtmd/clip-model.h`, `tools/mtmd/clip.cpp`, `tools/mtmd/mtmd-image.cpp` |
 | `005-llama-cpp-dynres-pinned-overshoot.patch` | `tools/mtmd/mtmd-image.cpp` |
+| `903-fix-mmq-ids-padding.patch` | `ggml/src/ggml-cuda/mmq.cu` |
 
 Clone at the pinned tag **with history** — `git apply --3way` needs the
 pre-image blobs, and against a `--depth 1` clone it fails with "repository
@@ -173,11 +209,32 @@ Then verify, in this order — the second step is not optional:
    a `calc_size_opt` struct, and 005's hunk applied without a conflict while
    still referencing the now-nonexistent bare `max_pixels` and `align_size`.
    Building `mtmd` from the tree configured above pulls in `llama` and so
-   compiles every file the patch set touches, 001 included:
+   compiles every file the **0xx** patches touch, 001 included:
 
    ```sh
    cmake --build /tmp/patch-check --target mtmd -j8
    ```
+
+   `mtmd` does **not** reach the 9xx band. Those patch `ggml/src/ggml-cuda/*`,
+   which is compiled only when a GPU backend is enabled, and the configure above
+   enables none. Compiling all of ggml-cuda to check one hunk is disproportionate
+   — it is ~140 translation units per architecture — so configure with a backend
+   and build just the objects for the patched sources. Under Ninja the object is
+   discoverable from the source path:
+
+   ```sh
+   cmake -S llama/server -B /tmp/cuda-patch-check -G Ninja \
+       -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON \
+       -DCMAKE_CUDA_ARCHITECTURES=80-virtual -DOLLAMA_RUNNER_DIR=
+   obj=$(ninja -C /tmp/cuda-patch-check -t targets all \
+       | grep -oE '[^ :]*ggml/src/ggml-cuda/mmq\.cu\.o' | head -1)
+   ninja -C /tmp/cuda-patch-check "$obj"
+   ```
+
+   Swap `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=…` for
+   `-DGGML_HIP=ON -DCMAKE_HIP_PLATFORM=amd -DAMDGPU_TARGETS=gfx1151` to check the
+   same sources under ROCm; ggml-hip compiles the ggml-cuda tree through HIP, so
+   either backend exercises the hunk.
 
    To iterate against a standalone llama.cpp checkout instead, build 002/004/005
    only — 001 references `llama-ollama-compat.h`, which only Ollama's build tree
@@ -189,8 +246,14 @@ Then verify, in this order — the second step is not optional:
    cmake --build build --target mtmd -j8
    ```
 
-CI runs both steps: `test.yaml`'s `patches` job configures on Linux and Windows
-and builds `mtmd` on Linux, on every pull request and on every push to `main`.
+CI runs both steps on every pull request and every push to `main`: `test.yaml`'s
+`patches` job configures on Linux and Windows and builds `mtmd` on Linux, and its
+`patches-ggml` job compiles the objects for any ggml sources the patch set
+touches, in a CUDA container. Both are deliberately ungated.
+
+Do not rely on `test.yaml`'s `linux` job for this. Its CUDA and ROCm presets do
+build the full backends, but the job is gated on `vars.SELF_HOSTED_RUNNERS` and
+is skipped outright when no self-hosted runners are attached.
 
 Frozen release lineages pin their own `LLAMA_CPP_VERSION` and carry their own
 copies of these files. A regenerated patch targets one pinned tag and must not
