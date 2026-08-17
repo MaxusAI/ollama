@@ -166,6 +166,25 @@ b10434, and TestImageTokensForSize still passes, so the Go-side sizing model is
 unchanged too.
 """
 
+[profiles.metal-0-32-14]
+platform = "metal"
+# The GGUF/Metal half of Apple Silicon on the v0.32.14 payload (b10434).
+# apple-silicon-metal -> metal was renamed but never given a 0.32.14 successor
+# when the payload moved, so --platform metal exited 2 on the current build
+# while mlx-metal resolved. Same binary, same host, one stack gated and the
+# other not.
+version_pattern = '^0\.32\.14-maxusai-[0-9a-f]{7,40}$'
+patchset = ["001", "002", "003", "004", "005"]
+reference_image = "native macOS build — no container"
+expect_patch_marker = 1
+arches = ["gemma4", "qwen35moe"]
+notes = """
+Successor to the 0.32.5 `metal` profile. Ladders RE-MEASURED on b10434, not
+carried over; both reproduce their 0.32.5 values exactly, which is the result
+rather than the method. Which stack serves is decided by the model tag —
+q4_K_M/q8 route to llama-server even when OLLAMA_MODELS points at the MLX store.
+"""
+
 [profiles.mlx-cuda]
 platform = "mlx-cuda"
 # THE MLX RUNTIME ON A CUDA BACKEND — the mlx_cuda_v13 payload the build
@@ -925,3 +944,119 @@ reason = "As gemma4 above: no CUDA host has served the MLX runtime. qwen35moe's 
 [expect.mlx-cuda.qwen35]
 status = "unmeasured"
 reason = "As gemma4 above: no CUDA host has served the MLX runtime."
+
+# ------------------------------------------------------- metal / 0.32.14 --
+# Measured 2026-08-17, native macOS serve (:11436), server
+# 0.32.14-maxusai-9594f81e, probes.Ollama.image_prefix + visual_tokens.
+
+[expect.metal-0-32-14.gemma4]
+status = "measured"
+measured_on = "2026-08-17"
+model = "gemma4:31b-it-q4_K_M"
+patch_stride = 48
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280
+image_max_pixels = 2580480
+scaling = "flat"
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]   # prefix == text_only == 19
+
+[expect.metal-0-32-14.gemma4.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured: eval_count 238 against the 4000 allowance, 774 chars of
+# thinking, valid JSON. Nowhere near the num_predict trap, so the floor is
+# not load-bearing for this arch -- kept at 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer
+# prompt. The token count itself is indicative only: think-on is stochastic
+# and a preflight re-run of this cell measured a different figure.
+
+[expect.metal-0-32-14.qwen35moe]
+status = "measured"
+measured_on = "2026-08-17"
+model = "qwen3.6:35b-a3b-q4_K_M"
+patch_stride = 32
+budget_min_tokens = 1024          # llama_server's qwen-VL --image-min-tokens
+budget_max_tokens = 4096          # llama_server's qwen-VL ceiling
+image_min_pixels = 1048576
+image_max_pixels = 4194304
+scaling = "ladder"
+ladder_tolerance = 2
+# The 1034 floor is the --image-min-tokens 1024 policy, not the model: the MLX
+# sibling of these weights ladders from 68. Reproduced exactly on b10434.
+ladder = [1034, 1034, 1034, 2306, 4082]   # prefix == text_only == 13
+
+[expect.metal-0-32-14.qwen35moe.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured: eval_count 1044 against the 4000 allowance, 3543 chars of
+# thinking, valid JSON. Nowhere near the num_predict trap, so the floor is
+# not load-bearing for this arch -- kept at 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer
+# prompt. The token count itself is indicative only: think-on is stochastic
+# and a preflight re-run of this cell measured a different figure.
+
+# ------------------------------------------- mlx-metal / 0.32.14 think+format --
+# The fork's headline feature had NO gate on either Apple stack until now:
+# ADR 0004 closes the /api/generate side upstream left open (#12460 fixed only
+# /api/chat, v0.12.4), and ADR 0009 gives the MLX runner constrained sampling it
+# did not have. Measured 2026-08-17 on all four arches; all emit valid JSON
+# after non-empty thinking.
+#
+# The probe samples greedy, which the check's own diagnosis warns can stop
+# reasoning terminating. None capped — worst was 966 of 4000 — so 4000 carries
+# ~4x headroom and an empty response here means the fix regressed, not that the
+# budget is short.
+
+[expect.mlx-metal-0-32-14.gemma4.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured: eval_count 116 against the 4000 allowance, 292 chars of
+# thinking, valid JSON. Nowhere near the num_predict trap, so the floor is
+# not load-bearing for this arch -- kept at 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer
+# prompt. The token count itself is indicative only: think-on is stochastic
+# and a preflight re-run of this cell measured a different figure.
+
+[expect.mlx-metal-0-32-14.gemma4_unified.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured: eval_count 796 against the 4000 allowance, 2859 chars of
+# thinking, valid JSON. Nowhere near the num_predict trap, so the floor is
+# not load-bearing for this arch -- kept at 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer
+# prompt. The token count itself is indicative only: think-on is stochastic
+# and a preflight re-run of this cell measured a different figure.
+
+[expect.mlx-metal-0-32-14.qwen35moe.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured: eval_count 966 against the 4000 allowance, 3664 chars of
+# thinking, valid JSON. Nowhere near the num_predict trap, so the floor is
+# not load-bearing for this arch -- kept at 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer
+# prompt. The token count itself is indicative only: think-on is stochastic
+# and a preflight re-run of this cell measured a different figure.
+
+[expect.mlx-metal-0-32-14.qwen35.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured: eval_count 297 against the 4000 allowance, 858 chars of
+# thinking, valid JSON. Nowhere near the num_predict trap, so the floor is
+# not load-bearing for this arch -- kept at 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer
+# prompt. The token count itself is indicative only: think-on is stochastic
+# and a preflight re-run of this cell measured a different figure.
