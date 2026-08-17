@@ -205,8 +205,9 @@ func configureMemoryLimit(active int, wsErr error) {
 		"previous", mlx.PrettyBytes(previous))
 }
 
-// CacheLimitEnv bounds MLX's RETAINED buffer cache, in bytes. Unset applies
-// DefaultCacheLimit; 0 means retain nothing.
+// CacheLimitEnv bounds MLX's RETAINED buffer cache, in bytes. Unset leaves
+// MLX's own limit in place; 0 means retain nothing. See configureCacheLimit for
+// the measured trade and why there is no default.
 const CacheLimitEnv = "OLLAMA_MLX_CACHE_LIMIT"
 
 // configureCacheLimit bounds what MLX keeps after it is finished with it.
@@ -223,27 +224,31 @@ const CacheLimitEnv = "OLLAMA_MLX_CACHE_LIMIT"
 // the same geometry while nvidia-smi reported 85 GiB free, because the pool
 // holds memory the driver can no longer hand to a big contiguous request.
 //
-// THE DEFAULT IS BOUNDED, NOT UNBOUNDED. MLX's own default is 90.22 GiB here,
-// derived from TOTAL device memory, which is the same wrong denominator the
-// allocator ceiling had. DefaultCacheLimit replaces it with a value sized from
-// what a forward pass actually reuses rather than from the card:
+// NO DEFAULT, ON MEASUREMENT. A bounded default was shipped and then withdrawn:
+// the trade is sharp and has no comfortable middle. Measured n=3 on
+// gemma4:31b-nvfp4, one 3072x1728 image, decode tok/s against peak footprint:
 //
-//	active 18.29 GiB, peak 25.37 GiB  ->  transient working set ~7 GiB
+//	  4 GiB   29.44 tok/s   28,749 MiB    <- all of the footprint win
+//	  8 GiB   34.73 tok/s   32,779 MiB
+//	 16 GiB   34.77 tok/s   33,295 MiB
+//	 90 GiB   34.98 tok/s   33,276 MiB    <- MLX's own default
 //
-// 4 GiB covers the bulk of that reuse while bounding retention, and is what was
-// measured: cache settled at 4.02 GiB and the process fell 33,134 -> 28,526 MiB
-// on the same image. Zero was measured too and is NOT the default -- returning
-// every buffer costs allocator churn on a path that runs per forward, and the
-// footprint win over 4 GiB does not pay for an unmeasured latency risk.
+// Throughput recovers fully by 8 GiB, but 8 GiB saves 497 MiB -- nothing. The
+// entire 4.5 GB saving sits at 4 GiB, and 4 GiB costs 15.8% decode, because the
+// transient working set is ~7 GiB (peak 25.37 against active 18.29) and a
+// smaller cache makes the allocator round-trip to the driver inside every
+// forward.
 //
-// Set OLLAMA_MLX_CACHE_LIMIT to override, including to 0 for "retain nothing"
-// or to a large value to restore the old unbounded behaviour.
-const DefaultCacheLimit = 4 << 30
-
+// So a default at 8 GiB would buy nothing while adding a surprise, and a default
+// at 4 GiB would silently cost every user a sixth of their throughput to save
+// memory most of them are not short of. Neither is worth doing on the operator's
+// behalf. The knob is opt-in: set OLLAMA_MLX_CACHE_LIMIT when the footprint
+// matters more than the speed -- a shared card, or a model that OOMs at large
+// geometries -- and pay the cost knowingly.
 func configureCacheLimit() {
 	limit, ok := parseCacheLimit(os.Getenv(CacheLimitEnv))
 	if !ok {
-		limit = DefaultCacheLimit
+		return
 	}
 	previous, err := mlx.SetCacheLimit(limit)
 	if err != nil {
