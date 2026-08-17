@@ -14,6 +14,9 @@ the same way (':' and '.' become '_'). Output is the exact two-markdown-table
 format of the 2026-08-08 MLX-vs-GGUF campaign
 (../vision-campaign-2026-08-08-mlx.md) — keep it stable so runs diff cleanly.
 
+The one column that moves with --think is the token count, because the quantity
+itself does: see `token_column`.
+
 Engine column: safetensors tags are the MLX engine on this fork; the store
 names them by MLX-side quantization ("-nvfp4"). Anything else renders GGUF.
 Override per model with ENGINE_MAP="model=Engine,model=Engine" if a store
@@ -105,6 +108,30 @@ def fmt_bool(v):
     return "✅" if v else "❌"
 
 
+def token_column(think):
+    """Header for the eval_count column, which is not the same quantity in both
+    think modes.
+
+    eval_count is EVERY token the model generated. With thinking off that is the
+    answer, and "Answer tok" is exact. With it on the count is thinking + answer
+    -- a think-on gemma4:12b row reads 5588 against answers of a few hundred
+    tokens -- so the same header becomes a claim the run cannot support.
+
+    The split is not available to fix it with. The API reports one count; the
+    parser that knows where reasoning ends takes text, not tokens, so it has no
+    count to report (#189). Renaming is the honest option, not a lesser one:
+    "Gen tok" is what eval_count is in both modes, and it is what s/req and
+    req/h are derived from, which is why those columns stay correct here while
+    the label was wrong.
+
+    Think-off keeps the narrower header. The runner asked for no reasoning and
+    every column of that table has been published under it since 2026-08-08;
+    widening it would rewrite a true label to guard against a case the mode
+    excludes.
+    """
+    return "Answer tok" if think == "false" else "Gen tok"
+
+
 def main():
     args = sys.argv[1:]
     rundir = os.path.dirname(os.path.abspath(__file__))
@@ -129,7 +156,7 @@ def main():
           "| Invoice (items · qty+price · total) | name_bbox hits |",
           "|---|---|---|---|---|---|---|---|"]
     t2 = ["| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) "
-          "| Answer tok | Gen tok/s | Prefill tok/s | s/req | req/h |",
+          f"| {token_column(think)} | Gen tok/s | Prefill tok/s | s/req | req/h |",
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
 
     for model in args:
@@ -176,22 +203,24 @@ def main():
         s_req = None
         if gen and pre and sc.get("eval_count") and sc.get("prompt_eval_count"):
             s_req = sc["eval_count"] / gen + sc["prompt_eval_count"] / pre
-        # Answer length is half the throughput story: a slower model that
-        # answers in fewer tokens can beat a faster, more verbose one, since
+        # Generated length is half the throughput story: a slower model that
+        # finishes in fewer tokens can beat a faster, more verbose one, since
         # s/req = eval/gen_tps + prompt_eval/prefill_tps. Surface it directly.
+        # Under think-on those tokens include the reasoning, which is why the
+        # header follows the mode -- see token_column.
         ev = sc.get("eval_count")
         if was_capped(sc):
-            # eval_count is the cap here, not the answer length; both it and
+            # eval_count is the cap here, not a generated length; both it and
             # anything derived from it are meaningless as model results.
-            ans_cell = f"≥{ev} ⚠"
+            tok_cell = f"≥{ev} ⚠"
             s_cell = "capped"
             rh_cell = "capped"
         else:
-            ans_cell = str(ev) if ev else "—"
+            tok_cell = str(ev) if ev else "—"
             s_cell = f"{s_req:.1f}" if s_req else "—"
             rh_cell = f"{3600 / s_req:.0f}" if s_req else "—"
         t2.append(f"| {model} | {eng_cell} | {ctx_cell} | " + " | ".join(tiers) +
-                  f" | {multi} | {ans_cell} | {round(gen) if gen else '—'} | {round(pre) if pre else '—'}"
+                  f" | {multi} | {tok_cell} | {round(gen) if gen else '—'} | {round(pre) if pre else '—'}"
                   f" | {s_cell} | {rh_cell} |")
 
     print("## Scene grounding (six objects, norm-1000 boxes) + document extraction\n")
