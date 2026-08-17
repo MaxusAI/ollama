@@ -1,6 +1,7 @@
 package mlxrunner
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -240,6 +241,13 @@ func (st *speculativeDecoder) next(remaining int) ([]sampler.Result, error) {
 			defer mlx.Unpin(candidates.tokens)
 			results, accepted, observed, err = st.s.accept(&st.position, st.current, candidates)
 		}
+		if errors.Is(err, errNoLegalDraft) {
+			// The grammar admitted none of the drafts. Not a failure: fall back
+			// to a serial step for this round, which is what the constrained
+			// path would have produced anyway.
+			results, err = st.park(remaining)
+			accepted, observed = 0, 0
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -390,6 +398,60 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 	r := s.spec.r
 	before := *position
 	draftCount := candidates.tokens.Dim(1)
+
+	// THE GRAMMAR TRUNCATION MUST HAPPEN BEFORE scheduleSpeculation, not after
+	// it. The snapshot is taken for a specific draft count and commit() rolls
+	// back against that same count; shrinking the draft afterwards leaves the
+	// two disagreeing, which surfaces as "cache: offset N exceeds N-1 stored
+	// keys" from cacheSession.close -- a KV bookkeeping mismatch, and the exact
+	// failure the comment below warns about. Measured: doing this after the
+	// schedule aborts the runner on the first constrained request.
+	//
+	// It also forces an early sync, which the unmasked path does not pay: the
+	// mask for row i depends on the VALUES of drafts 0..i-1 and the grammar is
+	// a host-side stack machine, so the ids must be on the host before any of
+	// this can be decided. llama.cpp pays the same sync for the same reason.
+	// Views used for verification. Without a grammar they ARE the candidate
+	// arrays; with one they may be a shorter prefix of them.
+	verifyTokens := candidates.tokens
+	verifyDist := candidates.dist
+
+	var grammarMasks []*structured.Mask
+	if s.matcher != nil {
+		mlx.Eval(candidates.tokens)
+		ids32 := make([]int32, 0, draftCount)
+		for _, id := range candidates.tokens.Ints() {
+			ids32 = append(ids32, int32(id))
+		}
+		masks, admitted, _ := draftMasks(s.matcher, s.vocab, s.pieces, r.Tokenizer.IsEOS, ids32)
+		grammarMasks = masks
+		if admitted < draftCount {
+			// Rows past the first illegal draft describe grammar states that
+			// do not exist; verification must never reach them.
+			//
+			// DO NOT REASSIGN candidates.tokens. accept's contract is that the
+			// CALLER pins it and unpins it by that same field, so replacing it
+			// with a truncated view breaks the contract twice over: the Sweep
+			// before the Eval frees the unpinned replacement (observed as
+			// "Ints requires DTypeInt32, got BOOL" -- a use-after-free wearing
+			// a type error's clothes), and the caller's deferred Unpin then
+			// releases the replacement while the original stays pinned for
+			// good. Keep the field untouched and verify through a local view.
+			draftCount = admitted
+			verifyTokens = candidates.tokens.Slice(mlx.Slice(), mlx.Slice(0, draftCount))
+			mlx.Pin(verifyTokens)
+			defer mlx.Unpin(verifyTokens)
+			verifyDist = candidates.dist.SliceRows(0, draftCount)
+		}
+		if draftCount == 0 {
+			// The grammar rejected the very first draft, so there is nothing to
+			// verify. Running the round anyway would schedule a zero-length
+			// snapshot and slice empty distributions; the caller's serial step
+			// is the correct outcome.
+			return nil, 0, 0, errNoLegalDraft
+		}
+	}
+
 	scheduleSpeculation(s.spec.targets, before+1, draftCount)
 
 	// Every exit between schedule and commit must drain the snapshot
@@ -407,7 +469,7 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 	defer commit(0)
 
 	hiddenSeq, auxHiddenSeq := r.Model.Forward(&batch.Batch{
-		InputIDs:     current.Token.ExpandDims(-1).Concatenate(1, candidates.tokens),
+		InputIDs:     current.Token.ExpandDims(-1).Concatenate(1, verifyTokens),
 		SeqOffsets:   []int32{int32(before)},
 		SeqQueryLens: []int32{int32(draftCount + 1)},
 		Layout:       s.layout,
@@ -417,9 +479,24 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 	// the rows already line up with the drafts: row 0 (current's state)
 	// predicts draft 0, and the row after the last accepted draft is the
 	// bonus row. No separate base-logits forward exists on this path.
-	targetDist := r.Sampler.Distribution(pipelineSlot, r.Model.Unembed(hiddenSeq), candidates.tokens)
-	draftDist := candidates.dist
-	acceptedMask := r.sampleAcceptedMask(targetDist.SliceRows(0, draftCount), draftDist, candidates.tokens)
+	logits := r.Model.Unembed(hiddenSeq)
+	if grammarMasks != nil {
+		// Bias the target's logits so verification compares against the MASKED
+		// distribution. Unmasked, the target's argmax can be a token the format
+		// forbids and every legal draft is rejected against a token that could
+		// never have been emitted -- speculation accepts nothing while
+		// appearing to work.
+		rows := draftCount + 1
+		if len(grammarMasks) < rows {
+			rows = len(grammarMasks)
+		}
+		bias, buf := constraintBiasRows(grammarMasks[:rows], logits.Dim(logits.NumDims()-1), s.biasBuf)
+		s.biasBuf = buf
+		logits = mlx.Add(logits.Slice(mlx.Slice(), mlx.Slice(0, rows), mlx.Slice()), bias)
+	}
+	targetDist := r.Sampler.Distribution(pipelineSlot, logits, verifyTokens)
+	draftDist := verifyDist
+	acceptedMask := r.sampleAcceptedMask(targetDist.SliceRows(0, draftCount), draftDist, verifyTokens)
 
 	// The next token is sampled for every possible outcome before anything
 	// is evaluated — the residual at each rejection point in one batched
@@ -437,9 +514,9 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 	mlx.Pin(live...)
 	defer mlx.Unpin(live...)
 	mlx.Sweep()
-	mlx.Eval(candidates.tokens, acceptedMask, residualTokens, bonusToken)
+	mlx.Eval(verifyTokens, acceptedMask, residualTokens, bonusToken)
 
-	draftIDs := candidates.tokens.Ints()
+	draftIDs := verifyTokens.Ints()
 	acceptedFlags := acceptedMask.Ints()
 	for _, ok := range acceptedFlags {
 		if ok == 0 {
@@ -475,6 +552,9 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 
 	commit(keep)
 	*position = before + 1 + keep
+	// Only now, after commit: a matcher advanced over rolled-back tokens would
+	// leave the request generating against a state its own output never reached.
+	s.adoptGrammar(commitIDs[:keep])
 
 	// Report the validated run (current plus kept drafts) to the drafter before
 	// returning, so a cancelled emission still leaves it matching the caches. A

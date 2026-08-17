@@ -1,6 +1,7 @@
 package mlxrunner
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -372,3 +373,18 @@ func (s *speculationSession) adoptGrammar(ids []int32) {
 		}
 	}
 }
+
+// attachGrammar gives a speculation session the state masked verification
+// needs. Called only on the gated path; without it s.matcher stays nil and
+// every masked branch is inert.
+func (s *speculationSession) attachGrammar(r *Runner, g *structured.Grammar) {
+	vocab, pieces := r.constraint()
+	s.matcher = g.NewMatcher()
+	s.vocab = vocab
+	s.pieces = pieces
+}
+
+// errNoLegalDraft ends a speculative round in which the grammar admitted none
+// of the drafted tokens. Not a failure: the caller falls back to a serial step,
+// which is what the unconstrained path would have produced anyway.
+var errNoLegalDraft = errors.New("speculation: grammar admitted no drafted token")
