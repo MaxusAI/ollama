@@ -1,4 +1,4 @@
-# Vision campaign 2026-08-17 — Qwen3.8 first ROCm/gfx1151 baseline
+# Vision campaign 2026-08-17 — Qwen3.8 first ROCm/gfx1151 baseline, both think modes
 
 First vision run for Qwen3.8 on the AMD host, taken the day the renderer was
 backported to `release/0.32.1-dynres` (PR #142) and deployed. Companion to
@@ -14,8 +14,9 @@ which measured the same model on Apple Silicon.
 | payload | **b9888** — the gated lineage, no `--direct-io`; compat 001+002+004+005 |
 | model | `qwen3.8:27b-q4_K_M` (GGUF → llama-server), sideloaded |
 | store | `/opt/ollama/.ollama/models` (production) |
-| think | `THINK=false` — the suite default and this host's operational default |
-| sampling | `sampling_source = greedy-think-off`, temperature 0 |
+| think | both arms: `THINK=false` and `THINK=on` (the literal `on`, per [ADR 0023](adr/0023-think-mode-is-per-model-and-measured-on-policy.md)) |
+| sampling | think-off `greedy-think-off` (temperature 0); think-on `packaged-defaults-no-card` (no overrides) — correct for this family per [ADR 0026](adr/0026-qwen38-baselines-record-the-effort-directive.md), no `CARD_THINKING` entry and none should be added |
+| effort directive | **none** in both arms. `THINK=on` omits the `think` field, which `server/routes.go` coerces to `true`, and per ADR 0026 `true` emits no directive. Neither arm is an xhigh run. |
 | cache | cold; model loaded fresh, 66/66 layers offloaded to ROCm, 25.2 GiB VRAM |
 | fixtures | committed `visimgs/`, unmodified |
 | n | **1** — single pass, no repeats |
@@ -43,6 +44,72 @@ and installed content-addressed, every digest verified before install.
 
 All eleven `bbox_contract` variants returned 6/6 labels with valid JSON. Every
 extraction in the suite parsed.
+
+## Think-off vs think-on, same host, same build (T2)
+
+| test | metric | think-off | think-on |
+|---|---|---|---|
+| scene | bbox IoU | **0.991** (16384) | 0.981 (16384) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.570 (16384) | **0.790** (16384) |
+| fine text | 22/16/12/9/7 px | **4/4/4/2/1** (32768) | 4/4/4/1/0 (32768) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ **✅** 5/5 (16384) | ✅ ✅ **❌** 5/5 (16384) |
+| throughput | gen tok/s | 12 | 12 |
+| throughput | prefill tok/s | 276 | 281 |
+| latency | s/req (unique image) | **54.0** | 97.0 |
+| latency | req/h (serial) | **67** | 37 |
+
+**Think-on is a net loss here, as it was on Apple Silicon.** Every exact-match
+metric — labels, serial, invoice number, line items, qty+price, total, chart
+values — is already perfect in *both* arms, so thinking has nothing to improve.
+What it changes it mostly makes worse: the 9px *and* 7px fine-text tiers, the
+multi-image `q4_bbox`, and a point of scene IoU, for 1.8x the latency and 55% of
+the serial throughput. Generation speed is unchanged at 12 tok/s, so the entire
+cost is extra tokens (scene: 544 -> 1071 eval).
+
+The one gain, document `name_bbox` 0.570 -> 0.790, sits in the least trustworthy
+cell in the suite — the same metric swung 0.638 -> 0.248 across configurations
+within the Apple campaign alone. At n=1 per arm it should not be banked.
+
+The shape reproduces Apple Silicon closely: scene IoU fell 0.991 -> 0.980 there
+against 0.991 -> 0.981 here, on different silicon and a different payload. Fine
+text degraded on both, one tier further here. `q4_bbox` was already failing on
+Apple in both arms, so ROCm's ✅ -> ❌ moves the same direction from a better
+start.
+
+### Budget headroom — checked, because a capped cell is not a quality result
+
+Neither budget was exhausted in either arm. `eval_count < num_predict` in every
+cell and every generation ended `done_reason=stop`, so nothing was cut off:
+
+| | worst utilisation | where |
+|---|---|---|
+| `num_predict` | **83.8%** (1843 / 2200) | think-on `multi_3img` |
+| `num_ctx` | **48.7%** (7977 / 16384) | think-on `multi_3img` |
+
+**Caveat worth carrying into the next run:** the cell closest to its
+`num_predict` ceiling is exactly the cell that regressed. `multi_3img` think-on
+spent 84% of its allowance before answering and is where `q4_bbox` flipped to ❌.
+That is not truncation — but "not truncated" and "unaffected by the ceiling" are
+different claims, and only the first is established. A think-on repeat at a
+higher `NUM_PREDICT` would separate them.
+
+Note when reading raw score files: the bare `num_ctx` / `num_predict` fields
+record the suite *defaults*, not the window a given cell ran under. `finetext`
+really ran at `req_num_ctx = 32768` / `req_num_predict = 4000` while its
+`num_ctx` field reads 16384. The `req_*` fields are authoritative, and
+`summarize_head_to_head.py` renders from those.
+
+### The two arms differ in two variables, not one
+
+Think-off is greedy at temperature 0; think-on sends no sampling overrides at
+all, so the model's packaged temperature applies. That is deliberate — greedy
+decoding is what made reasoning fail to terminate, see
+[runaway-reasoning-under-think.md](runaway-reasoning-under-think.md) — but it
+means a difference between the arms cannot be attributed to thinking alone. The
+Apple campaign has the same design, so the cross-host comparison is sound even
+though the within-host attribution is not clean.
 
 ## Reading it
 
@@ -112,12 +179,20 @@ rule 4 exists to prevent.
 - **Does:** Qwen3.8 loads, offloads fully, renders through the ported qwen3.8
   renderer (`template selection … renderer=qwen3.8 parser=qwen3.5`), and
   extracts at parity with Apple Silicon on the objective cells.
-- **Does not:** establish a repeat-measured baseline. n=1, think-off only. The
-  Apple campaign ran think-on as a second arm; that has not been done here, and
-  [ADR 0025](adr/0025-think-stays-off-on-gfx1151.md) explicitly does not bind an
-  unmeasured family. A think-on arm is the obvious next run — a text-only probe
-  during the same session got an arithmetic question wrong with think off and
-  right with think on, which is an anecdote, not a measurement.
+- **Does:** support keeping `think` **off** for Qwen3.8 vision on this host,
+  which points the same way as [ADR 0025](adr/0025-think-stays-off-on-gfx1151.md)
+  without being bound by it — 0025 is scoped to its three measured families and
+  says explicitly that a new family needs its own measurement. This is that
+  measurement, thin as it is.
+- **Does not:** establish a repeat-measured baseline. **n=1 per arm.** The
+  `name_bbox` gain and the `q4_bbox` loss both sit in cells this suite has
+  already shown to be unstable across configurations.
+- **Does not:** settle whether think-on's `q4_bbox` regression is a reasoning
+  effect or a budget effect — see the headroom caveat above.
+- Unrelated to vision, and recorded only as an anecdote: a text-only arithmetic
+  probe in the same session was wrong with think off and right with think on.
+  One question is not a measurement, and it points the opposite way to the
+  vision result.
 - **Does not:** make the family regression-covered. That needs the expectations
   entry proposed alongside this record, and per ADR 0011 rule 4 the `[expect.…]`
   block alone is insufficient — `arches` on the profile must move with it.
