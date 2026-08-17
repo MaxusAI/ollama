@@ -123,6 +123,9 @@ func (r *Runner) Load(modelName string) error {
 	mlx.Sweep()
 	mlx.Eval(collected...)
 	configureWiredMemory()
+	// After the weights are resident, so the "previous" it logs and any cache
+	// it trims reflect a loaded model rather than an empty allocator.
+	configureCacheLimit()
 
 	r.Model = m
 	r.Tokenizer = m.Tokenizer()
@@ -200,6 +203,79 @@ func configureMemoryLimit(active int, wsErr error) {
 		"active", mlx.PrettyBytes(active),
 		"limit", mlx.PrettyBytes(budget),
 		"previous", mlx.PrettyBytes(previous))
+}
+
+// CacheLimitEnv bounds MLX's RETAINED buffer cache, in bytes. Unset applies
+// DefaultCacheLimit; 0 means retain nothing.
+const CacheLimitEnv = "OLLAMA_MLX_CACHE_LIMIT"
+
+// configureCacheLimit bounds what MLX keeps after it is finished with it.
+//
+// The memory limit above caps TOTAL allocation and decides when an allocation
+// FAILS. It does not make MLX give anything back, and MLX's allocator retains
+// freed blocks for reuse. Measured on gemma4:31b-nvfp4, one 3072x1728 image:
+// active 18.29 GiB against cache 13.16 GiB, for a 32.36 GiB process where
+// llama.cpp does the identical work — same image, same num_ctx, same
+// prompt_eval_count — in 23.03 GiB. The cache IS the difference.
+//
+// That matters beyond tidiness on a shared card: a large retained cache is a
+// candidate cause of an out-of-memory abort seen on qwen3.6:35b-a3b-nvfp4 at
+// the same geometry while nvidia-smi reported 85 GiB free, because the pool
+// holds memory the driver can no longer hand to a big contiguous request.
+//
+// THE DEFAULT IS BOUNDED, NOT UNBOUNDED. MLX's own default is 90.22 GiB here,
+// derived from TOTAL device memory, which is the same wrong denominator the
+// allocator ceiling had. DefaultCacheLimit replaces it with a value sized from
+// what a forward pass actually reuses rather than from the card:
+//
+//	active 18.29 GiB, peak 25.37 GiB  ->  transient working set ~7 GiB
+//
+// 4 GiB covers the bulk of that reuse while bounding retention, and is what was
+// measured: cache settled at 4.02 GiB and the process fell 33,134 -> 28,526 MiB
+// on the same image. Zero was measured too and is NOT the default -- returning
+// every buffer costs allocator churn on a path that runs per forward, and the
+// footprint win over 4 GiB does not pay for an unmeasured latency risk.
+//
+// Set OLLAMA_MLX_CACHE_LIMIT to override, including to 0 for "retain nothing"
+// or to a large value to restore the old unbounded behaviour.
+const DefaultCacheLimit = 4 << 30
+
+func configureCacheLimit() {
+	limit, ok := parseCacheLimit(os.Getenv(CacheLimitEnv))
+	if !ok {
+		limit = DefaultCacheLimit
+	}
+	previous, err := mlx.SetCacheLimit(limit)
+	if err != nil {
+		slog.Warn("Unable to apply MLX cache limit; keeping the backend default",
+			"limit", mlx.PrettyBytes(limit), "error", err)
+		return
+	}
+	slog.Info("Configured MLX buffer cache limit",
+		"limit", mlx.PrettyBytes(limit),
+		"previous", mlx.PrettyBytes(previous),
+		"memory", mlx.Memory{})
+}
+
+// parseCacheLimit is parseMemoryBudget with ZERO ADMITTED. The two look alike
+// and mean different things: a memory budget of 0 is meaningless (it would
+// forbid every allocation), so parseMemoryBudget rejects it, but a CACHE limit
+// of 0 is the most useful value in the range -- "retain nothing", the setting
+// that makes MLX return every freed buffer instead of holding it.
+//
+// Reusing parseMemoryBudget here silently discarded OLLAMA_MLX_CACHE_LIMIT=0
+// and left the backend default in place, so a measurement of that setting
+// reported the DEFAULT's footprint under the cap-0 label -- 33,134 MiB,
+// byte-identical to the unset arm, which is what gave it away.
+func parseCacheLimit(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil || v > math.MaxInt {
+		return 0, false
+	}
+	return int(v), true
 }
 
 func parseMemoryBudget(s string) (int, bool) {
