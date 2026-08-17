@@ -1,7 +1,8 @@
 name: preflight-expectations
 
 # Guards the pre-deploy regression harness's own logic and, more importantly, the
-# internal consistency of its expectations file.
+# internal consistency of its expectations file — and, since 2026-08-18, the
+# vision suite's other offline tests, which existed but nothing ran.
 #
 # WHY THIS RUNS ON EVERY PULL REQUEST RATHER THAN FILTERING ON PATHS.
 #
@@ -53,11 +54,11 @@ jobs:
             "${{ github.event.pull_request.head.sha }}")
           if git diff --name-only "$MERGE_BASE" \
                "${{ github.event.pull_request.head.sha }}" \
-             | grep -qE '^(docs/maxusai/vision-suite/preflight/|\.github/workflows/preflight-expectations\.yaml$)'; then
+             | grep -qE '^(docs/maxusai/vision-suite/|\.github/workflows/preflight-expectations\.yaml$)'; then
             echo "run=true" | tee -a $GITHUB_OUTPUT
           else
             echo "run=false" | tee -a $GITHUB_OUTPUT
-            echo "No changes under docs/maxusai/vision-suite/preflight/ — nothing to verify."
+            echo "No changes under docs/maxusai/vision-suite/ — nothing to verify."
           fi
 
       # tomllib is stdlib from 3.11; the harness needs nothing else.
@@ -70,6 +71,19 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         working-directory: docs/maxusai/vision-suite/preflight
         run: python3 test_verdicts.py
+
+      # The suite's other offline tests. Both were committed with nothing running
+      # them: test_rescore.py has guarded the bbox scorer against silent renumbering
+      # since it was written, and test_summarizers.py pins what the rendered tables
+      # claim their numbers are — the failure that put `eval_count` under an "Answer
+      # tok" header into a merged campaign record. Together ~0.2s; there is no
+      # reason for them to be manual.
+      - name: Verify the summarizers and the rescore regression
+        if: steps.scope.outputs.run == 'true'
+        working-directory: docs/maxusai/vision-suite
+        run: |
+          python3 test_summarizers.py
+          python3 test_rescore.py
 
       # The harness is cherry-picked to lineages that carry preflight/ without the
       # rest of the vision suite. On release/0.32.1-dynres that is not a

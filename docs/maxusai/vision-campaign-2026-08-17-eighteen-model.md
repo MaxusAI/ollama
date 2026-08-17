@@ -115,6 +115,19 @@ Every think-off row ran at `num_ctx` **16384** — no escalation was needed.
 a model needed is part of its result: the same score means different things at
 16384 and 65536.
 
+**Corrected 2026-08-18: the token column below reads `Gen tok`, not `Answer
+tok`.** It renders `eval_count`, which counts every token the model generated —
+under think-on that is reasoning *plus* answer. `gemma4:12b-it-q4_K_M`'s 5588 is
+not the length of its answer, and reading it as one understates every model's
+answer-per-second by whatever share went to reasoning. **Only the header
+changed; no number in this table moved**, and the think-off table above keeps
+`Answer tok`, where the label is exact. The split itself is still not available
+— the API reports one count and the parser that knows where reasoning ends never
+sees tokens (MaxusAI/ollama#189) — so this is a correction to what the column
+claims, not a new measurement. `summarize_engine_compare.py` now derives the
+header from `--think` (MaxusAI/ollama#195), so a re-render of this run reproduces
+the table as it now stands.
+
 ## Scene grounding (six objects, norm-1000 boxes) + document extraction
 
 | Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox hits |
@@ -140,7 +153,7 @@ a model needed is part of its result: the same score means different things at
 
 ## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
 
-| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Answer tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Gen tok | Gen tok/s | Prefill tok/s | s/req | req/h |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | gemma4:12b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 0 | ✅ all Qs + bbox | 5588 | 38 | 1128 | 149.2 | 24 |
 | gemma4:12b-nvfp4 | **MLX** | 16384 | 4 | 3 | 3 | 0 | 0 | ✅ all Qs + bbox | 2318 | 31 | 228 | 82.1 | 44 |
