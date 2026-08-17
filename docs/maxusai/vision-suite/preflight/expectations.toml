@@ -1037,13 +1037,24 @@ image_max_pixels = 2580480       # 1120 * 48^2
 # ladder". So it was measured: image_prefix (B8), five geometries, flat 1102
 # throughout, prefix == text_only == 19.
 #
-# The four budget fields above are NOT from a log and could not be. The MLX
-# runner does not emit llama.cpp's `load_hparams: image_*_pixels` lines, so
-# measure_ladder.py's --container path yields nothing here and correctly leaves
-# them TODO rather than inventing them. They are runner constants read from the
-# fork's own source — 70/1120 are the ADR 0008 gemma4 defaults, and the stride
-# is the align argument BudgetFillSize is called with — which is a stronger
-# source than a log line, not a weaker one.
+# The budget fields have TWO independent sources that agree, which is why they
+# are stated rather than left TODO:
+#
+#   1. The container's own load_hparams block, read by measure_ladder.py and
+#      re-read by preflight's payload_proof, which passes on this profile:
+#      "budget logged as custom on max/min (min 70*48^2=161280,
+#      max 1120*48^2=2580480)". A check that reads those lines cannot pass
+#      without them, so the MLX runner demonstrably emits them.
+#   2. The fork's own source: 70/1120 are the ADR 0008 gemma4 defaults
+#      (llm/llama_server_test.go:1575, :1738) and 48 is the align argument
+#      BudgetFillSize is called with (llm/llama_server.go:1511).
+#
+# Recorded because the first measurement run produced TODO for every budget
+# field and that was misdiagnosed, in an earlier revision of this comment, as
+# "the MLX runner does not emit these lines". It does. The empty read was a race
+# between forcing the reload and reading the log, and re-running produced the
+# values above. A tool returning nothing is not evidence that nothing exists —
+# the same mistake as reading an absent `readelf` as "no RPATH present".
 scaling = "flat"
 ladder_tolerance = 2
 ladder = [1102, 1102, 1102, 1102, 1102]
