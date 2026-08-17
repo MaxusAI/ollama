@@ -1,7 +1,16 @@
 #!/bin/sh
-# Restart the vision-suite server for a benchmark run. Use as RESTART_CMD.
+# Restart the vision-suite server for a benchmark run on APPLE SILICON, serving
+# the MLX safetensors store. Use as RESTART_CMD.
 #
-#   RESTART_CMD='sh docs/maxusai/vision-suite/serve-mlx.sh' \
+# APPLE SILICON ONLY — and "MLX" alone does not mean Apple. The fork also ships
+# an mlx_cuda_v13 payload for Linux/CUDA (see
+# ../upstream-mlx-cuda-payload-unloadable.md), so a script called serve-apple-mlx.sh
+# would read as if it applied there too. It does not: this one assumes a Metal
+# host, a native (non-container) serve, and ~/.ollama/models-mlx. For CUDA or
+# ROCm, restart the container instead — run_grid.sh's RESTART_CMD example shows
+# the docker form.
+#
+#   RESTART_CMD='sh docs/maxusai/vision-suite/serve-apple-mlx.sh' \
 #     MODELS="..." ./run_engine_compare.sh http://127.0.0.1:11436
 #
 # THIS SCRIPT IS IN THE REPO ON PURPOSE. It used to live in /tmp, which meant

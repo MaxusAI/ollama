@@ -27,7 +27,7 @@ tag namespaces and sampling overrides all run through H1's entry point:
 TEMPERATURE=0.01 REPEATS=3 TAG_PREFIX=lt \
   ONLY_TESTS=bbox_contract,bbox_contract_anchored \
   MODELS="gemma4:31b-it-q4_K_M qwen3.6:35b-a3b-q4_K_M" \
-  RESTART_CMD='sh docs/maxusai/vision-suite/serve-mlx.sh' THINK_MODES='false on' \
+  RESTART_CMD='sh docs/maxusai/vision-suite/serve-apple-mlx.sh' THINK_MODES='false on' \
   ./run_engine_compare.sh http://127.0.0.1:11436
 ```
 
