@@ -1,7 +1,17 @@
 # Negative result: `temperature 0.01` is not a safe substitute for card sampling in think-on
 
-MaxusAI-fork reference. Measured 2026-08-17. **This records an approach that
-does not work, so nobody retries it.**
+MaxusAI-fork reference. Measured 2026-08-17.
+
+> **Status amended 2026-08-17, same day.** This was written as "an approach that
+> does not work, so nobody retries it". It is now **fork policy** — see
+> [ADR 0029](adr/0029-think-on-is-measured-at-a-fixed-low-temperature.md), which
+> adopts `temperature 0.01` for think-on deliberately, with the cost measured
+> here accepted in exchange for reproducibility at `n <= 3`.
+>
+> **Nothing measured below has changed, and none of it is retracted.** Read it
+> as the cost sheet for that decision rather than as a prohibition: the models
+> named here as losing cells still lose them, and a `no result` cell on those
+> families is now *expected behaviour*, not a vision failure to be reported.
 
 ## Why it was tried
 

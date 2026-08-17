@@ -23,16 +23,48 @@ preflight expectation and every release record was measured at `temperature: 0`.
 Changing that would invalidate all of them for no benefit — the failure this
 module addresses only occurs with thinking on.
 
-VALUES ARE CARD-SOURCED OR ABSENT. A model whose card we cannot read gets NO
-sampling overrides at all — its packaged parameters apply — plus a warning.
-Never an invented configuration, and never greedy, which is the very thing that
-breaks think-on. Adding a row here means reading that model's card and citing it.
+TEMPERATURE IS FORK POLICY; EVERYTHING ELSE IS CARD-SOURCED OR ABSENT. As of
+2026-08-17 think-on runs at THINK_TEMPERATURE (default 0 — greedy), NOT the
+cards' temperature 1.0. A model whose card we cannot read still gets NO sampling
+overrides at all — its packaged parameters apply — plus a warning. Adding a row
+here still means reading that model's card and citing it; only the temperature
+field is ours.
 
-The table below is corroborated by what the models themselves ship: `ollama show`
-reports gemma4 declaring temperature 1 / top_k 64 / top_p 0.95 and qwen3.6
-declaring temperature 1 / top_k 20 / top_p 0.95 / min_p 0 / presence_penalty 1.5
-— i.e. exactly these values. nemotron3 declares none, which is why it has no row.
-Pinning temperature 0 was therefore overriding each model's own packaged default.
+WHY THE CARDS' TEMPERATURE WAS DROPPED. At 1.0 a think-on cell is not
+reproducible: two runs of the same model on the same fixture differ, so at the
+n<=3 this suite can afford, a difference between engines, quantisations or code
+revisions cannot be separated from sampling noise. Determinism is what makes a
+regression gate possible, and a regression gate is what this suite is for.
+
+WHAT THIS COSTS, STATED PLAINLY, AND IT IS THE WORST CASE. Greedy decoding is
+precisely what makes reasoning fail to terminate — that is the defect ADR 0023
+was written to escape, and this walks back into it deliberately. The nearest
+measured evidence is one notch milder than what we now run:
+../vision-lowtemp-thinkon-negative-result.md measured `temperature 0.01` over
+nine models and three repeats, and `gemma4:12b-it-q4_K_M` and
+`qwen3.6:35b-a3b-q4_K_M` lost SIX of eight contract cells there, while
+`gemma4:31b-nvfp4` lost 0-1 and `gemma4:31b-it-q4_K_M` lost none. At 0 the
+non-termination pressure is strictly higher, so treat those figures as a FLOOR
+on the loss, not an estimate of it.
+
+Where a cell scores, the score is good (IoU 0.94-0.97) — low temperature does not
+degrade the answer, it prevents the answer. So a `no result` or capped cell under
+this policy is EXPECTED BEHAVIOUR for the affected families, not a vision failure
+and not a regression. Check it against that document before reporting one, and
+check `eval_count` against `num_predict` first (ADR 0022 trap #1).
+
+This supersedes the sampling half of ADR 0023 (think-on measured on-policy).
+Think-on numbers produced after this change are NOT comparable to the published
+card-sampling campaigns: the 2026-08-14 on-policy runs, the 2026-08-17 eighteen-
+model campaign, and every think-on row derived from them.
+
+THINK-OFF IS UNTOUCHED. It was greedy before and stays greedy.
+
+For the record, since the values are no longer sent: the cards specify
+temperature 1.0, and `ollama show` corroborates it — gemma4 declares
+temperature 1 / top_k 64 / top_p 0.95, qwen3.6 declares temperature 1 / top_k 20
+/ top_p 0.95 / min_p 0 / presence_penalty 1.5. nemotron3 declares none, which is
+why it has no row.
 """
 import os
 import sys
@@ -40,20 +72,44 @@ import sys
 # Think-off: unchanged from the original hardcoded value, on purpose (see above).
 GREEDY = {"temperature": 0}
 
-# Think-on, keyed by the model-name prefix before the first ':'.  Each entry
-# must cite the card it came from — these are not tuned values.
+# The temperature every think-on cell is measured at, overriding whatever the
+# card says. Fork policy, not a card value — see the header for the reasoning
+# and for what it costs. Env-overridable so the cost can be re-measured without
+# editing this file: THINK_TEMPERATURE=0.01 for the near-greedy variant,
+# =1.0 to reproduce a pre-2026-08-17 card-sampling run.
+#
+# WHY 0 AND NOT 0.01. 0.01 was tried first and does NOT give a reproducible
+# cell. Two runs of gemma4:31b-nvfp4 think-on at 0.01, same fixture, same
+# window, cold server both times, scene_single first in each:
+#
+#     run A   eval=3205   scene IoU 0.965
+#     run B   eval=1762   scene IoU 0.961
+#
+# Nearly double the reasoning tokens. One counterexample refutes determinism,
+# and reproducibility is the entire reason this knob exists — a value that
+# only *reduces* variance leaves the gate exactly as unfalsifiable as before,
+# because "did it change?" still has no crisp answer at n<=3.
+THINK_TEMPERATURE = float(os.environ.get("THINK_TEMPERATURE", "0"))
+
+# What the cards actually specify, kept because the campaigns published before
+# 2026-08-17 were measured at it and a reader needs to know what changed.
+CARD_TEMPERATURE = 1.0
+
+# Think-on, keyed by the model-name prefix before the first ':'. Every field
+# EXCEPT temperature must cite the card it came from — those are not tuned
+# values. Temperature is supplied by THINK_TEMPERATURE above.
 CARD_THINKING = {
     # https://huggingface.co/Qwen/Qwen3.6-35B-A3B — thinking mode, general tasks.
     # The card names presence_penalty (0-2) as the anti-repetition lever.
-    "qwen3.6": {"temperature": 1.0, "top_p": 0.95, "top_k": 20,
+    "qwen3.6": {"temperature": THINK_TEMPERATURE, "top_p": 0.95, "top_k": 20,
                 "min_p": 0.0, "presence_penalty": 1.5},
-    "qwen3.5": {"temperature": 1.0, "top_p": 0.95, "top_k": 20,
+    "qwen3.5": {"temperature": THINK_TEMPERATURE, "top_p": 0.95, "top_k": 20,
                 "min_p": 0.0, "presence_penalty": 1.5},
     # https://huggingface.co/google/gemma-4-12B-it — "Use the following
     # standardized sampling configuration across all use cases". The card draws
     # no distinction between thinking and non-thinking, and specifies no
     # penalty; measured convergence needs none.
-    "gemma4": {"temperature": 1.0, "top_p": 0.95, "top_k": 64},
+    "gemma4": {"temperature": THINK_TEMPERATURE, "top_p": 0.95, "top_k": 64},
     # nemotron3: the NVIDIA card is gated (HTTP 401), so no values are recorded
     # here. It is the one family that converges under greedy decoding anyway, so
     # the fallback below is not currently costing us a measurement.
@@ -151,7 +207,13 @@ def provenance(model, think):
     elif not think:
         source = "greedy-think-off"
     elif fam in CARD_THINKING:
-        source = f"card:{fam}"
+        # NOT purely card-sourced since 2026-08-17: every field but temperature
+        # comes from the card, temperature is fork policy. The label carries the
+        # value so a run's sampling regime is legible from the field everyone
+        # filters on, without opening the resolved `sampling` dict. A bare
+        # `card:<fam>` in an archived score means a pre-2026-08-17 run measured
+        # at the card's temperature 1.0.
+        source = f"card:{fam}+temp{THINK_TEMPERATURE:g}"
     else:
         source = "packaged-defaults-no-card"
 
