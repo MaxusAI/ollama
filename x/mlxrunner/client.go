@@ -324,11 +324,40 @@ func (c *Client) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.DeviceInfo
 				"using", format.HumanBytes2(vramBudget))
 		}
 
+		// PHYSICAL shortfall: the card cannot hold the model. Evictable, so it
+		// stays ErrLoadRequiredFull under requireFull -- freeing another runner
+		// raises FreeMemory and a retry can succeed.
 		if modelSize > available {
 			if requireFull {
 				return nil, llm.ErrLoadRequiredFull
 			}
 			return nil, fmt.Errorf("model requires %s but only %s are available (after %s overhead)", format.HumanBytes2(modelSize), format.HumanBytes2(available), format.HumanBytes2(overhead))
+		}
+
+		// OPERATOR shortfall: it fits the card but not the ceiling the operator
+		// set. This check has to exist separately, and it must NOT be
+		// ErrLoadRequiredFull.
+		//
+		// Separately, because the check above reads `available` while the value
+		// actually handed to the runner is `vramBudget`. Before the override
+		// existed the two were the same number, so one check covered both; now
+		// a cap below the model size is admitted and passed straight through to
+		// the subprocess. Measured: model 18.29 GiB, 88 GiB free,
+		// OLLAMA_MLX_MEMORY_LIMIT=8589934592 -> admitted even with
+		// requireFull=true, ceiling 10.3 GiB under the weights. Nothing
+		// downstream catches it either: runner.go evaluates the weights before
+		// configureMemoryLimit runs, so the cap lands on an already-resident
+		// model, and that function only guards upward.
+		//
+		// And NOT ErrLoadRequiredFull, because sched.go turns that into "evict a
+		// runner and retry". Eviction raises FreeMemory; the operator's cap is a
+		// constant that free memory cannot move, so every retry would recompute
+		// the same budget and fail identically -- evicting every other model to
+		// satisfy a constraint eviction cannot satisfy. A plain error naming the
+		// variable is the only correct answer, and it tells the operator which
+		// knob to turn.
+		if modelSize > vramBudget {
+			return nil, fmt.Errorf("model requires %s but %s caps the MLX budget at %s", format.HumanBytes2(modelSize), MemoryLimitEnv, format.HumanBytes2(vramBudget))
 		}
 	}
 
