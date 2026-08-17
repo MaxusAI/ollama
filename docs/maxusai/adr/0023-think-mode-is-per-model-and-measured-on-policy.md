@@ -1,6 +1,15 @@
 # ADR 0023: think mode stays available for vision, is decided per model, and is only admissible when measured on-policy
 
-- **Status:** accepted (2026-08-13). Supersedes
+- **Status:** the **sampling** ruling below is superseded by
+  [ADR 0029](0029-think-on-is-measured-at-a-fixed-low-temperature.md)
+  (2026-08-17): think-on is now measured at a fixed low temperature (default
+  0.01), not at the cards' `temperature 1.0`, because card sampling made
+  think-on irreproducible at the `n <= 3` this suite can afford. Everything
+  else here still stands — think mode is decided per model, and a think-on
+  regression claim remains inadmissible without checking `eval_count` against
+  `num_predict`. The problem analysis below is still the reference for *why*
+  greedy decoding broke termination, which is the cost ADR 0029 knowingly
+  accepts. Accepted (2026-08-13). Supersedes
   [ADR 0022](0022-thinking-is-off-for-vision-work.md), whose harness traps and
   admissibility rule are carried forward unchanged.
 - **Date:** 2026-08-13
