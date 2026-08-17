@@ -1,88 +1,81 @@
 #!/usr/bin/env python3
-"""Render the sampling-comparison arm as (score, num_ctx, num_predict) per model.
+"""Render a repeated ARM as (score, num_ctx, num_predict) per model.
 
 ADR 0012 rule 8: a result is the answer AND what it cost to obtain. Cap counts
-are harness diagnostics, not results, so they do not appear as a headline here —
-a cell that never terminated is reported as a MISSING SCORE at a stated window,
-which is what it is.
+are harness diagnostics, not results, so a cell that never terminated is
+reported as a MISSING SCORE at a stated window rather than scored as a zero.
 
-This arm is exploratory (ADR 0012 rule 7), so it is exempt from the T1/T2 shapes
-but still carries the provenance header and marks every invalid cell explicitly.
+Arms are exploratory (rule 7) and so exempt from the T1/T2 shapes, but they
+still carry the provenance columns.
+
+EVERY SHARED HELPER IS IMPORTED FROM summarize_engine_compare, NOT REWRITTEN.
+The first draft of this file re-implemented engine detection, the capped test,
+num_ctx extraction and tag parsing — all four already existed there, and the
+re-implementations were subtly different: the local capped test used `==` where
+was_capped uses `>=`, so it would have missed a cell that overran its cap.
 
 Usage: summarize_lowtemp.py <tag-prefix> [<tag-prefix> ...]
-       summarize_lowtemp.py lt          # the TEMPERATURE=0.01 arm
 """
-import json
+import glob
 import os
 import re
 import sys
-import glob
+
+from summarize_engine_compare import (ctx_for, engine_for, load, tag_for,
+                                      was_capped)
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 ARMS = ["bbox_contract", "bbox_contract_multi", "bbox_contract_reasoning",
         "bbox_contract_pinned", "bbox_contract_perobject", "bbox_contract_anchored",
         "bbox_contract_adv_real", "bbox_contract_adv_norm1"]
-ENGINE = lambda m: "**MLX**" if re.search(r"nvfp4|mxfp8|mlx-bf16", m) else "GGUF"
 
 
-def pretty(tag):
-    """Score-file tags mangle both ':' and '.' to '_', so 'qwen3_6_35b-a3b' is
-    ambiguous on a naive split. Restore the known families explicitly."""
+def display(tag):
+    """Invert tag_for for the families this corpus uses."""
     for fam in ("qwen3.6", "qwen3.8", "qwen3.5", "gemma4", "nemotron3"):
-        mangled = fam.replace(".", "_") + "_"
-        if tag.startswith(mangled):
-            return f"{fam}:{tag[len(mangled):]}"
-    return tag.replace("_", ":", 1)
-
-
-def collect(prefix):
-    """{(model, mode): [per-repeat dict]}"""
-    out = {}
-    for p in sorted(glob.glob(f"{DIR}/scores_{prefix}*_think*.json")):
-        base = os.path.basename(p)[7:-5]
-        m = re.match(rf"{prefix}(\d+)_(.+)_think(false|on)$", base)
-        if not m:
-            continue
-        out.setdefault((m.group(2), m.group(3)), []).append(json.load(open(p)))
-    return out
+        pre = tag_for(fam) + "_"
+        if tag.startswith(pre):
+            return f"{fam}:{tag[len(pre):]}"
+    return tag
 
 
 def main():
-    prefixes = sys.argv[1:] or ["lt"]
-    for prefix in prefixes:
-        data = collect(prefix)
-        if not data:
+    for prefix in (sys.argv[1:] or ["lt"]):
+        rows = {}
+        for p in sorted(glob.glob(f"{DIR}/scores_{prefix}*_think*.json")):
+            m = re.match(rf"{prefix}(\d+)_(.+)_think(false|on)$", os.path.basename(p)[7:-5])
+            if m:
+                rows.setdefault((m.group(2), m.group(3)), []).append(load(p))
+        if not rows:
             print(f"no scores for prefix {prefix!r}")
             continue
-        print("| Model | Engine | think | contract_followed | mean IoU (scored cells) | no result | num_ctx | num_predict |")
+        print("| Model | Engine | think | contract_followed | mean IoU (scored cells) "
+              "| no result | num_ctx | num_predict |")
         print("|---|---|---|---|---|---|---|---|")
-        for (mdl, mode) in sorted(data):
-            reps = data[(mdl, mode)]
-            foll, iou, missing, ctx, npd = [], [], [], set(), set()
-            for d in reps:
+        for (tag, mode) in sorted(rows):
+            foll, iou, missing, ctxs, npds = [], [], [], [], set()
+            for d in rows[(tag, mode)]:
+                secs = [d.get(a) for a in ARMS if d.get(a)]
+                ctxs.extend(secs)
+                npds.update(s.get("num_predict") for s in secs if s.get("num_predict"))
                 f = n = 0
                 ious = []
-                for a in ARMS:
-                    c = d.get(a)
-                    if not c:
-                        continue
-                    ctx.add(c.get("req_num_ctx") or c.get("num_ctx"))
-                    npd.add(c.get("req_num_predict") or c.get("num_predict"))
-                    # A cell whose generation never terminated has no score to
-                    # report. Say so; do not score it as a zero.
-                    if c.get("eval_count") is not None and c.get("eval_count") == c.get("num_predict"):
+                for s in secs:
+                    if was_capped(s):        # shared definition, >= not ==
                         n += 1
                         continue
-                    f += bool(c.get("contract_followed"))
-                    if c.get("iou_declared"):
-                        ious.append(c["iou_declared"])
+                    f += bool(s.get("contract_followed"))
+                    if s.get("iou_declared"):
+                        ious.append(s["iou_declared"])
                 foll.append(f)
                 missing.append(n)
                 iou.append(round(sum(ious) / len(ious), 3) if ious else None)
-            fmt = lambda xs: "/".join("—" if x is None else str(x) for x in xs)
-            one = lambda s: str(sorted(s)[0]) if len(s) == 1 else "/".join(map(str, sorted(s)))
-            print(f"| {pretty(mdl)} | {ENGINE(mdl)} | {mode} | {fmt(foll)} of 8 | "
-                  f"{fmt(iou)} | {fmt(missing)} of 8 | {one(ctx)} | {one(npd)} |")
+            j = lambda xs: "/".join("—" if x is None else str(x) for x in xs)
+            eng = engine_for(display(tag), {})
+            npd = "/".join(str(v) for v in sorted(npds)) if npds else "—"
+            print(f"| {display(tag)} | {'**MLX**' if eng == 'MLX' else eng} | {mode} "
+                  f"| {j(foll)} of 8 | {j(iou)} | {j(missing)} of 8 "
+                  f"| {ctx_for(*ctxs)} | {npd} |")
         print()
         print("Three values per cell = three repeats. `no result` counts cells whose")
         print("generation never terminated at the stated window, so they carry no score;")
