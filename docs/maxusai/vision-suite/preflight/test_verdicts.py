@@ -10,7 +10,9 @@ fail if the diagnosis is ever wired to the shape alone instead of the arch.
 """
 import json
 import os
+import subprocess
 import sys
+import time
 import tomllib
 import pathlib
 import unittest
@@ -19,6 +21,7 @@ from unittest import mock
 sys.path.insert(0, ".")
 
 import checks  # noqa: E402
+import probes  # noqa: E402
 from checks import FAIL, PASS, SKIP  # noqa: E402
 
 SIZES = ["256x144", "512x288", "1024x576", "2048x1152", "3072x1728"]
@@ -331,6 +334,55 @@ class TestPayloadProofCustomBounds(unittest.TestCase):
         self.assertNotIn("custom_bounds", self.BOTH)
         r = self.proof(self.BOTH, self.log(262144, 3407872))
         self.assertEqual(r["status"], PASS, r["summary"])
+
+
+class TestContainerLogsWindow(unittest.TestCase):
+    """The --since window must be unambiguous, or it is the wrong window.
+
+    Docker assumes the client's LOCAL timezone for a timestamp carrying no
+    zone, while container_logs formats UTC. Off UTC the two disagree by the
+    offset: east of it the window opens early and admits load_hparams lines
+    from previous loads of OTHER models, which is how a caller that should
+    have reported "no data" instead gets a plausible wrong answer.
+
+    These assert the emitted string, not docker's behaviour, because the seam
+    we control is the timestamp.
+    """
+
+    def since_arg(self, epoch):
+        """The timestamp container_logs actually emits, via the log_cmd seam."""
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["cmd"] = cmd
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with mock.patch.object(probes.subprocess, "run", fake_run):
+            probes.container_logs("c", epoch, log_cmd="SINCE={since}")
+        return seen["cmd"].split("=", 1)[1]
+
+    def test_since_carries_an_explicit_zone(self):
+        self.assertTrue(self.since_arg(1_755_000_000).endswith("Z"),
+                        "a zoneless timestamp is read as docker's local time")
+
+    def test_since_is_utc_not_local(self):
+        """Belt and braces: the Z must be truthful, not decoration."""
+        epoch = 1_755_000_000
+        self.assertEqual(self.since_arg(epoch),
+                         time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch)))
+
+    def test_default_docker_argv_carries_the_same_stamp(self):
+        """The log_cmd path and the plain `docker logs` path must not drift."""
+        seen = {}
+
+        def fake_run(argv, **kw):
+            seen["argv"] = argv
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+        with mock.patch.object(probes.subprocess, "run", fake_run):
+            probes.container_logs("c", 1_755_000_000)
+        self.assertIn("--since", seen["argv"])
+        self.assertTrue(seen["argv"][seen["argv"].index("--since") + 1].endswith("Z"))
 
 
 class TestExpectationsFile(unittest.TestCase):

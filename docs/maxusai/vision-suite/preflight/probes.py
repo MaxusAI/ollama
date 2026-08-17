@@ -238,8 +238,26 @@ def find_container(port, explicit=None):
 def container_logs(container, since_epoch, log_cmd=None):
     """Logs written since `since_epoch`. `--since` is load-bearing: it is what
     guarantees the load_hparams line we read was emitted by THIS build during
-    THIS run, not left over from a previous one."""
-    since = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(since_epoch))
+    THIS run, not left over from a previous one.
+
+    THE TRAILING `Z` IS PART OF THAT GUARANTEE, not formatting. Docker assumes
+    the CLIENT'S LOCAL TIMEZONE for a timestamp that carries no zone, while the
+    value here is UTC (`time.gmtime`). On any host that is not at UTC the two
+    disagree by the offset, and the window silently becomes the wrong window:
+    east of UTC it opens hours EARLY and admits load_hparams lines from previous
+    loads of other models; west of UTC it opens hours LATE and admits nothing.
+
+    Measured on a +1000 host against a live container, asking for 60 seconds:
+
+        since='2026-08-17T06:05:31'   -> 51 load_hparams lines
+        since='2026-08-17T06:05:31Z'  ->  0 load_hparams lines
+
+    Both failure modes are silent. The early window is the dangerous one,
+    because a caller that would otherwise see no lines and report `TODO` or
+    SKIP instead receives a complete, plausible, wrong answer belonging to a
+    different model — which is how a wrong row reaches expectations.toml.
+    """
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since_epoch))
     if log_cmd:
         cmd = log_cmd.format(container=container, since=since)
         proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
