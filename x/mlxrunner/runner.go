@@ -228,10 +228,10 @@ const CacheLimitEnv = "OLLAMA_MLX_CACHE_LIMIT"
 // the trade is sharp and has no comfortable middle. Measured n=3 on
 // gemma4:31b-nvfp4, one 3072x1728 image, decode tok/s against peak footprint:
 //
-//	  4 GiB   29.44 tok/s   28,749 MiB    <- all of the footprint win
-//	  8 GiB   34.73 tok/s   32,779 MiB
-//	 16 GiB   34.77 tok/s   33,295 MiB
-//	 90 GiB   34.98 tok/s   33,276 MiB    <- MLX's own default
+//	 4 GiB   29.44 tok/s   28,749 MiB    <- all of the footprint win
+//	 8 GiB   34.73 tok/s   32,779 MiB
+//	16 GiB   34.77 tok/s   33,295 MiB
+//	90 GiB   34.98 tok/s   33,276 MiB    <- MLX's own default
 //
 // Throughput recovers fully by 8 GiB, but 8 GiB saves 497 MiB -- nothing. The
 // entire 4.5 GB saving sits at 4 GiB, and 4 GiB costs 15.8% decode, because the
