@@ -217,3 +217,55 @@ func draftPrefix(m *structured.Matcher, v *structured.Vocab, pieces [][]byte,
 	}
 	return len(drafts), cur
 }
+
+// draftMasks returns the grammar mask for each verification row of a
+// speculative step, the number of leading drafts the grammar admits, and a
+// matcher advanced over exactly those drafts.
+//
+// STAGE 2 OF GRAMMAR-AWARE SPECULATION, host half. Verification compares the
+// target model's distribution against the draft's, and under a grammar that
+// comparison MUST use the MASKED target distribution. Otherwise the target's
+// argmax can be a token the format forbids, and every legal draft is rejected
+// against a token that could never have been emitted — speculation would
+// "work" and accept nothing.
+//
+// ROW i PREDICTS DRAFT i, so row i carries the mask of the state BEFORE that
+// draft: row 0 is the current state, row i is the state after drafts[0..i-1].
+// The returned slice has legal+1 entries — one per admitted draft plus the
+// bonus row, which is the state after the last admitted draft and is where the
+// next token is sampled when every draft is accepted.
+//
+// The caller's matcher is not mutated, for the reason draftPrefix documents: a
+// draft is a guess, and advancing the live matcher over a rejected guess would
+// leave the request generating against a state its own output never reached.
+//
+// Building the device-side bias from these masks is the other half and is not
+// here: it is a [legal+1, vocabDim] float32 upload, and its cost has to be
+// measured against the 42% it is meant to recover rather than assumed.
+func draftMasks(m *structured.Matcher, v *structured.Vocab, pieces [][]byte,
+	isEOS func(int32) bool, drafts []int32,
+) ([]*structured.Mask, int, *structured.Matcher) {
+	cur := m.Clone()
+	masks := make([]*structured.Mask, 0, len(drafts)+1)
+	for i, id := range drafts {
+		mask := v.Mask(cur)
+		masks = append(masks, mask)
+		if !mask.Allowed(id) {
+			return masks, i, cur
+		}
+		if isEOS(id) {
+			// EOS is admitted but nothing follows it, so there is no bonus row:
+			// the run ends here and the caller samples nothing further.
+			return masks, i + 1, cur
+		}
+		var piece []byte
+		if int(id) >= 0 && int(id) < len(pieces) {
+			piece = pieces[id]
+		}
+		if len(piece) == 0 || !cur.Advance(piece) {
+			return masks, i, cur
+		}
+	}
+	// Every draft admitted: the bonus row's mask is the state after the last.
+	return append(masks, v.Mask(cur)), len(drafts), cur
+}
