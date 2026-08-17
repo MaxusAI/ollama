@@ -95,11 +95,21 @@ That is not truncation — but "not truncated" and "unaffected by the ceiling" a
 different claims, and only the first is established. A think-on repeat at a
 higher `NUM_PREDICT` would separate them.
 
-Note when reading raw score files: the bare `num_ctx` / `num_predict` fields
-record the suite *defaults*, not the window a given cell ran under. `finetext`
-really ran at `req_num_ctx = 32768` / `req_num_predict = 4000` while its
-`num_ctx` field reads 16384. The `req_*` fields are authoritative, and
-`summarize_head_to_head.py` renders from those.
+Note when reading raw score files **written before `0d3d8935`**, which includes
+every file behind this campaign: the bare `num_ctx` / `num_predict` fields record
+the suite *defaults*, not the window a given cell ran under. `finetext` really ran
+at `req_num_ctx = 32768` / `req_num_predict = 4000` while its `num_ctx` field
+reads 16384. The `req_*` fields are authoritative, and `summarize_head_to_head.py`
+renders from those.
+
+`0d3d8935` fixed the recording, so files written after it carry the effective
+window in both places and this caveat does not apply to them. It is forward-only:
+the numbers in *this* document come from files with the old behaviour, so two
+consequences carry over here. `summarize_engine_compare.was_capped()` compares
+`eval_count` against the recorded `num_predict`, so a `finetext` cell between 2200
+and 3999 reads as CAPPED in these files when it terminated freely — treat CAPPED
+flags on `finetext` rows here as unreliable. And `ctx_for()`'s mixed-window
+warning could not fire, because every section reported the same default.
 
 ### The two arms differ in two variables, not one
 
