@@ -1,6 +1,11 @@
 package mlxrunner
 
-import "testing"
+import (
+	"bytes"
+	"log/slog"
+	"strings"
+	"testing"
+)
 
 // Zero is the most useful cache limit there is -- "retain nothing" -- and it
 // must not be confused with an absent value. parseMemoryBudget rejects 0
@@ -38,5 +43,48 @@ func TestZeroIsStillInvalidAsAMemoryBudget(t *testing.T) {
 func TestUnsetAppliesNoCacheLimit(t *testing.T) {
 	if _, ok := parseCacheLimit(""); ok {
 		t.Error("unset must not parse; configureCacheLimit then leaves MLX alone")
+	}
+}
+
+// A malformed value must SAY so. Unset is silent by design; unparseable is not,
+// because a discarded request that leaves no trace is the exact defect the
+// override work exists to remove -- a sweep over several values produces
+// identical runs and nothing in the output explains why. That is how the cap-0
+// bug hid, reporting the default's footprint under the cap-0 label.
+//
+// This path returns before touching MLX, so unlike the C-call tests it runs
+// everywhere, including CI without a GPU.
+func TestMalformedCacheLimitIsReported(t *testing.T) {
+	var buf bytes.Buffer
+	original := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(original) })
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+
+	// "8GiB" is the plausible thing to type: the comment above CacheLimitEnv
+	// tells an operator to set it, and nothing there says decimal bytes only.
+	t.Setenv(CacheLimitEnv, "8GiB")
+	configureCacheLimit()
+
+	out := buf.String()
+	if !strings.Contains(out, CacheLimitEnv) {
+		t.Errorf("a malformed value must be reported and must name the variable; got: %q", out)
+	}
+	if !strings.Contains(out, "8GiB") {
+		t.Errorf("the rejected value must appear so the operator can see what was read; got: %q", out)
+	}
+}
+
+// ...and unset must stay silent, or every default run gains a warning.
+func TestUnsetCacheLimitStaysSilent(t *testing.T) {
+	var buf bytes.Buffer
+	original := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(original) })
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+
+	t.Setenv(CacheLimitEnv, "")
+	configureCacheLimit()
+
+	if buf.Len() != 0 {
+		t.Errorf("unset must be silent, got: %q", buf.String())
 	}
 }

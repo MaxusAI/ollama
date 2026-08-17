@@ -264,8 +264,27 @@ const CacheLimitEnv = "OLLAMA_MLX_CACHE_LIMIT"
 // scene_single and were reported as "no throughput effect" -- true of that cell,
 // and not true of the workload the suite actually exists to measure.
 func configureCacheLimit() {
-	limit, ok := parseCacheLimit(os.Getenv(CacheLimitEnv))
+	// Unset and malformed are different situations and only the first is
+	// silent. parseCacheLimit folds unset, unparseable and out-of-range into one
+	// `false`, and returning on all three reproduces the exact defect the
+	// override work exists to remove: a request that is discarded without a
+	// trace, so a sweep over several values yields identical runs and nothing in
+	// the output says why. That is how the cap-0 bug hid -- it reported the
+	// DEFAULT's footprint under the cap-0 label. The sibling knob already warns
+	// (configureMemoryLimit), so this was also inconsistent within one file.
+	//
+	// The exposure is worse here: OLLAMA_MLX_MEMORY_LIMIT is machine-written by
+	// the parent as a raw byte count, while this one is hand-typed by an
+	// operator following a comment that tells them to set it -- so "8GiB" is a
+	// plausible thing to type, and it parses as nothing.
+	raw := os.Getenv(CacheLimitEnv)
+	if raw == "" {
+		return
+	}
+	limit, ok := parseCacheLimit(raw)
 	if !ok {
+		slog.Warn("Ignoring malformed "+CacheLimitEnv+"; it is a byte count in decimal digits, not a size suffix. Keeping the backend default",
+			"value", raw)
 		return
 	}
 	previous, err := mlx.SetCacheLimit(limit)
