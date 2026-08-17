@@ -120,12 +120,28 @@ becomes deterministic — is **false, and not only for `0.01`.** Measured `n=3`,
 | `eval_count` | **3 of 12 cells stable.** `document_single` ran 3697 / 1982 / 2398 |
 | scored fields | **6 of 12 byte-identical across all three** |
 
-Greedy has already removed sampling as a source of variance, so what remains is
-the platform: GPU reduction order varies with scheduling, argmax tie-breaks
-differently, and one divergent token sends the reasoning trace down another
-path. Stated as the hypothesis it is — it has not been isolated — but the
-consequence is not hypothetical: **no temperature setting will make think-on
-bit-reproducible on this stack**, and chasing one is chasing the wrong quantity.
+**It is the MLX runner, not the platform.** The same suite, same GPU, same
+weights, same greedy setting, on llama-server instead:
+
+| engine, think-on at `temperature 0`, `n=3` | `eval_count` identical | all scored fields identical |
+|---|---|---|
+| GGUF `gemma4:31b-it-q4_K_M` (llama.cpp) | **12 / 12** | **12 / 12** |
+| MLX `gemma4:31b-nvfp4` | 3 / 12 | 6 / 12 |
+
+GGUF greedy is bit-reproducible on this card. MLX greedy is not.
+
+That **refutes** the first explanation reached for — GPU floating-point
+reduction order varying with scheduling — as a *sufficient* one: both engines run
+on the same hardware, and if that were the whole story llama.cpp would drift too.
+Whatever the cause, it is in the MLX path; the prefix cache, batch composition
+and CUDA graph capture are the candidates, and the last of those is already
+implicated in the `cudaGraphAddDependencies` abort seen on this backend. Not
+isolated, and deliberately left as a named suspicion rather than a conclusion.
+
+The practical consequence is therefore **scoped, not fork-wide**: think-on
+results from the MLX/CUDA runner carry run-to-run variance that greedy decoding
+cannot remove, while think-on on llama.cpp is exactly repeatable and can be
+gated as tightly as think-off.
 
 **What is stable is the thing a gate actually asserts.** Of the six scored cells
 that vary, five vary only in `iou_declared` by 0.001–0.005 — every one inside
@@ -148,11 +164,18 @@ principle:** `scene_single` scores identically across all three repeats at `0`
 (IoU 0.966 x3) where `0.01` produced 0.965 and 0.961. Removing the last sampling
 noise tightens the scored surface even though it cannot make it exact.
 
-**What this forbids.** A think-on `expectations.toml` assertion on a
-**categorical** metric at `n=1` is not admissible — `name_bbox_hits` alone would
-flip a gate two runs in three. Continuous metrics are admissible against the
-±0.01 floor. Think-on campaign tables must report the rung and should report
-spread, not a point value, on any cell outside the `bbox_contract` family.
+**What this forbids, on the MLX runner only.** A think-on `expectations.toml`
+assertion on a **categorical** metric at `n=1` is not admissible there —
+`name_bbox_hits` alone would flip a gate two runs in three. Continuous metrics
+are admissible against the ±0.01 floor. Think-on campaign tables from that
+runner must report the rung and should report spread, not a point value, on any
+cell outside the `bbox_contract` family.
+
+**llama.cpp think-on is exempt from all of that**, because it is exactly
+repeatable: 12 of 12 fields identical across three repeats, `eval_count`
+included. Applying the MLX restriction fork-wide would needlessly weaken a gate
+that this engine demonstrably supports. Any future engine gets measured before
+it is placed on either side of this line.
 
 ## Consequences
 
