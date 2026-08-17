@@ -24,17 +24,22 @@ because `temperature 0` made reasoning fail to terminate: every token landed in
 `thinking`, `eval_count` hit `num_predict`, and `response` came back empty. For
 gemma4 the card value is `temperature 1.0`. That fixed termination.
 
-It also made think-on **irreproducible**. At `temperature 1.0` two runs of the
+It also made think-on **needlessly noisy**. At `temperature 1.0` two runs of the
 same model over the same fixture differ, and this suite can afford `n <= 3`. At
 that sample size a difference between two engines, two quantisations or two code
-revisions cannot be separated from sampling noise. The
+revisions cannot be separated from sampling noise. (The original framing here was
+that card sampling made think-on "irreproducible" and that a fixed temperature
+would restore reproducibility. The first half stands; the second does not — see
+"Bit-reproducibility is unreachable" below. The goal is to remove the variance we
+control, not to reach zero.) The
 [low-temperature arm](../vision-lowtemp-thinkon-negative-result.md) was run to
 test a fix and recorded as a negative result; the arm that motivated it —
 `contract_followed` at `n=3` — showed the problem directly, with per-repeat
 values like `6/8/8` and `7/5/6` on a categorical metric.
 
-The suite exists to gate regressions. A regression gate needs a number that is
-the same when nothing changed. On-policy realism and reproducibility are in
+The suite exists to gate regressions. A regression gate needs a number whose
+movement means something — which requires the noise under it to be smaller than
+the effect being gated, not zero. On-policy realism and low variance are in
 direct conflict here, and only one of them is load-bearing for that job.
 
 ## 0.01 was tried first, and it does not deliver the thing this ADR is for
@@ -49,11 +54,19 @@ same window, cold server both times, `scene_single` first in each:
 | A | 3205 | 0.965 |
 | B | 1762 | 0.961 |
 
-Nearly double the reasoning tokens. One counterexample refutes determinism, and
-a value that merely *reduces* variance leaves the gate exactly as unfalsifiable
-as card sampling did: "did this change?" still has no crisp answer at `n <= 3`.
-Recorded here rather than quietly dropped, because `0.01` is the intuitive
-choice and the next person will reach for it too.
+Nearly double the reasoning tokens, and the scored IoU moved 0.004 with it.
+
+At the time this was read as fatal — determinism refuted, therefore worthless.
+That reading was wrong, and the section below is why: `temperature 0` is not
+bit-reproducible either, so refuting determinism does not distinguish the two.
+What distinguishes them is measured spread on the scored surface, and there `0`
+wins: `scene_single` is identical across three repeats at `0` and moved 0.965 ->
+0.961 at `0.01`.
+
+Recorded rather than quietly dropped, because `0.01` is the intuitive choice and
+the next person will reach for it too — and because the *reasoning* that first
+rejected it was itself faulty, which is worth more to a future reader than the
+verdict.
 
 ## Decision
 
@@ -96,14 +109,50 @@ the model the negative-result document already identified as the robust one.
 `gemma4:12b-it-q4_K_M` and `qwen3.6:35b-a3b-q4_K_M` lost six of eight cells at
 `0.01`, and `0` is stricter.
 
-**Determinism at `0` is NOT yet asserted here.** The reason for the whole
-decision is a number that repeats, and the `n=3` run that would establish it was
-still in flight when this was written. Nothing below claims temperature `0`
-reproduces; it claims only that `1.0` and `0.01` demonstrably do not. If the
-repeats come back non-identical, this ADR is wrong in its premise and the
-decision has to be re-argued rather than patched — the honest outcome then is
-that no sampling setting makes think-on gateable at `n <= 3`, and think-on
-belongs in campaign documents rather than in `expectations.toml`.
+## Bit-reproducibility is unreachable, and it was the wrong target
+
+The premise this ADR was first drafted on — pick a temperature and think-on
+becomes deterministic — is **false, and not only for `0.01`.** Measured `n=3`,
+`gemma4:31b-nvfp4`, MLX/CUDA, think-on at `temperature 0`:
+
+| axis | result |
+|---|---|
+| `eval_count` | **3 of 12 cells stable.** `document_single` ran 3697 / 1982 / 2398 |
+| scored fields | **6 of 12 byte-identical across all three** |
+
+Greedy has already removed sampling as a source of variance, so what remains is
+the platform: GPU reduction order varies with scheduling, argmax tie-breaks
+differently, and one divergent token sends the reasoning trace down another
+path. Stated as the hypothesis it is — it has not been isolated — but the
+consequence is not hypothetical: **no temperature setting will make think-on
+bit-reproducible on this stack**, and chasing one is chasing the wrong quantity.
+
+**What is stable is the thing a gate actually asserts.** Of the six scored cells
+that vary, five vary only in `iou_declared` by 0.001–0.005 — every one inside
+ADR 0012's ±0.01 noise floor, which exists for precisely this:
+
+    bbox_contract_multi       0.966 / 0.966 / 0.965      spread 0.001
+    bbox_contract_anchored    0.966 / 0.967 / 0.967      spread 0.001
+    bbox_contract_adv_norm1   0.965 / 0.965 / 0.964      spread 0.001
+    bbox_contract_perobject   0.960 / 0.960 / 0.963      spread 0.003
+    bbox_contract_reasoning   0.961 / 0.966 / 0.961      spread 0.005
+
+The sixth is categorical and real: `document_single` gives `name_bbox_hits`
+5 / 4 / 4, with `name_bbox_space` flipping between `pixel/xyxy` and
+`norm1000/xyxy`. That is the cell the ROCm campaign already recorded swinging
+0.638 -> 0.248 across configurations — the suite's least trustworthy metric,
+behaving as documented.
+
+**So `0` is still the right choice over `0.01`, on evidence rather than on
+principle:** `scene_single` scores identically across all three repeats at `0`
+(IoU 0.966 x3) where `0.01` produced 0.965 and 0.961. Removing the last sampling
+noise tightens the scored surface even though it cannot make it exact.
+
+**What this forbids.** A think-on `expectations.toml` assertion on a
+**categorical** metric at `n=1` is not admissible — `name_bbox_hits` alone would
+flip a gate two runs in three. Continuous metrics are admissible against the
+±0.01 floor. Think-on campaign tables must report the rung and should report
+spread, not a point value, on any cell outside the `bbox_contract` family.
 
 ## Consequences
 
@@ -140,11 +189,12 @@ belongs in campaign documents rather than in `expectations.toml`.
   preflight check cannot fail on a distribution without a decision rule that
   would itself need calibrating at high `n`. Campaign documents may still
   report spread.
-- **Use `temperature 0.01`.** This was the first draft's decision and it is
-  rejected on measurement, not on principle: it is not reproducible (the two
-  runs above), which is the only thing it was chosen for. Its one advantage over
-  `0` — marginally less non-termination pressure — is unquantified, and on the
-  model measured here `0` did not lose a single cell.
+- **Use `temperature 0.01`.** This was the first draft's decision, rejected on
+  measured spread rather than on determinism (neither value is deterministic):
+  `scene_single` is identical across three repeats at `0` and moved 0.965 ->
+  0.961 at `0.01`. Its one advantage over `0` — marginally less non-termination
+  pressure — is unquantified, and on the model measured here `0` did not lose a
+  single cell, cap a single cell, or need a rung above 16384.
 - **Per-family temperature — low where it terminates, card where it does not.**
   Rejected: it reintroduces the comparability problem it was meant to solve, in
   the worst possible form, since the families would then differ in sampling
