@@ -95,10 +95,13 @@ func newSpeculation(r *Runner, draft base.DraftModel, targets, draftKV []cache.C
 // decode.
 type speculationSession struct {
 	// Grammar context for masked verification, nil unless grammar-aware
-	// speculation is enabled. See constrain.go: maskedTargetLogits.
+	// speculation is enabled. See constrain.go: maskRows. isEOS is carried
+	// rather than reached for through spec.r.Tokenizer so the grammar
+	// bookkeeping is exercisable without a loaded model.
 	matcher *structured.Matcher
 	vocab   *structured.Vocab
 	pieces  [][]byte
+	isEOS   func(int32) bool
 	biasBuf []float32
 
 	spec    *speculation
@@ -201,8 +204,8 @@ func (s *speculationSession) close() {
 type speculativeDecoder struct {
 	s        *speculationSession
 	position int
-	current  sampler.Result    // emitted (or the seed), not yet forwarded
-	inner    *pipelinedDecoder // pipelines plain tokens while parked; nil while drafting
+	current  sampler.Result // emitted (or the seed), not yet forwarded
+	inner    decoder        // decodes while parked; nil while drafting
 }
 
 // decoder returns the decoder for this engine's session. A speculationSession that
@@ -219,7 +222,10 @@ func (st *speculativeDecoder) next(remaining int) ([]sampler.Result, error) {
 	// positive length and a primed drafter, else decode parked.
 	var results []sampler.Result
 	if s := st.s; st.inner != nil && s.limit > 0 {
-		results = st.resume()
+		var err error
+		if results, err = st.resume(); err != nil {
+			return nil, err
+		}
 	} else {
 		s.beginRound()
 		var candidates *draftCandidates
@@ -273,26 +279,51 @@ func (st *speculativeDecoder) advance(next sampler.Result) {
 // resume ends a parked stretch: the inner decoder's in-flight sample (sampled
 // but never forwarded) is exactly the current token a drafting round expects,
 // so emit it and let the next call draft from it.
-func (st *speculativeDecoder) resume() []sampler.Result {
+func (st *speculativeDecoder) resume() ([]sampler.Result, error) {
 	next, position := st.inner.drain()
 	st.position = position
 	st.inner.close()
 	st.inner = nil
+	// drain hands back a token the inner decoder sampled but never fed through
+	// its own next, so nothing has advanced the matcher over it. It becomes the
+	// next round's current, and accept masks row 0 from the state AFTER
+	// current -- so it has to be adopted here or every mask in that round
+	// describes one token too few.
+	for _, res := range next {
+		if err := st.s.adoptGrammar([]int32{int32(res.Token.Int())}); err != nil {
+			return nil, err
+		}
+	}
 	// The drained emission counts as one more plain round, but no round spans
 	// this call, so the next beginRound attributes no cost.
 	st.s.stats.recordRound(0)
 	st.s.stats.iterations++
 	st.s.roundDrafts = -1
-	return next
+	return next, nil
 }
 
-// park decodes one pipelined plain token while the engine cannot draft. Each
-// is a depth-0 round in the controller's accounting, and the inner decoder's
-// reports keep the drafter primed and maintained.
+// park decodes one token while the engine cannot draft. Each is a depth-0
+// round in the controller's accounting, and the inner decoder's reports keep
+// the drafter primed and maintained.
+//
+// UNDER A GRAMMAR THE PARKED STEP MUST BE MASKED. A parked round is not a
+// detour around the format: its tokens are emitted output, and the plain
+// pipelined decoder neither masks them nor advances the matcher. Parking onto
+// it produced a request whose output was entirely unconstrained -- measured on
+// gemma4:31b-nvfp4 as an eval_count identical to the same request with no
+// format at all -- because the first parked token desynchronised the matcher,
+// which made every later draft look illegal, which parked the next round too.
+// A constrained step over the SESSION'S matcher closes that loop: masked while
+// parked, and the one grammar state stays level across park/draft transitions.
 func (st *speculativeDecoder) park(remaining int) ([]sampler.Result, error) {
 	s := st.s
 	if st.inner == nil {
-		st.inner = s.spec.r.pipelinedDecoder(s, s.spec.targets, st.current.Token.ExpandDims(-1), st.position, s.layout)
+		seed := st.current.Token.ExpandDims(-1)
+		if s.matcher != nil {
+			st.inner = s.spec.r.constrainedStep(s, s.spec.targets, seed, st.position, s.layout, s.matcher, s.vocab, s.pieces)
+		} else {
+			st.inner = s.spec.r.pipelinedDecoder(s, s.spec.targets, seed, st.position, s.layout)
+		}
 	}
 	return st.inner.next(remaining)
 }
@@ -423,7 +454,23 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 		for _, id := range candidates.tokens.Ints() {
 			ids32 = append(ids32, int32(id))
 		}
-		masks, admitted, _ := draftMasks(s.matcher, s.vocab, s.pieces, r.Tokenizer.IsEOS, ids32)
+		masks, admitted := s.grammarRows(ids32)
+		if len(masks) == admitted {
+			// An admitted EOS ends the mask sequence a row early: nothing
+			// follows an EOS, so there is no state to sample a bonus token
+			// from. Rather than carry a round with no bonus row -- which would
+			// index sampleTokenAt past the distribution AND hand
+			// Sampler.Distribution as many rows as draft tokens, shifting every
+			// row's penalty history by one -- drop the EOS from verification.
+			//
+			// Nothing is lost that matters. The row before the EOS still admits
+			// EOS (the grammar can complete there, which is why the draft was
+			// legal), so the target can sample it as the bonus token. The only
+			// cost is that an EOS is never accepted AS a draft, once per
+			// request. What is gained is that len(masks) == draftCount+1 holds
+			// for every round below, with no branch to get wrong.
+			admitted--
+		}
 		grammarMasks = masks
 		if admitted < draftCount {
 			// Rows past the first illegal draft describe grammar states that
@@ -479,21 +526,10 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 	// the rows already line up with the drafts: row 0 (current's state)
 	// predicts draft 0, and the row after the last accepted draft is the
 	// bonus row. No separate base-logits forward exists on this path.
-	logits := r.Model.Unembed(hiddenSeq)
-	if grammarMasks != nil {
-		// Bias the target's logits so verification compares against the MASKED
-		// distribution. Unmasked, the target's argmax can be a token the format
-		// forbids and every legal draft is rejected against a token that could
-		// never have been emitted -- speculation accepts nothing while
-		// appearing to work.
-		rows := draftCount + 1
-		if len(grammarMasks) < rows {
-			rows = len(grammarMasks)
-		}
-		bias, buf := constraintBiasRows(grammarMasks[:rows], logits.Dim(logits.NumDims()-1), s.biasBuf)
-		s.biasBuf = buf
-		logits = mlx.Add(logits.Slice(mlx.Slice(), mlx.Slice(0, rows), mlx.Slice()), bias)
-	}
+	// Bias the target's logits so verification compares against the MASKED
+	// distribution; inert without a grammar. See maskRows for why the unmasked
+	// comparison rejects every legal draft.
+	logits := s.maskRows(r.Model.Unembed(hiddenSeq), grammarMasks)
 	targetDist := r.Sampler.Distribution(pipelineSlot, logits, verifyTokens)
 	draftDist := verifyDist
 	acceptedMask := r.sampleAcceptedMask(targetDist.SliceRows(0, draftCount), draftDist, verifyTokens)
@@ -554,7 +590,9 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 	*position = before + 1 + keep
 	// Only now, after commit: a matcher advanced over rolled-back tokens would
 	// leave the request generating against a state its own output never reached.
-	s.adoptGrammar(commitIDs[:keep])
+	if err := s.adoptGrammar(commitIDs[:keep]); err != nil {
+		return nil, 0, 0, err
+	}
 
 	// Report the validated run (current plus kept drafts) to the drafter before
 	// returning, so a cancelled emission still leaves it matching the caches. A
@@ -576,6 +614,13 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 		nextID = int32(residualTokens.Ints()[accepted])
 	} else {
 		nextID = int32(bonusToken.Int())
+	}
+	// The token that replaces a rejected draft, or follows a full run, is
+	// returned to the caller and becomes the next round's current. It is
+	// emitted output like any other, so the matcher adopts it here; skipping it
+	// shifts every subsequent mask by one and speculation stops accepting.
+	if err := s.adoptGrammar([]int32{nextID}); err != nil {
+		return nil, 0, 0, err
 	}
 	commitIDs = append(commitIDs, nextID)
 	r.Sampler.Commit(pipelineSlot, commitIDs)

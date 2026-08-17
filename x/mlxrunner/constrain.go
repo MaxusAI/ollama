@@ -76,6 +76,7 @@ type constrainedDecoder struct {
 
 	caches   []cache.Cache
 	position int
+	layout   []any
 
 	matcher *structured.Matcher
 	vocab   *structured.Vocab
@@ -87,12 +88,25 @@ type constrainedDecoder struct {
 
 func (r *Runner) constrainedDecoder(spec *speculationSession, caches []cache.Cache, seed *mlx.Array, position int, grammar *structured.Grammar) *constrainedDecoder {
 	vocab, pieces := r.constraint()
+	return r.constrainedStep(spec, caches, seed, position, nil, grammar.NewMatcher(), vocab, pieces)
+}
+
+// constrainedStep builds a constrained decoder over a matcher the caller owns.
+//
+// The serial path passes a fresh matcher and no layout. Grammar-aware
+// speculation passes the SESSION'S matcher and the session's media layout, so
+// that a parked round -- one where the engine cannot draft -- is still masked
+// and still advances the one grammar state the request has. Sharing the
+// matcher rather than cloning it is the point: park and draft alternate within
+// a single request, and two matchers would drift the moment they did.
+func (r *Runner) constrainedStep(spec *speculationSession, caches []cache.Cache, seed *mlx.Array, position int, layout []any, matcher *structured.Matcher, vocab *structured.Vocab, pieces [][]byte) *constrainedDecoder {
 	d := &constrainedDecoder{
 		r:        r,
 		spec:     spec,
 		caches:   caches,
 		position: position,
-		matcher:  grammar.NewMatcher(),
+		layout:   layout,
+		matcher:  matcher,
 		vocab:    vocab,
 		pieces:   pieces,
 	}
@@ -108,6 +122,7 @@ func (d *constrainedDecoder) forward(token *mlx.Array) *mlx.Array {
 		InputIDs:     token,
 		SeqOffsets:   []int32{int32(d.position)},
 		SeqQueryLens: []int32{int32(token.Dim(1))},
+		Layout:       d.layout,
 	}, d.caches)
 	// auxHidden is the draft-conditioning state upstream's Forward now returns;
 	// decode forwards carry no media, hence the nil.
@@ -330,8 +345,32 @@ func constraintBiasRows(masks []*structured.Mask, vocabDim int, buf []float32) (
 	return mlx.FromValues(buf, len(masks), vocabDim), buf
 }
 
-// maskedTargetLogits biases a speculative round's logits so verification
-// compares against the target's MASKED distribution.
+// grammarRows plans a speculative round's masked verification: the per-row
+// masks and the number of leading drafts the grammar admits.
+//
+// Row i predicts draft i, so mask i is the state BEFORE draft i. There are
+// admitted+1 masks when a bonus row exists -- the state after the last
+// admitted draft, where the next token is sampled if every draft is accepted
+// -- and only admitted masks when the last admitted draft is EOS, because
+// nothing follows an EOS.
+//
+// len(masks) == admitted IS THEREFORE THE CALLER'S SIGNAL that this round has
+// no bonus row. accept handles it by dropping the drafted EOS, which restores
+// the bonus row rather than carrying a round whose last row does not exist;
+// see the comment there for why that is cheaper than the alternative.
+//
+// Returns nil masks when no grammar is attached, which is how every masked
+// branch in accept stays inert on the unconstrained path.
+func (s *speculationSession) grammarRows(draftIDs []int32) ([]*structured.Mask, int) {
+	if s.matcher == nil {
+		return nil, len(draftIDs)
+	}
+	masks, admitted, _ := draftMasks(s.matcher, s.vocab, s.pieces, s.isEOS, draftIDs)
+	return masks, admitted
+}
+
+// maskRows biases a speculative round's logits so verification compares
+// against the target's MASKED distribution.
 //
 // Without this, verification compares a draft against the target's UNMASKED
 // argmax, which can be a token the format forbids: every legal draft is then
@@ -339,39 +378,61 @@ func constraintBiasRows(masks []*structured.Mask, vocabDim int, buf []float32) (
 // accepts nothing while appearing to work. That failure reads as "speculation
 // did not help" rather than as a bug, which is why it is stated here.
 //
-// Returns the biased logits and the number of draft rows the grammar admits.
-// The caller must verify only that many drafts: rows past the first illegal
-// token describe grammar states that do not exist, so their masks would be
-// fiction and any acceptance from them would be corruption.
-func (s *speculationSession) maskedTargetLogits(logits *mlx.Array, draftIDs []int32) (*mlx.Array, int) {
-	if s.matcher == nil {
-		return logits, len(draftIDs)
+// The bias covers len(masks) rows and the forward may have produced more, so
+// only the leading len(masks) rows survive -- and only they may be verified.
+// Rows past the last mask describe grammar states that do not exist, so their
+// masks would be fiction and any acceptance from them would be corruption.
+func (s *speculationSession) maskRows(logits *mlx.Array, masks []*structured.Mask) *mlx.Array {
+	if len(masks) == 0 {
+		return logits
 	}
-	masks, legal, _ := draftMasks(s.matcher, s.vocab, s.pieces, s.spec.r.Tokenizer.IsEOS, draftIDs)
-	vocabDim := logits.Dim(logits.NumDims() - 1)
-	bias, buf := constraintBiasRows(masks, vocabDim, s.biasBuf)
+	bias, buf := constraintBiasRows(masks, logits.Dim(logits.NumDims()-1), s.biasBuf)
 	s.biasBuf = buf
-	// The forward produced len(draftIDs)+1 rows; the bias covers len(masks).
-	// Only the leading rows are biased and only they may be verified.
-	return mlx.Add(logits.Slice(mlx.Slice(), mlx.Slice(0, len(masks)), mlx.Slice()), bias), legal
+	return mlx.Add(logits.Slice(mlx.Slice(), mlx.Slice(0, len(masks)), mlx.Slice()), bias)
 }
 
-// adoptGrammar advances the session's matcher over tokens verification
-// committed. Called only after commit, never on a draft: a matcher advanced
-// over tokens that were then rolled back would leave the request generating
-// against a state its own output never reached.
-func (s *speculationSession) adoptGrammar(ids []int32) {
+// adoptGrammar advances the session's matcher over tokens the request has
+// EMITTED. Never call it on a draft: a matcher advanced over tokens that were
+// then rolled back would leave the request generating against a state its own
+// output never reached.
+//
+// THE INVARIANT IT MAINTAINS: the matcher describes every token emitted so
+// far, INCLUDING the one held as current. accept relies on it -- mask row 0 is
+// the state after current -- and it is what makes the mask sequence describe
+// the text actually generated rather than a prefix of it. Emitting a token
+// without adopting it silently shifts every later mask by one position, which
+// then rejects legal drafts, which parks the round, which emits more
+// unadopted tokens. The drift does not converge; it compounds.
+//
+// Every emission path must therefore reach this or advance the matcher itself:
+// accept adopts its committed drafts AND the residual or bonus token it
+// returns, resume adopts the token it drains, and a parked round advances the
+// shared matcher inside constrainedDecoder.next.
+//
+// AN ILLEGAL TOKEN IS AN ERROR, not something to walk past. Every token
+// reaching here was drawn from a masked distribution, so Advance can only fail
+// if the matcher has drifted from the emitted text -- and generating past that
+// point ships malformed output under a format promise. The serial decoder has
+// made the same call since it was written (see constrainedDecoder.next); the
+// gated path silently discarding the failure is how the drift below went
+// unnoticed for a whole measurement campaign.
+func (s *speculationSession) adoptGrammar(ids []int32) error {
 	if s.matcher == nil {
-		return
+		return nil
 	}
 	for _, id := range ids {
-		if s.spec.r.Tokenizer.IsEOS(id) {
-			return
+		if s.isEOS(id) {
+			return nil
 		}
-		if int(id) >= 0 && int(id) < len(s.pieces) && len(s.pieces[id]) > 0 {
-			s.matcher.Advance(s.pieces[id])
+		var piece []byte
+		if int(id) >= 0 && int(id) < len(s.pieces) {
+			piece = s.pieces[id]
+		}
+		if len(piece) == 0 || !s.matcher.Advance(piece) {
+			return fmt.Errorf("grammar-aware speculation emitted an illegal token %d (%q)", id, piece)
 		}
 	}
+	return nil
 }
 
 // attachGrammar gives a speculation session the state masked verification
@@ -382,6 +443,7 @@ func (s *speculationSession) attachGrammar(r *Runner, g *structured.Grammar) {
 	s.matcher = g.NewMatcher()
 	s.vocab = vocab
 	s.pieces = pieces
+	s.isEOS = r.Tokenizer.IsEOS
 }
 
 // errNoLegalDraft ends a speculative round in which the grammar admitted none
