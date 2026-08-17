@@ -1,4 +1,4 @@
-# Vision campaign 2026-08-17 — Qwen3.8 first ROCm/gfx1151 baseline, both think modes
+# Vision campaign 2026-08-17 — Qwen3.8 first ROCm/gfx1151 baseline, three arms
 
 First vision run for Qwen3.8 on the AMD host, taken the day the renderer was
 backported to `release/0.32.1-dynres` (PR #142) and deployed. Companion to
@@ -14,12 +14,12 @@ which measured the same model on Apple Silicon.
 | payload | **b9888** — the gated lineage, no `--direct-io`; compat 001+002+004+005 |
 | model | `qwen3.8:27b-q4_K_M` (GGUF → llama-server), sideloaded |
 | store | `/opt/ollama/.ollama/models` (production) |
-| think | both arms: `THINK=false` and `THINK=on` (the literal `on`, per [ADR 0023](adr/0023-think-mode-is-per-model-and-measured-on-policy.md)) |
+| think | three arms: `THINK=false`, `THINK=on`, and `THINK=on NUM_PREDICT=4400` (the literal `on`, per [ADR 0023](adr/0023-think-mode-is-per-model-and-measured-on-policy.md)) |
 | sampling | think-off `greedy-think-off` (temperature 0); think-on `packaged-defaults-no-card` (no overrides) — correct for this family per [ADR 0026](adr/0026-qwen38-baselines-record-the-effort-directive.md), no `CARD_THINKING` entry and none should be added |
-| effort directive | **none** in both arms. `THINK=on` omits the `think` field, which `server/routes.go` coerces to `true`, and per ADR 0026 `true` emits no directive. Neither arm is an xhigh run. |
+| effort directive | **none** in all three arms. `THINK=on` omits the `think` field, which `server/routes.go` coerces to `true`, and per ADR 0026 `true` emits no directive. Neither arm is an xhigh run. |
 | cache | cold; model loaded fresh, 66/66 layers offloaded to ROCm, 25.2 GiB VRAM |
 | fixtures | committed `visimgs/`, unmodified |
-| n | **1** — single pass, no repeats |
+| n | **1 per arm**; think-on repeated once at a raised ceiling, which is what quantifies the noise floor below |
 
 How the model got here matters for reproducibility: `ollama pull` **cannot**
 fetch it on this host. The published manifest declares `requires: 0.32.12` and
@@ -42,61 +42,70 @@ and installed content-addressed, every digest verified before install.
 | throughput | prefill tok/s | 255–276 | 415 |
 | latency | s/req (scene / doc / multi / finetext) | 58.1 / 55.4 / 119.8 / 39.0 | 33.1 (mean) |
 
-All eleven `bbox_contract` variants returned 6/6 labels with valid JSON. Every
+All eight `bbox_contract` variants returned 6/6 labels with valid JSON. Every
 extraction in the suite parsed.
 
-## Think-off vs think-on, same host, same build (T2)
+## Three arms, same host, same build (T2)
 
-| test | metric | think-off | think-on |
-|---|---|---|---|
-| scene | bbox IoU | **0.991** (16384) | 0.981 (16384) |
-| scene | labels / serial | 6/6, ✅ | 6/6, ✅ |
-| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
-| document | name_bbox IoU | 0.570 (16384) | **0.790** (16384) |
-| fine text | 22/16/12/9/7 px | **4/4/4/2/1** (32768) | 4/4/4/1/0 (32768) |
-| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ **✅** 5/5 (16384) | ✅ ✅ **❌** 5/5 (16384) |
-| throughput | gen tok/s | 12 | 12 |
-| throughput | prefill tok/s | 276 | 281 |
-| latency | s/req (unique image) | **54.0** | 97.0 |
-| latency | req/h (serial) | **67** | 37 |
+Think-on was run twice, the second time at `NUM_PREDICT=4400`, to test whether
+the first arm's regressions were a ceiling effect. `num_ctx` was held at 16384
+in all three so KV size and decode speed stay comparable; the only variable
+between the two think-on arms is the stop ceiling.
 
-**Think-on is a net loss here, as it was on Apple Silicon.** Every exact-match
-metric — labels, serial, invoice number, line items, qty+price, total, chart
-values — is already perfect in *both* arms, so thinking has nothing to improve.
-What it changes it mostly makes worse: the 9px *and* 7px fine-text tiers, the
-multi-image `q4_bbox`, and a point of scene IoU, for 1.8x the latency and 55% of
-the serial throughput. Generation speed is unchanged at 12 tok/s, so the entire
-cost is extra tokens (scene: 544 -> 1071 eval).
+| test | metric | think-off | think-on np2200 | think-on np4400 |
+|---|---|---|---|---|
+| scene | bbox IoU | 0.991 | 0.981 | 0.992 |
+| scene | labels / colors / serial | 6/6, 6/6, ✅ | 6/6, 6/6, ✅ | 6/6, 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU / hits | 0.570 / 5 | 0.790 / 5 | 0.631 / 5 |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ **✅** 5/5 | ✅ ✅ **❌** 5/5 | ✅ ✅ **❌** 5/5 |
+| fine text | correct / fabricated (of 20 emitted) | **15 / 5** | 13 / 7 | 13 / 7 |
+| fine text | 22/16/12/9/7 px | 4/4/4/2/1 | 4/4/4/1/0 | 4/4/4/0/1 |
+| `bbox_contract` | all 8 variants, labels | 6/6 | 6/6 | 6/6 |
+| throughput | gen tok/s | 12 | 12 | 12 |
+| latency | s/req (unique image) | **54.0** | 97.0 | 97.6 |
+| latency | req/h (serial) | **67** | 37 | 37 |
 
-The one gain, document `name_bbox` 0.570 -> 0.790, sits in the least trustworthy
-cell in the suite — the same metric swung 0.638 -> 0.248 across configurations
-within the Apple campaign alone. At n=1 per arm it should not be banked.
+### The ceiling question is settled: the regression is real
 
-The shape reproduces Apple Silicon closely: scene IoU fell 0.991 -> 0.980 there
-against 0.991 -> 0.981 here, on different silicon and a different payload. Fine
-text degraded on both, one tier further here. `q4_bbox` was already failing on
-Apple in both arms, so ROCm's ✅ -> ❌ moves the same direction from a better
-start.
+Given twice the budget, `multi_3img` used **46.2%** of it — 2031 tokens against
+4400, up only 10% from the 1843 it used under 2200 — and `q4_bbox` still failed.
+The model was not straining against the ceiling; it finished reasoning and still
+missed the box. Nothing was truncated in any arm: `eval_count < num_predict`
+everywhere, every generation `done_reason=stop`, worst `num_ctx` use 48.7%.
 
-### Budget headroom — checked, because a capped cell is not a quality result
+### What replicates, and what is noise
 
-Neither budget was exhausted in either arm. `eval_count < num_predict` in every
-cell and every generation ended `done_reason=stop`, so nothing was cut off:
+Running think-on twice quantifies the noise floor, and it is not small. **The
+two think-on arms disagree with each other by 0.159 on `name_bbox`** — comparable
+to the 0.220 "gain" over think-off that a single arm appeared to show. That gain
+does not survive a repeat. Scene IoU is the same story: 0.981 and 0.992 straddle
+think-off's 0.991, so no difference is established there either. Non-greedy
+sampling (packaged defaults) is doing this, and it means any single think-on cell
+in the noisy metrics carries little weight.
 
-| | worst utilisation | where |
-|---|---|---|
-| `num_predict` | **83.8%** (1843 / 2200) | think-on `multi_3img` |
-| `num_ctx` | **48.7%** (7977 / 16384) | think-on `multi_3img` |
+**Reproducible across both think-on arms — these are the findings:**
 
-**Caveat worth carrying into the next run:** the cell closest to its
-`num_predict` ceiling is exactly the cell that regressed. `multi_3img` think-on
-spent 84% of its allowance before answering and is where `q4_bbox` flipped to ❌.
-That is not truncation — but "not truncated" and "unaffected by the ceiling" are
-different claims, and only the first is established. A think-on repeat at a
-higher `NUM_PREDICT` would separate them.
+- **`q4_bbox` fails**, where think-off hits it. Twice, and not for want of budget.
+- **More fabricated fine text.** All three arms emit all 20 codes; what changes is
+  how many are real. Think-off gets 15 right and invents 5; both think-on arms
+  get 13 and invent 7. Per `finetext_probe.py`, a full `total_found` with zeroed
+  small tiers means *fabricated* codes, not omitted ones. The 9px↔7px tier swap
+  between the two think-on arms is only which fabrications happened to coincide
+  with ground truth — noise inside a stable +2 fabrication cost.
+- **1.8x latency for 55% of the serial throughput**, stable to within 0.6s/req.
 
-Note when reading raw score files **written before `0d3d8935`**, which includes
-every file behind this campaign: the bare `num_ctx` / `num_predict` fields record
+**Everything think-on might have improved is already perfect without it** —
+labels, colors, serial, invoice number, line items, qty+price, total, chart
+values, all 8 `bbox_contract` variants, and the 22/16/12px text tiers are
+identical in all three arms.
+
+The shape reproduces Apple Silicon: scene IoU fell 0.991 -> 0.980 there, fine
+text degraded, and `q4_bbox` was already failing in both of its arms — so ROCm's
+✅ -> ❌ moves the same direction from a better starting point.
+
+Note when reading raw score files **written before `0d3d8935`**, which is the
+think-off and think-on np2200 arms but NOT the np4400 arm: the bare `num_ctx` / `num_predict` fields record
 the suite *defaults*, not the window a given cell ran under. `finetext` really ran
 at `req_num_ctx = 32768` / `req_num_predict = 4000` while its `num_ctx` field
 reads 16384. The `req_*` fields are authoritative, and `summarize_head_to_head.py`
@@ -111,7 +120,10 @@ and 3999 reads as CAPPED in these files when it terminated freely — treat CAPP
 flags on `finetext` rows here as unreliable. And `ctx_for()`'s mixed-window
 warning could not fire, because every section reported the same default.
 
-### The two arms differ in two variables, not one
+The np4400 arm was recorded after that fix, so its score file carries the
+effective window in both places and neither consequence below applies to it.
+
+### Think-off and think-on differ in two variables, not one
 
 Think-off is greedy at temperature 0; think-on sends no sampling overrides at
 all, so the model's packaged temperature applies. That is deliberate — greedy
@@ -194,11 +206,16 @@ rule 4 exists to prevent.
   without being bound by it — 0025 is scoped to its three measured families and
   says explicitly that a new family needs its own measurement. This is that
   measurement, thin as it is.
-- **Does not:** establish a repeat-measured baseline. **n=1 per arm.** The
-  `name_bbox` gain and the `q4_bbox` loss both sit in cells this suite has
-  already shown to be unstable across configurations.
-- **Does not:** settle whether think-on's `q4_bbox` regression is a reasoning
-  effect or a budget effect — see the headroom caveat above.
+- **Does:** settle that think-on's `q4_bbox` regression is a reasoning effect,
+  not a budget effect — the repeat at `NUM_PREDICT=4400` used 46% of the raised
+  ceiling and still failed.
+- **Does:** put a number on the noise floor for the unstable cells, by running
+  think-on twice: 0.159 on `name_bbox`, 0.011 on scene IoU. Any single-arm
+  reading of those metrics is worth less than that spread.
+- **Does not:** establish a repeat-measured **think-off** baseline. Think-off was
+  run once; the two repeats are both think-on. Think-off is greedy at
+  temperature 0, so it should be more stable, but that is an expectation rather
+  than a measurement here.
 - Unrelated to vision, and recorded only as an anecdote: a text-only arithmetic
   probe in the same session was wrong with think off and right with think on.
   One question is not a measurement, and it points the opposite way to the
