@@ -77,6 +77,12 @@ Reproducible ground-truth benchmarks behind the measured tables in
   *both* modes to one value — use `NUM_PREDICT_THINKON` / `NUM_CTX_THINKON` to move think-on
   alone. Unlike `run_engine_compare.sh` it does not auto-escalate; it reports a capped cell
   and the rung to retry at.
+- `BINARIES.md` — **the benchmark binary archive manifest.** Every measurement in
+  `docs/maxusai/` is attributable to one server binary and preflight gates on the
+  version string it reports, so when a payload pin moves the old build has to
+  stay reachable. Binaries live on the host at `~/.ollama/binaries/`; this file
+  carries their identity, checksums, what each is the provenance for, and the
+  rebuild recipe.
 - `build-macos.sh` — **macOS/Metal only. Builds the native fork binary with the version
   stamp preflight gates on.** The binary is the provenance for every measurement
   here, and assembling the ldflags by hand from `spec/apple-silicon-build.md`
