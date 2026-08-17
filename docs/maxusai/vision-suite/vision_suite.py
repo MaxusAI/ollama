@@ -55,6 +55,58 @@ def _context_error(e, num_predict, num_ctx):
     return RuntimeError(f"HTTP {e.code}: {body[:200]}")
 
 
+def _consume_stream(req, timeout, chat):
+    """Read the NDJSON stream, splitting thinking from answer EXACTLY.
+
+    WHY STREAM AT ALL. `eval_count` is thinking + answer, so reading it as
+    "answer length" is wrong the moment thinking is on — a scene cell reporting
+    eval 3366 answered in ~200 tokens and spent the rest reasoning. Reports that
+    printed one number could not show where a budget went, which is the first
+    question ADR 0022's trap #1 asks. The API exposes no per-phase counter and a
+    chars-derived estimate would be an invented number in a file whose entire
+    purpose is measured ones.
+
+    Ollama emits one object per generated token, so counting objects whose
+    thinking / content delta is non-empty is the split, not an approximation.
+    `token_accounting_ok` records whether the two halves sum to `eval_count`, so
+    if that assumption ever stops holding it surfaces in the scores instead of
+    silently skewing a column.
+
+    The returned object is the final (done) chunk with `response` and `thinking`
+    reassembled, so every existing caller and scorer sees exactly what the
+    non-streamed call used to hand them.
+    """
+    think_parts, resp_parts = [], []
+    think_tok = resp_tok = 0
+    final = {}
+    with urllib.request.urlopen(req, timeout=timeout) as fh:
+        for raw in fh:
+            raw = raw.strip()
+            if not raw:
+                continue
+            obj = json.loads(raw)
+            if chat:
+                msg = obj.get("message") or {}
+                t, c = msg.get("thinking") or "", msg.get("content") or ""
+            else:
+                t, c = obj.get("thinking") or "", obj.get("response") or ""
+            if t:
+                think_parts.append(t)
+                think_tok += 1
+            if c:
+                resp_parts.append(c)
+                resp_tok += 1
+            if obj.get("done"):
+                final = obj
+    final["response"] = "".join(resp_parts)
+    final["thinking"] = "".join(think_parts)
+    final["thinking_tokens"] = think_tok
+    final["answer_tokens"] = resp_tok
+    ev = final.get("eval_count")
+    final["token_accounting_ok"] = (ev == think_tok + resp_tok) if ev else None
+    return final
+
+
 def gen(prompt, images, num_predict=None, num_ctx=None):
     if num_ctx is None:
         num_ctx = default_num_ctx()
@@ -68,9 +120,15 @@ def gen(prompt, images, num_predict=None, num_ctx=None):
     think_on = os.environ.get("THINK", "false") == "on"
     opts = {"num_predict": num_predict, "num_ctx": num_ctx}
     opts.update(sampling_for(MODEL, think_on))
+    # STREAMED, so thinking and answer tokens can be counted SEPARATELY.
+    # eval_count is their sum, which is why a think-on "answer length" read off
+    # it is mostly reasoning: 3366 eval on a scene cell whose answer was 205
+    # tokens. The API exposes no per-phase count, and a chars-derived estimate
+    # would be an invented number in a file whose whole point is measured ones.
+    # One streamed object per generated token gives the split exactly.
     payload = {
         "model": MODEL, "prompt": prompt, "images": images,
-        "stream": False, "format": "json",
+        "stream": True, "format": "json",
         "options": opts,
     }
     if os.environ.get("KV_CACHE_TYPE"):
@@ -89,21 +147,22 @@ def gen(prompt, images, num_predict=None, num_ctx=None):
     if not think_on:
         payload["think"] = False
     endpoint = os.environ.get("ENDPOINT", "generate")
+    timeout = int(os.environ.get("HTTP_TIMEOUT", "1800"))
     if endpoint == "chat":
         payload["messages"] = [{"role": "user", "content": payload.pop("prompt"),
                                 "images": payload.pop("images")}]
         req = urllib.request.Request(HOST + "/api/chat",
             data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
-        r = json.load(urllib.request.urlopen(req, timeout=int(os.environ.get("HTTP_TIMEOUT", "1800"))))
-        msg = r.get("message") or {}
-        r["response"] = msg.get("content", "")
-        r["thinking"] = msg.get("thinking", "")
+        try:
+            r = _consume_stream(req, timeout, chat=True)
+        except urllib.error.HTTPError as e:
+            raise _context_error(e, num_predict, num_ctx) from None
         r["_num_predict"], r["_num_ctx"] = num_predict, num_ctx
         return r
     req = urllib.request.Request(HOST + "/api/generate",
         data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
     try:
-        r = json.load(urllib.request.urlopen(req, timeout=int(os.environ.get("HTTP_TIMEOUT", "1800"))))
+        r = _consume_stream(req, timeout, chat=False)
     except urllib.error.HTTPError as e:
         raise _context_error(e, num_predict, num_ctx) from None
     # Stamp the EFFECTIVE limits so the caller records what actually ran rather
@@ -1191,6 +1250,15 @@ def main():
             sc = {"scorer_error": f"{type(e).__name__}: {e}"}
         sc["prompt_eval_count"] = r.get("prompt_eval_count")
         sc["eval_count"] = r.get("eval_count")
+        # The two halves of eval_count, counted from the stream rather than
+        # inferred. answer_tokens is what a reader means by "how long was the
+        # answer"; thinking_tokens is what the budget was actually spent on.
+        # token_accounting_ok is false if they stop summing to eval_count —
+        # recorded rather than asserted, so a wire-format change shows up as a
+        # flag in the scores instead of a silently wrong column.
+        sc["thinking_tokens"] = r.get("thinking_tokens")
+        sc["answer_tokens"] = r.get("answer_tokens")
+        sc["token_accounting_ok"] = r.get("token_accounting_ok")
         # Throughput. Ollama reports durations in nanoseconds. Recorded so a run
         # can be compared across backends (Metal vs CPU) as well as scored —
         # additive only, no effect on any existing score field.
