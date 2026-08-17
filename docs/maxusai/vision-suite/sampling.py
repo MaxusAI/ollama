@@ -24,8 +24,8 @@ Changing that would invalidate all of them for no benefit — the failure this
 module addresses only occurs with thinking on.
 
 TEMPERATURE IS FORK POLICY; EVERYTHING ELSE IS CARD-SOURCED OR ABSENT. As of
-2026-08-17 think-on runs at THINK_TEMPERATURE (default 0.01), NOT the cards'
-temperature 1.0. A model whose card we cannot read still gets NO sampling
+2026-08-17 think-on runs at THINK_TEMPERATURE (default 0 — greedy), NOT the
+cards' temperature 1.0. A model whose card we cannot read still gets NO sampling
 overrides at all — its packaged parameters apply — plus a warning. Adding a row
 here still means reading that model's card and citing it; only the temperature
 field is ours.
@@ -36,16 +36,22 @@ n<=3 this suite can afford, a difference between engines, quantisations or code
 revisions cannot be separated from sampling noise. Determinism is what makes a
 regression gate possible, and a regression gate is what this suite is for.
 
-WHAT THIS COSTS, STATED PLAINLY. `temperature 0.01` is a documented negative
-result — ../vision-lowtemp-thinkon-negative-result.md, measured the same day —
-because it is greedy in all but name and greedy decoding is what makes reasoning
-fail to terminate. Nine models, three repeats: `gemma4:12b-it-q4_K_M` and
-`qwen3.6:35b-a3b-q4_K_M` lost SIX of eight contract cells; `gemma4:31b-nvfp4`
-lost 0-1 and `gemma4:31b-it-q4_K_M` lost none. Where a cell scores, the score is
-good (IoU 0.94-0.97) — low temperature does not degrade the answer, it prevents
-the answer. So a `no result` cell under this policy is EXPECTED BEHAVIOUR for the
-affected families, not a vision failure and not a regression. Check it against
-that document before reporting one.
+WHAT THIS COSTS, STATED PLAINLY, AND IT IS THE WORST CASE. Greedy decoding is
+precisely what makes reasoning fail to terminate — that is the defect ADR 0023
+was written to escape, and this walks back into it deliberately. The nearest
+measured evidence is one notch milder than what we now run:
+../vision-lowtemp-thinkon-negative-result.md measured `temperature 0.01` over
+nine models and three repeats, and `gemma4:12b-it-q4_K_M` and
+`qwen3.6:35b-a3b-q4_K_M` lost SIX of eight contract cells there, while
+`gemma4:31b-nvfp4` lost 0-1 and `gemma4:31b-it-q4_K_M` lost none. At 0 the
+non-termination pressure is strictly higher, so treat those figures as a FLOOR
+on the loss, not an estimate of it.
+
+Where a cell scores, the score is good (IoU 0.94-0.97) — low temperature does not
+degrade the answer, it prevents the answer. So a `no result` or capped cell under
+this policy is EXPECTED BEHAVIOUR for the affected families, not a vision failure
+and not a regression. Check it against that document before reporting one, and
+check `eval_count` against `num_predict` first (ADR 0022 trap #1).
 
 This supersedes the sampling half of ADR 0023 (think-on measured on-policy).
 Think-on numbers produced after this change are NOT comparable to the published
@@ -69,9 +75,21 @@ GREEDY = {"temperature": 0}
 # The temperature every think-on cell is measured at, overriding whatever the
 # card says. Fork policy, not a card value — see the header for the reasoning
 # and for what it costs. Env-overridable so the cost can be re-measured without
-# editing this file: THINK_TEMPERATURE=0 for strict greedy, =1.0 to reproduce a
-# pre-2026-08-17 card-sampling run.
-THINK_TEMPERATURE = float(os.environ.get("THINK_TEMPERATURE", "0.01"))
+# editing this file: THINK_TEMPERATURE=0.01 for the near-greedy variant,
+# =1.0 to reproduce a pre-2026-08-17 card-sampling run.
+#
+# WHY 0 AND NOT 0.01. 0.01 was tried first and does NOT give a reproducible
+# cell. Two runs of gemma4:31b-nvfp4 think-on at 0.01, same fixture, same
+# window, cold server both times, scene_single first in each:
+#
+#     run A   eval=3205   scene IoU 0.965
+#     run B   eval=1762   scene IoU 0.961
+#
+# Nearly double the reasoning tokens. One counterexample refutes determinism,
+# and reproducibility is the entire reason this knob exists — a value that
+# only *reduces* variance leaves the gate exactly as unfalsifiable as before,
+# because "did it change?" still has no crisp answer at n<=3.
+THINK_TEMPERATURE = float(os.environ.get("THINK_TEMPERATURE", "0"))
 
 # What the cards actually specify, kept because the campaigns published before
 # 2026-08-17 were measured at it and a reader needs to know what changed.
