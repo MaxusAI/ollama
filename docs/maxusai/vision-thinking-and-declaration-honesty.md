@@ -44,13 +44,20 @@ and n=1, any think-on difference between two models, quantisations or code
 revisions may be sampling noise rather than the thing being compared. Every
 think-on cell in this run carries it.
 
-**What would settle it**, in ascending cost: re-run the six contract arms at
-`TEMPERATURE=0.01` (keeps the card's `top_k`/`top_p` and, for qwen3.6, the
-`presence_penalty 1.5` anti-repetition lever, so it is *not* the greedy
-configuration that broke ADR 0022) — appropriate because the contract arms are
-**categorical**, where low variance matters more than realism; or run think-on
-at card sampling with 3+ repeats, which is what ADR 0022's own supersession did
-(`n=3` on both the gemma4 reversal and the nemotron3 regression).
+**What would settle it.** Two options were available; **one has since been tried
+and failed.**
+
+- ~~Re-run the contract arms at `TEMPERATURE=0.01`~~ — **tried 2026-08-17, does
+  not work.** Two of nine models run away to the full budget in 5–6 of 8 cells,
+  where the same models cap 0 of 8 at card sampling with the same allowance. See
+  [vision-lowtemp-thinkon-negative-result.md](vision-lowtemp-thinkon-negative-result.md).
+  The reasoning that `0.01` retains qwen3.6's `presence_penalty 1.5` guard was
+  wrong on two counts: gemma4's card carries no penalty at all, and qwen3.6
+  runs away anyway.
+- **Run think-on at card sampling with 3+ repeats.** This is now the only
+  remaining option, and it is what ADR 0022's own supersession did (`n=3` on
+  both the gemma4 reversal and the nemotron3 regression). It costs 3× the
+  wall-clock; the cheaper alternative costs the measurement.
 
 ## Measured
 
