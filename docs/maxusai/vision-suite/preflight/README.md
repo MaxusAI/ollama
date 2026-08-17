@@ -188,22 +188,29 @@ it rots.
   profile whose `patchset` no longer describes the build.
 
 **2. Measure. Do not derive, and do not edit a number to make a run go green.**
-Build the image, start it on a free port, and take the ladder by hand:
+Build the image, start it on a free port, and run `measure_ladder.py`. It prints
+the `[expect.…]` block as TOML — **copy it whole; do not retype any part of it.**
+ADR 0012 rule 8 forbids transcribing generator output by hand, and a ladder is
+five numbers, a prefix and two budgets: exactly the surface that rule is about.
 
 ```bash
-python3 - <<'EOF'
-import sys; sys.path.insert(0, ".")
-from probes import Ollama
-c = Ollama("http://127.0.0.1:11437")
-print("version:", c.version())
-model = "nemotron3:33b-q8"
-base, text_only, _ = c.image_prefix(model)   # NOT text_baseline() -- see B8
-print(f"in-image prefix: {base}  (text-only: {text_only})")
-for size in ["256x144", "512x288", "1024x576", "2048x1152", "3072x1728"]:
-    delta, _ = c.visual_tokens(model, size, base)
-    print(f"  {size:>10}: {delta}")
-EOF
+python3 measure_ladder.py --host http://127.0.0.1:11437 \
+    --model nemotron3:33b-q8 --profile cuda-dynres-903 --arch nemotron_h_omni \
+    --container ollama-dynres-canary --stride 32
 ```
+
+It takes the geometries from this file's own `ladder_sizes`, so it cannot drift
+from what the harness checks; it uses `image_prefix` (B8), never
+`text_baseline()`; and with `--container` it forces a fresh load and reads the
+pixel budget out of the `load_hparams` block, filling `budget_*`/`image_*` and
+`custom_bounds` for you.
+
+`--stride` is `patch_size * spatial_merge_size` and is **required** for those
+budget fields. The tool will not infer it: several strides divide the same pixel
+counts — qwen35's 1048576/4194304 are divisible by both 16² and 32² — and the
+wrong one produces budgets that are *arithmetically self-consistent*, so
+`test_verdicts` and `payload_proof` both pass on a wrong row. Without `--stride`
+those fields are emitted as TODO rather than guessed.
 
 For the payload proof, read the load log directly — and force a reload first, or
 you may be reading the previous build's line:
