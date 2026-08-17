@@ -162,3 +162,110 @@ func (d *constrainedDecoder) close() {
 	d.spec.settle(d.pending.Token)
 	mlx.Unpin(d.pending.Arrays()...)
 }
+
+// draftPrefix reports how many leading draft tokens the grammar admits, and
+// returns a matcher advanced over exactly those tokens.
+//
+// STAGE 1 OF GRAMMAR-AWARE SPECULATION. Constrained decoding currently runs one
+// token per forward pass (constrainedDecoder.next), while unconstrained
+// decoding is speculative. Measured on CUDA, gemma4:31b-nvfp4, one 1920x1080
+// image, n=3: 21.13 tok/s with format:"json" against 36.53 without, a 42%
+// penalty, where llama-server pays 1.6% for the same constraint because it
+// verifies drafts against the grammar instead of giving up on drafting. See
+// ../mlx-constrained-decode-disables-speculation.md.
+//
+// This is the host half of closing that gap: given a draft, decide how much of
+// it the grammar could possibly accept, so verification never has to consider
+// a token the format forbids. It does NOT decide acceptance -- the target
+// model's masked distribution does that, and it is the device half, not yet
+// written. A token counted here is a token still eligible to be accepted.
+//
+// THE CALLER'S MATCHER IS NOT MUTATED. Grammar state is a stack machine and a
+// draft is a guess; advancing the live matcher over a guess that verification
+// then rejects would leave the request generating against a state its own
+// output never reached. So this walks a Clone and hands it back: adopt it only
+// for the tokens verification actually commits, which is why the count and the
+// matcher are returned together rather than the matcher being advanced in
+// place.
+//
+// EOS ends the walk rather than extending it. Vocab.Mask only admits EOS where
+// the grammar CanComplete, so an EOS reaching this point is legal by
+// construction; but nothing follows it, and advancing past it would ask the
+// matcher to consume a piece that decodes to sentinel text.
+func draftPrefix(m *structured.Matcher, v *structured.Vocab, pieces [][]byte,
+	isEOS func(int32) bool, drafts []int32,
+) (int, *structured.Matcher) {
+	cur := m.Clone()
+	for i, id := range drafts {
+		if !v.Mask(cur).Allowed(id) {
+			return i, cur
+		}
+		if isEOS(id) {
+			return i + 1, cur
+		}
+		var piece []byte
+		if int(id) >= 0 && int(id) < len(pieces) {
+			piece = pieces[id]
+		}
+		// A zero-length piece is a special or undecodable token. The serial
+		// path treats reaching one as a bug because the mask guarantees
+		// legality; here it is merely the end of what can be verified, since
+		// the matcher cannot be advanced over text that does not exist.
+		if len(piece) == 0 || !cur.Advance(piece) {
+			return i, cur
+		}
+	}
+	return len(drafts), cur
+}
+
+// draftMasks returns the grammar mask for each verification row of a
+// speculative step, the number of leading drafts the grammar admits, and a
+// matcher advanced over exactly those drafts.
+//
+// STAGE 2 OF GRAMMAR-AWARE SPECULATION, host half. Verification compares the
+// target model's distribution against the draft's, and under a grammar that
+// comparison MUST use the MASKED target distribution. Otherwise the target's
+// argmax can be a token the format forbids, and every legal draft is rejected
+// against a token that could never have been emitted — speculation would
+// "work" and accept nothing.
+//
+// ROW i PREDICTS DRAFT i, so row i carries the mask of the state BEFORE that
+// draft: row 0 is the current state, row i is the state after drafts[0..i-1].
+// The returned slice has legal+1 entries — one per admitted draft plus the
+// bonus row, which is the state after the last admitted draft and is where the
+// next token is sampled when every draft is accepted.
+//
+// The caller's matcher is not mutated, for the reason draftPrefix documents: a
+// draft is a guess, and advancing the live matcher over a rejected guess would
+// leave the request generating against a state its own output never reached.
+//
+// Building the device-side bias from these masks is the other half and is not
+// here: it is a [legal+1, vocabDim] float32 upload, and its cost has to be
+// measured against the 42% it is meant to recover rather than assumed.
+func draftMasks(m *structured.Matcher, v *structured.Vocab, pieces [][]byte,
+	isEOS func(int32) bool, drafts []int32,
+) ([]*structured.Mask, int, *structured.Matcher) {
+	cur := m.Clone()
+	masks := make([]*structured.Mask, 0, len(drafts)+1)
+	for i, id := range drafts {
+		mask := v.Mask(cur)
+		masks = append(masks, mask)
+		if !mask.Allowed(id) {
+			return masks, i, cur
+		}
+		if isEOS(id) {
+			// EOS is admitted but nothing follows it, so there is no bonus row:
+			// the run ends here and the caller samples nothing further.
+			return masks, i + 1, cur
+		}
+		var piece []byte
+		if int(id) >= 0 && int(id) < len(pieces) {
+			piece = pieces[id]
+		}
+		if len(piece) == 0 || !cur.Advance(piece) {
+			return masks, i, cur
+		}
+	}
+	// Every draft admitted: the bonus row's mask is the state after the last.
+	return append(masks, v.Mask(cur)), len(drafts), cur
+}
