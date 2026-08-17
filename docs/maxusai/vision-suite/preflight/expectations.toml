@@ -190,28 +190,62 @@ platform = "mlx-cuda"
 # THE MLX RUNTIME ON A CUDA BACKEND — the mlx_cuda_v13 payload the build
 # produces (cmake/local.cmake: mlx_cuda_v13_linux / _windows / _user_arch).
 #
-# NEVER MEASURED, and until 2026-08-17 it had no profile at all. The old naming
-# is why: "apple-silicon-mlx" made MLX read as an Apple concept, so a missing
-# CUDA-side MLX profile looked like a category error rather than a gap. Under
+# Until 2026-08-17 this had no profile at all. The old naming is why:
+# "apple-silicon-mlx" made MLX read as an Apple concept, so a missing CUDA-side
+# MLX profile looked like a category error rather than a gap. Under
 # backend x runtime naming the empty cell is visible.
 #
-# Expect it to fail before it measures anything. The payload ships NOT
-# self-contained — no ELF RPATH, libquadmath unbundled — so it loads only where
-# the host already provides CUDA, cuDNN, NCCL and libquadmath on the system
-# search path, and every safetensors model is otherwise refused with a message
-# that reads like a missing feature rather than a packaging fault. See
-# ../../upstream-mlx-cuda-payload-unloadable.md. A preflight run here is
-# therefore worth doing precisely because it converts that into a stated verdict.
-version_pattern = '^0\.32\.[0-9]+-maxusai-[0-9a-f]{7,40}$'
+# THE PACKAGING FAULT IS FIXED. This profile was declared expecting the payload
+# to fail to load at all — "no ELF RPATH, libquadmath unbundled". Both were
+# repaired before the profile was written, and the fix is on main:
+#   cmake/mlx/CMakeLists.txt  set(CMAKE_{BUILD,INSTALL}_RPATH "$ORIGIN")
+#   cmake/mlx/CMakeLists.txt  MLX_INCLUDE_REGEXES ... gfortran quadmath
+# and the shipped payload carries libquadmath.so.0. The runtime loads and
+# serves. ../../upstream-mlx-cuda-payload-unloadable.md describes the state
+# BEFORE that fix and must not be read as current.
+#
+# A caution attached to that document: an earlier round of the same
+# investigation published "no RPATH" findings that were FALSE NEGATIVES —
+# readelf is absent from the runtime image and returned nothing, which was read
+# as absence. Any claim that RPATH is missing must name the tool that produced
+# the evidence.
+#
+# THE VERSION PATTERN IS THE CONTAINER'S, NOT THE MAC'S. The first pattern here
+# required "-maxusai-", which is the NATIVE macOS build's stamp. The MLX/CUDA
+# payload ships in a container stamped "-dynres-", so that pattern could not
+# match the only artifact this profile describes: preflight would fail to
+# resolve a profile at all, and the gate was unreachable. Measured server:
+# 0.32.14-rc0-dynres-20-geb0ad43. Same shape as cuda-dynres-903, which is the
+# other profile served from a container on this host.
+version_pattern = '^0\.32\.\d+(-rc\d+)?-dynres(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
 patchset = []                     # llama.cpp compat patches do not apply to MLX
-reference_image = "unmeasured — no CUDA host has served the MLX runtime"
+reference_image = "maxusai/ollama:0.32.14-rc0-dynres-mlxfix"
 expect_patch_marker = 1
 arches = ["gemma4", "qwen35moe", "qwen35"]
 notes = """
-Declared so the combination is visible and gated, not so it is claimed. Every
-arch below is status = "unmeasured"; preflight exits 4 (NEEDS_BASELINE) rather
-than implying a pass. Measuring it needs a CUDA host with the MLX store, which
-this fork has never run.
+The runtime is no longer unexercised: gemma4:31b-nvfp4 served the full vision
+suite on this backend on 2026-08-17 (container mlx-release, :11495), think-off
+n=3 bit-identical across repeats — scene bbox IoU 0.962, boxes/labels/colors
+6/6, serial and invoice exact, fine text 4/4/4/3/3, multi-image all Qs + bbox,
+contract_followed 7/7/7 of 8. Against the mlx-metal row for the SAME model that
+is 0.962 vs 0.964, inside ADR 0012's +/-0.01 noise floor: the runtime behaves
+the same on both backends.
+
+That is a QUALITY result and it is deliberately not written into the arch
+blocks below, which assert TOKEN LADDERS. Those still need the B8 prefix
+measurement on this host, and ADR 0011 rule 4 forbids copying the mlx-metal
+ladder across on the strength of quality parity. Every arch below therefore
+stays status = "unmeasured" and preflight still exits 4.
+
+KNOWN DEFECT, think-on only. Under THINK=on the twelfth consecutive cell
+aborted the runner:
+  mlx: cudaGraphAddDependencies(...) failed: invalid argument
+  at mlx-c-src/mlx/c/transforms.cpp:15
+raised from Runner.prefill -> mlx.Eval, with a second panic during unwind in
+cacheSession.close -> mlx.AsyncEval. The same cell passes with think off at the
+same num_ctx, so window size is not the trigger; prefix-cache state interacting
+with CUDA graph capture is the hypothesis and it has not been reproduced in
+isolation. Think-off is unaffected.
 """
 
 [profiles.metal]
@@ -984,16 +1018,54 @@ ladder = [68, 146, 578, 2306, 5186]       # prefix == text_only == 13
 # backend.
 
 [expect.mlx-cuda.gemma4]
-status = "unmeasured"
-reason = "No CUDA host has ever served the MLX runtime. The mlx_cuda_v13 payload ships without an ELF RPATH and without libquadmath bundled, so it loads only where the host already provides CUDA, cuDNN, NCCL and libquadmath on the system search path — see ../../upstream-mlx-cuda-payload-unloadable.md. Measure on such a host; do NOT copy the mlx-metal ladder, which describes a different backend."
+status = "measured"
+measured_on = "2026-08-17"
+model = "gemma4:31b-nvfp4"
+# Emitted by measure_ladder.py against :11495 (container mlx-release, server
+# 0.32.14-rc0-dynres-20-geb0ad43) and pasted whole, per ADR 0012 rule 8.
+patch_stride = 48                # BudgetFillSize(w, h, 48, maxTok) — llm/llama_server.go
+budget_min_tokens = 70           # ADR 0008 floor
+budget_max_tokens = 1120         # vendor maximum
+image_min_pixels = 161280        # 70 * 48^2
+image_max_pixels = 2580480       # 1120 * 48^2
+
+# THE LADDER IS MEASURED HERE, NOT CARRIED OVER. It lands on the same values as
+# mlx-metal, which is the expected result — MLX sizing goes through
+# llm.BudgetFillSize, plain Go, identical on both backends — but ADR 0011 rule 4
+# forbids asserting that from expectation rather than measurement, and the
+# earlier draft of this profile said in as many words "do NOT copy the mlx-metal
+# ladder". So it was measured: image_prefix (B8), five geometries, flat 1102
+# throughout, prefix == text_only == 19.
+#
+# The budget fields have TWO independent sources that agree, which is why they
+# are stated rather than left TODO:
+#
+#   1. The container's own load_hparams block, read by measure_ladder.py and
+#      re-read by preflight's payload_proof, which passes on this profile:
+#      "budget logged as custom on max/min (min 70*48^2=161280,
+#      max 1120*48^2=2580480)". A check that reads those lines cannot pass
+#      without them, so the MLX runner demonstrably emits them.
+#   2. The fork's own source: 70/1120 are the ADR 0008 gemma4 defaults
+#      (llm/llama_server_test.go:1575, :1738) and 48 is the align argument
+#      BudgetFillSize is called with (llm/llama_server.go:1511).
+#
+# Recorded because the first measurement run produced TODO for every budget
+# field and that was misdiagnosed, in an earlier revision of this comment, as
+# "the MLX runner does not emit these lines". It does. The empty read was a race
+# between forcing the reload and reading the log, and re-running produced the
+# values above. A tool returning nothing is not evidence that nothing exists —
+# the same mistake as reading an absent `readelf` as "no RPATH present".
+scaling = "flat"
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]
 
 [expect.mlx-cuda.qwen35moe]
 status = "unmeasured"
-reason = "As gemma4 above: no CUDA host has served the MLX runtime. qwen35moe's ladder is a payload property and must be taken on the backend it describes."
+reason = "ATTEMPTED 2026-08-17 and it does not complete. qwen3.6:35b-a3b-nvfp4 measured 68 / 146 / 578 / 2306 on the first four geometries and then aborted the runner on the fifth (3072x1728): 'mlx: cudaMallocAsync(&data, size, stream) failed: out of memory'. Not a shortage of card: 85 GiB was free. MLX retains a buffer CACHE -- measured 13.16 GiB of cache against 18.29 GiB of live tensors on gemma4 at that same geometry -- and OLLAMA_MLX_MEMORY_LIMIT was ~82 GiB because client.go derives it from all free VRAM, so the pool had room to grow before the vision tower asked for a large block. Re-measure with the limit pinned well below free VRAM before concluding anything about the arch itself; the first four rungs match qwen35 exactly, so nothing suggests the ladder differs."
 
 [expect.mlx-cuda.qwen35]
 status = "unmeasured"
-reason = "As gemma4 above: no CUDA host has served the MLX runtime."
+reason = "LADDER MEASURED, BUDGETS NOT. qwen3.8:27b-nvfp4 gives [68, 146, 578, 2306, 5186] with prefix == text_only == 13, identical to the mlx-metal row for the same model, measured 2026-08-17 via image_prefix (B8). The budget fields are what is missing: that run read pixel lines belonging to gemma4, because a preflight run was probing gemma4 on the same server inside the log window, and dividing gemma4's 161280/2580480 by qwen's stride 32 produced a plausible-looking 157/2520 that does not round-trip (157*32^2 = 160768, not 161280). measure_ladder.py now refuses that case. Re-run against an idle server with nothing else probing it, and this row can be completed from the ladder above plus a clean budget read."
 
 # ------------------------------------------------------- metal / 0.32.14 --
 # Measured 2026-08-17, native macOS serve (:11436), server
