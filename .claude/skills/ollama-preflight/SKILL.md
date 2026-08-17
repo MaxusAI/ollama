@@ -22,16 +22,22 @@ Establish three things. Guessing any of them wastes a twenty-minute run.
    entirely different server. Never assume; the harness asserts the version
    string first and aborts if it disagrees, which is the safety net, not a
    substitute for checking.
-3. **Which platform profile applies.** `cuda`, `rocm`, `apple-silicon`, or
-   `apple-silicon-mlx`. ROCm is gated at the 0.32.1 base
+3. **Which platform profile applies.** Platform names a (backend, runtime)
+   pair. Backends are `cuda`, `rocm`, `metal`, `cpu`; the MLX runtime
+   prefixes its backend — `mlx-metal`, `mlx-cuda` — matching the payload
+   directories the build produces (`mlx_metal_v4`, `mlx_cuda_v13`).
+   `mlx-cuda` is declared but has never been measured, and `cpu` is
+   unmeasured too; both exit 4 rather than implying a pass. The old names
+   (`apple-silicon`, `apple-silicon-mlx`, `apple-silicon-cpu`) still work
+   and print a deprecation line. ROCm is gated at the 0.32.1 base
    (`docs/maxusai/amd-upgrade-gate.md`) and served from `release/0.32.1-dynres`.
    Note what the gate does and does not pin: it blocks the 0.32.5 base and its
    b10091 payload, **not** the compat patches — that lineage carries 002/004/005
    as adapted backports. So ROCm has the *same patch list* as CUDA over a
    *different payload*, and its numbers are still not the CUDA ones. Identical
    patch lists do not imply identical token counts. On a Mac the platform names
-   the serving stack, which version alone cannot: `apple-silicon` is the
-   llama.cpp path, `apple-silicon-mlx` is the MLX-store server (conventionally
+   the serving stack, which version alone cannot: `metal` is the
+   llama.cpp path, `mlx-metal` is the MLX-store server (conventionally
    `:11436`, `OLLAMA_MODELS=~/.ollama/models-mlx`).
 
 ## Order of work

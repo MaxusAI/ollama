@@ -15,7 +15,7 @@ A host can be rebuilt from it; a binary sitting only in `/tmp` cannot.
 | version | git sha | payload | MLX | sha256 | notes |
 |---|---|---|---|---|---|
 | `0.32.5-maxusai-a5d65906` | [`a5d65906`](https://github.com/MaxusAI/ollama/commit/a5d65906) | llama.cpp **b10353** | pre-v0.32.14 pin | `d807360e94e0e17a…` | provenance for the 2026-08-16/17 vision work |
-| `0.32.14-maxusai-9594f81e` | [`9594f81e`](https://github.com/MaxusAI/ollama/commit/9594f81e) | llama.cpp **b10434** | v0.32.14 pin | `711d4ad126773ddf…` | current; the `apple-silicon-mlx-0-32-14` preflight baseline |
+| `0.32.14-maxusai-9594f81e` | [`9594f81e`](https://github.com/MaxusAI/ollama/commit/9594f81e) | llama.cpp **b10434** | v0.32.14 pin | `711d4ad126773ddf…` | current; the `mlx-metal-0-32-14` preflight baseline |
 
 Full checksums:
 
