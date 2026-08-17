@@ -9,6 +9,7 @@ import (
 	"github.com/ollama/ollama/x/mlxrunner/mlx"
 	"github.com/ollama/ollama/x/mlxrunner/model/base"
 	sampler "github.com/ollama/ollama/x/mlxrunner/sample"
+	"github.com/ollama/ollama/x/structured"
 )
 
 // draftSession proposes speculative tokens for one request, learning the
@@ -92,6 +93,13 @@ func newSpeculation(r *Runner, draft base.DraftModel, targets, draftKV []cache.C
 // it owns the drafter and runs the validate rounds. A nil session is a plain
 // decode.
 type speculationSession struct {
+	// Grammar context for masked verification, nil unless grammar-aware
+	// speculation is enabled. See constrain.go: maskedTargetLogits.
+	matcher *structured.Matcher
+	vocab   *structured.Vocab
+	pieces  [][]byte
+	biasBuf []float32
+
 	spec    *speculation
 	drafter draftSession
 	enabled bool  // whether this request drafts; false parks (maintain-only)

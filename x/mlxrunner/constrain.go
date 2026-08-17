@@ -3,6 +3,8 @@ package mlxrunner
 import (
 	"fmt"
 	"math"
+	"os"
+	"strings"
 
 	"github.com/ollama/ollama/x/mlxrunner/batch"
 	"github.com/ollama/ollama/x/mlxrunner/cache"
@@ -268,4 +270,105 @@ func draftMasks(m *structured.Matcher, v *structured.Vocab, pieces [][]byte,
 	}
 	// Every draft admitted: the bonus row's mask is the state after the last.
 	return append(masks, v.Mask(cur)), len(drafts), cur
+}
+
+// GrammarSpeculationEnv gates grammar-aware speculation. UNSET IS OFF, and off
+// is the shipped behaviour: the mechanism below has never run against a real
+// model, and it edits the one path where a mistake is silent KV corruption
+// rather than a crash. Turn it on to measure it, not to use it.
+const GrammarSpeculationEnv = "OLLAMA_MLX_GRAMMAR_SPECULATION"
+
+func grammarSpeculationEnabled() bool {
+	v := os.Getenv(GrammarSpeculationEnv)
+	return v == "1" || strings.EqualFold(v, "true")
+}
+
+// fillMaskBias lays out the [len(masks), vocabDim] logit bias for masked
+// verification: 0 where a row's mask admits the token, -Inf where it does not.
+//
+// Row-major and contiguous, because mlx.FromValues takes a flat slice and the
+// shape is applied on top. buf is reused across steps -- this runs once per
+// speculative round, and at k=3 on gemma4's 262,144 vocabulary it is 4 rows of
+// 1 MiB, so reallocating it every round would be the dominant cost of the
+// feature rather than an incidental one.
+//
+// Separated from the device upload so it can be tested without MLX: the shape
+// and the -Inf placement are where an off-by-one would hide, and both are
+// checkable on any host.
+func fillMaskBias(masks []*structured.Mask, vocabDim int, buf []float32) []float32 {
+	need := len(masks) * vocabDim
+	if cap(buf) < need {
+		buf = make([]float32, need)
+	}
+	buf = buf[:need]
+	negInf := float32(math.Inf(-1))
+	for i := range buf {
+		buf[i] = negInf
+	}
+	for row, mask := range masks {
+		base := row * vocabDim
+		mask.ForEach(func(id int32) {
+			if int(id) < vocabDim {
+				buf[base+int(id)] = 0
+			}
+		})
+	}
+	return buf
+}
+
+// constraintBiasRows uploads the per-row mask bias for masked verification,
+// shaped [rows, vocabDim] to line up with the fused hidden's rows.
+//
+// UNVERIFIED AGAINST HARDWARE. Everything below the fill is written from the
+// shape contract of Sampler.Distribution and has never run against a real
+// model; the gate exists so it cannot reach anyone who has not chosen to
+// measure it. The fill itself is tested (constrain_bias_test.go) because that
+// is where an off-by-one would hide and it is checkable without MLX.
+func constraintBiasRows(masks []*structured.Mask, vocabDim int, buf []float32) (*mlx.Array, []float32) {
+	buf = fillMaskBias(masks, vocabDim, buf)
+	return mlx.FromValues(buf, len(masks), vocabDim), buf
+}
+
+// maskedTargetLogits biases a speculative round's logits so verification
+// compares against the target's MASKED distribution.
+//
+// Without this, verification compares a draft against the target's UNMASKED
+// argmax, which can be a token the format forbids: every legal draft is then
+// rejected against a token that could never have been emitted, and speculation
+// accepts nothing while appearing to work. That failure reads as "speculation
+// did not help" rather than as a bug, which is why it is stated here.
+//
+// Returns the biased logits and the number of draft rows the grammar admits.
+// The caller must verify only that many drafts: rows past the first illegal
+// token describe grammar states that do not exist, so their masks would be
+// fiction and any acceptance from them would be corruption.
+func (s *speculationSession) maskedTargetLogits(logits *mlx.Array, draftIDs []int32) (*mlx.Array, int) {
+	if s.matcher == nil {
+		return logits, len(draftIDs)
+	}
+	masks, legal, _ := draftMasks(s.matcher, s.vocab, s.pieces, s.spec.r.Tokenizer.IsEOS, draftIDs)
+	vocabDim := logits.Dim(logits.NumDims() - 1)
+	bias, buf := constraintBiasRows(masks, vocabDim, s.biasBuf)
+	s.biasBuf = buf
+	// The forward produced len(draftIDs)+1 rows; the bias covers len(masks).
+	// Only the leading rows are biased and only they may be verified.
+	return mlx.Add(logits.Slice(mlx.Slice(), mlx.Slice(0, len(masks)), mlx.Slice()), bias), legal
+}
+
+// adoptGrammar advances the session's matcher over tokens verification
+// committed. Called only after commit, never on a draft: a matcher advanced
+// over tokens that were then rolled back would leave the request generating
+// against a state its own output never reached.
+func (s *speculationSession) adoptGrammar(ids []int32) {
+	if s.matcher == nil {
+		return
+	}
+	for _, id := range ids {
+		if s.spec.r.Tokenizer.IsEOS(id) {
+			return
+		}
+		if int(id) >= 0 && int(id) < len(s.pieces) && len(s.pieces[id]) > 0 {
+			s.matcher.Advance(s.pieces[id])
+		}
+	}
 }
