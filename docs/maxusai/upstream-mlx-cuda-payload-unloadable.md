@@ -26,10 +26,13 @@ should not".
 
 Two independent causes, both in CMake:
 
-1. The RPATH block is guarded by `if(APPLE)` and sets `@loader_path`, which is
-   Mach-O syntax. A Linux build gets **no RPATH at all**, so no library in the
-   payload can find its siblings — and the payload directory is on no system
-   search path by design.
+1. The payload is built with `@loader_path` as its RPATH — Mach-O syntax, taken
+   literally by the ELF loader, which resolves nothing. The ELF spelling is
+   `$ORIGIN`. So no library in the payload can find its siblings, and the payload
+   directory is on no system search path by design. `cmake/mlx/CMakeLists.txt`
+   guards the setting with `if(APPLE)`, but `x/mlxrunner/mlx/CMakeLists.txt` sets
+   it **unconditionally** and is directory-scoped, so it wins for the targets it
+   creates and stamps the Mach-O token onto the Linux build.
 2. `MLX_INCLUDE_REGEXES` bundles `gfortran` but not `quadmath`. `libgfortran`
    links against `libquadmath`, so the dependency closure is incomplete even once
    the search path is fixed.
@@ -77,10 +80,19 @@ libmlx.so  -> libnccl.so.2                                     not found
 
 **All twelve sit in the same directory as the library that needs them.**
 
+The payload does carry an RPATH. It carries the wrong one — the Mach-O token,
+written verbatim into an ELF header, where it resolves nothing:
+
 ```
-$ readelf -d /usr/lib/ollama/mlx_cuda_v13/libmlxc.so | grep -iE 'rpath|runpath'
-(nothing)
+$ patchelf --print-rpath libmlxc.so     # extracted from the image
+@loader_path
 ```
+
+Check this from outside the container. `readelf` is **not installed in the
+runtime image**, so running it in there produces empty output that reads exactly
+like "no RPATH" and is really "no readelf" — a false negative this report
+originally published. Copy the library out (`docker cp`) and inspect it on a host
+that has binutils or patchelf.
 
 ### Affected code
 
@@ -255,6 +267,35 @@ So only one layer here is a defect:
 | distribution — registry gates MLX tags on reported `GOOS` | outside this repo |
 | packaging — bundled payload not self-contained | **the bug; fixed here** |
 | serving — MLX CUDA runs these models | works, measured above |
+
+### Confirmed by a release build
+
+Everything above was first established by rewriting the shipped libraries with
+`patchelf`, which proves the linkage but not that the CMake change emits it. A
+full release build settles that. Built from `main` at `eb0ad436`
+(`0.32.14-rc0-dynres-20-geb0ad43`, same b10434 payload and same MLX pin as
+upstream v0.32.14), exit 0:
+
+| | shipped | this build |
+|---|---|---|
+| `libmlxc.so` RPATH | `@loader_path` | **`$ORIGIN`** |
+| `libquadmath.so.0` | absent | **bundled** |
+| `libmlxc.so` unresolved | 1 | **0** |
+| `libmlx.so` unresolved | 12 | **0** |
+
+and running the image with no mounts, no patched binary and no
+`LD_LIBRARY_PATH`:
+
+```
+DEBUG MLX dynamic library loaded    path=/usr/lib/ollama/mlx_cuda_v13/libmlxc.so
+INFO  MLX engine initialized        device=gpu
+INFO  Configured MLX memory limit from free device memory
+                                    active="1.14 GiB" limit="82.50 GiB" previous="90.22 GiB"
+```
+
+first request HTTP 200. The `previous="90.22 GiB"` is the backend default on a
+95.6 GiB card, and the applied 82.50 GiB is free memory — the second fault in
+this report, also confirmed from a real build rather than a patched binary.
 
 ### Suggested fix
 
