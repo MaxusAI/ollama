@@ -110,6 +110,43 @@ TAG_PREFIX="${TAG_PREFIX:-}"
 # separate entry point, so it is skipped unless the subset actually asks for it.
 ONLY_TESTS="${ONLY_TESTS:-}"
 
+# THE LADDER IS NOT OPTIONAL FOR THINK-ON, AND THIS REFUSES RATHER THAN WARNS.
+#
+# The rung a think-on cell converges at IS A RESULT, not an implementation
+# detail of getting one. KV size drives decode speed, so "this model needs
+# 32768 to finish a thinking response" is a throughput fact — it is the number
+# that sizes a deployment and the reason two cells measured at different rungs
+# are not comparable on tok/s or req/h. Pinning CTX_MAX to the starting rung
+# does not make an arm cheap; it makes that number unobtainable. The cell caps,
+# carries no score, and the window it actually needed is never discovered.
+#
+# It refuses instead of warning because the failure is INVISIBLE downstream: a
+# capped cell and a cell that genuinely converged at the start rung both write
+# a num_ctx into the scores, and every summarizer renders them identically. A
+# warning scrolls past in a run that takes hours; a wrong throughput number
+# gets published.
+#
+# This is also how a bespoke arm's defect gets laundered into the sanctioned
+# runner. The 2026-08-17 low-temperature arm had no ladder because it was a
+# hand-written loop (ADR 0028); reproducing its fixed window "for
+# comparability" copies the flaw rather than the method. Comparability against
+# an arm that could not measure the rung is not a reason to also not measure it.
+case " $THINK_MODES " in
+  *" on "*)
+    _start="${NUM_CTX:-${NUM_CTX_THINKON:-16384}}"
+    _higher=$(printf '%s\n' $CTX_LADDER \
+      | awk -v s="$_start" -v m="$CTX_MAX" '$1>s && $1<=m {print; exit}')
+    if [ -z "$_higher" ] && [ -z "${ALLOW_NO_LADDER:-}" ]; then
+      echo "REFUSING: think-on starts at num_ctx=$_start, and CTX_MAX=$CTX_MAX leaves no" >&2
+      echo "  higher rung in CTX_LADDER='$CTX_LADDER'. A capped cell could never escalate," >&2
+      echo "  so the window it needs would be unmeasurable and its tok/s uninterpretable." >&2
+      echo "  Raise CTX_MAX (default 65536), or set ALLOW_NO_LADDER=1 if a fixed-window" >&2
+      echo "  arm is genuinely what you want — and say so in the write-up." >&2
+      exit 2
+    fi
+    ;;
+esac
+
 for m in $MODELS; do
   base=$(printf '%s' "$m" | tr ':.' '__')
   for think in $THINK_MODES; do

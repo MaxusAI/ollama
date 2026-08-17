@@ -39,6 +39,34 @@ inherits nothing and silently loses the ladder.
 behaviour must be byte-identical to before, so existing campaigns and every
 summarizer keep working. Verify with `sh -x` on both paths before committing.
 
+**H4a — The think-on ladder always runs. The rung is a result, not plumbing.**
+`CTX_MAX` MUST leave at least one rung above the think-on start rung.
+`run_engine_compare.sh` refuses (exit 2) otherwise; `ALLOW_NO_LADDER=1` is the
+deliberate opt-out and obliges the write-up to say a fixed window was used.
+
+The window a model needs to *finish* a thinking response is a throughput fact
+about that model — KV size drives decode speed, which is why two cells measured
+at different rungs are not comparable on tok/s or req/h, and why the scores
+carry `num_ctx` at all. Pinning the ceiling to the start rung does not make an
+arm cheaper; it makes that number unobtainable, because the cell caps and the
+required window is never discovered.
+
+The refusal is deliberate in place of a warning: downstream, a capped cell and
+a cell that genuinely converged at the start rung both write a `num_ctx` into
+the scores and every summarizer renders them identically. A warning scrolls
+past in a run that takes hours; a wrong throughput number gets published.
+
+> Guard added after exactly this: a fixed `CTX_MAX=16384` was passed to a
+> think-on arm at `temperature 0` — the sampling regime where non-termination is
+> the *expected* failure — so escalation was impossible and every capped cell
+> would have been recorded as a dead cell at a window nobody chose to measure.
+> The stated reason was comparability with the 2026-08-17 low-temperature arm,
+> which had no ladder **because it was a hand-written loop** (H1, ADR 0028).
+> Matching a bespoke arm's fixed window reproduces its defect inside the
+> sanctioned runner, which is the one place that defect was supposed to be
+> impossible. Comparability against an arm that could not measure the rung is
+> not a reason to also not measure it.
+
 ## 2. Reporting
 
 **H5 — Shared helpers are imported, never redefined.** `engine_for`,
@@ -73,6 +101,7 @@ existed.
 |---|---|
 | H1, H2 | `run_engine_compare.sh` is the only script in `vision-suite/` that iterates `$MODELS`; a second one is the defect |
 | H3, H4 | `REPEATS` / `TAG_PREFIX` / `ONLY_TESTS` are inert when unset — verified with `sh -x` on both paths |
+| H4a | `run_engine_compare.sh` exits 2 when `CTX_MAX` leaves no rung above the think-on start; think-off is unaffected and `ALLOW_NO_LADDER=1` overrides |
 | H5, H6 | `summarize_lowtemp.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |
