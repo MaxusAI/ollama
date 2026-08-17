@@ -120,7 +120,7 @@ becomes deterministic — is **false, and not only for `0.01`.** Measured `n=3`,
 | `eval_count` | **3 of 12 cells stable.** `document_single` ran 3697 / 1982 / 2398 |
 | scored fields | **6 of 12 byte-identical across all three** |
 
-**It is the MLX runner, not the platform.** The same suite, same GPU, same
+**It is the (engine, backend) pair, not the engine.** The same suite, same GPU, same
 weights, same greedy setting, on llama-server instead:
 
 | engine, think-on at `temperature 0`, `n=3` | `eval_count` identical | all scored fields identical |
@@ -128,7 +128,16 @@ weights, same greedy setting, on llama-server instead:
 | GGUF `gemma4:31b-it-q4_K_M` (llama.cpp) | **12 / 12** | **12 / 12** |
 | MLX `gemma4:31b-nvfp4` | 3 / 12 | 6 / 12 |
 
-GGUF greedy is bit-reproducible on this card. MLX greedy is not.
+GGUF greedy is bit-reproducible **on this card**. MLX greedy is not.
+
+**AND ONLY ON THIS CARD.** An earlier revision read that as "it is the MLX
+runner, not the platform". The table does not support it and a second
+measurement contradicts it: the
+[qwen3.8 ROCm campaign](../vision-campaign-2026-08-17-qwen38-rocm.md) records two
+greedy `temperature 0` runs of llama.cpp on gfx1151 moving scene IoU
+**0.991 -> 0.988**. llama.cpp is exactly reproducible on CUDA and merely
+near-reproducible on ROCm, so "llama.cpp is deterministic" is not a property to
+carry between backends.
 
 That **refutes** the first explanation reached for — GPU floating-point
 reduction order varying with scheduling — as a *sufficient* one: both engines run
@@ -171,11 +180,16 @@ are admissible against the ±0.01 floor. Think-on campaign tables from that
 runner must report the rung and should report spread, not a point value, on any
 cell outside the `bbox_contract` family.
 
-**llama.cpp think-on is exempt from all of that**, because it is exactly
-repeatable: 12 of 12 fields identical across three repeats, `eval_count`
+**llama.cpp on CUDA is exempt from all of that**, because it is exactly
+repeatable there: 12 of 12 fields identical across three repeats, `eval_count`
 included. Applying the MLX restriction fork-wide would needlessly weaken a gate
-that this engine demonstrably supports. Any future engine gets measured before
-it is placed on either side of this line.
+that this pair demonstrably supports.
+
+The exemption is the **pair**, not the engine. llama.cpp on gfx1151 drifts
+0.991 -> 0.988 across two greedy runs -- inside ADR 0012's ±0.01 floor, so that
+pair still gates on continuous metrics, but not the bit-reproducibility CUDA
+shows. Every (engine, backend) pair is measured before it is placed on either
+side of this line, and an unmeasured pair sits on the cautious side.
 
 ## Consequences
 
