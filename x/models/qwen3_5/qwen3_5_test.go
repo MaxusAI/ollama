@@ -40,6 +40,28 @@ func TestSanitizeConvWeight(t *testing.T) {
 	}
 }
 
+func TestSanitizeConvWeight(t *testing.T) {
+	mlxtest.Setup(t)
+
+	tests := []struct {
+		name  string
+		shape []int
+		want  []int
+	}{
+		{name: "publisher layout", shape: []int{8, 1, 4}, want: []int{8, 4}},
+		{name: "imported layout", shape: []int{8, 4, 1}, want: []int{8, 4}},
+		{name: "already sanitized", shape: []int{8, 4}, want: []int{8, 4}},
+	}
+
+	for _, tt := range tests {
+		got := sanitizeConvWeight(mlx.Zeros(mlx.DTypeBFloat16, tt.shape...))
+		mlx.Eval(got)
+		if dims := got.Dims(); len(dims) != len(tt.want) || dims[0] != tt.want[0] || dims[1] != tt.want[1] {
+			t.Fatalf("%s: sanitizeConvWeight() shape = %v, want %v", tt.name, dims, tt.want)
+		}
+	}
+}
+
 func TestParseConfigNestedDefaults(t *testing.T) {
 	data := []byte(`{
 		"model_type": "Qwen3_5MoeForConditionalGeneration",
