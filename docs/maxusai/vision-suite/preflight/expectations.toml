@@ -56,7 +56,7 @@ version_pattern = '^0\.32\.1-dynres-[0-9a-f]{7,40}$'
 patchset = ["001", "002", "004", "005"]
 reference_image = "0.32.1-dynres-35d9e58e"
 expect_patch_marker = 1
-arches = ["nemotron_h_omni", "gemma4"]
+arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 notes = """
 gfx1151 (Ryzen AI Max+ 395 / Radeon 8060S), host 10.8.0.4, served from the
 `release/0.32.1-dynres` lineage. Deployed 2026-08-08 per
@@ -277,6 +277,59 @@ num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
 require_nonempty_thinking = true
+
+
+[expect.rocm-0-32-1-dynres.qwen35]
+status = "measured"
+measured_on = "2026-08-17"
+model = "qwen3.8:27b-q4_K_M"      # the GGUF tag; it routes to llama-server, which
+                                  # is what this lineage serves. The sibling
+                                  # 27b-nvfp4 is the MLX export and CANNOT anchor
+                                  # this row.
+patch_stride = 32                 # patch_size 16 * spatial_merge_size 2
+budget_min_tokens = 1024          # visionServerArgs passes --image-min-tokens 1024
+budget_max_tokens = 4096          # llama.cpp handle_qwen35_like_clip set_limit_image_tokens(8, 4096)
+image_min_pixels = 1048576        # 1024 * 32^2
+image_max_pixels = 4194304        # 4096 * 32^2
+
+custom_bounds = ["min"]           # only the min is ours to set: the fork passes
+                                  # --image-min-tokens and no max, so the ceiling
+                                  # is llama.cpp's structural default and is not
+                                  # marked "(custom value)". Both VALUES are still
+                                  # asserted, and the check runs both ways -- a
+                                  # bound declared uncustomised that starts
+                                  # logging as custom fails too.
+
+# Qwen3.8 is the DENSE member of qwen3_5; qwen3.6:35b-a3b is the MoE sibling and
+# llama.cpp draws the same line (LLM_ARCH_QWEN35 vs LLM_ARCH_QWEN35MOE), so this
+# is its own row. run_arch probes exactly the model its row names.
+#
+# The ladder is clamped at BOTH ends and scales between, and reproduces from the
+# arithmetic:
+#   * floor  — llm/llama_server.go:1015-1026 passes --image-min-tokens 1024 for
+#     qwen35/qwen35moe, so the three smallest geometries scale UP to the floor:
+#     43x24 = 1032 grid, +2 markers = 1034. Log: image_min_pixels 1048576
+#     "(custom value)".
+#   * free   — 2048x1152 -> 64x36 = 2304, +2 = 2306, inside the window.
+#   * ceiling— 3072x1728 would be 96x54 = 5184, clamped down to 4080, +2 = 4082.
+#     Log: image_max_pixels 4194304. Corroborated by the decode batching:
+#     1024+1024+256 = 2304 and 1024*3+1008 = 4080.
+#
+# NOT the apple-silicon-mlx qwen35 ladder [68, 146, 578, 2306, 5186]. Same model,
+# different serving stack: that row is the nvfp4 MLX export over a
+# 65536..16777216 pixel window; this is the GGUF through llama-server with the
+# fork's 1024 floor and llama.cpp's 4096 ceiling. Only the 2048x1152 rung
+# coincides. Copying either onto the other is exactly what ADR 0011 rule 4
+# forbids.
+#
+# prefix == text_only == 13, via probes.Ollama.image_prefix (B8) — one_a 1047,
+# one_b 1047, both 2081. Measured against 0.32.1-dynres-5d5b7a72 on 10.8.0.4,
+# payload b9888, compat 001+002+004+005. Vision quality for the same build is
+# recorded in docs/maxusai/vision-campaign-2026-08-17-qwen38-rocm.md on `main`
+# (n=1, think-off).
+scaling = "dynamic"
+ladder_tolerance = 2
+ladder = [1034, 1034, 1034, 2306, 4082]
 
 
 # ----------------------------------------------------------- Apple Silicon ---
