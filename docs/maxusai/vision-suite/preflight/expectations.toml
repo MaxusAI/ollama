@@ -147,6 +147,25 @@ load-log payload proof are skipped by design — the token ladder and generative
 probes are the evidence here.
 """
 
+[profiles.apple-silicon-mlx-0-32-14]
+platform = "apple-silicon-mlx"
+# Upstream v0.32.14 merged 2026-08-17 (fork 9594f81e): LLAMA_CPP_VERSION
+# b10353 -> b10434 and MLX_VERSION bumped. The MLX runner is the payload under
+# test here, so the MLX bump alone requires a new profile — ADR 0011 rule: a
+# different payload is a different profile, never a widened pattern over two.
+version_pattern = '^0\.32\.14-maxusai-[0-9a-f]{7,40}$'
+patchset = []                     # llama.cpp compat patches do not apply to MLX
+reference_image = "native macOS build — no container"
+expect_patch_marker = 1
+arches = ["gemma4", "gemma4_unified", "qwen35moe", "qwen35"]
+notes = """
+Successor to apple-silicon-mlx (0.32.5 base). Every row below was RE-MEASURED on
+b10434 rather than carried over; the values agreeing with the 0.32.5 profile is
+the *result*, not the method. All six llama/compat patches applied cleanly at
+b10434, and TestImageTokensForSize still passes, so the Go-side sizing model is
+unchanged too.
+"""
+
 [profiles.apple-silicon-metal]
 platform = "apple-silicon"
 version_pattern = '^0\.32\.5-maxusai-[0-9a-f]{7,40}$'
@@ -796,3 +815,66 @@ tests = ["scene_single", "document_single"]
 min_json_valid = 1.0
 min_label_recall = 0.70
 min_qty_price_exact = 0.70
+
+# --- apple-silicon-mlx-0-32-14 -------------------------------------------
+# Measured 2026-08-17 on the native macOS MLX serve (:11436), server
+# 0.32.14-maxusai-9594f81e, via probes.Ollama.image_prefix + visual_tokens (the
+# B8 prefix trick). Ladder geometries 256x144 / 512x288 / 1024x576 / 2048x1152 /
+# 3072x1728.
+#
+# EVERY VALUE HERE WAS TAKEN FRESH. ADR 0011 forbids copying a row forward
+# across a payload change, and the whole point of the re-baseline is that
+# agreement has to be demonstrated, not assumed. It was demonstrated: all four
+# arches reproduce their 0.32.5 numbers exactly.
+
+[expect.apple-silicon-mlx-0-32-14.gemma4]
+status = "measured"
+measured_on = "2026-08-17"
+model = "gemma4:31b-mlx-bf16"
+patch_stride = 48
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280
+image_max_pixels = 2580480
+scaling = "flat"
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]   # prefix == text_only == 19
+
+[expect.apple-silicon-mlx-0-32-14.gemma4_unified]
+status = "measured"
+measured_on = "2026-08-17"
+model = "gemma4:12b-nvfp4"
+patch_stride = 48
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280
+image_max_pixels = 2580480
+scaling = "flat"
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]   # prefix == text_only == 19
+
+[expect.apple-silicon-mlx-0-32-14.qwen35moe]
+status = "measured"
+measured_on = "2026-08-17"
+model = "qwen3.6:35b-a3b-nvfp4"
+patch_stride = 32
+budget_min_tokens = 64
+budget_max_tokens = 16384
+image_min_pixels = 65536
+image_max_pixels = 16777216
+scaling = "ladder"
+ladder_tolerance = 2
+ladder = [68, 146, 578, 2306, 5186]       # prefix == text_only == 13
+
+[expect.apple-silicon-mlx-0-32-14.qwen35]
+status = "measured"
+measured_on = "2026-08-17"
+model = "qwen3.8:27b-nvfp4"
+patch_stride = 32
+budget_min_tokens = 64
+budget_max_tokens = 16384
+image_min_pixels = 65536
+image_max_pixels = 16777216
+scaling = "ladder"
+ladder_tolerance = 2
+ladder = [68, 146, 578, 2306, 5186]       # prefix == text_only == 13
