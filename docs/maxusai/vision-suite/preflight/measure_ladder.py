@@ -120,6 +120,43 @@ def main():
         min_px, max_px, custom = budgets
         if stride:
             bmin, bmax = min_px // (stride * stride), max_px // (stride * stride)
+            # ROUND-TRIP GUARD. The division above is only meaningful if the
+            # pixel counts and the stride describe THE SAME MODEL. Nothing so
+            # far establishes that: budgets_from_log takes whatever
+            # load_hparams lines fall in the time window, and a concurrent
+            # probe of another model puts ITS lines there.
+            #
+            # That is not hypothetical. Measuring qwen35 (stride 32) while a
+            # preflight run was still probing gemma4 (stride 48) read gemma4's
+            # 161280/2580480 and emitted:
+            #
+            #     budget_min_tokens = 157     image_min_pixels = 160768
+            #     budget_max_tokens = 2520    image_max_pixels = 2580480
+            #
+            # A row nobody could look at and call wrong -- except that
+            # 157 * 32^2 = 160768, not the 161280 it came from. Integer division
+            # lost the remainder, and the remainder is the evidence. When the
+            # pixels really do belong to this stride the division is exact, so
+            # an inexact one means the two halves came from different models.
+            #
+            # This is the same class of defect as a guessed patch_stride, and it
+            # is worse in one way: a guessed stride is at least self-consistent
+            # and this is not, so it can be caught for free. Refuse rather than
+            # emit -- test_verdicts asserts image_min_pixels == budget * stride^2
+            # against whatever is written, so a fabricated row that satisfies its
+            # own arithmetic would pass every gate the repo has.
+            if bmin * stride * stride != min_px or bmax * stride * stride != max_px:
+                print(f"  REFUSING the budget read: {min_px}/{max_px} pixels do "
+                      f"not divide exactly by stride^2 ({stride}^2={stride*stride}) "
+                      f"-- {bmin}*{stride}^2={bmin*stride*stride} and "
+                      f"{bmax}*{stride}^2={bmax*stride*stride}. The pixel lines "
+                      f"and the stride describe different models, which happens "
+                      f"when another model was loaded inside the log window. Run "
+                      f"this against an idle server and check nothing else is "
+                      f"probing it. Budgets left as TODO; the ladder below is "
+                      f"unaffected, being measured directly.", file=sys.stderr)
+                bmin = bmax = None
+                custom = None
         else:
             # Deliberately NOT inferred. Several strides divide the same pixel
             # counts -- qwen35's 1048576/4194304 are divisible by both 16^2 and
