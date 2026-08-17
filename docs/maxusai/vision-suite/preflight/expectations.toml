@@ -494,6 +494,32 @@ scaling = "dynamic"
 ladder_tolerance = 2
 ladder = [1034, 1034, 1034, 2306, 4082]
 
+# Structurally unpinnable, not merely unmeasured. visionServerArgs
+# (llm/llama_server.go) builds gemma4's and nemotron_h_omni's flags from the
+# request options, but the qwen VL family's branch returns a fixed
+# --image-min-tokens and never reads opts, so image_min_tokens/image_max_tokens
+# are inert here. Verified 2026-08-17 on 10.8.0.4: 2048x1152 delivers 2306
+# unpinned and 2306 pinned at 1536 -- byte-identical, the pin does nothing.
+# Recording it this way stops the skip reading as "somebody go measure this".
+pinned_not_applicable = """image_min_tokens/image_max_tokens are arch-gated to \
+gemma4 and nemotron_h_omni; qwen35's visionServerArgs branch ignores them."""
+
+[expect.rocm-0-32-1-dynres.qwen35.think_format]
+# Measured 2026-08-17 on 0.32.1-dynres-5d5b7a72: 306 eval tokens, 823 chars of
+# thinking then 517 chars of valid JSON, identical across two budgets, so it
+# terminates well inside the allowance. num_predict is 4000 to match this
+# profile's other arches -- it is a ceiling, not a measurement, and the point of
+# the headroom is that a legitimate run must never cap.
+#
+# Notably this arch does NOT hit the runaway-reasoning trap the check warns
+# about: the gate samples at temperature 0, which is off-policy for thinking,
+# and that is what stops nemotron-class reasoning terminating. qwen3.8 closed its
+# thinking block at 306 tokens under exactly that sampling.
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
 # ----------------------------------------------------------- Apple Silicon ---
 
 [expect.cpu.nemotron_h_omni]
