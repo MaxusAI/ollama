@@ -335,6 +335,16 @@ def check_pinned_budget(client, expect, arch, baseline, marker_allowance=2):
     """
     pin = expect.get("pinned")
     name = "pinned_budget"
+    # An arch can be structurally unable to pin, which is not the same as nobody
+    # having measured it yet. visionServerArgs is arch-gated: gemma4 and
+    # nemotron_h_omni build their flags from the request options, while the qwen
+    # VL family returns a fixed --image-min-tokens and never reads opts, so
+    # image_min_tokens/image_max_tokens are inert there. Saying "not yet
+    # measured" would send someone to measure something that cannot move.
+    na = expect.get("pinned_not_applicable")
+    if na and not pin:
+        return result(name, SKIP, f"pinned budget does not apply to this arch: {na}",
+                      arch=arch)
     if not pin:
         return result(name, SKIP,
                       "no pinned-budget expectation recorded for this arch",
