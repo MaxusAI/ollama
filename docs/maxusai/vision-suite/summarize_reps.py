@@ -51,7 +51,10 @@ METRICS = [
     # change. Measured 2026-08-17: two think-on runs scored 4/4/4/1/0 and
     # 4/4/4/0/1, identical totals, opposite tiers.
     ("finetext", "_correct", "finetext correct /20", "int"),
-    ("finetext", "_fabricated", "finetext fabricated", "int"),
+    # total_found - sum(recall): entries that matched no gold code. That
+    # includes malformed and duplicate entries, not only invented ones, so the
+    # label says unmatched rather than claiming to know which.
+    ("finetext", "_fabricated", "finetext unmatched", "int"),
 ]
 
 TIERS = (22, 16, 12, 9, 7)

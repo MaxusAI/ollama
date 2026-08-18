@@ -362,7 +362,12 @@ def main():
         "dataset": BENCHES[BENCH]["dataset"], "split": BENCHES[BENCH]["split"],
         "offset": offset, "requested": limit, "scored": n,
         "errors": len(records) - n, "empty_responses": empty,
-        "think": think, "endpoint": os.environ.get("ENDPOINT", "generate"),
+        # BOTH: the raw env string and the flag actually sent. gen() gates on
+        # `!= "on"`, so THINK=true records "true" while sending think=False --
+        # a think-mode summary for a run that never enabled thinking. Recording
+        # only one of these cannot distinguish those.
+        "think_env": think, "think_on": think == "on",
+        "endpoint": os.environ.get("ENDPOINT", "generate"),
         "correct": correct, "accuracy": round(correct / n, 4) if n else None,
     }
     if BENCH == "refcoco":

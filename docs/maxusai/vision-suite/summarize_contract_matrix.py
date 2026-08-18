@@ -87,8 +87,9 @@ def main():
         eng = engine_for(model, {})
         print(f"| {model} | {'**MLX**' if eng == 'MLX' else eng} | " +
               " | ".join(cells) + f" | {ctx_for(*[d.get(a) for a in ARMS])} |")
-    print("\n`cap` = generation never terminated at that window, so the cell "
-          "carries no score (ADR 0012 rule 8).")
+    print("\n`cap` = generation stopped at the `num_predict` cap rather than "
+          "finishing, so the cell carries no score (ADR 0012 rule 8). The cap is "
+          "a separate limit from the `num_ctx` window.")
 
     if logpath:
         pm = powermodes(logpath)
