@@ -74,24 +74,52 @@ def load_arm(tag):
     return [derive(json.load(open(p))) for p in paths], paths
 
 
-def _window(runs, key):
-    """Distinct values of a window field across an arm's runs and sections.
+# Sections that carry their OWN window by design, not by escalation.
+# vision_suite.py:1136 gives finetext `NUM_CTX or FINETEXT_NUM_CTX` (32768)
+# where every other section takes `NUM_CTX or 16384`, so with NUM_CTX unset the
+# two differ in every run ever measured. Folding that into the escalation
+# warning made the warning fire always, and a warning that always fires carries
+# no information -- the same failure as a self-check that can never pass. It is
+# still worth reporting, so it is reported as what it is: an annotation, not an
+# alarm.
+OWN_WINDOW = ("finetext",)
 
-    Rendered rather than collapsed: repeats of one arm are supposed to sit at
-    one rung, so more than one value means the arm escalated between repeats and
-    its rows are not internally comparable. Silently showing the first would
-    hide that.
+
+def _window(runs, key):
+    """The window this arm ran at, and whether it held still.
+
+    Repeats of one arm are supposed to sit at one rung, so a section that moves
+    between repeats means the arm escalated and its rows are not internally
+    comparable. THAT is what the ⚠ marks. A section listed in OWN_WINDOW is
+    excluded from it and annotated instead, because its difference is by design
+    and says nothing about escalation.
+
+    Requested value wins over served: files written before the num_ctx fold
+    (#153) recorded the suite default in `num_ctx` for the finetext block while
+    `req_num_ctx` kept the value actually asked for, so reading served-first
+    would report 16384 for a block that ran at 32768.
     """
-    seen = []
-    for r in runs:
-        for sec in r.values():
-            if isinstance(sec, dict):
-                v = sec.get(f"req_{key}") or sec.get(key)
-                if v is not None and v not in seen:
-                    seen.append(v)
-    if not seen:
-        return "—"
-    return str(seen[0]) if len(seen) == 1 else "/".join(str(v) for v in sorted(seen)) + " ⚠"
+    def values(sections):
+        seen = []
+        for r in runs:
+            for name, sec in r.items():
+                if name in sections and isinstance(sec, dict):
+                    v = sec.get(f"req_{key}") or sec.get(key)
+                    if v is not None and v not in seen:
+                        seen.append(v)
+        return seen
+
+    names = {n for r in runs for n in r}
+    suite = values(names - set(OWN_WINDOW))
+    own = values(names & set(OWN_WINDOW))
+
+    if not suite:
+        return "—" if not own else "/".join(str(v) for v in sorted(own))
+    s = (str(suite[0]) if len(suite) == 1
+         else "/".join(str(v) for v in sorted(suite)) + " ⚠")
+    if own and own != suite:
+        s += " (finetext " + "/".join(str(v) for v in sorted(own)) + ")"
+    return s
 
 
 def rung(runs):

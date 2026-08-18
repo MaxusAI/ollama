@@ -232,6 +232,62 @@ def reps_main_with(runs):
         reps.load_arm = real
 
 
+class TestRungRow(unittest.TestCase):
+    """The ⚠ must mean "this arm escalated", not "finetext exists".
+
+    finetext takes its own window (vision_suite.py:1136 defaults it to 32768
+    where every other section defaults to 16384), so any arm measured without
+    NUM_CTX exported differs section-to-section by design. Folding that into the
+    warning made it fire on every arm ever run.
+    """
+
+    def arm(self, *runs):
+        return list(runs)
+
+    def run_(self, suite, finetext=None, key="num_ctx"):
+        r = {"scene_single": {f"req_{key}": suite},
+             "document_single": {f"req_{key}": suite}}
+        if finetext is not None:
+            r["finetext"] = {f"req_{key}": finetext}
+        return r
+
+    def test_finetext_alone_is_annotated_not_flagged(self):
+        out = reps.rung(self.arm(self.run_(16384, 32768), self.run_(16384, 32768)))
+        self.assertEqual(out, "16384 (finetext 32768)")
+        self.assertNotIn("⚠", out)
+
+    def test_a_suite_section_moving_between_repeats_is_flagged(self):
+        out = reps.rung(self.arm(self.run_(16384, 32768), self.run_(32768, 32768)))
+        self.assertIn("⚠", out)
+        self.assertIn("16384/32768", out)
+
+    def test_an_arm_that_held_still_is_a_bare_number(self):
+        out = reps.rung(self.arm(self.run_(16384), self.run_(16384)))
+        self.assertEqual(out, "16384")
+
+    def test_finetext_moving_alone_still_does_not_raise_the_alarm(self):
+        """A finetext window that differs BETWEEN repeats is worth showing, but
+        it is not the escalation the ⚠ is reserved for."""
+        out = reps.rung(self.arm(self.run_(16384, 32768), self.run_(16384, 16384)))
+        self.assertNotIn("⚠", out)
+        self.assertIn("finetext", out)
+
+    def test_requested_wins_over_served(self):
+        """Pre-#153 files recorded the suite default in num_ctx for finetext
+        while req_num_ctx kept what was asked; served-first would report the
+        block at a window it did not run at."""
+        runs = [{"scene_single": {"req_num_ctx": 16384, "num_ctx": 16384},
+                 "finetext": {"req_num_ctx": 32768, "num_ctx": 16384}}]
+        self.assertEqual(reps.rung(runs), "16384 (finetext 32768)")
+
+    def test_num_predict_uses_the_same_rule(self):
+        runs = [self.run_(2200, 4000, key="num_predict"),
+                self.run_(4400, 4400, key="num_predict")]
+        out = reps.npred(runs)
+        self.assertIn("2200/4400 ⚠", out)
+        self.assertIn("(finetext 4000/4400)", out)
+
+
 class TestSiblingSummarizersDoNotClaimAnswerTokens(unittest.TestCase):
     """The same defect class, across every script that renders the same field.
 
