@@ -391,6 +391,50 @@ class TestFinetextWindowIsSettableAlone(unittest.TestCase):
         self.assertEqual(opts, {"num_ctx": 32768, "num_predict": 4000})
 
 
+class TestLabelsMatchWhatIsGated(unittest.TestCase):
+    """Labels corrected from the 2026-08-18 audit, each pinned to its field."""
+
+    MODEL = "gemma4:31b-it-q4_K_M"
+
+    def render_with(self, mu):
+        d = tempfile.mkdtemp()
+        scores = json.loads(json.dumps(THINKOFF))
+        scores["multi_3img"] = dict(scores["multi_3img"], **mu)
+        write(d, self.MODEL, "false", scores)
+        return render(d, self.MODEL, "false")
+
+    def test_the_multi_cell_names_the_three_questions_it_gates(self):
+        """The prompt asks FOUR questions; q3 is never scored, so "all Qs" was a
+        claim the cell cannot make."""
+        out = self.render_with({"q1_right": True, "q2_right": True,
+                                "q4_bbox_hit": True})
+        self.assertIn("✅ q1 + q2 + q4-bbox", out)
+        self.assertNotIn("all Qs", out)
+
+    def test_name_bbox_header_does_not_promise_iou(self):
+        """vision_suite scores it as a coarse pixel-band match, not an IoU."""
+        out = self.render_with({})
+        self.assertIn("name_bbox in-band", out)
+        self.assertNotIn("name_bbox hits", out)
+
+    def test_ctx_prefers_the_requested_window(self):
+        """Pre-#153 files recorded the SUITE default in num_ctx for finetext
+        while req_num_ctx kept what was asked, so served-first reports a block
+        at a window it never ran at -- and hides the mixed-window warning."""
+        self.assertEqual(sec.ctx_for({"req_num_ctx": 32768, "num_ctx": 16384}),
+                         "32768")
+        self.assertEqual(sec.ctx_for({"num_ctx": 16384}), "16384")
+        self.assertIn("⚠", sec.ctx_for({"req_num_ctx": 16384},
+                                       {"req_num_ctx": 32768}))
+
+    def test_reps_calls_unmatched_entries_what_they_are(self):
+        """total_found - sum(recall) includes malformed and duplicate entries,
+        not only invented ones."""
+        labels = [m[2] for m in reps.METRICS]
+        self.assertIn("finetext unmatched", labels)
+        self.assertNotIn("finetext fabricated", labels)
+
+
 class TestSiblingSummarizersDoNotClaimAnswerTokens(unittest.TestCase):
     """The same defect class, across every script that renders the same field.
 

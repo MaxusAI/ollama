@@ -82,7 +82,13 @@ def ctx_for(*sections):
     """
     seen = []
     for sec in sections:
-        v = (sec or {}).get("num_ctx")
+        # Requested wins over served, for the same reason summarize_reps' _window
+        # does it: files written before the num_ctx fold (#153) recorded the
+        # SUITE default in num_ctx for the finetext block while req_num_ctx kept
+        # what was actually asked for. Reading served-first reports those rows at
+        # a window their finetext never ran at, and hides the mixed-window ⚠ this
+        # function exists to raise.
+        v = (sec or {}).get("req_num_ctx") or (sec or {}).get("num_ctx")
         if v is not None and v not in seen:
             seen.append(v)
     if not seen:
@@ -153,7 +159,7 @@ def main():
             engine_map[k.strip()] = v.strip()
 
     t1 = ["| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial "
-          "| Invoice (items · qty+price · total) | name_bbox hits |",
+          "| Invoice (items · qty+price · total) | name_bbox in-band |",
           "|---|---|---|---|---|---|---|---|"]
     t2 = ["| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) "
           f"| {token_column(think)} | Gen tok/s | Prefill tok/s | s/req | req/h |",
@@ -189,8 +195,11 @@ def main():
                   f"{fmt_bool(sc.get('serial_found'))} | {inv} | {dc.get('name_bbox_hits', '—')} |")
 
         tiers = [str(ft.get(f"recall_{px}px", "—")) for px in (22, 16, 12, 9, 7)]
+        # NOT "all Qs": the multi-image prompt asks four questions and q3 is
+        # never scored, so a cell that answered q3 wrongly still reads as a clean
+        # sweep. Name the three that are actually gated.
         if mu.get("q1_right") and mu.get("q2_right") and mu.get("q4_bbox_hit"):
-            multi = "✅ all Qs + bbox"
+            multi = "✅ q1 + q2 + q4-bbox"
         elif not mu:
             multi = "—"
         else:

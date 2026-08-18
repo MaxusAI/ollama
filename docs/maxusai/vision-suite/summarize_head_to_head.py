@@ -39,7 +39,12 @@ def ctx(block):
     MEANS — an empty response is "truncated" at one window and "would not
     terminate" at another. A bare number hides which. "?" marks runs recorded
     before req_num_ctx existed."""
-    n = (block or {}).get("req_num_ctx")
+    # Falls back to num_ctx rather than declaring the window unknown. The
+    # finetext block can arrive from the pre-fold ft_<tag>.json path, which
+    # never wrote req_num_ctx, so reading only that field marks a cell "(?)"
+    # whose window the very same block records — the marker then means "old
+    # file OR fallback source" and stops identifying either.
+    n = (block or {}).get("req_num_ctx") or (block or {}).get("num_ctx")
     return f" ({n})" if n else " (?)"
 
 
