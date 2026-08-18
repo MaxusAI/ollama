@@ -411,8 +411,45 @@ The two `adv_*` arms exist to make models mis-declare, so read them on
 `hits_declared` there is the point. They establish that which convention you pin
 is not free (norm-1000 21/21, norm-1 15/21, real 3/21), and that an
 `__IMAGE__` anchor can *inherit* a false declaration rather than correct it.
-`bbox_self_check` (range + aspect, response-only) separates usable from
-unusable anchors 42/42 across those arms.
+`bbox_self_check` (range + aspect, response-only) separated usable from
+unusable anchors 42/42 across those arms — softened by the 18-model campaign to
+one silent failure and one false reject in 107 anchored cells, so read it as a
+strong filter rather than a proof.
+
+### `multi_3img_anchored` — the anchor outside the contract probes
+
+`score_multi` scores q4 in the frame the response declares, when it declares one.
+It reads an `__IMAGE__` entry from image 1's `key_objects` exactly as
+`score_bbox_contract` does, and ignores its absence — so every response recorded
+before 2026-08-18 scores identically.
+
+This exists because `multi_3img` asks for "image 1 pixel coordinates" and a model
+that resizes internally answers in ITS pixels. qwen3.8 think-on returned DYNAMO
+correctly in a ~2560×1440 frame five times running and was scored **0/5**, which
+was published as a grounding loss
+([campaign](../vision-campaign-2026-08-17-qwen38-rocm.md)).
+
+**The request for the anchor is opt-in; the default prompt is unchanged.**
+
+```sh
+ONLY_TESTS=multi_3img_anchored ./run_engine_compare.sh http://127.0.0.1:11434
+```
+
+Run it when a q4 fails and you need to know whether the box was wrong or merely
+in another frame. Two rules the arm rests on, both measured:
+
+- **A space can only ADD hits.** The list is tried to exhaustion and stops at the
+  first match, so a misleading anchor cannot cost a correct answer. gemma4 is the
+  case: it returns the true image size as its anchor while answering in norm-1000
+  — the "anchor lies" behaviour — and still scores, via norm-1000.
+- **The frame is never fitted to ground truth.** Searching for whatever scale
+  makes an answer land on target is `hits_bestfit`, which SPEC C9 keeps out of
+  every consumer path. A wrong box with a valid anchor still fails.
+
+A norm-1000 or norm-1 anchor is ignored rather than used: those spaces are tried
+anyway, and treating `[0,0,1000,1000]` as a frame would divide by 1000 and land
+nowhere. And the calibration entry is stripped before `chart_values_found`'s
+substring match — `1280` contains `128`, which is one of the five bar values.
 
 Reading the metrics: `hits_declared` scores grounding **only** in the dialect the
 model named, `hits_bestfit` is the legacy search over type × order, and the gap

@@ -221,7 +221,7 @@ objects spread across the frame.
 | C2, C3 | `bbox_contract_anchored` — 21/21 named coordinates used verbatim, 21/21 anchors at exactly `[0,0,1000,1000]` |
 | C4 | `bbox_contract_pinned` vs `bbox_contract_perobject`, 21/21 each with identical declarations — a measured null |
 | C5 | `anchor_implied_type` / `anchor_implied_ref` / `hits_anchor` on every contract score |
-| C6, C7 | `bbox_self_check()`; separates usable from unusable anchors **42/42** across the adversarial arms — 27 accepted and all correct, 15 rejected and all genuinely bad, zero silent failures, zero good answers discarded |
+| C6, C7 | `bbox_self_check()`; separated usable from unusable anchors **42/42** across the original adversarial arms — 27 accepted and all correct, 15 rejected and all genuinely bad. **Superseded**: over 107 anchored cells it is one silent failure and one false reject — see the C7 amendment above, which this row previously contradicted |
 | C8, C9 | `self_check` recorded next to `hits_anchor` precisely so `self_check == true` with `hits_anchor < 6` is visible; that pairing is the signature that would falsify C7 |
 | C10 | `factors()` in `score_bbox_contract` — the same three conversions, applied per box under the declared or anchor-derived space |
 | C12 | `degenerate_boxes` / `degenerate_labels` on every contract score, evaluated in the declared order. 1 of 439 responses on this host; verified not to fire on any of the 11 `yxyx`-transposed cells |
