@@ -267,6 +267,108 @@ class TestNewFeatures(unittest.TestCase):
         self.assertIsNone(self.preexisting("clean_real_xyxy")["self_check"])
 
 
+class TestMultiQ4Anchor(unittest.TestCase):
+    """q4 is scored in the frame the response declares, not one assumed for it.
+
+    The prompt asks for "image 1 pixel coordinates" and image 1 is 1920x1080, but
+    a model that resizes internally answers in ITS frame. qwen3.8 returns DYNAMO
+    scaled by ~1.33 on both axes — right object, right extent, wrong frame — so
+    trying only 1920x1080 and norm-1000 scored five consecutive correct answers
+    as misses, and they were published as a think-on grounding loss.
+    """
+
+    TRUTH_FRAME = [0, 0, 2560, 1440]          # what qwen3.8 actually declares
+    Q4_IN_THAT_FRAME = [290, 795, 645, 1140]  # rescales to (351, 726); truth (350, 730)
+
+    def resp(self, q4, anchor=None, extra_objects=()):
+        objs = list(extra_objects)
+        if anchor is not None:
+            objs.insert(0, {"label": "__IMAGE__", "bbox": anchor})
+        return json.dumps({
+            "images": [{"index": 1, "type": "shapes_scene", "key_objects": objs},
+                       {"index": 2}, {"index": 3}],
+            "answers": {"q1": 2, "q4": q4},
+        })
+
+    def test_a_declared_frame_is_used(self):
+        s = NEW.score_multi(self.resp(self.Q4_IN_THAT_FRAME, self.TRUTH_FRAME))
+        self.assertTrue(s["q4_bbox_hit"])
+        self.assertEqual(s["q4_bbox_space"], "anchor/xyxy")
+        self.assertEqual(s["q4_anchor_frame"], [2560, 1440])
+
+    def test_without_a_calibration_entry_nothing_changes(self):
+        """Every historical response lacks one; none of their numbers may move."""
+        s = NEW.score_multi(self.resp(self.Q4_IN_THAT_FRAME))
+        self.assertFalse(s["q4_bbox_hit"])
+        self.assertNotIn("q4_anchor_frame", s)
+
+    def test_the_native_norm1000_answer_still_scores(self):
+        """The think-off path, which was already correct, must be untouched."""
+        s = NEW.score_multi(self.resp([113, 552, 251, 795]))
+        self.assertTrue(s["q4_bbox_hit"])
+        self.assertEqual(s["q4_bbox_space"], "norm1000/xyxy")
+
+    def test_a_norm1000_anchor_adds_no_new_space(self):
+        """[0,0,1000,1000] carries no information — that space is tried anyway,
+        and treating it as a frame would divide by 1000 and land nowhere."""
+        s = NEW.score_multi(self.resp([113, 552, 251, 795], [0, 0, 1000, 1000]))
+        self.assertTrue(s["q4_bbox_hit"])
+        self.assertEqual(s["q4_bbox_space"], "norm1000/xyxy")
+        self.assertNotIn("q4_anchor_frame", s)
+
+    def test_a_wrong_box_is_not_rescued(self):
+        """The frame comes from the response, but it is not a licence to search
+        for whatever scale makes the answer land inside the target — that is
+        hits_bestfit, which SPEC C9 keeps out of every consumer path."""
+        s = NEW.score_multi(self.resp([2000, 100, 2400, 400], self.TRUTH_FRAME))
+        self.assertFalse(s["q4_bbox_hit"])
+
+    def test_a_misleading_anchor_cannot_remove_a_hit(self):
+        """gemma4's real shape, and the property that makes the change safe.
+
+        It answers "where is the whole image" from knowledge of the image size —
+        [0, 0, 1920, 1080] — while its boxes are norm-1000, the "anchor lies"
+        behaviour the adversarial arms found. The anchor space is appended after
+        pixel and norm-1000 and the loop stops at the first match, so a correct
+        answer is scored before the anchor is ever consulted. The anchor can add
+        a hit; it can never take one away.
+        """
+        native = [113, 552, 251, 795]           # correct, in norm-1000
+        for anchor in ([0, 0, 1920, 1080], [0, 0, 3000, 2000], [0, 0, 2560, 1440]):
+            s = NEW.score_multi(self.resp(native, anchor))
+            self.assertTrue(s["q4_bbox_hit"], anchor)
+            self.assertEqual(s["q4_bbox_space"], "norm1000/xyxy", anchor)
+
+    def test_the_calibration_entry_is_not_searched_for_chart_values(self):
+        """chart_values_found substring-matches the whole response, so a frame
+        number can spell a bar value: 1280 contains "128", which is one of the
+        five. Asking every model for a frame is what made that reachable.
+        """
+        r = json.dumps({
+            "images": [{"index": 1, "key_objects": [
+                {"label": "__IMAGE__", "bbox": [0, 0, 1280, 720]}]},
+                {"index": 2}, {"index": 3}],
+            "answers": {"q1": 2, "q4": None}})
+        self.assertEqual(NEW.score_multi(r)["chart_values_found"], 0)
+
+    def test_a_genuine_bar_value_is_still_credited(self):
+        r = json.dumps({
+            "images": [{"index": 1, "key_objects": [
+                {"label": "__IMAGE__", "bbox": [0, 0, 1280, 720]}]},
+                {"index": 2},
+                {"index": 3, "key_objects": [{"label": "Q4", "value": 128}]}],
+            "answers": {"q1": 2, "q4": None}})
+        self.assertEqual(NEW.score_multi(r)["chart_values_found"], 1)
+
+    def test_a_fabricated_frame_is_recorded_even_when_it_misleads(self):
+        """A model can lie about its frame, as gemma4 does in the adversarial
+        arms. The scorer cannot detect that here, so it records the frame it
+        used and the reader can check it."""
+        s = NEW.score_multi(self.resp(self.Q4_IN_THAT_FRAME, [0, 0, 4000, 2250]))
+        self.assertEqual(s["q4_anchor_frame"], [4000, 2250])
+        self.assertFalse(s["q4_bbox_hit"])
+
+
 class TestFixtureCorpusCoversTheDialects(unittest.TestCase):
     """A corpus that only holds clean responses would pass while proving little."""
 

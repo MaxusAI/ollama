@@ -8,12 +8,17 @@
   rather than by emitting a box in its working space — and the anchor then
   becomes a second copy of the false declaration rather than a calibration.
   Measured: the anchor alone is usable in **27 of 42** adversarial responses.
-  Adding the `bbox_self_check` validator (range + aspect, response-only) takes
-  that to a clean **42/42** separation. Decision items 1 and 4 below are
+  Adding the `bbox_self_check` validator (range + aspect, response-only) took
+  that to **42/42** on those 42 — since softened, see the amendment on C7 below:
+  re-measured over 107 anchored cells it is one silent failure and one false
+  reject, so treat it as a strong filter, not a proof. Decision items 1 and 4 below are
   rewritten accordingly; the rest stands. Exercised by `bbox_contract_pinned`,
   `bbox_contract_perobject`, `bbox_contract_anchored`,
   `bbox_contract_adv_real` and `bbox_contract_adv_norm1` in
-  `docs/maxusai/vision-suite/vision_suite.py`.
+  `docs/maxusai/vision-suite/vision_suite.py`, and since 2026-08-18 by
+  `multi_3img_anchored` — the first arm outside the contract probes to carry an
+  anchor, added because qwen3.8 think-on answered `multi_3img`'s q4 correctly in
+  its own resize frame five times running and was scored 0/5 for it.
 - **Date:** 2026-08-16
 - **Deciders:** MaxusAI fork maintainers
 - **Related:**
@@ -160,10 +165,14 @@ declared `ref_size`.**
   nothing else solves.
   The inheritance failure is gemma4, and it is why item 4 now mandates
   validation rather than trust.
-- **`bbox_self_check` separates the two, 42/42, with no ground truth**: 27
-  accepted and all 27 correct, 15 rejected and all 15 genuinely bad. Zero silent
-  failures, zero good answers discarded. This is the load-bearing consequence —
-  the anchor is a *usable* signal only because its failures are detectable.
+- **`bbox_self_check` separates the two with no ground truth**: on the original
+  42, 27 accepted and all 27 correct, 15 rejected and all 15 genuinely bad.
+  **Superseded 2026-08-17**: re-measured over 107 anchored cells in the
+  [18-model campaign](../vision-campaign-2026-08-17-eighteen-model.md) it carries
+  **one silent failure and one false reject** — a fabricated frame whose aspect
+  happens to match the objects' extent defeats both checks. This is still the
+  load-bearing consequence — the anchor is a *usable* signal only because its
+  failures are mostly detectable — but "mostly" is the operative word.
 - Rates are one fixture at one image size, think-off. A square image, or one
   where the anchor is ambiguous between `real` and `norm1000` because
   `max(W,H) ≤ 1000`, is not covered.

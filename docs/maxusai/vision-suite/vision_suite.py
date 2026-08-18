@@ -196,6 +196,26 @@ Respond with a SINGLE JSON object, no prose:
                "q3": <string or null>, "q4": [x1,y1,x2,y2] or null}}
 }}"""
 
+
+# The same questions, plus a calibration entry, as a SEPARATE arm.
+#
+# Not folded into MULTI_PROMPT, because a prompt change reaches every model and
+# this one demonstrably does something. Measured 2026-08-18 on the ROCm host:
+# gemma4:31b-it-q4_K_M is unaffected in both think modes, but nemotron3:33b-q4_K_M
+# think-on returned NO usable response in 3 of 6 runs across both prompts, which
+# leaves 1 usable old sample against 2 usable new -- far too few to say whether
+# the paragraph moved its grounding, and its think-on grounding is independently
+# known bad (ADR 0022 records scene IoU 0.840 -> 0.391 under thinking).
+#
+# So the default arm keeps the prompt every published multi number was measured
+# against, and the calibration lives in its own arm where it can be measured
+# without putting an unrelated model's numbers at risk. score_multi reads the
+# anchor when one is present and ignores its absence, so both arms share a scorer.
+MULTI_ANCHORED_PROMPT = MULTI_PROMPT + """CALIBRATION. The "key_objects" array of image 1 must BEGIN with one extra entry
+whose "label" is "__IMAGE__" and whose "bbox" covers the ENTIRE image 1, corner
+to corner, in exactly the coordinate system you use for every other box in image
+1, including q4. If you resized image 1 internally, use the size YOU used."""
+
 def center_in(pred, gtb):
     try:
         cx, cy = (pred[0] + pred[2]) / 2, (pred[1] + pred[3]) / 2
@@ -392,13 +412,50 @@ def score_multi(resp_text):
     except Exception:
         pass
     dyn = next(o for o in g["scene_hd"]["objects"] if o["label"] == "DYNAMO")
-    # q4 gets the same coordinate-dialect tolerance as scene boxes (score_scene):
-    # models answer in their native space (norm-1000) regardless of the prompt.
+    # THE FRAME q4 IS EXPRESSED IN, taken from the response's own calibration
+    # entry rather than assumed.
+    #
+    # The prompt asks for "image 1 pixel coordinates" and image 1 is 1920x1080,
+    # but a model that resizes internally answers in ITS frame: qwen3.8 returns
+    # a DYNAMO box scaled by ~1.33 on both axes -- correct object, correct
+    # extent, wrong frame -- so trying only 1920x1080 and norm-1000 scored five
+    # consecutive correct answers as misses and published them as a think-on
+    # "grounding loss" (../vision-campaign-2026-08-17-qwen38-rocm.md). Measured
+    # 2026-08-18 against the live ROCm host: with the calibration entry asked
+    # for, the model returns __IMAGE__ = [0, 0, 2560, 1440] and its q4 box
+    # rescales to centre (351, 726) against a truth centre of (350, 730).
+    #
+    # Derived from the model's own declaration, never fitted to ground truth. A
+    # scorer that searched for whatever scale makes the answer land inside the
+    # target would pass wrong boxes -- that is hits_bestfit, which SPEC C9
+    # excludes from every consumer path for exactly this reason.
+    anchor_space = []
+    for o in ((r.get("images") or [{}])[0].get("key_objects") or []):
+        if not isinstance(o, dict):
+            continue
+        if str(o.get("label", "")).strip().strip("_").upper() != "IMAGE":
+            continue
+        ab = o.get("bbox") or o.get("box_2d") or o.get("bbox_2d") or []
+        if isinstance(ab, list) and len(ab) == 4:
+            try:
+                fw, fh = max(ab[0], ab[2]), max(ab[1], ab[3])
+            except TypeError:
+                break
+            # A norm-1000 or norm-1 anchor adds nothing: those spaces are tried
+            # below already. Only a real frame carries new information.
+            if fw > 1100 and fh > 1100:
+                s["q4_anchor_frame"] = [fw, fh]
+                anchor_space = [("anchor", g["scene_hd"]["size"][0] / float(fw),
+                                 g["scene_hd"]["size"][1] / float(fh))]
+        break
+
     q4 = a.get("q4") or []
     if isinstance(q4, list) and len(q4) == 4:
         W, H = g["scene_hd"]["size"]
         try:
-            for space, fx, fy in (("pixel", 1.0, 1.0), ("norm1000", W/1000.0, H/1000.0)):
+            for space, fx, fy in ([("pixel", 1.0, 1.0),
+                                   ("norm1000", W/1000.0, H/1000.0)]
+                                  + anchor_space):
                 for order in ("xyxy", "yxyx"):
                     x1, y1, x2, y2 = (q4[0], q4[1], q4[2], q4[3]) if order == "xyxy" else (q4[1], q4[0], q4[3], q4[2])
                     if center_in([x1*fx, y1*fy, x2*fx, y2*fy], dyn["bbox"]):
@@ -409,7 +466,26 @@ def score_multi(resp_text):
             pass
         except Exception:
             pass
-    blob = json.dumps(r)
+    # The calibration entry is metadata, not content, and must not be searched
+    # for chart values. This test is an unanchored substring match over the whole
+    # response, so a frame number can spell a bar value: an anchor of
+    # [0, 0, 1280, 720] -- 1280 being a thoroughly ordinary frame width, and the
+    # width of the chart image itself -- contains "128", which IS one of the five
+    # bar values, and credits a bar the model never reported. Measured 2026-08-18,
+    # 0/5 -> 1/5 on a response carrying no bar values at all.
+    #
+    # The weakness is the substring test's, but asking every model for a frame is
+    # what made it reachable, so it is fixed here rather than left for the arm
+    # that trips over it. Stripping only __IMAGE__ keeps every historical
+    # response byte-identical, since none of them carry one.
+    scrubbed = json.loads(json.dumps(r))
+    for img in (scrubbed.get("images") or []):
+        if isinstance(img, dict) and isinstance(img.get("key_objects"), list):
+            img["key_objects"] = [
+                o for o in img["key_objects"]
+                if not (isinstance(o, dict)
+                        and str(o.get("label", "")).strip().strip("_").upper() == "IMAGE")]
+    blob = json.dumps(scrubbed)
     for b in g["chart"]["bars"]:
         if str(b["value"]) in blob:
             s["chart_values_found"] += 1
@@ -1077,6 +1153,12 @@ tests = [
     ("scene_single", SCENE_PROMPT.format(w=1920, h=1080), ["scene_hd.png"], score_scene),
     ("document_single", DOC_PROMPT.format(w=1568, h=1568), ["document.png"], score_doc),
     ("multi_3img", MULTI_PROMPT, ["scene_hd.png", "document.png", "chart.png"], score_multi),
+    # Opt-in via ONLY_TESTS; not in a default sweep, so no campaign's runtime or
+    # numbers change by merging this. Run it when a model's q4 fails and you need
+    # to know whether the box was wrong or merely in another frame -- which for
+    # qwen3.8 think-on it was, five times out of five.
+    ("multi_3img_anchored", MULTI_ANCHORED_PROMPT,
+     ["scene_hd.png", "document.png", "chart.png"], score_multi),
     ("bbox_contract", BBOX_CONTRACT_PROMPT.format(w=1920, h=1080), ["scene_hd.png"],
      score_bbox_contract),
     # THE REPRODUCER. Distractor images attached, with an instruction to ignore
