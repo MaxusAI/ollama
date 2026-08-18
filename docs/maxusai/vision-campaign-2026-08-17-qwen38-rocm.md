@@ -55,8 +55,18 @@ are tabulated below.
 Superseded the original three-arm reading. ADR 0023 asks for **n=3 per think-on
 cell** because on-policy sampling is not deterministic, and at n=1 this document
 drew two conclusions that do not survive repetition. Now pooled: **n=2 think-off,
-n=5 think-on**, all on `0.32.1-dynres-5d5b7a72`, `num_ctx` 16384 throughout.
-Rendered by `summarize_reps.py`, not transcribed.
+n=5 think-on**, all on `0.32.1-dynres-5d5b7a72`. Rendered by
+`summarize_reps.py`, not transcribed.
+
+**Read the two window rows first.** The vision tests ran at `num_ctx` 16384
+throughout; `finetext` ran at 32768 because it carries its own default
+(`vision_suite.py:1136`) and the runner did not export `NUM_CTX`. That is by
+design and is annotated rather than flagged. The ⚠ on `num_predict` is not: the
+pooled think-on arm is **not homogeneous** — four runs at 2200 and the
+`NUM_PREDICT=4400` repeat at 4400. Pooling them is defensible here only because
+no think-on cell was capped (the 4400 run used 46% of its ceiling), so no score
+in this table is budget-limited; it would not be defensible for a throughput
+comparison, and the s/req row below should be read with that in mind.
 
 **Corrected 2026-08-18: the ratio cells show the observed range, not `±`.** They
 previously read `mean ±(max−min)/2`, which is symmetric about the mean and so
@@ -74,6 +84,8 @@ previously ranked them together and pushed every ratio off a top-4 list, and its
 
 | metric | think-off (n=2) | think-on (n=5) |
 |---|---|---|
+| **num_ctx rung** | 16384 (finetext 32768) | 16384 (finetext 32768) |
+| **num_predict** | 2200 (finetext 4000) | 2200/4400 ⚠ (finetext 4000/4400) |
 | scene bbox IoU | 0.990 [0.988–0.991] | 0.987 [0.979–1.000] |
 | scene labels / colors / serial | 6 / 6 / 2✅ | 6 / 6 / 5✅ |
 | doc items / qty+price / total | 5 / 5 / 2✅ | 5 / 5 / 5✅ |
