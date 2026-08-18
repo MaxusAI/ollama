@@ -323,6 +323,43 @@ class TestMultiQ4Anchor(unittest.TestCase):
         s = NEW.score_multi(self.resp([2000, 100, 2400, 400], self.TRUTH_FRAME))
         self.assertFalse(s["q4_bbox_hit"])
 
+    def test_a_misleading_anchor_cannot_remove_a_hit(self):
+        """gemma4's real shape, and the property that makes the change safe.
+
+        It answers "where is the whole image" from knowledge of the image size —
+        [0, 0, 1920, 1080] — while its boxes are norm-1000, the "anchor lies"
+        behaviour the adversarial arms found. The anchor space is appended after
+        pixel and norm-1000 and the loop stops at the first match, so a correct
+        answer is scored before the anchor is ever consulted. The anchor can add
+        a hit; it can never take one away.
+        """
+        native = [113, 552, 251, 795]           # correct, in norm-1000
+        for anchor in ([0, 0, 1920, 1080], [0, 0, 3000, 2000], [0, 0, 2560, 1440]):
+            s = NEW.score_multi(self.resp(native, anchor))
+            self.assertTrue(s["q4_bbox_hit"], anchor)
+            self.assertEqual(s["q4_bbox_space"], "norm1000/xyxy", anchor)
+
+    def test_the_calibration_entry_is_not_searched_for_chart_values(self):
+        """chart_values_found substring-matches the whole response, so a frame
+        number can spell a bar value: 1280 contains "128", which is one of the
+        five. Asking every model for a frame is what made that reachable.
+        """
+        r = json.dumps({
+            "images": [{"index": 1, "key_objects": [
+                {"label": "__IMAGE__", "bbox": [0, 0, 1280, 720]}]},
+                {"index": 2}, {"index": 3}],
+            "answers": {"q1": 2, "q4": None}})
+        self.assertEqual(NEW.score_multi(r)["chart_values_found"], 0)
+
+    def test_a_genuine_bar_value_is_still_credited(self):
+        r = json.dumps({
+            "images": [{"index": 1, "key_objects": [
+                {"label": "__IMAGE__", "bbox": [0, 0, 1280, 720]}]},
+                {"index": 2},
+                {"index": 3, "key_objects": [{"label": "Q4", "value": 128}]}],
+            "answers": {"q1": 2, "q4": None}})
+        self.assertEqual(NEW.score_multi(r)["chart_values_found"], 1)
+
     def test_a_fabricated_frame_is_recorded_even_when_it_misleads(self):
         """A model can lie about its frame, as gemma4 does in the adversarial
         arms. The scorer cannot detect that here, so it records the frame it

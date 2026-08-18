@@ -450,7 +450,26 @@ def score_multi(resp_text):
             pass
         except Exception:
             pass
-    blob = json.dumps(r)
+    # The calibration entry is metadata, not content, and must not be searched
+    # for chart values. This test is an unanchored substring match over the whole
+    # response, so a frame number can spell a bar value: an anchor of
+    # [0, 0, 1280, 720] -- 1280 being a thoroughly ordinary frame width, and the
+    # width of the chart image itself -- contains "128", which IS one of the five
+    # bar values, and credits a bar the model never reported. Measured 2026-08-18,
+    # 0/5 -> 1/5 on a response carrying no bar values at all.
+    #
+    # The weakness is the substring test's, but asking every model for a frame is
+    # what made it reachable, so it is fixed here rather than left for the arm
+    # that trips over it. Stripping only __IMAGE__ keeps every historical
+    # response byte-identical, since none of them carry one.
+    scrubbed = json.loads(json.dumps(r))
+    for img in (scrubbed.get("images") or []):
+        if isinstance(img, dict) and isinstance(img.get("key_objects"), list):
+            img["key_objects"] = [
+                o for o in img["key_objects"]
+                if not (isinstance(o, dict)
+                        and str(o.get("label", "")).strip().strip("_").upper() == "IMAGE")]
+    blob = json.dumps(scrubbed)
     for b in g["chart"]["bars"]:
         if str(b["value"]) in blob:
             s["chart_values_found"] += 1
