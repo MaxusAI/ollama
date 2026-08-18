@@ -369,6 +369,32 @@ func (s *speculationSession) grammarRows(draftIDs []int32) ([]*structured.Mask, 
 	return masks, admitted
 }
 
+// verifyPlan decides how much of a draft this round verifies, and returns the
+// masks that bias those rows.
+//
+// GUARANTEE: whenever verify > 0, len(masks) == verify+1 -- one mask per
+// verified draft plus the bonus row. accept depends on that exactly, and it is
+// the reason the drafted EOS is dropped here rather than special-cased there.
+//
+// An admitted EOS ends grammarRows' mask sequence a row early, because nothing
+// follows an EOS and there is no state to sample a bonus token from. Carrying
+// such a round would index sampleTokenAt past the distribution AND hand
+// Sampler.Distribution as many rows as draft tokens -- which that function
+// reads as a proposal-shaped call and silently shifts every row's repeat
+// penalty history by one. Dropping the EOS instead costs one unaccepted draft
+// per request and nothing else: the row before the EOS still admits EOS (the
+// grammar can complete there, which is why the draft was legal at all), so the
+// target can still sample it as the bonus token.
+func (s *speculationSession) verifyPlan(draftIDs []int32) ([]*structured.Mask, int) {
+	masks, admitted := s.grammarRows(draftIDs)
+	// The guard on len(masks) matters: without a matcher grammarRows returns no
+	// masks and admitted == len(draftIDs), and 0 == 0 would drive verify to -1.
+	if len(masks) > 0 && len(masks) == admitted {
+		admitted--
+	}
+	return masks, admitted
+}
+
 // maskRows biases a speculative round's logits so verification compares
 // against the target's MASKED distribution.
 //

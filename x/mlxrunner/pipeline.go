@@ -149,7 +149,7 @@ func (r *Runner) TextGenerationPipeline(ctx context.Context, request Request) er
 
 	var d decoder
 	switch {
-	case request.Constraint != nil && spec != nil && grammarSpeculationEnabled():
+	case request.Constraint != nil && spec != nil && spec.enabled && grammarSpeculationEnabled():
 		// Grammar-aware speculation, opt-in. Drafts are verified against the
 		// MASKED target distribution and a round that cannot draft falls back
 		// to a masked serial step, so every emitted token is grammar-legal;

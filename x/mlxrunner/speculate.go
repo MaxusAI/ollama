@@ -247,9 +247,10 @@ func (st *speculativeDecoder) next(remaining int) ([]sampler.Result, error) {
 			defer mlx.Unpin(candidates.tokens)
 			results, accepted, observed, err = st.s.accept(&st.position, st.current, candidates)
 		}
-		if errors.Is(err, errNoLegalDraft) {
+		noLegal := errors.Is(err, errNoLegalDraft)
+		if noLegal {
 			// The grammar admitted none of the drafts. Not a failure: fall back
-			// to a serial step for this round, which is what the constrained
+			// to a masked serial step, which is what the serial constrained
 			// path would have produced anyway.
 			results, err = st.park(remaining)
 			accepted, observed = 0, 0
@@ -258,10 +259,22 @@ func (st *speculativeDecoder) next(remaining int) ([]sampler.Result, error) {
 			return nil, err
 		}
 		drafted := 0
-		if candidates != nil {
+		if candidates != nil && !noLegal {
+			// Only when verification actually ran. accept returns errNoLegalDraft
+			// before scheduleSpeculation and before any target forward, so the
+			// round decoded plainly; counting the proposal as drafted would
+			// price a plain decode as a depth-N round and make an acceptance of
+			// zero indistinguishable from the target rejecting every draft.
 			drafted = candidates.tokens.Dim(1)
 		}
 		s.endRound(drafted, accepted, observed)
+		if noLegal {
+			s.stats.noLegalDraft++
+			// Neither a depth-0 round nor a depth-N one -- it paid for a
+			// proposal AND a plain decode -- so it is a cost sample of neither.
+			// Same reasoning as resume.
+			s.roundDrafts = -1
+		}
 	}
 
 	st.advance(results[len(results)-1])
@@ -282,18 +295,24 @@ func (st *speculativeDecoder) advance(next sampler.Result) {
 func (st *speculativeDecoder) resume() ([]sampler.Result, error) {
 	next, position := st.inner.drain()
 	st.position = position
-	st.inner.close()
-	st.inner = nil
-	// drain hands back a token the inner decoder sampled but never fed through
-	// its own next, so nothing has advanced the matcher over it. It becomes the
-	// next round's current, and accept masks row 0 from the state AFTER
-	// current -- so it has to be adopted here or every mask in that round
-	// describes one token too few.
+	// BEFORE close, which unpins exactly the array this loop reads: drain hands
+	// back d.pending and close calls mlx.Unpin on it. Nothing sweeps in that
+	// window today, so the other order happens to work -- and depending on that
+	// is how stage 3 produced two use-after-frees. Int() forces a host sync for
+	// the same reason constrainedDecoder.next does: the matcher is a host-side
+	// stack machine and cannot advance over a device value.
+	//
+	// The token itself was sampled but never fed through the inner decoder's own
+	// next, so nothing has advanced the matcher over it. It becomes the next
+	// round's current, and accept masks row 0 from the state AFTER current -- so
+	// it has to be adopted here or every mask in that round is one token short.
 	for _, res := range next {
 		if err := st.s.adoptGrammar([]int32{int32(res.Token.Int())}); err != nil {
 			return nil, err
 		}
 	}
+	st.inner.close()
+	st.inner = nil
 	// The drained emission counts as one more plain round, but no round spans
 	// this call, so the next beginRound attributes no cost.
 	st.s.stats.recordRound(0)
@@ -454,25 +473,10 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 		for _, id := range candidates.tokens.Ints() {
 			ids32 = append(ids32, int32(id))
 		}
-		masks, admitted := s.grammarRows(ids32)
-		if len(masks) == admitted {
-			// An admitted EOS ends the mask sequence a row early: nothing
-			// follows an EOS, so there is no state to sample a bonus token
-			// from. Rather than carry a round with no bonus row -- which would
-			// index sampleTokenAt past the distribution AND hand
-			// Sampler.Distribution as many rows as draft tokens, shifting every
-			// row's penalty history by one -- drop the EOS from verification.
-			//
-			// Nothing is lost that matters. The row before the EOS still admits
-			// EOS (the grammar can complete there, which is why the draft was
-			// legal), so the target can sample it as the bonus token. The only
-			// cost is that an EOS is never accepted AS a draft, once per
-			// request. What is gained is that len(masks) == draftCount+1 holds
-			// for every round below, with no branch to get wrong.
-			admitted--
-		}
+		masks, admitted := s.verifyPlan(ids32)
 		grammarMasks = masks
 		if admitted < draftCount {
+			s.stats.truncated += draftCount - admitted
 			// Rows past the first illegal draft describe grammar states that
 			// do not exist; verification must never reach them.
 			//
@@ -496,6 +500,18 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 			// snapshot and slice empty distributions; the caller's serial step
 			// is the correct outcome.
 			return nil, 0, 0, errNoLegalDraft
+		}
+		// THE ROW CONTRACT, asserted while an error return is still cheap --
+		// before scheduleSpeculation, since returning after it leaves the
+		// snapshot undrained and panics the next PrepareSnapshots.
+		//
+		// Nothing downstream can catch a short mask sequence: Sampler.Distribution
+		// panics only when rows EXCEED len(draftTokens)+1, and is deliberately
+		// silent when short because the proposal path relies on that shape. A
+		// short sequence is therefore reinterpreted as a proposal-shaped call and
+		// shifts every row's penalty history by one, in silence.
+		if len(grammarMasks) != draftCount+1 {
+			return nil, 0, 0, fmt.Errorf("speculation: %d grammar masks for %d verified drafts, want %d", len(grammarMasks), draftCount, draftCount+1)
 		}
 	}
 

@@ -174,3 +174,74 @@ func TestAdoptedMatcherTracksEveryEmittedToken(t *testing.T) {
 		}
 	}
 }
+
+// THE ROW INVARIANT accept depends on: whenever a round verifies anything,
+// there is exactly one mask per verified draft plus the bonus row.
+//
+// Nothing downstream can catch a violation. Sampler.Distribution panics only
+// when it is given MORE rows than draft tokens plus one, and is deliberately
+// silent when given fewer, because the proposal path relies on that shape --
+// so a short mask sequence is reinterpreted as a proposal-shaped call and
+// shifts every row's repeat-penalty history by one, without a word. This test
+// and the assert in accept are the only two things that would notice.
+func TestVerifyPlanAlwaysLeavesABonusRow(t *testing.T) {
+	_, _, pieces, byText, eos := session(t)
+
+	// Reaching a completable state lets a drafted EOS be admitted, which is the
+	// case that ends grammarRows' sequence a row early.
+	completable := func(t *testing.T) *speculationSession {
+		t.Helper()
+		s, _, p, bt, e := session(t)
+		for _, tok := range []string{`{`, `"`, `a`, `"`, `:`, `1`, `}`} {
+			if !s.matcher.Advance(p[bt[tok]]) {
+				t.Fatalf("fixture could not advance over %q", tok)
+			}
+		}
+		if !s.matcher.CanComplete() {
+			t.Skip("fixture grammar does not report CanComplete here")
+		}
+		_ = e
+		return s
+	}
+
+	for _, tc := range []struct {
+		name  string
+		sess  func(*testing.T) *speculationSession
+		draft []int32
+	}{
+		{"all legal", func(t *testing.T) *speculationSession { s, _, _, _, _ := session(t); return s }, ids(byText, `{`, `"`, `a`)},
+		{"illegal mid-draft", func(t *testing.T) *speculationSession { s, _, _, _, _ := session(t); return s }, ids(byText, `{`, `"`, `a`, `"`, `,`)},
+		{"illegal at once", func(t *testing.T) *speculationSession { s, _, _, _, _ := session(t); return s }, ids(byText, `{`, `:`)},
+		{"empty", func(t *testing.T) *speculationSession { s, _, _, _, _ := session(t); return s }, nil},
+		{"lone EOS", completable, []int32{eos}},
+		{"EOS after a legal token", completable, []int32{eos, byText[`{`]}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := tc.sess(t)
+			masks, verify := s.verifyPlan(tc.draft)
+			if verify < 0 {
+				t.Fatalf("verify=%d, must never be negative", verify)
+			}
+			if verify > len(tc.draft) {
+				t.Fatalf("verify=%d exceeds the %d drafted tokens", verify, len(tc.draft))
+			}
+			if verify > 0 && len(masks) != verify+1 {
+				t.Fatalf("verify=%d but len(masks)=%d, want %d -- no bonus row", verify, len(masks), verify+1)
+			}
+		})
+	}
+	_ = pieces
+}
+
+// Without a matcher verifyPlan must not decrement anything: grammarRows returns
+// no masks and the whole draft as admitted, and 0 == 0 would drive verify to -1.
+func TestVerifyPlanWithoutMatcherKeepsTheWholeDraft(t *testing.T) {
+	s := &speculationSession{}
+	masks, verify := s.verifyPlan(nil)
+	if masks != nil || verify != 0 {
+		t.Fatalf("empty draft, no matcher: masks=%v verify=%d, want nil and 0", masks, verify)
+	}
+	if _, verify := s.verifyPlan([]int32{1, 2, 3}); verify != 3 {
+		t.Fatalf("verify=%d, want 3 (the whole draft)", verify)
+	}
+}
