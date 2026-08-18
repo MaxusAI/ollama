@@ -48,6 +48,27 @@ The two missing models were re-run with the fix live. **The base rung of
 `nemotron3:33b-q4_K_M` think-on had already completed and written all twelve
 tests before the crash**, so that cell is intact; only the retry was lost.
 
+**Corrected 2026-08-18: "intact" was the wrong word, and the lost retry was the
+whole measurement.** That cell sits at the base rung, and its throughput columns
+say so — `≥8192 ⚠`, `capped`, `capped`. Its *quality* columns are rendered as
+scores anyway: scene IoU **0.000**, 0/6 labels, 0/5 invoice items, ❌ on serial
+and total. Those are not results. `num_predict` derives as
+`16384 − CTX_PROMPT_RESERVE 8192 = 8192`, and this model needs **8385 / 10226 /
+4127** generated tokens to terminate (measured 2026-08-18 on the ROCm host,
+`multi_3img`, n=3 at a rung deriving 122880 — `done_reason=stop` every time,
+every question correct). At 8192 it returns `done_reason=length` with **zero
+characters of answer** and 24–27k characters of unclosed thinking, in about half
+its runs. The zeros are that truncation.
+
+The ladder retry that would have escalated past it is exactly what the crash
+destroyed, so this cell never got the rung it needed. Read the whole
+`nemotron3:33b-q4_K_M` think-on row as **not measured**, not as a model that
+scored zero — and note that `was_capped()` protects the throughput columns while
+the quality columns render a capped cell identically to a converged one, which is
+how a row of zeros reached this page looking like a result.
+[ADR 0022](adr/0022-thinking-is-off-for-vision-work.md) carries the measurement;
+[SPEC H4a](spec/vision-harness-reuse.md) carries the rule.
+
 ## Results — think-off (T1, verbatim from `summarize_engine_compare.py`)
 
 Per [ADR 0012](adr/0012-benchmark-report-templates.md): generator-rendered, not

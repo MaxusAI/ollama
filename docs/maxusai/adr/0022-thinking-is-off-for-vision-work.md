@@ -103,8 +103,29 @@ default; it is not a per-request preference to tune for quality.
      `run_engine_compare.sh` and `run_grid.sh` are immune: they ignore an inherited `THINK`
      and set it per cell from `THINK_MODES`, which is why a grid cannot be misconfigured this
      way but a hand-run probe can.
-- Not measured, and deliberately not extrapolated: nemotron3 multi-image with think-on
-  (both measured arms regressed, so it was not pursued), and fine-text beyond qwen3.6.
+- **Measured 2026-08-18, and it revises the nemotron3 reading.** The gap left open
+  below — nemotron3 multi-image with think-on — was closed on the ROCm host
+  (`0.32.1-dynres-5d5b7a72`, `nemotron3:33b-q4_K_M`, `multi_3img`), and the earlier
+  "both arms regressed" reading turns out to have been **measuring the cap**:
+
+  | `num_predict` | outcome |
+  | --- | --- |
+  | 8192 | `done_reason=length`, `eval_count` 8192/8192, **zero characters of answer**, 24–27k characters of unclosed thinking — 5 of 10 runs |
+  | 122880 (derived from a 131072 rung) | `done_reason=stop` 3/3, `eval_count` **8385 / 10226 / 4127**, every question correct, q4 bbox hit 3/3 |
+
+  The model needs **8–10k generated tokens** to finish reasoning and answer. The
+  base rung derives exactly `16384 − 8192 = 8192`, which sits *on* that
+  requirement, so roughly half its runs truncate and the other half do not — a
+  coin flip that reads as instability. `prompt_eval_count` was **6203 in every
+  run at every setting** and the 131072 window peaked at 12% occupancy, so the
+  context window was never the constraint: the budget derived from it was.
+
+  This does not reopen the decision — think stays off for vision — but any
+  nemotron3 think-on number recorded at a rung deriving ≤8192 is measuring
+  truncation, not grounding, and must not be quoted as a model result. Trap 1
+  below is that failure; this is its worked example at a budget nobody would
+  have called low.
+- Not extrapolated: fine-text beyond qwen3.6.
 
 ## Alternatives considered
 
