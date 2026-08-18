@@ -130,6 +130,33 @@ and bf16 are n=1 and want repeats before anyone acts on them.
 
 Every think-off row ran at `num_ctx` **16384** — no escalation was needed.
 
+> **Correction 2026-08-18 — the `q4_bbox_hit` ❌ on qwen3.8 is a scoring
+> artefact, not a grounding failure.** `score_multi` tried only 1920×1080 and
+> norm-1000, so a correct answer in a third frame scored as a miss. qwen3.8 GGUF
+> answers `multi_3img` in its own ~1.30× resize frame; the boxes are the right
+> object at the right extent. Re-measured on the anchored prompt
+> (`multi_3img_anchored`, which asks for an `__IMAGE__` calibration entry so the
+> frame is readable), server `0.32.14-maxusai-9594f81e`, n=3 per cell, ladder
+> free, no escalation from 16384:
+>
+> | cell | `multi_3img` | `multi_3img_anchored` |
+> |---|---|---|
+> | qwen3.8:27b-q4_K_M think-off | 0/3 | **3/3** |
+> | qwen3.8:27b-q4_K_M think-on | 0/3 | **3/3** |
+> | qwen3.8:27b-nvfp4 think-off | 3/3 | 3/3 |
+> | qwen3.8:27b-nvfp4 think-on | **1/3** | **3/3** |
+>
+> Every arm identical across its three repeats. The MLX think-on row matters:
+> the artefact is **not GGUF-specific**, it is merely more reliable there —
+> MLX answers in its own frame under thinking too, one run in three.
+>
+> **Scope.** Only qwen3.8 was re-measured. The `q4_bbox_hit` ❌ on the
+> **qwen3.6** rows is unexamined and is NOT corrected by this: same suspected
+> cause, no measurement. The scorer fix is #200; the arm is recorded in
+> [ADR 0027](adr/0027-bbox-requests-pin-norm1000-and-carry-an-anchor.md).
+> Measured on b10434, so these cells are not comparable on throughput with the
+> b10353 rows above.
+
 ## Results — think-on (T1, verbatim from `summarize_engine_compare.py`)
 
 **Read the `num_ctx` column first.** Think-on escalates the ladder, and the rung
