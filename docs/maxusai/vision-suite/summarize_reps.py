@@ -68,10 +68,52 @@ def derive(run):
     return run
 
 
-def load_arm(tag):
-    paths = sorted(set(glob.glob(os.path.join(DIR, f"scores_{tag}.json"))
-                       + glob.glob(os.path.join(DIR, f"scores_{tag}-rep*.json"))))
-    return [derive(json.load(open(p))) for p in paths], paths
+def parse_arm(spec):
+    """`label=pattern[,pattern...]`, or a bare tag.
+
+    One arm is not always one tag family. run_engine_compare.sh writes REPEATS
+    as a tag PREFIX (`<prefix><rep>_<model>_think<mode>`) while this file's own
+    convention is a `-rep<N>` SUFFIX, so a repeated arm pools only via a glob --
+    and a bare glob then becomes the column header of a published table. Worse,
+    a campaign that pools runs from two families (the qwen3.8 ROCm n=5 arm pools
+    `rocm-5d5b7a72-*` with `rocm-n3-*`) cannot be expressed as one glob at all;
+    it was rendered by copying score files to matching names, by hand, which is
+    the manipulation ADR 0012 rule 8 exists to keep out of a record.
+
+    So an arm may name itself and list what it pools:
+
+        summarize_reps.py 'think-on (n=5)=rocm-5d5b7a72-qwen38-thinkon,rocm-5d5b7a72-qwen38-thinkon-np4400,rocm-n3-qwen38-thinkon-rep*'
+    """
+    label, sep, pats = spec.partition("=")
+    if not sep:
+        return spec, [spec]
+    # The label is everything before the FIRST "=", so it cannot contain one.
+    # Nor should it want to: the "(n=N)" suffix is appended by the renderer, and
+    # writing it into the label yields "think-on (n (n=4)" plus a first pattern
+    # of "5)=..." that matches nothing -- a silently short arm, which is the one
+    # failure mode a pooled column must not have. Caught by running it.
+    parts = pats.split(",")
+    # An "=" inside the label does not produce an empty pattern -- it produces a
+    # plausible-looking one ("5)=rocm-...") that matches no file, so the arm is
+    # dropped with a warning and the table renders one column short. A record
+    # missing an arm looks like a record that only had one. Fatal, not a warning.
+    if not pats or any(not q or "=" in q for q in parts):
+        sys.exit(f"summarize_reps: bad arm spec {spec!r} -- a label may not "
+                 f"contain '=' (the '(n=N)' suffix is added for you) and a "
+                 f"pattern may not be blank")
+    return label, parts
+
+
+def load_arm(spec):
+    label, pats = parse_arm(spec)
+    paths = sorted({q for pat in pats
+                    for q in glob.glob(os.path.join(DIR, f"scores_{pat}.json"))
+                    + glob.glob(os.path.join(DIR, f"scores_{pat}-rep*.json"))})
+    runs = []
+    for q in paths:
+        with open(q) as fh:
+            runs.append(derive(json.load(fh)))
+    return runs, paths
 
 
 # Sections that carry their OWN window by design, not by escalation.
@@ -168,13 +210,16 @@ def main():
         return 2
 
     arms = []
-    for tag in tags:
-        runs, paths = load_arm(tag)
+    for spec in tags:
+        label, _ = parse_arm(spec)
+        runs, paths = load_arm(spec)
         if not runs:
-            print(f"# no scores files for {tag}", file=sys.stderr)
+            print(f"# no scores files for {spec}", file=sys.stderr)
             continue
-        arms.append((tag, runs))
-        print(f"# {tag}: n={len(runs)}  " + ", ".join(os.path.basename(p) for p in paths),
+        arms.append((label, runs))
+        # The provenance line names every file behind the column, so a pooled
+        # arm can be checked against its sources without rerunning anything.
+        print(f"# {label}: n={len(runs)}  " + ", ".join(os.path.basename(p) for p in paths),
               file=sys.stderr)
 
     print("| metric | " + " | ".join(f"{t} (n={len(r)})" for t, r in arms) + " |")
