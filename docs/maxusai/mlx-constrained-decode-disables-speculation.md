@@ -71,6 +71,12 @@ matcher, accept the longest legal prefix, roll back the rest. That is what
 llama.cpp does and why its penalty is 1.6%. It is a feature, not a tweak, and it
 is not attempted here.
 
+**Update 2026-08-18:** it has since been attempted, gated behind
+`OLLAMA_MLX_GRAMMAR_SPECULATION`, and measured. It produces correct constrained
+output but no speedup, because the depth controller cold-starts at 0 and cannot
+leave it, so it never drafts. The penalty above is unchanged and the gate ships
+off. See [grammar-aware speculation is correct and inert](grammar-speculation-measured-inert.md).
+
 A smaller, independent improvement remains available: cache the bias array
 under the same `StateKey` the mask cache already uses. Worth ~1.5% on its own,
 but it also removes 1 MiB of device allocation **per token** from a path that
