@@ -17,6 +17,7 @@ file is a claim about any model.
 """
 import ast
 import contextlib
+import subprocess
 import io
 import json
 import os
@@ -286,6 +287,108 @@ class TestRungRow(unittest.TestCase):
         out = reps.npred(runs)
         self.assertIn("2200/4400 ⚠", out)
         self.assertIn("(finetext 4000/4400)", out)
+
+
+class TestArmSpec(unittest.TestCase):
+    """One arm may pool several tag families under a name it chooses.
+
+    Needed because the repeat runner and this file disagree on where the rep
+    number goes -- run_engine_compare.sh writes it as a PREFIX, load_arm expects
+    a `-rep<N>` SUFFIX -- so a repeated arm pools only via a glob, and a glob
+    then becomes the column header of a published table. The qwen3.8 ROCm n=5
+    arm pools two families and cannot be expressed as one glob at all; it was
+    rendered by copying files to matching names by hand.
+    """
+
+    def test_a_bare_tag_is_unchanged(self):
+        self.assertEqual(reps.parse_arm("rocm-n3-thinkoff"),
+                         ("rocm-n3-thinkoff", ["rocm-n3-thinkoff"]))
+
+    def test_a_named_arm_pools_several_patterns(self):
+        label, pats = reps.parse_arm("think-on=a,b-np4400,c-rep*")
+        self.assertEqual(label, "think-on")
+        self.assertEqual(pats, ["a", "b-np4400", "c-rep*"])
+
+    def test_an_equals_in_the_label_is_fatal_not_a_short_arm(self):
+        """It yields a plausible pattern matching nothing, so the arm would be
+        dropped with a warning and the table would render one column short."""
+        with self.assertRaises(SystemExit) as cm:
+            reps.parse_arm("think-on (n=5)=c-rep*")
+        self.assertIn("may not contain", str(cm.exception))
+
+    def test_a_blank_pattern_is_fatal(self):
+        with self.assertRaises(SystemExit):
+            reps.parse_arm("think-on=a,,b")
+
+    def test_the_column_header_is_the_label_not_the_glob(self):
+        """The reason the syntax exists: a published table must not carry a
+        shell pattern as a column header. parse_arm alone does not pin this --
+        rendering the spec instead of the label passes every test above."""
+        tmp = tempfile.mkdtemp()
+        scores = {"scene_single": {"bbox_mean_iou": 0.9, "req_num_ctx": 16384}}
+        for name in ("a-rep1", "a-rep2"):
+            with open(os.path.join(tmp, f"scores_{name}.json"), "w") as fh:
+                json.dump(scores, fh)
+        real_dir, reps.DIR = reps.DIR, tmp
+        out = io.StringIO()
+        try:
+            with mock_argv(["summarize_reps.py", "think-on=a-rep*"]), \
+                    contextlib.redirect_stdout(out), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                reps.main()
+        finally:
+            reps.DIR = real_dir
+        header = [l for l in out.getvalue().split("\n") if l.startswith("| metric")][0]
+        self.assertIn("think-on (n=2)", header)
+        self.assertNotIn("*", header)
+
+
+class TestFinetextWindowIsSettableAlone(unittest.TestCase):
+    """finetext's window must be pinnable independently of the suite's.
+
+    It reads NUM_CTX when nothing more specific is set, so a runner that exports
+    NUM_CTX drags finetext with it -- which is how the ROCm qwen3.8 arms (finetext
+    at 32768, NUM_CTX unset) and any run_engine_compare.sh arm (finetext pulled to
+    16384) ended up measuring small-text recall through different windows.
+    """
+
+    DIR = os.path.dirname(os.path.abspath(__file__))
+
+    WINDOW_VARS = ("NUM_CTX", "NUM_PREDICT",
+                   "FINETEXT_NUM_CTX", "FINETEXT_NUM_PREDICT")
+
+    def finetext_opts(self, **env):
+        """Resolve the finetext options in a subprocess with a clean window env.
+
+        Every window variable is REMOVED first rather than blanked: the suite
+        does int(os.environ.get(...)) and an empty string is present-but-unparsable,
+        so NUM_CTX="" raises ValueError at import. Unset and empty are different
+        states here, and this needs the former.
+        """
+        src = ("import sys; sys.path.insert(0, %r)\n"
+               "import vision_suite as vs\n"
+               "print([t[4] for t in vs.tests if t[0] == 'finetext'][0])" % self.DIR)
+        clean = {k: v for k, v in os.environ.items() if k not in self.WINDOW_VARS}
+        out = subprocess.run([sys.executable, "-c", src], capture_output=True,
+                             text=True, cwd=self.DIR,
+                             env={**clean, **env, "PYTHONDONTWRITEBYTECODE": "1"})
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return ast.literal_eval(out.stdout.strip())
+
+    def test_unset_takes_the_finetext_default(self):
+        """The ROCm qwen3.8 arms ran exactly this way."""
+        self.assertEqual(self.finetext_opts()["num_ctx"], 32768)
+
+    def test_num_ctx_alone_still_drags_it(self):
+        """Unchanged behaviour: the coupling is the default, not a bug to break."""
+        opts = self.finetext_opts(NUM_CTX="16384", NUM_PREDICT="2200")
+        self.assertEqual(opts, {"num_ctx": 16384, "num_predict": 2200})
+
+    def test_the_specific_override_wins(self):
+        opts = self.finetext_opts(NUM_CTX="16384", NUM_PREDICT="2200",
+                                  FINETEXT_NUM_CTX="32768",
+                                  FINETEXT_NUM_PREDICT="4000")
+        self.assertEqual(opts, {"num_ctx": 32768, "num_predict": 4000})
 
 
 class TestSiblingSummarizersDoNotClaimAnswerTokens(unittest.TestCase):

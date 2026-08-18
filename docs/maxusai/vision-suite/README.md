@@ -338,8 +338,51 @@ TEMPERATURE=0.01 REPEATS=3 TAG_PREFIX=lt \
 | `ONLY_TESTS` | subset passed to `vision_suite.py`; `finetext_probe.py` is skipped unless `finetext` is in the list |
 | `TEMPERATURE`, `TOP_P`, … | inherited by `sampling.py`; the resulting `sampling_source` records the override |
 
+| `FINETEXT_NUM_CTX`, `FINETEXT_NUM_PREDICT` | pin the finetext window alone; see below |
+
 Tags are unchanged when `REPEATS=1` and `TAG_PREFIX` is empty, so campaigns and
 every summarizer keep working.
+
+### Pooling a repeated arm into one column
+
+`REPEATS` writes the rep number as a tag **prefix** (`lt1_…`, `lt2_…`), while
+`summarize_reps.py` globs its own `-rep<N>` **suffix**. They do not meet, so name
+the arm and list what it pools — a bare glob would otherwise become the column
+header of a published table:
+
+```sh
+python3 summarize_reps.py \
+  'think-off=rocm-5d5b7a72-qwen38-thinkoff,rocm-n3-qwen38-thinkoff' \
+  'think-on=rocm-5d5b7a72-qwen38-thinkon,rocm-5d5b7a72-qwen38-thinkon-np4400,rocm-n3-qwen38-thinkon-rep*'
+```
+
+The label may not contain `=` — the `(n=N)` suffix is added for you, and an `=`
+in the label silently produced an arm one run short until it was made fatal. The
+provenance line on stderr names every file behind each column.
+
+### Matching a prior campaign's finetext window
+
+`finetext` carries its own window (32768/4000) and falls back to `NUM_CTX` /
+`NUM_PREDICT` when those are set. `run_engine_compare.sh` always sets them, so a
+runner-driven arm measures finetext at the suite's window while an arm driven
+straight from `vision_suite.py` measures it at 32768. Same test, same model,
+different windows — and nothing reported it until `summarize_reps.py` began
+printing `(finetext 32768)` in the rung row.
+
+**Before repeating an existing arm, read that row and match it.** The qwen3.8
+ROCm arms
+([campaign](../vision-campaign-2026-08-17-qwen38-rocm.md)) show
+`16384 (finetext 32768)`, so a comparable arm on another host needs:
+
+```sh
+FINETEXT_NUM_CTX=32768 FINETEXT_NUM_PREDICT=4000 \
+  MODELS="qwen3.8:27b-nvfp4" REPEATS=3 TAG_PREFIX=apple \
+  RESTART_CMD='sh docs/maxusai/vision-suite/serve-apple-mlx.sh' THINK_MODES='false on' \
+  ./run_engine_compare.sh http://127.0.0.1:11436
+```
+
+Without those two, the finetext rows of the two hosts are not comparable and the
+rung rows will say so.
 
 ## Bounding-box contract probes (2026-08-16)
 

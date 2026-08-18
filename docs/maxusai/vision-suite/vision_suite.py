@@ -1132,9 +1132,25 @@ tests = [
      ["scene_hd.png", "document.png", "chart.png"], score_bbox_contract),
     # Env still wins, as it does for the standalone probe — the override only
     # replaces the suite's default with this probe's, it does not pin it.
+    # finetext's window is settable INDEPENDENTLY of the suite's. It reads
+    # NUM_CTX when nothing more specific is given, which couples it to whatever
+    # the runner pinned -- and that coupling silently split two campaigns that
+    # were meant to be compared. The ROCm qwen3.8 arms were driven straight from
+    # vision_suite.py with NUM_CTX unset, so finetext took its own 32768; a
+    # run_engine_compare.sh arm exports NUM_CTX and drags finetext to 16384 with
+    # it. Same suite, same model, different windows for the one test whose whole
+    # metric is how much small text survives, and nothing reported it until the
+    # rung row started printing "(finetext 32768)".
+    #
+    # So: FINETEXT_NUM_CTX / FINETEXT_NUM_PREDICT pin this test alone. To match a
+    # prior campaign, set them to the window its rung row shows.
     ("finetext", FINETEXT_PROMPT, ["finetext.png"], score_finetext,
-     {"num_predict": int(os.environ.get("NUM_PREDICT", FINETEXT_NUM_PREDICT)),
-      "num_ctx": int(os.environ.get("NUM_CTX", FINETEXT_NUM_CTX))}),
+     {"num_predict": int(os.environ.get(
+         "FINETEXT_NUM_PREDICT",
+         os.environ.get("NUM_PREDICT", FINETEXT_NUM_PREDICT))),
+      "num_ctx": int(os.environ.get(
+          "FINETEXT_NUM_CTX",
+          os.environ.get("NUM_CTX", FINETEXT_NUM_CTX)))}),
 ]
 
 def main():
