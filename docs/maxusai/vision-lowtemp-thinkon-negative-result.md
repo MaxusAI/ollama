@@ -5,8 +5,14 @@ MaxusAI-fork reference. Measured 2026-08-17.
 > **Status amended 2026-08-17, same day.** This was written as "an approach that
 > does not work, so nobody retries it". It is now **fork policy** — see
 > [ADR 0029](adr/0029-think-on-is-measured-at-a-fixed-low-temperature.md), which
-> adopts `temperature 0.01` for think-on deliberately, with the cost measured
-> here accepted in exchange for reproducibility at `n <= 3`.
+> sets `THINK_TEMPERATURE` to **0** for think-on and records the `0.01` variant
+> measured here as **rejected**. An earlier revision of this block said 0029
+> "adopts `temperature 0.01` deliberately" — it does not, and both the ADR's
+> status line and `sampling.py:92`
+> (`THINK_TEMPERATURE = float(os.environ.get("THINK_TEMPERATURE", "0"))`)
+> say 0. The cost measured here is accepted in exchange for reproducibility at
+> `n <= 3`; 0 is stricter than the 0.01 measured below, so these numbers are a
+> floor on that cost, not a ceiling.
 >
 > **Nothing measured below has changed, and none of it is retracted.** Read it
 > as the cost sheet for that decision rather than as a prohibition: the models
