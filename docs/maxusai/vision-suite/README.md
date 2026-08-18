@@ -115,8 +115,8 @@ first is image accounting and the second is generation length.
   the bbox-contract matrix plus per-model power-mode provenance. Capped cells
   render as `cap` rather than a false `❌` (ADR 0012 rule 8), and the `num_ctx`
   column shows the ladder rung each row reached.
-- `summarize_lowtemp.py <tag-prefix>` — repeated ARMs as
-  `(score, num_ctx, num_predict)` per model.
+- `summarize_reps.py <tag…>` — repeated arms as mean and spread, with the
+  context-ladder rung and `num_predict` as the first rows (ADR 0029, SPEC H4a).
 - `run_engine_compare.sh <host>` — **engine-parity campaign** (MLX safetensors vs
   llama-server GGUF): cold server per model via `RESTART_CMD`, then the three-suite
   run and the fine-text probe per model. `summarize_engine_compare.py <model…>`

@@ -1,7 +1,7 @@
 # SPEC: vision harness reuse
 
 MaxusAI-fork specification. Status: **implemented** — `run_engine_compare.sh`
-carries `REPEATS` / `TAG_PREFIX` / `ONLY_TESTS`, and `summarize_lowtemp.py`
+carries `REPEATS` / `TAG_PREFIX` / `ONLY_TESTS`, and `summarize_reps.py`
 imports its helpers from `summarize_engine_compare.py`. Written 2026-08-17.
 
 Normative rules for adding to `docs/maxusai/vision-suite/`. The decision and its
@@ -78,7 +78,7 @@ past in a run that takes hours; a wrong throughput number gets published.
 `was_capped`, `ctx_for`, `tag_for`, `resolve_tag`, `load` and `fmt_bool` live in
 `summarize_engine_compare.py`. A summarizer needing any of them imports it.
 
-> Not hypothetical: the first draft of `summarize_lowtemp.py` redefined the
+> Not hypothetical: the first draft of `summarize_reps.py` redefined the
 > capped test as `eval_count == num_predict` where `was_capped` uses `>=`, so it
 > would have counted a cell that overran its cap as a scored result.
 
@@ -107,6 +107,6 @@ existed.
 | H1, H2 | `run_engine_compare.sh` is the only script in `vision-suite/` that iterates `$MODELS`; a second one is the defect |
 | H3, H4 | `REPEATS` / `TAG_PREFIX` / `ONLY_TESTS` are inert when unset — verified with `sh -x` on both paths |
 | H4a | `run_engine_compare.sh` exits 2 when `CTX_MAX` leaves no CONTEXT-ladder rung above the think-on start; think-off is unaffected and `ALLOW_NO_LADDER=1` overrides |
-| H5, H6 | `summarize_lowtemp.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
+| H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |

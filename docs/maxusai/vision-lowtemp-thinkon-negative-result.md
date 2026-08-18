@@ -5,8 +5,14 @@ MaxusAI-fork reference. Measured 2026-08-17.
 > **Status amended 2026-08-17, same day.** This was written as "an approach that
 > does not work, so nobody retries it". It is now **fork policy** — see
 > [ADR 0029](adr/0029-think-on-is-measured-at-a-fixed-low-temperature.md), which
-> adopts `temperature 0.01` for think-on deliberately, with the cost measured
-> here accepted in exchange for reproducibility at `n <= 3`.
+> sets `THINK_TEMPERATURE` to **0** for think-on and records the `0.01` variant
+> measured here as **rejected**. An earlier revision of this block said 0029
+> "adopts `temperature 0.01` deliberately" — it does not, and both the ADR's
+> status line and `sampling.py:92`
+> (`THINK_TEMPERATURE = float(os.environ.get("THINK_TEMPERATURE", "0"))`)
+> say 0. The cost measured here is accepted in exchange for reproducibility at
+> `n <= 3`; 0 is stricter than the 0.01 measured below, so these numbers are a
+> floor on that cost, not a ceiling.
 >
 > **Nothing measured below has changed, and none of it is retracted.** Read it
 > as the cost sheet for that decision rather than as a prohibition: the models
@@ -27,7 +33,7 @@ the boxes) where low variance beats realism.
 ## It does not work
 
 Nine models, three repeats, both think modes, the eight `bbox_contract` arms.
-Rendered by `vision-suite/summarize_lowtemp.py` — exploratory arm, so exempt
+Rendered by `vision-suite/summarize_reps.py` — exploratory arm, so exempt
 from the T1/T2 shapes under [ADR 0012](adr/0012-benchmark-report-templates.md)
 rule 7, but reporting `(score, num_ctx, num_predict)` per rule 8. **There is no
 ladder in this arm**: it was run directly rather than through
