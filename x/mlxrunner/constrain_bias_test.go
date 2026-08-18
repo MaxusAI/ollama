@@ -23,7 +23,7 @@ func TestFillMaskBiasLayout(t *testing.T) {
 		t.Fatalf("len=%d, want rows*vocabDim=%d", len(buf), len(masks)*vocabDim)
 	}
 	for row, mask := range masks {
-		for id := 0; id < vocabDim; id++ {
+		for id := range vocabDim {
 			got := buf[row*vocabDim+id]
 			if mask.Allowed(int32(id)) {
 				if got != 0 {
@@ -75,7 +75,7 @@ func TestFillMaskBiasReusesBufferSafely(t *testing.T) {
 	}
 	// And the reused prefix must be correct, not left over.
 	for row, mask := range short {
-		for id := 0; id < vocabDim; id++ {
+		for id := range vocabDim {
 			got := buf[row*vocabDim+id]
 			if mask.Allowed(int32(id)) != (got == 0) {
 				t.Fatalf("row %d id %d: stale bias %v after reuse", row, id, got)

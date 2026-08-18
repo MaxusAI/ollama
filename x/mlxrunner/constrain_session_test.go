@@ -20,7 +20,7 @@ func session(t *testing.T) (*speculationSession, *structured.Vocab, [][]byte, ma
 // sameMask compares two masks by what they admit rather than by identity, so
 // the assertion does not depend on Vocab's memoization returning one instance.
 func sameMask(a, b *structured.Mask, size int32) bool {
-	for id := int32(0); id < size; id++ {
+	for id := range size {
 		if a.Allowed(id) != b.Allowed(id) {
 			return false
 		}
