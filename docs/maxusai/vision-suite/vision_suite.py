@@ -554,9 +554,17 @@ def bbox_self_check(objs, anchor_type, anchor_ref):
 
     Measured 2026-08-16 against the two adversarial arms (7 models x 3 repeats
     x 2 arms = 42 responses, each deliberately pinned to a convention the model
-    resists): this separates usable from unusable anchors 42/42, with zero
+    resists): this separated usable from unusable anchors 42/42, with zero
     silent failures and zero good answers thrown away. Neither check alone is
     sufficient — each catches exactly what the other is blind to.
+
+    SUPERSEDED 2026-08-17 as a claim about the mechanism. Re-measured over 107
+    anchored cells in the 18-model campaign it is ONE silent failure and one
+    false reject: a fabricated frame whose aspect happens to match the objects'
+    extent passes both checks (qwen3.6:35b-a3b-q4_K_M think-on claimed
+    real/[1200, 900], a frame never sent, with hits_anchor 3 against a bestfit
+    of 6). Treat a pass as a strong filter, not a proof, and a failure on a
+    sparse scene as worth a second look. SPEC C7 carries the amendment.
 
     1. RANGE catches a pure SCALE lie. gemma4 declares norm1 and emits
        norm-1000; both spaces are square so no shape test can see it, but a
