@@ -259,7 +259,12 @@ image size, returning `[0,0,1920,1080]` while its boxes are norm-1000. An anchor
 produced that way is not a calibration.
 
 `bbox_self_check` — range plus aspect, response-only — separates the two
-**42/42**, with zero silent failures and zero good answers discarded. The
+**42/42**, with zero silent failures and zero good answers discarded **in this
+corpus**. That result did not generalise: re-measured over 107 anchored cells in
+the [18-model campaign](vision-campaign-2026-08-17-eighteen-model.md) it is one
+silent failure and one false reject, the silent one being a fabricated frame
+whose aspect matches the objects' extent. The numbers below stand as this run's
+record; the mechanism claim is amended in SPEC C7. The
 decision this feeds is
 [ADR 0027](adr/0027-bbox-requests-pin-norm1000-and-carry-an-anchor.md), amended
 accordingly.

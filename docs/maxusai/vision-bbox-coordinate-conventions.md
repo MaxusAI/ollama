@@ -114,7 +114,7 @@ numbers it rests on, all 7 configurations × 3 repeats:
 | pinned `norm1` | 15/21 |
 | pinned `real` | 3/21 |
 | anchor alone, adversarial arms | 27/42 |
-| anchor + range/aspect validation | **42/42 correctly classified** |
+| anchor + range/aspect validation | **42/42 correctly classified** (on those 42 — see below) |
 
 Three findings from that record are worth carrying in the reader's head, because
 each one broke an assumption:
@@ -136,6 +136,17 @@ working space. gemma4 returns `[0,0,1920,1080]` — correct about the image,
 useless as calibration — while its boxes are norm-1000. That is why C6/C7
 mandate validation rather than trust, and why the anchor alone is 27/42 while
 the validated anchor is 42/42.
+
+**That 42/42 is a property of those 42 responses, not of the mechanism.**
+Re-measured over 107 anchored cells in the
+[18-model campaign](vision-campaign-2026-08-17-eighteen-model.md), validation
+carries **one silent failure and one false reject**. The silent failure is the
+gap that matters: a *fabricated* frame whose aspect happens to match the
+objects' extent passes both the range and the aspect check. So a passing
+`bbox_self_check` is a strong filter, not a proof — and over the same 18 models
+the anchor recovered 14 of the 30 cells where the declaration was unusable,
+slightly under half. Its value was never that it always rescues; it is that its
+failures are *mostly* detectable.
 
 ## Recovering coordinates from nemotron3 (and qwen3.6 GGUF)
 
