@@ -1,8 +1,11 @@
 package mlxrunner
 
 import (
+	"errors"
 	"fmt"
 	"math"
+	"os"
+	"strings"
 
 	"github.com/ollama/ollama/x/mlxrunner/batch"
 	"github.com/ollama/ollama/x/mlxrunner/cache"
@@ -73,6 +76,7 @@ type constrainedDecoder struct {
 
 	caches   []cache.Cache
 	position int
+	layout   []any
 
 	matcher *structured.Matcher
 	vocab   *structured.Vocab
@@ -84,12 +88,25 @@ type constrainedDecoder struct {
 
 func (r *Runner) constrainedDecoder(spec *speculationSession, caches []cache.Cache, seed *mlx.Array, position int, grammar *structured.Grammar) *constrainedDecoder {
 	vocab, pieces := r.constraint()
+	return r.constrainedStep(spec, caches, seed, position, nil, grammar.NewMatcher(), vocab, pieces)
+}
+
+// constrainedStep builds a constrained decoder over a matcher the caller owns.
+//
+// The serial path passes a fresh matcher and no layout. Grammar-aware
+// speculation passes the SESSION'S matcher and the session's media layout, so
+// that a parked round -- one where the engine cannot draft -- is still masked
+// and still advances the one grammar state the request has. Sharing the
+// matcher rather than cloning it is the point: park and draft alternate within
+// a single request, and two matchers would drift the moment they did.
+func (r *Runner) constrainedStep(spec *speculationSession, caches []cache.Cache, seed *mlx.Array, position int, layout []any, matcher *structured.Matcher, vocab *structured.Vocab, pieces [][]byte) *constrainedDecoder {
 	d := &constrainedDecoder{
 		r:        r,
 		spec:     spec,
 		caches:   caches,
 		position: position,
-		matcher:  grammar.NewMatcher(),
+		layout:   layout,
+		matcher:  matcher,
 		vocab:    vocab,
 		pieces:   pieces,
 	}
@@ -105,6 +122,7 @@ func (d *constrainedDecoder) forward(token *mlx.Array) *mlx.Array {
 		InputIDs:     token,
 		SeqOffsets:   []int32{int32(d.position)},
 		SeqQueryLens: []int32{int32(token.Dim(1))},
+		Layout:       d.layout,
 	}, d.caches)
 	// auxHidden is the draft-conditioning state upstream's Forward now returns;
 	// decode forwards carry no media, hence the nil.
@@ -269,3 +287,192 @@ func draftMasks(m *structured.Matcher, v *structured.Vocab, pieces [][]byte,
 	// Every draft admitted: the bonus row's mask is the state after the last.
 	return append(masks, v.Mask(cur)), len(drafts), cur
 }
+
+// GrammarSpeculationEnv gates grammar-aware speculation. UNSET IS OFF, and off
+// is the shipped behaviour: the mechanism below has never run against a real
+// model, and it edits the one path where a mistake is silent KV corruption
+// rather than a crash. Turn it on to measure it, not to use it.
+const GrammarSpeculationEnv = "OLLAMA_MLX_GRAMMAR_SPECULATION"
+
+func grammarSpeculationEnabled() bool {
+	v := os.Getenv(GrammarSpeculationEnv)
+	return v == "1" || strings.EqualFold(v, "true")
+}
+
+// fillMaskBias lays out the [len(masks), vocabDim] logit bias for masked
+// verification: 0 where a row's mask admits the token, -Inf where it does not.
+//
+// Row-major and contiguous, because mlx.FromValues takes a flat slice and the
+// shape is applied on top. buf is reused across steps -- this runs once per
+// speculative round, and at k=3 on gemma4's 262,144 vocabulary it is 4 rows of
+// 1 MiB, so reallocating it every round would be the dominant cost of the
+// feature rather than an incidental one.
+//
+// Separated from the device upload so it can be tested without MLX: the shape
+// and the -Inf placement are where an off-by-one would hide, and both are
+// checkable on any host.
+func fillMaskBias(masks []*structured.Mask, vocabDim int, buf []float32) []float32 {
+	need := len(masks) * vocabDim
+	if cap(buf) < need {
+		buf = make([]float32, need)
+	}
+	buf = buf[:need]
+	negInf := float32(math.Inf(-1))
+	for i := range buf {
+		buf[i] = negInf
+	}
+	for row, mask := range masks {
+		base := row * vocabDim
+		mask.ForEach(func(id int32) {
+			if int(id) < vocabDim {
+				buf[base+int(id)] = 0
+			}
+		})
+	}
+	return buf
+}
+
+// constraintBiasRows uploads the per-row mask bias for masked verification,
+// shaped [rows, vocabDim] to line up with the fused hidden's rows.
+//
+// UNVERIFIED AGAINST HARDWARE. Everything below the fill is written from the
+// shape contract of Sampler.Distribution and has never run against a real
+// model; the gate exists so it cannot reach anyone who has not chosen to
+// measure it. The fill itself is tested (constrain_bias_test.go) because that
+// is where an off-by-one would hide and it is checkable without MLX.
+func constraintBiasRows(masks []*structured.Mask, vocabDim int, buf []float32) (*mlx.Array, []float32) {
+	buf = fillMaskBias(masks, vocabDim, buf)
+	return mlx.FromValues(buf, len(masks), vocabDim), buf
+}
+
+// grammarRows plans a speculative round's masked verification: the per-row
+// masks and the number of leading drafts the grammar admits.
+//
+// Row i predicts draft i, so mask i is the state BEFORE draft i. There are
+// admitted+1 masks when a bonus row exists -- the state after the last
+// admitted draft, where the next token is sampled if every draft is accepted
+// -- and only admitted masks when the last admitted draft is EOS, because
+// nothing follows an EOS.
+//
+// len(masks) == admitted IS THEREFORE THE CALLER'S SIGNAL that this round has
+// no bonus row. accept handles it by dropping the drafted EOS, which restores
+// the bonus row rather than carrying a round whose last row does not exist;
+// see the comment there for why that is cheaper than the alternative.
+//
+// Returns nil masks when no grammar is attached, which is how every masked
+// branch in accept stays inert on the unconstrained path.
+func (s *speculationSession) grammarRows(draftIDs []int32) ([]*structured.Mask, int) {
+	if s.matcher == nil {
+		return nil, len(draftIDs)
+	}
+	masks, admitted, _ := draftMasks(s.matcher, s.vocab, s.pieces, s.isEOS, draftIDs)
+	return masks, admitted
+}
+
+// verifyPlan decides how much of a draft this round verifies, and returns the
+// masks that bias those rows.
+//
+// GUARANTEE: whenever verify > 0, len(masks) == verify+1 -- one mask per
+// verified draft plus the bonus row. accept depends on that exactly, and it is
+// the reason the drafted EOS is dropped here rather than special-cased there.
+//
+// An admitted EOS ends grammarRows' mask sequence a row early, because nothing
+// follows an EOS and there is no state to sample a bonus token from. Carrying
+// such a round would index sampleTokenAt past the distribution AND hand
+// Sampler.Distribution as many rows as draft tokens -- which that function
+// reads as a proposal-shaped call and silently shifts every row's repeat
+// penalty history by one. Dropping the EOS instead costs one unaccepted draft
+// per request and nothing else: the row before the EOS still admits EOS (the
+// grammar can complete there, which is why the draft was legal at all), so the
+// target can still sample it as the bonus token.
+func (s *speculationSession) verifyPlan(draftIDs []int32) ([]*structured.Mask, int) {
+	masks, admitted := s.grammarRows(draftIDs)
+	// The guard on len(masks) matters: without a matcher grammarRows returns no
+	// masks and admitted == len(draftIDs), and 0 == 0 would drive verify to -1.
+	if len(masks) > 0 && len(masks) == admitted {
+		admitted--
+	}
+	return masks, admitted
+}
+
+// maskRows biases a speculative round's logits so verification compares
+// against the target's MASKED distribution.
+//
+// Without this, verification compares a draft against the target's UNMASKED
+// argmax, which can be a token the format forbids: every legal draft is then
+// rejected against a token that could never have been emitted, and speculation
+// accepts nothing while appearing to work. That failure reads as "speculation
+// did not help" rather than as a bug, which is why it is stated here.
+//
+// The bias covers len(masks) rows and the forward may have produced more, so
+// only the leading len(masks) rows survive -- and only they may be verified.
+// Rows past the last mask describe grammar states that do not exist, so their
+// masks would be fiction and any acceptance from them would be corruption.
+func (s *speculationSession) maskRows(logits *mlx.Array, masks []*structured.Mask) *mlx.Array {
+	if len(masks) == 0 {
+		return logits
+	}
+	bias, buf := constraintBiasRows(masks, logits.Dim(logits.NumDims()-1), s.biasBuf)
+	s.biasBuf = buf
+	return mlx.Add(logits.Slice(mlx.Slice(), mlx.Slice(0, len(masks)), mlx.Slice()), bias)
+}
+
+// adoptGrammar advances the session's matcher over tokens the request has
+// EMITTED. Never call it on a draft: a matcher advanced over tokens that were
+// then rolled back would leave the request generating against a state its own
+// output never reached.
+//
+// THE INVARIANT IT MAINTAINS: the matcher describes every token emitted so
+// far, INCLUDING the one held as current. accept relies on it -- mask row 0 is
+// the state after current -- and it is what makes the mask sequence describe
+// the text actually generated rather than a prefix of it. Emitting a token
+// without adopting it silently shifts every later mask by one position, which
+// then rejects legal drafts, which parks the round, which emits more
+// unadopted tokens. The drift does not converge; it compounds.
+//
+// Every emission path must therefore reach this or advance the matcher itself:
+// accept adopts its committed drafts AND the residual or bonus token it
+// returns, resume adopts the token it drains, and a parked round advances the
+// shared matcher inside constrainedDecoder.next.
+//
+// AN ILLEGAL TOKEN IS AN ERROR, not something to walk past. Every token
+// reaching here was drawn from a masked distribution, so Advance can only fail
+// if the matcher has drifted from the emitted text -- and generating past that
+// point ships malformed output under a format promise. The serial decoder has
+// made the same call since it was written (see constrainedDecoder.next); the
+// gated path silently discarding the failure is how the drift below went
+// unnoticed for a whole measurement campaign.
+func (s *speculationSession) adoptGrammar(ids []int32) error {
+	if s.matcher == nil {
+		return nil
+	}
+	for _, id := range ids {
+		if s.isEOS(id) {
+			return nil
+		}
+		var piece []byte
+		if int(id) >= 0 && int(id) < len(s.pieces) {
+			piece = s.pieces[id]
+		}
+		if len(piece) == 0 || !s.matcher.Advance(piece) {
+			return fmt.Errorf("grammar-aware speculation emitted an illegal token %d (%q)", id, piece)
+		}
+	}
+	return nil
+}
+
+// attachGrammar gives a speculation session the state masked verification
+// needs. Called only on the gated path; without it s.matcher stays nil and
+// every masked branch is inert.
+func (s *speculationSession) attachGrammar(r *Runner, g *structured.Grammar) {
+	vocab, pieces := r.constraint()
+	s.matcher = g.NewMatcher()
+	s.vocab = vocab
+	s.pieces = pieces
+	s.isEOS = r.Tokenizer.IsEOS
+}
+
+// errNoLegalDraft ends a speculative round in which the grammar admitted none
+// of the drafted tokens. Not a failure: the caller falls back to a serial step,
+// which is what the unconstrained path would have produced anyway.
+var errNoLegalDraft = errors.New("speculation: grammar admitted no drafted token")

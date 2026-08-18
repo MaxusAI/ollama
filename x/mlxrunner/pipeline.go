@@ -149,6 +149,15 @@ func (r *Runner) TextGenerationPipeline(ctx context.Context, request Request) er
 
 	var d decoder
 	switch {
+	case request.Constraint != nil && spec != nil && spec.enabled && grammarSpeculationEnabled():
+		// Grammar-aware speculation, opt-in. Drafts are verified against the
+		// MASKED target distribution and a round that cannot draft falls back
+		// to a masked serial step, so every emitted token is grammar-legal;
+		// see constrain.go: maskRows and adoptGrammar. Off by default -- this
+		// edits the KV snapshot/commit path, where a mistake is silent
+		// corruption rather than a crash.
+		spec.attachGrammar(r, request.Constraint)
+		d = spec.decoder(seed, position)
 	case request.Constraint != nil:
 		// Constrained requests decode serially with the grammar mask;
 		// the spec session rides along so a drafter's KV stays level.
