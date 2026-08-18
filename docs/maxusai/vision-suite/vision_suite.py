@@ -185,20 +185,36 @@ q3: does any single word that appears in image 1 also appear in image 2 or image
     Answer with the word or null.
 q4: give the bounding box, in image 1 pixel coordinates, of the shape whose label is
     "DYNAMO" (null if no such shape is legible).
-CALIBRATION. The "key_objects" array of image 1 must BEGIN with one extra entry
+Respond with a SINGLE JSON object, no prose:
+{{
+  "images": [
+    {{"index": 1, "type": ..., "summary": ..., "text_found": [...], "key_objects": [...]}},
+    {{"index": 2, ...}},
+    {{"index": 3, ...}}
+  ],
+  "answers": {{"q1": <int>, "q2": {{"category": <string>, "value": <number>}},
+               "q3": <string or null>, "q4": [x1,y1,x2,y2] or null}}
+}}"""
+
+
+# The same questions, plus a calibration entry, as a SEPARATE arm.
+#
+# Not folded into MULTI_PROMPT, because a prompt change reaches every model and
+# this one demonstrably does something. Measured 2026-08-18 on the ROCm host:
+# gemma4:31b-it-q4_K_M is unaffected in both think modes, but nemotron3:33b-q4_K_M
+# think-on returned NO usable response in 3 of 6 runs across both prompts, which
+# leaves 1 usable old sample against 2 usable new -- far too few to say whether
+# the paragraph moved its grounding, and its think-on grounding is independently
+# known bad (ADR 0022 records scene IoU 0.840 -> 0.391 under thinking).
+#
+# So the default arm keeps the prompt every published multi number was measured
+# against, and the calibration lives in its own arm where it can be measured
+# without putting an unrelated model's numbers at risk. score_multi reads the
+# anchor when one is present and ignores its absence, so both arms share a scorer.
+MULTI_ANCHORED_PROMPT = MULTI_PROMPT + """CALIBRATION. The "key_objects" array of image 1 must BEGIN with one extra entry
 whose "label" is "__IMAGE__" and whose "bbox" covers the ENTIRE image 1, corner
 to corner, in exactly the coordinate system you use for every other box in image
-1, including q4. If you resized image 1 internally, use the size YOU used.
-Respond with a SINGLE JSON object, no prose:
-{
-  "images": [
-    {"index": 1, "type": ..., "summary": ..., "text_found": [...], "key_objects": [...]},
-    {"index": 2, ...},
-    {"index": 3, ...}
-  ],
-  "answers": {"q1": <int>, "q2": {"category": <string>, "value": <number>},
-              "q3": <string or null>, "q4": [x1,y1,x2,y2] or null}
-}"""
+1, including q4. If you resized image 1 internally, use the size YOU used."""
 
 def center_in(pred, gtb):
     try:
@@ -1137,6 +1153,12 @@ tests = [
     ("scene_single", SCENE_PROMPT.format(w=1920, h=1080), ["scene_hd.png"], score_scene),
     ("document_single", DOC_PROMPT.format(w=1568, h=1568), ["document.png"], score_doc),
     ("multi_3img", MULTI_PROMPT, ["scene_hd.png", "document.png", "chart.png"], score_multi),
+    # Opt-in via ONLY_TESTS; not in a default sweep, so no campaign's runtime or
+    # numbers change by merging this. Run it when a model's q4 fails and you need
+    # to know whether the box was wrong or merely in another frame -- which for
+    # qwen3.8 think-on it was, five times out of five.
+    ("multi_3img_anchored", MULTI_ANCHORED_PROMPT,
+     ["scene_hd.png", "document.png", "chart.png"], score_multi),
     ("bbox_contract", BBOX_CONTRACT_PROMPT.format(w=1920, h=1080), ["scene_hd.png"],
      score_bbox_contract),
     # THE REPRODUCER. Distractor images attached, with an instruction to ignore

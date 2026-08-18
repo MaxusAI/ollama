@@ -143,7 +143,23 @@ frame scored as a miss. Confirmed live on this host 2026-08-18: asked for a
 calibration entry, the model returns `__IMAGE__ = [0, 0, 2560, 1440]` and its q4
 box rescales to centre **(351, 726)**. Prompt alone does not fix it — a control
 arm with the calibration entry and the old scorer still scored ❌, because the
-scorer never read the anchor. Both halves shipped in MaxusAI/ollama#200.
+scorer never read the anchor.
+
+Both halves are in MaxusAI/ollama#200, but they are **not** both in the default
+path. `score_multi` now reads a calibration entry when one is present, which is
+inert for every response that lacks one; the request for that entry lives in a
+separate opt-in arm, `multi_3img_anchored`. The default `multi_3img` prompt is
+byte-identical to what every published multi number was measured against.
+
+That split is a measurement result, not caution for its own sake. Regression-
+testing the models this change was not written for found `gemma4:31b-it-q4_K_M`
+unaffected in both think modes, but `nemotron3:33b-q4_K_M` think-on returned no
+usable response in **3 of 6 runs across both prompts** — leaving one usable old
+sample against two usable new, far too few to say whether the added paragraph
+moved its grounding. Its think-on grounding is independently known bad
+([ADR 0022](adr/0022-thinking-is-off-for-vision-work.md) records scene IoU 0.840
+→ 0.391), so the prior is that this is not about the prompt at all. Unproven
+either way is not a reason to change what every other campaign measures.
 
 **What survives:** think-on does answer in a different coordinate convention
 than think-off, reproducibly, 5/5. That is a real behaviour change and worth
