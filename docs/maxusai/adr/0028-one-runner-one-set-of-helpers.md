@@ -29,7 +29,7 @@ exactly what that produces: budget exhaustion inside an unclosed thinking block,
 an empty response, and a cell that reads as a vision failure. One arm's entire
 output had to be discarded and re-run.
 
-The same failure recurred in reporting. `summarize_lowtemp.py` was written from
+The same failure recurred in reporting. `summarize_reps.py` was written from
 scratch and re-implemented four helpers that already existed in
 `summarize_engine_compare.py`: `engine_for`, `was_capped`, `ctx_for` and
 `tag_for`. One re-implementation was already wrong — the local capped test used

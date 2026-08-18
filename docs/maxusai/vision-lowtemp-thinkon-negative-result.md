@@ -27,7 +27,7 @@ the boxes) where low variance beats realism.
 ## It does not work
 
 Nine models, three repeats, both think modes, the eight `bbox_contract` arms.
-Rendered by `vision-suite/summarize_lowtemp.py` — exploratory arm, so exempt
+Rendered by `vision-suite/summarize_reps.py` — exploratory arm, so exempt
 from the T1/T2 shapes under [ADR 0012](adr/0012-benchmark-report-templates.md)
 rule 7, but reporting `(score, num_ctx, num_predict)` per rule 8. **There is no
 ladder in this arm**: it was run directly rather than through

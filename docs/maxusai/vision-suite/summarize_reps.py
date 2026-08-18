@@ -74,6 +74,34 @@ def load_arm(tag):
     return [derive(json.load(open(p))) for p in paths], paths
 
 
+def _window(runs, key):
+    """Distinct values of a window field across an arm's runs and sections.
+
+    Rendered rather than collapsed: repeats of one arm are supposed to sit at
+    one rung, so more than one value means the arm escalated between repeats and
+    its rows are not internally comparable. Silently showing the first would
+    hide that.
+    """
+    seen = []
+    for r in runs:
+        for sec in r.values():
+            if isinstance(sec, dict):
+                v = sec.get(f"req_{key}") or sec.get(key)
+                if v is not None and v not in seen:
+                    seen.append(v)
+    if not seen:
+        return "—"
+    return str(seen[0]) if len(seen) == 1 else "/".join(str(v) for v in sorted(seen)) + " ⚠"
+
+
+def rung(runs):
+    return _window(runs, "num_ctx")
+
+
+def npred(runs):
+    return _window(runs, "num_predict")
+
+
 def cell(runs, section, key, kind):
     vals = [r[section][key] for r in runs
             if section in r and key in r.get(section, {})]
@@ -111,6 +139,15 @@ def main():
 
     print("| metric | " + " | ".join(f"{t} (n={len(r)})" for t, r in arms) + " |")
     print("|---" * (len(arms) + 1) + "|")
+    # The CONTEXT-ladder rung comes first because it conditions everything under
+    # it. ADR 0029 requires think-on tables to report it, SPEC H4a calls it a
+    # result rather than plumbing, and ADR 0012 rule 8 says the reported num_ctx
+    # is the final successful rung. Two arms measured at different rungs are not
+    # comparable on tok/s or req/h at all — KV size drives decode speed — so a
+    # table without this row invites exactly the comparison it cannot support.
+    print(f"| **num_ctx rung** | " + " | ".join(rung(runs) for _, runs in arms) + " |")
+    print(f"| **num_predict** | " + " | ".join(npred(runs) for _, runs in arms) + " |")
+
     for section, key, label, kind in METRICS:
         cells = [cell(runs, section, key, kind)[0] for _, runs in arms]
         if all(c == "—" for c in cells):
