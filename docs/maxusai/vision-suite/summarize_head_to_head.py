@@ -70,6 +70,13 @@ def main():
         # scores_<tag>.json held the tiers.
         ft = s.get("finetext") or load(os.path.join(rundir, f"ft_{tag}.json")) or {}
         sc, dc, mu = (s.get(k, {}) for k in ("scene_single", "document_single", "multi_3img"))
+        # The anchored variant is a SEPARATE row, never folded into the one
+        # above. The two differ only in whether the prompt asks for an
+        # __IMAGE__ calibration entry, so showing them side by side is the whole
+        # evidence that a q4-bbox miss was a frame error rather than a grounding
+        # failure -- measured 2026-08-18, qwen3.8 GGUF 0/3 unanchored against
+        # 3/3 anchored in both think modes, same run and same images.
+        ma = s.get("multi_3img_anchored", {})
         gen, pre = sc.get("gen_tps"), sc.get("prefill_tps")
         s_req = (sc["eval_count"] / gen + sc["prompt_eval_count"] / pre
                  if gen and pre and sc.get("eval_count") and sc.get("prompt_eval_count") else None)
@@ -90,6 +97,9 @@ def main():
             ("multi (3 img)", "q1 / q2 / q4-bbox / chart"):
                 (f"{b(mu.get('q1_right'))} {b(mu.get('q2_right'))} {b(mu.get('q4_bbox_hit'))} "
                  f"{mu.get('chart_values_found', '—')}/{mu.get('chart_total', '—')}" + ctx(mu)) if mu else "—",
+            ("multi (3 img, anchored)", "q1 / q2 / q4-bbox / chart"):
+                (f"{b(ma.get('q1_right'))} {b(ma.get('q2_right'))} {b(ma.get('q4_bbox_hit'))} "
+                 f"{ma.get('chart_values_found', '—')}/{ma.get('chart_total', '—')}" + ctx(ma)) if ma else "—",
             ("throughput", "gen tok/s"): f"{gen:.0f}" if gen else "—",
             ("throughput", "prefill tok/s"): f"{pre:.0f}" if pre else "—",
             ("latency", "s/req (unique image)"): f"{s_req:.1f}" if s_req else "—",

@@ -45,10 +45,16 @@ and installed content-addressed, every digest verified before install.
 All eight `bbox_contract` variants returned 6/6 labels with valid JSON. Every
 extraction in the suite parsed.
 
-† The Apple `q4-bbox` ❌ has not been re-examined. The ROCm think-on ❌ turned out
-to be a frame mismatch the scorer could not read (corrected below); whether the
-Apple cell is the same thing is unknown, because its response is not in the repo.
-Do not read it as a grounding failure without checking.
+† **The Apple `q4-bbox` ❌ has since been re-examined, and it is the same thing.**
+Re-measured 2026-08-18 on Apple/Metal, server `0.32.14-maxusai-9594f81e`, n=3:
+`qwen3.8:27b-q4_K_M` scores 0/3 on `multi_3img` and **3/3** on
+`multi_3img_anchored` in both think modes — the frame mismatch this campaign
+identified on ROCm, reproduced on the other backend. `qwen3.8:27b-nvfp4`
+think-on is 1/3 unanchored and 3/3 anchored, so it is not GGUF-specific either.
+See the correction blocks in
+[vision-campaign-2026-08-16-seven-model.md](vision-campaign-2026-08-16-seven-model.md)
+and
+[vision-campaign-2026-08-17-eighteen-model.md](vision-campaign-2026-08-17-eighteen-model.md).
 
 The ROCm column is the first think-off run, kept as-is because the Apple column
 is also a single run and the two should be read like for like. The repeated
