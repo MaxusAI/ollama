@@ -185,16 +185,20 @@ q3: does any single word that appears in image 1 also appear in image 2 or image
     Answer with the word or null.
 q4: give the bounding box, in image 1 pixel coordinates, of the shape whose label is
     "DYNAMO" (null if no such shape is legible).
+CALIBRATION. The "key_objects" array of image 1 must BEGIN with one extra entry
+whose "label" is "__IMAGE__" and whose "bbox" covers the ENTIRE image 1, corner
+to corner, in exactly the coordinate system you use for every other box in image
+1, including q4. If you resized image 1 internally, use the size YOU used.
 Respond with a SINGLE JSON object, no prose:
-{{
+{
   "images": [
-    {{"index": 1, "type": ..., "summary": ..., "text_found": [...], "key_objects": [...]}},
-    {{"index": 2, ...}},
-    {{"index": 3, ...}}
+    {"index": 1, "type": ..., "summary": ..., "text_found": [...], "key_objects": [...]},
+    {"index": 2, ...},
+    {"index": 3, ...}
   ],
-  "answers": {{"q1": <int>, "q2": {{"category": <string>, "value": <number>}},
-               "q3": <string or null>, "q4": [x1,y1,x2,y2] or null}}
-}}"""
+  "answers": {"q1": <int>, "q2": {"category": <string>, "value": <number>},
+              "q3": <string or null>, "q4": [x1,y1,x2,y2] or null}
+}"""
 
 def center_in(pred, gtb):
     try:
@@ -392,13 +396,50 @@ def score_multi(resp_text):
     except Exception:
         pass
     dyn = next(o for o in g["scene_hd"]["objects"] if o["label"] == "DYNAMO")
-    # q4 gets the same coordinate-dialect tolerance as scene boxes (score_scene):
-    # models answer in their native space (norm-1000) regardless of the prompt.
+    # THE FRAME q4 IS EXPRESSED IN, taken from the response's own calibration
+    # entry rather than assumed.
+    #
+    # The prompt asks for "image 1 pixel coordinates" and image 1 is 1920x1080,
+    # but a model that resizes internally answers in ITS frame: qwen3.8 returns
+    # a DYNAMO box scaled by ~1.33 on both axes -- correct object, correct
+    # extent, wrong frame -- so trying only 1920x1080 and norm-1000 scored five
+    # consecutive correct answers as misses and published them as a think-on
+    # "grounding loss" (../vision-campaign-2026-08-17-qwen38-rocm.md). Measured
+    # 2026-08-18 against the live ROCm host: with the calibration entry asked
+    # for, the model returns __IMAGE__ = [0, 0, 2560, 1440] and its q4 box
+    # rescales to centre (351, 726) against a truth centre of (350, 730).
+    #
+    # Derived from the model's own declaration, never fitted to ground truth. A
+    # scorer that searched for whatever scale makes the answer land inside the
+    # target would pass wrong boxes -- that is hits_bestfit, which SPEC C9
+    # excludes from every consumer path for exactly this reason.
+    anchor_space = []
+    for o in ((r.get("images") or [{}])[0].get("key_objects") or []):
+        if not isinstance(o, dict):
+            continue
+        if str(o.get("label", "")).strip().strip("_").upper() != "IMAGE":
+            continue
+        ab = o.get("bbox") or o.get("box_2d") or o.get("bbox_2d") or []
+        if isinstance(ab, list) and len(ab) == 4:
+            try:
+                fw, fh = max(ab[0], ab[2]), max(ab[1], ab[3])
+            except TypeError:
+                break
+            # A norm-1000 or norm-1 anchor adds nothing: those spaces are tried
+            # below already. Only a real frame carries new information.
+            if fw > 1100 and fh > 1100:
+                s["q4_anchor_frame"] = [fw, fh]
+                anchor_space = [("anchor", g["scene_hd"]["size"][0] / float(fw),
+                                 g["scene_hd"]["size"][1] / float(fh))]
+        break
+
     q4 = a.get("q4") or []
     if isinstance(q4, list) and len(q4) == 4:
         W, H = g["scene_hd"]["size"]
         try:
-            for space, fx, fy in (("pixel", 1.0, 1.0), ("norm1000", W/1000.0, H/1000.0)):
+            for space, fx, fy in ([("pixel", 1.0, 1.0),
+                                   ("norm1000", W/1000.0, H/1000.0)]
+                                  + anchor_space):
                 for order in ("xyxy", "yxyx"):
                     x1, y1, x2, y2 = (q4[0], q4[1], q4[2], q4[3]) if order == "xyxy" else (q4[1], q4[0], q4[3], q4[2])
                     if center_in([x1*fx, y1*fy, x2*fx, y2*fy], dyn["bbox"]):

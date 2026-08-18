@@ -36,7 +36,7 @@ and installed content-addressed, every digest verified before install.
 | scene | labels / colors / serial | 6/6, 6/6, ✅ | 6/6, ✅ |
 | document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
 | document | name_bbox IoU | **0.57** | 0.638 |
-| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ **✅** 5/5 | ✅ ✅ **❌** 5/5 |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ **✅** 5/5 | ✅ ✅ **❌**† 5/5 |
 | fine text | 22/16/12/9/7 px | **4/4/4/2/1** | 4/4/4/2/1 |
 | throughput | gen tok/s | 12.2 | 20 |
 | throughput | prefill tok/s | 255–276 | 415 |
@@ -44,6 +44,11 @@ and installed content-addressed, every digest verified before install.
 
 All eight `bbox_contract` variants returned 6/6 labels with valid JSON. Every
 extraction in the suite parsed.
+
+† The Apple `q4-bbox` ❌ has not been re-examined. The ROCm think-on ❌ turned out
+to be a frame mismatch the scorer could not read (corrected below); whether the
+Apple cell is the same thing is unknown, because its response is not in the repo.
+Do not read it as a grounding failure without checking.
 
 The ROCm column is the first think-off run, kept as-is because the Apple column
 is also a single run and the two should be read like for like. The repeated
@@ -95,6 +100,11 @@ previously ranked them together and pushed every ratio off a top-4 list, and its
 | finetext correct / fabricated (of 20) | 15 / 5 | 13.6 [13–15] / 6.4 [5–7] |
 | latency s/req · req/h | 54.0 · 67 | ~97 · 37 |
 
+**The `multi q4-bbox` 0/5 is a scoring artifact — see the correction below.** The
+score is what the harness recorded; the boxes were correct. Left as measured
+rather than silently re-scored, because the responses it was computed from carry
+no calibration entry to re-score them with.
+
 Within-arm spread (max−min), the bar any cross-arm claim must clear:
 
 - think-off — ratios: scene bbox IoU **0.003**, doc name_bbox IoU **0.001**
@@ -117,9 +127,31 @@ disagreeing by 0.159 — that showed the spread was large, which is true, but no
 that the arms overlapped. Those are different claims and conflating them is what
 produced the wrong retraction.
 
-**`q4_bbox` is settled the other way, and harder than before.** 0/5 under
-think-on against 2/2 under think-off. Already shown not to be a budget effect
-(the `NUM_PREDICT=4400` repeat used 46% of its ceiling and still failed).
+**`q4_bbox` is a SCORING artifact, not a grounding loss. Corrected 2026-08-18.**
+The 0/5 below is real as a score and wrong as a conclusion: all five think-on
+runs localize DYNAMO **correctly**. Their boxes are the right object at the
+right extent, scaled by ~1.33 on both axes — the per-coordinate ratios against
+truth are [1.332, 1.330, 1.340, 1.329] for one run and hold to ±1% across all
+five — because the model answers in its own internal resize frame (~2560×1440)
+rather than image 1's 1920×1080. `y2 = 1143` is the giveaway: no norm-1000
+coordinate can exceed 1000. Rescaled from the declared frame, every one of the
+five lands inside DYNAMO; centres (351,728), (355,734), (352,728), (350,728),
+(319,660) against a truth centre of (350,730).
+
+`score_multi` tried only 1920×1080 and norm-1000, so a correct answer in a third
+frame scored as a miss. Confirmed live on this host 2026-08-18: asked for a
+calibration entry, the model returns `__IMAGE__ = [0, 0, 2560, 1440]` and its q4
+box rescales to centre **(351, 726)**. Prompt alone does not fix it — a control
+arm with the calibration entry and the old scorer still scored ❌, because the
+scorer never read the anchor. Both halves shipped in MaxusAI/ollama#200.
+
+**What survives:** think-on does answer in a different coordinate convention
+than think-off, reproducibly, 5/5. That is a real behaviour change and worth
+knowing. **What does not:** that it is a loss of grounding. It is not.
+
+The budget half of the original finding stands — the `NUM_PREDICT=4400` repeat
+used 46% of its ceiling — but it was answering the wrong question, since nothing
+was failing to be found.
 
 **Think-off is near-deterministic, not deterministic.** Two greedy
 temperature-0 runs moved scene IoU 0.991 → 0.988. Tiny, an order of magnitude
@@ -135,9 +167,10 @@ the flat +2 two samples implied.
 
 This document previously concluded think-on was a net loss with nothing in its
 favour. At n=5 that is wrong. Think-on buys a real improvement in document
-`name_bbox` grounding and pays for it with a reproducible loss of multi-image
-bbox grounding, ~1.4 more fabricated fine-text codes, and 1.8x the latency for
-55% of the serial throughput.
+`name_bbox` grounding and pays for it with ~1.4 more fabricated fine-text codes
+and 1.8x the latency for 55% of the serial throughput. It was also charged with
+a loss of multi-image bbox grounding; that charge is withdrawn above — the boxes
+were correct and the scorer could not read them.
 
 **The operational recommendation is unchanged** — keep think off for vision work
 on this host — but the reason is now a weighed trade rather than a rout. Every
@@ -236,9 +269,11 @@ rule 4 exists to prevent.
   without being bound by it — 0025 is scoped to its three measured families and
   says explicitly that a new family needs its own measurement. This is that
   measurement, thin as it is.
-- **Does:** settle that think-on's `q4_bbox` regression is a reasoning effect,
-  not a budget effect — the repeat at `NUM_PREDICT=4400` used 46% of the raised
-  ceiling and still failed.
+- **Does NOT, corrected 2026-08-18:** show a think-on `q4_bbox` regression at
+  all. The cell scored 0/5 because `score_multi` did not know the frame the
+  model answered in; all five runs localized DYNAMO correctly. What the
+  `NUM_PREDICT=4400` repeat established — not a budget effect — is still true
+  and still beside the point.
 - **Does:** put a measured number on the noise floor — think-on spread 0.207 on
   `name_bbox` and 0.021 on scene IoU across five runs, against think-off's 0.001
   and 0.003 across two. Any single-arm reading of a think-on cell is worth less
