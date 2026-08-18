@@ -50,8 +50,27 @@ as results. A re-implemented `was_capped` used `==` where the original uses
 `>=`. A hand-copied table dropped `num_ctx` and published a scene IoU of 0.000
 that was really 0.872.
 
-See `docs/maxusai/spec/vision-harness-reuse.md` (H1–H8),
-`docs/maxusai/adr/0028-one-runner-one-set-of-helpers.md`, and
+**Always let the context ladder run, and read the rung it stops at as a result.**
+`num_predict` is derived as `num_ctx - CTX_PROMPT_RESERVE`, so fixing the window
+silently fixes the generation budget too. The 16384 start rung yields exactly
+8192 generated tokens, and that is not a safe default: measured 2026-08-18,
+`nemotron3:33b-q4_K_M` think-on needs 8385 / 10226 / 4127 tokens to terminate, so
+at the start rung it caps in about half its runs and returns `done_reason=length`
+with **zero characters of answer** and 24–27k characters of unclosed thinking.
+Given a rung that derives a real budget it answers every question correctly, 3/3.
+The context was never short — `prompt_eval_count` 6203, a 131072 window at 12%
+occupancy. Two things follow, and neither is optional:
+
+- **The converged rung IS the measurement** of the window that model needs, and
+  it belongs in the write-up. A run that never escalated did not measure it.
+- **req/h and tok/s come only from a cell that terminated** (`done_reason=stop`).
+  A capped cell's `eval_count` is the cap, so a rate derived from it measures the
+  harness setting and moves 2.3x when the ladder climbs a rung. `was_capped()`
+  marks these and summarizers render `capped` instead of a number; never quote one.
+
+See `docs/maxusai/spec/vision-harness-reuse.md` (H1–H8, and H4a for the ladder),
+`docs/maxusai/adr/0028-one-runner-one-set-of-helpers.md`,
+`docs/maxusai/adr/0022-thinking-is-off-for-vision-work.md` (the three traps), and
 `docs/maxusai/adr/0012-benchmark-report-templates.md`.
 
 **MLX is thread-affine.** MLX streams and their command encoders are thread-local,

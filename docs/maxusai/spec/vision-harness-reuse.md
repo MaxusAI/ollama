@@ -56,6 +56,24 @@ carry `num_ctx` at all. Pinning the ceiling to the start rung does not make an
 arm cheaper; it makes that number unobtainable, because the cell caps and the
 required window is never discovered.
 
+**The start rung is not a safe default; for some models it is the boundary.**
+`num_predict` is derived as `num_ctx - CTX_PROMPT_RESERVE`, so the 16384 start
+rung yields exactly 8192 generated tokens. Measured 2026-08-18,
+`nemotron3:33b-q4_K_M` think-on on `multi_3img` needs **8385 / 10226 / 4127**
+tokens to terminate — straddling that 8192. At the start rung it caps in about
+half its runs, returning `done_reason=length` with zero characters of answer and
+24–27k characters of unclosed thinking; given a rung that derives a real budget
+it terminates 3/3 and answers every question correctly. The context itself was
+never short — `prompt_eval_count` 6203, and a 131072 window sat at 12% occupancy.
+A fixed start rung would have published this model as broken.
+
+**req/h is computed only from a cell that terminated.** `done_reason=stop`, at
+the rung the cell converged at. A capped cell's `eval_count` IS the cap, so any
+tok/s or req/h derived from it measures `CTX_PROMPT_RESERVE` and the rung, not
+the model — and it moves when the ladder escalates, which is what makes it look
+like a real number. `was_capped()` marks these; summarizers render `capped`
+rather than a rate, and a write-up must not quote one.
+
 The refusal is deliberate in place of a warning: downstream, a capped cell and
 a cell that genuinely converged at the start rung both write a `num_ctx` into
 the scores and every summarizer renders them identically. A warning scrolls
