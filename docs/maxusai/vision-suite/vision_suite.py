@@ -1480,6 +1480,11 @@ def main():
         except Exception as e:
             print(f"SCORER ERROR: {type(e).__name__}: {e}")
             sc = {"scorer_error": f"{type(e).__name__}: {e}"}
+        # WHERE this ran and WHICH build served it. Without these a score is not
+        # comparable with anything and the provenance can only be reconstructed
+        # from tag names, which is memory rather than evidence.
+        sc["host"] = r.get("_host")
+        sc["server_version"] = r.get("_server_version")
         sc["prompt_eval_count"] = r.get("prompt_eval_count")
         sc["eval_count"] = r.get("eval_count")
         sc.update(sc_chars)

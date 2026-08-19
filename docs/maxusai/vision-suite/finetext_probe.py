@@ -126,6 +126,8 @@ def run(host, tag, model):
     chars = client.persist(tag, "finetext", r)
     s = {"tag": tag}
     s.update(score_codes(body))
+    s["host"] = r.get("_host")
+    s["server_version"] = r.get("_server_version")
     s["prompt_eval_count"] = r.get("prompt_eval_count")
     s["eval_count"] = r.get("eval_count")
     # Free, tokenizer-free halves of the split; token_split.py turns these into

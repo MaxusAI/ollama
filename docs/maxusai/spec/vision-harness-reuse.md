@@ -185,6 +185,29 @@ An eviction is **not** a process restart: server caches and other models survive
 A `load_duration` measured after eviction MUST NOT be quoted against one measured
 after `RESTART_CMD`.
 
+**H11 — Every cell records WHERE it ran and WHICH build served it.** `host` and
+`server_version` are written into every score block, unconditionally, from
+`client.generate()`. Not optional and not env-gated: a score whose host and build
+are unknown is not comparable with anything.
+
+This is [ADR 0012](../adr/0012-benchmark-report-templates.md) rule 6 applied to
+the two settings that matter most. Rule 6 puts `num_ctx` in the cell because a
+number whose meaning depends on an unrecorded setting is not a measurement. Host
+and build are worse: host changes throughput by ~4× (Apple Metal ~21 tok/s vs
+CUDA ~93 on the same model and cell), and **build changes behaviour** — gemma4
+returns no reasoning at all on `/api/generate` for one build and returns it
+normally on another.
+
+Before this existed, cross-host coverage could only be reconstructed from
+tag-name prefixes and the memory of whoever launched the run. That is not
+evidence: nothing in the data prevented an Apple cell being pooled with a CUDA
+one, and nothing would have revealed it afterwards. A coverage audit run on
+2026-08-20 found the geometry corpus was two hosts quoted as one number.
+
+Historical scores predate the field. A cell with no `host` is pre-2026-08-20 and
+its provenance is whatever its campaign document says — which is why the campaign
+docs state the host in their header.
+
 ## 4. Conformance
 
 | requirement | enforced by |
@@ -195,5 +218,6 @@ after `RESTART_CMD`.
 | H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
 | H9 | `client.py` is the only module that builds a payload; `test_client.py` (20 tests) asserts the wire format, including the tri-state `send_think` and the `num_ctx=False` sentinel that a naive `== False` would have collapsed |
+| H11 | `host` / `server_version` on every score block, written unconditionally by `client.generate()`; absence marks a pre-2026-08-20 cell |
 | H10 | `client.RETRY_BACKOFF` = 5/15/30s with `_retries` recorded per cell; `test_client.py::TestTransportRetry` asserts a 400 calls `urlopen` exactly once while a 503 retries. `client.evict_others()` polls `/api/ps` until the eviction is observable and returns what it could not evict; `run_engine_compare.sh` calls it before each model when `RESTART_CMD` is absent, `COLD_START=0` opts out |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |

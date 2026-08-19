@@ -272,6 +272,8 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
     # the scores rather than inferred from a log nobody kept.
     if retries:
         r["_retries"] = retries
+    r["_host"] = host
+    r["_server_version"] = server_version(host)
     r["_num_predict"] = num_predict
     r["_num_ctx"] = None if omit_ctx else num_ctx
     return r
@@ -296,6 +298,28 @@ def persist(tag, name, r):
     if think:
         open(f"{DIR}/think_{tag}_{name}.txt", "w").write(think)
     return {"thinking_chars": len(think), "answer_chars": len(text)}
+
+
+_VERSION_CACHE = {}
+
+
+def server_version(host, timeout=10):
+    """The serving build's version string, cached per host for the process.
+
+    Recorded on every cell because a score whose HOST and BUILD are unknown is
+    not comparable with anything -- the same failure ADR 0012 rule 6 fixed for
+    num_ctx, and worse here: host changes throughput ~4x, and build changes
+    BEHAVIOUR (gemma4 returns no reasoning on /api/generate for one build and
+    fine on another). Reconstructing this from tag-name conventions afterwards is
+    not evidence, and nothing in the data would stop an Apple cell being pooled
+    with a CUDA one."""
+    if host not in _VERSION_CACHE:
+        try:
+            r = json.load(urllib.request.urlopen(host + "/api/version", timeout=timeout))
+            _VERSION_CACHE[host] = r.get("version")
+        except Exception:
+            _VERSION_CACHE[host] = None
+    return _VERSION_CACHE[host]
 
 
 def unload(host, model, timeout=120):
