@@ -60,6 +60,8 @@ def main():
         sys.exit(__doc__)
 
     cols, cells = [], []
+    # ADR 0012 rule 1: provenance comes from the score files, never typed.
+    prov_hosts, prov_vers = set(), set()
     for name in args:
         tag = name if literal else name.replace(":", "_").replace(".", "_")
         s = load(os.path.join(rundir, f"scores_{tag}.json")) or {}
@@ -77,6 +79,11 @@ def main():
         # failure -- measured 2026-08-18, qwen3.8 GGUF 0/3 unanchored against
         # 3/3 anchored in both think modes, same run and same images.
         ma = s.get("multi_3img_anchored", {})
+        for sec in (sc, dc, mu, ft, ma):
+            if sec.get("host"):
+                prov_hosts.add(sec["host"])
+            if sec.get("server_version"):
+                prov_vers.add(sec["server_version"])
         gen, pre = sc.get("gen_tps"), sc.get("prefill_tps")
         s_req = (sc["eval_count"] / gen + sc["prompt_eval_count"] / pre
                  if gen and pre and sc.get("eval_count") and sc.get("prompt_eval_count") else None)
@@ -111,6 +118,12 @@ def main():
     print("|---|---|" + "---|" * len(cols))
     for r in rows:
         print(f"| {r[0]} | {r[1]} | " + " | ".join(c[r] for c in cells) + " |")
+
+    hosts = sorted(prov_hosts) or ["pre-H11 run (host not recorded)"]
+    vers = sorted(prov_vers) or ["pre-H11 run (build not recorded)"]
+    warn = " ⚠ MIXED — columns are not one campaign" if len(prov_hosts) > 1 or len(prov_vers) > 1 else ""
+    print(f"\nProvenance (from score files): host(s) {', '.join(hosts)} · "
+          f"build(s) {', '.join(vers)}{warn}")
 
 
 if __name__ == "__main__":

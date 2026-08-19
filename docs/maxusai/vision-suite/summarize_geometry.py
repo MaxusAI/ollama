@@ -5,9 +5,10 @@
 
 e.g. python3 summarize_geometry.py frm bbox_contract_real_1img
 
-One row per geometry, one column group per model. Exists because ADR 0012 rule 8
-forbids transcribing generator output by hand, and the geometry axis has no
-template of its own -- T1/T2/T3 are all keyed on model, not on image size.
+One row per geometry, one column group per model. Template T4 (ADR 0012,
+amended 2026-08-20): T1/T2/T3 are all keyed on model, not on image size, so the
+geometry axis gets its own shape, and rule 8 forbids transcribing generator
+output by hand.
 
 The columns are chosen to make the two failure modes distinguishable at a glance:
 

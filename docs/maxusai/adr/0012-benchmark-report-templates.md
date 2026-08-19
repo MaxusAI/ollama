@@ -1,7 +1,9 @@
-# ADR 0012: benchmark reports use three canonical templates, rendered by generators
+# ADR 0012: benchmark reports use five canonical templates, rendered by generators
 
 - **Status:** accepted, 2026-08-08 (maintainer directive "resolve the issues",
-  same day as proposal). Validated in practice before acceptance: the
+  same day as proposal). Amended 2026-08-20: templates T4 (geometry sweep) and
+  T5 (factor matrix) added with their generators; shared convention 9 (capped
+  cells) added. Validated in practice before acceptance: the
   2026-08-08 power campaign (PR #61/#62) was rendered exclusively through T1/T2
   with the latency pair and powermode provenance. Existing docs stay
   grandfathered; new reports use the templates.
@@ -23,7 +25,7 @@ can never disagree with its data. This ADR generalizes that.
 
 ## Decision
 
-Three templates cover every recurring report. **Any table whose numbers come
+Five templates cover every recurring report. **Any table whose numbers come
 from harness output MUST be emitted by the named generator**, not typed.
 
 | id | shape | when | generator |
@@ -31,6 +33,8 @@ from harness output MUST be emitted by the named generator**, not typed.
 | **T1 — Campaign matrix** | two tables: grounding+extraction, then OCR tiers + multi + throughput + latency; one row per model, `Engine` column, MLX bolded | full N-model campaigns on one host/power state | `vision-suite/summarize_engine_compare.py` (paired with `run_engine_compare.sh`) |
 | **T2 — Head-to-head pivot** | rows = test × metric, columns = models | deep comparison of ≤ 4 configurations | `vision-suite/summarize_head_to_head.py` (same scores files; `--tags` for ad-hoc tag names) |
 | **T3 — Platform baseline** | structured report: system-under-test, workloads, metric definitions, results, regression procedure, limitations | the living per-platform record | hand-maintained, but its table shapes are fixed and its §3 is the **only** place metric definitions live — other reports link, never restate |
+| **T4 — Geometry sweep** | one row per geometry, one column group per model; anchor frame/ratio + chk/anc/bf columns keep SPEC C17's two failure modes distinguishable | geometry-generality campaigns (SPEC C13–C18); T1/T2/T3 are keyed on model, not image size | `vision-suite/summarize_geometry.py` |
+| **T5 — Factor matrix** | marginal effect per factor, split by model × think mode, geometry pooled with a named-worst-geometry spread guard; per-level capped counts; trustable-configs decision table | composable-arm campaigns (pin × anchor × coords) | `vision-suite/summarize_matrix.py` |
 
 Shared conventions, binding for all three:
 
@@ -83,6 +87,17 @@ Shared conventions, binding for all three:
    32,768. Both the dropped column and the stale number came from typing what a
    generator had already rendered correctly, which is what rule 1 above exists
    to prevent.
+
+9. **Capped cells never enter a pooled mean.** A cell whose `eval_count`
+   reached `req_num_predict` measures the harness cap, not the model; T1 has
+   rendered such cells as `capped` since the ladder landed, and pooled tables
+   (T5) exclude them and report the count per pooling level instead. The count
+   is a first-class result — it is where a termination failure shows — not
+   noise to average over. Measured 2026-08-20: qwen3.6:35b-a3b think-on was
+   60/80 capped on the CUDA factor matrix; pooling those cells published a
+   grounding marginal of 1.69/6 for a model that scores 6.00/6 in every cell
+   that terminates. Two failure modes, "cannot ground" and "cannot stop", must
+   never share one number.
 
 ## Alternatives considered
 

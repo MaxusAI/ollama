@@ -135,6 +135,18 @@ first is image accounting and the second is generation length.
   column shows the ladder rung each row reached.
 - `summarize_reps.py <tag…>` — repeated arms as mean and spread, with the
   context-ladder rung and `num_predict` as the first rows (ADR 0029, SPEC H4a).
+- `summarize_geometry.py <tag-prefix> <arm> […]` — **template T4** (ADR 0012):
+  the geometry sweep, one row per geometry, one column group per model. The
+  anchor frame/ratio and chk/anc/bf columns keep SPEC C17's two failure modes
+  distinguishable at a glance. `--perf` renders tokens/latency instead.
+- `summarize_matrix.py <tag-prefix>` — **template T5** (ADR 0012): the
+  composable bbox matrix as marginal effects per factor (pin / anchor /
+  coords), split by model × think mode, geometry pooled behind a spread guard
+  that names the worst geometry. Capped cells are excluded from every mean and
+  counted per level (convention 9 — a capped score measures the harness, not
+  the model), partial campaigns render as INCOMPLETE with the missing cells
+  named, and a final trustable-configs table answers "which arm can this model
+  actually ship" — uncapped everywhere, highest mean, smallest spread.
 - `run_engine_compare.sh <host>` — **engine-parity campaign** (MLX safetensors vs
   llama-server GGUF): cold server per model via `RESTART_CMD`, then the three-suite
   run and the fine-text probe per model. `summarize_engine_compare.py <model…>`

@@ -158,6 +158,12 @@ def main():
             k, v = pair.split("=", 1)
             engine_map[k.strip()] = v.strip()
 
+    # Provenance, rendered from the score files instead of typed into the
+    # report (ADR 0012 rule 1). Cells carry host/server_version since H11;
+    # older runs render "pre-H11". Mixed values are flagged, not averaged: a
+    # table whose rows ran on two hosts is two campaigns wearing one header.
+    prov_hosts, prov_vers = set(), set()
+
     t1 = ["| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial "
           "| Invoice (items · qty+price · total) | name_bbox in-band |",
           "|---|---|---|---|---|---|---|---|"]
@@ -182,6 +188,11 @@ def main():
         # decode speed), and a short result at a small window may be a cap
         # rather than the model. "—" means the run predates the field.
         ctx_cell = ctx_for(sc, dc, mu, ft)
+        for sec in (sc, dc, mu, ft):
+            if sec.get("host"):
+                prov_hosts.add(sec["host"])
+            if sec.get("server_version"):
+                prov_vers.add(sec["server_version"])
 
         iou = sc.get("bbox_mean_iou")
         iou_cell = "—" if iou is None else (f"**{iou:.3f}**" if eng == "MLX" else f"{iou:.3f}")
@@ -236,6 +247,12 @@ def main():
     print("\n".join(t1))
     print("\n## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput\n")
     print("\n".join(t2))
+
+    hosts = sorted(prov_hosts) or ["pre-H11 run (host not recorded)"]
+    vers = sorted(prov_vers) or ["pre-H11 run (build not recorded)"]
+    warn = " ⚠ MIXED — rows are not one campaign" if len(prov_hosts) > 1 or len(prov_vers) > 1 else ""
+    print(f"\nProvenance (from score files): host(s) {', '.join(hosts)} · "
+          f"build(s) {', '.join(vers)} · think={think}{warn}")
 
 
 if __name__ == "__main__":
