@@ -55,7 +55,14 @@ the order has to be fixed at that caller's own boundary, not requested.
 | model | think-off | think-on |
 |---|---|---|
 | `qwen3.8:27b-q4_K_M` | **14/14** geometries convert 6/6 | **14/14** |
+| `gemma4:31b-it-q4_K_M` | **14/14** | **14/14** |
+| `gemma4:26b-a4b-it-q4_K_M` (MoE) | **14/14** | **14/14** |
 | `qwen3.6:35b-a3b-q4_K_M` | **14/14** | **13/14** — silent C7 failure at `sq320` only |
+
+**111 of 112 cells** across four models. Every cell declared `norm1000` / `xyxy`
+and every one was honoured — including on the gemma4 **26b** family, which is
+where all 11 measured axis flips came from. With named coordinates it emitted
+`xyxy` in 14/14 cells in both think modes, which is C2 working rather than luck.
 
 [ADR 0022](../adr/0022-thinking-is-off-for-vision-work.md) turns thinking off for
 vision work generally, and [ADR 0023](../adr/0023-think-mode-is-per-model-and-measured-on-policy.md)
@@ -78,8 +85,9 @@ measurably worse on qwen3.8 and costs one cell out of fourteen on qwen3.6.
   (320×320), which is exactly where C14 says both of C7's checks lose
   discriminating power at once.
 - **Other model families.** `nemotron3` scene IoU degrades 0.840 → 0.391 under
-  thinking (ADR 0022), and the gemma4 26b family's axis flips are only partly
-  escaped by thinking. Neither was measured across geometry.
+  thinking (ADR 0022) and was not measured across geometry. The gemma4 26b axis
+  flips are escaped by C2, not by thinking — see the table above; do not read
+  that result as licence to send positional arrays to it.
 
 **The cost is tokens, not accuracy** — for qwen3.8 on this task. Budget for the
 context ladder to escalate and record the rung it settles at
@@ -88,11 +96,15 @@ floor, not a cost.
 
 ### 0.2 What this configuration does NOT cover
 
-`gemma4:31b` was never measured across geometry, and `box_2d` — positional, and
-gemma-native `yxyx` — is the exact form that flipped on the 26b family. Treat it
-as unverified rather than safe until measured. Everything above is the synthetic
-six-shape scene; a photograph with ambiguous object boundaries is a different
-test.
+`gemma4:31b` and `gemma4:26b-a4b` are now measured across geometry (14/14 each,
+both think modes) — **but only with NAMED coordinates.** `box_2d` and `bbox_2d`
+are positional and gemma-native `yxyx`, which is the exact form that produced all
+11 measured flips, and no arm in this sweep requested them. **`box_2d` remains
+unverified**: this result clears the models under C2, not the positional form
+C2 exists to avoid.
+
+Everything above is the synthetic six-shape scene; a photograph with ambiguous
+object boundaries is a different test.
 
 ## 1. The request
 

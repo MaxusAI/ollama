@@ -25,6 +25,11 @@ says nothing about that population, and 1920×1080 turns out to be an unusually
 friendly point in it: it is not even patch-aligned (`1080/32 = 33.75`,
 `1080/48 = 22.5`), so the corpus had never been measured on a clean grid either.
 
+Measured on four models: `qwen3.8:27b-q4_K_M`, `qwen3.6:35b-a3b-q4_K_M`,
+`gemma4:31b-it-q4_K_M` and `gemma4:26b-a4b-it-q4_K_M`. The last is the family
+that produced every measured axis flip, and it is clean here because the arm asks
+for named coordinates — C2, not luck.
+
 14 geometries were measured, in two tiers: controlled pairs that isolate one
 variable each (an alignment twin per stride, a portrait with the same pixel
 count as `hd`, sizes above and below the token budget), and six sizes drawn once
@@ -47,7 +52,7 @@ choice. The geometry sweep gives a much stronger reason:
 
 | pin | cells converting 6/6 |
 |---|---|
-| **norm-1000** (`bbox_contract_anchored_1img`) | **55 of 56** across 14 geometries, both models, both think modes |
+| **norm-1000** (`bbox_contract_anchored_1img`) | **111 of 112** across 14 geometries × 4 models × 2 think modes |
 | `real` pixels (`bbox_contract_real_1img`) | qwen3.8 **14/14**; qwen3.6 **1/14** |
 
 Under the norm-1000 pin the model never has to name the frame it is working in,

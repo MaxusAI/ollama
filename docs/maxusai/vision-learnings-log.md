@@ -90,6 +90,18 @@ anchored bbox request.
 - **Cost** — I recommended "think OFF" as a flat rule from the multi-image
   evidence. That would have given up thinking on a task where it is free.
 
+### 2026-08-19 — Named coordinates fix the gemma4 axis flip, measured on the family that flips
+- **Evidence** — `gemma4:26b-a4b-it-q4_K_M`, the MoE variant from the family
+  that produced **all 11** measured `yxyx`-while-declaring-`xyxy` flips, emitted
+  `norm1000`/`xyxy` and honoured it in **14/14** geometries in **both** think
+  modes. `gemma4:31b-it-q4_K_M` likewise 14/14 × 2. The pin now stands at
+  **111 of 112** cells across four models.
+- **Enforced by** — SPEC C2 and §0.1.
+- **Cost** — none; this confirms a clause rather than correcting one. Worth
+  logging because it is the first time C2 was tested on the family it was written
+  for, and because it does NOT clear `box_2d` — the positional form was never
+  requested, so the flip risk is avoided rather than measured absent.
+
 ---
 
 ## 2026-08-19 — method

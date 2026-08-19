@@ -137,6 +137,47 @@ qwen3.6 claims `real/[800, 800]`, a 2.5× upscale of a 320×320 input, and
 converts 1/6. The 2.5× is consistent with the fixed `--image-min-tokens 1024`
 floor upscaling a below-floor image.
 
+## 4b. gemma4, both families — added 2026-08-19
+
+`gemma4:31b-it-q4_K_M` and `gemma4:26b-a4b-it-q4_K_M` (GGUF Q4_K_M), CUDA
+Blackwell, eviction-cold per [ADR 0031](adr/0031-model-residency-is-managed-client-side-on-remote-hosts.md),
+norm-1000 pin with named coordinates. **56 of 56 cells convert 6/6**, both think
+modes, zero C7 rejections, zero silent failures.
+
+Columns: 26b-a4b think-off, 26b-a4b think-on, 31b think-off, 31b think-on.
+
+**bbox_contract_anchored_1img** (`g4-*`)
+
+| geometry | sent | frame | ratio | chk anc/bf | frame | ratio | chk anc/bf | frame | ratio | chk anc/bf | frame | ratio | chk anc/bf |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `hd` | 1920×1080 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `hd_al32` | 1920×1088 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `hd_al48` | 1920×1104 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `sq320` | 320×320 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `vga` | 800×600 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `portrait` | 1080×1920 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `uhd` | 3072×1728 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `uhd4k` | 3840×2160 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `paste1` | 1668×733 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `paste2` | 2812×2135 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `paste3` | 1235×1181 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `paste4` | 2750×2379 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `paste5` | 3030×1549 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+| `paste6` | 3011×2317 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 | *norm1000* | — | ✅ 6/6 |
+
+- **gemma4_26b-a4b-it-q4_K_M/false** — 14 geometries: 14 convert 6/6, 0 rejected by C7, **0 silent failures** (C7 passed, anchor does not convert)
+- **gemma4_26b-a4b-it-q4_K_M/on** — 14 geometries: 14 convert 6/6, 0 rejected by C7, **0 silent failures** (C7 passed, anchor does not convert)
+- **gemma4_31b-it-q4_K_M/false** — 14 geometries: 14 convert 6/6, 0 rejected by C7, **0 silent failures** (C7 passed, anchor does not convert)
+- **gemma4_31b-it-q4_K_M/on** — 14 geometries: 14 convert 6/6, 0 rejected by C7, **0 silent failures** (C7 passed, anchor does not convert)
+
+**The 26b MoE row is the load-bearing one.** Every measured `yxyx`-while-declaring-
+`xyxy` flip in this corpus came from a gemma4 26b variant. Asked for named
+`x1`/`y1`/`x2`/`y2`, it declared `norm1000`/`xyxy` and honoured it in **14/14**
+cells in **both** think modes. That is C2 doing its job, and it does not
+generalise to `box_2d` — no arm here requested a positional array.
+
+Combined with §2–3, the pin now stands at **111 of 112 cells across four models**.
+
 ## 5. Limits
 
 n=1 per cell — enough for the norm-1000 result (55 of 56 identical) and for the
