@@ -133,14 +133,30 @@ that the claim had the SIGN backwards.
 - **The corrected single-variable experiment** (dimensions retained in all three
   arms, verified programmatically before launch), 4 models × 2 think modes:
 
-  | model | mode | baseline (px) | pinned | anchored |
-  |---|---|---|---|---|
-  | gemma4:26b-a4b | on | 0.334 | **0.000** | 0.711 |
-  | qwen3.6:35b-a3b | on | **0.971** | **0.044** | 0.640 |
-  | nemotron3:33b | on | 0.753 | 0.434 | 0.499 |
-  | qwen3.8:27b | on | 0.973 | 0.981 | 0.962 |
+  | model | arch | mode | baseline (px) | pinned | anchored |
+  |---|---|---|---|---|---|
+  | gemma4:26b-a4b | **MoE** | on | 0.334 | **0.000** | 0.711 |
+  | qwen3.6:35b-a3b | **MoE** | on | **0.971** | **0.044** | 0.640 |
+  | nemotron3:33b | **hybrid** | on | 0.753 | 0.434 | 0.499 |
+  | gemma4:31b | dense | on | 0.962 | 0.964 | 0.749 |
+  | qwen3.8:27b | dense | on | 0.973 | 0.981 | 0.962 |
 
-  The pin is **worse than baseline in 3 of 4 models**, catastrophically so in two.
+  The pin is **worse than baseline in 3 of 5 models**, catastrophically so in two.
+
+  **The split tracks ARCHITECTURE, not baseline quality — pattern at n=5, not a
+  mechanism.** Both MoE models and the hybrid are damaged; both dense models are
+  not. Baseline quality does not predict it: qwen3.6 starts at a healthy 0.971
+  and the pin takes it to 0.044, while gemma4:31b starts at 0.962 and is
+  untouched. The gemma4 pair is the cleanest evidence — same family, same
+  quantisation, same host, same prompt, differing only MoE vs dense: **0.334 vs
+  0.962** on the baseline, and the pin drives the MoE to 0.000 while leaving the
+  dense one at 0.964.
+
+  Recorded as an OBSERVATION, explicitly not a conclusion: five models, one task,
+  one scorer, and no account of why sparse routing would interact with a
+  normalized coordinate space under thinking. Given four over-generalisations
+  logged today, this is the shape of claim that needs another arch pair before it
+  is believed.
   gemma4 pinned burned the full **122,880**-token budget for IoU 0.000. Think-off
   is unaffected everywhere (0.973 / 0.975 / 0.870 / 0.977), so this is a
   reasoning-time effect.
