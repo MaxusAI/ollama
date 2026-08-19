@@ -193,6 +193,13 @@ def main():
                 prov_hosts.add(sec["host"])
             if sec.get("server_version"):
                 prov_vers.add(sec["server_version"])
+        # A loaded pre-H11 file contributes the sentinel so mixing it with an
+        # H11-era row renders both entries and trips the MIXED warning --
+        # otherwise the footer shows one clean host for rows it can't vouch for.
+        if scores and not any(sec.get("host") for sec in (sc, dc, mu, ft)):
+            prov_hosts.add("pre-H11 run (host not recorded)")
+        if scores and not any(sec.get("server_version") for sec in (sc, dc, mu, ft)):
+            prov_vers.add("pre-H11 run (build not recorded)")
 
         iou = sc.get("bbox_mean_iou")
         iou_cell = "—" if iou is None else (f"**{iou:.3f}**" if eng == "MLX" else f"{iou:.3f}")

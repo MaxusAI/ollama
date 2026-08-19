@@ -84,6 +84,13 @@ def main():
                 prov_hosts.add(sec["host"])
             if sec.get("server_version"):
                 prov_vers.add(sec["server_version"])
+        # A loaded pre-H11 file contributes the sentinel so mixing it with an
+        # H11-era column renders both entries and trips the MIXED warning --
+        # otherwise the footer shows one clean host for columns it can't vouch for.
+        if s and not any(sec.get("host") for sec in (sc, dc, mu, ft, ma)):
+            prov_hosts.add("pre-H11 run (host not recorded)")
+        if s and not any(sec.get("server_version") for sec in (sc, dc, mu, ft, ma)):
+            prov_vers.add("pre-H11 run (build not recorded)")
         gen, pre = sc.get("gen_tps"), sc.get("prefill_tps")
         s_req = (sc["eval_count"] / gen + sc["prompt_eval_count"] / pre
                  if gen and pre and sc.get("eval_count") and sc.get("prompt_eval_count") else None)
