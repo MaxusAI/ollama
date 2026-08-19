@@ -119,30 +119,41 @@ anchored bbox request.
 - **Cost** — none; this closes a gap the named-coordinate sweep could not, since
   that sweep avoided the positional form rather than testing it.
 
-### 2026-08-19 — `scene_single` non-termination is a STOPPING problem, not comprehension (hypothesis, experiment queued)
-gemma4:26b-a4b think-on capped `scene_single` at 16384 and 32768 and climbed to
-65536 — a single-image arm, which weakens the earlier reading that runaway
-reasoning is about cross-image referencing.
+### 2026-08-19 — `scene_single`'s think-on collapse is caused by the ABSOLUTE PIXEL convention — CONFIRMED
+Asking a model to estimate absolute pixels by eye has no closing condition, so it
+never accepts its own answer. It is not a comprehension failure and not a gemma4
+weakness.
 
-- **Evidence** — from the persisted reasoning stream, 16,080 chars: `"Let's
-  re-estimate."` **10×**, `ANCHOR: [72, 148, 218, 336]` re-derived to the
-  **identical** numbers **8×**, `"Wait"` **15×**, each of the six shapes
-  mentioned 25–39×. It is not converging — it re-confirms an answer it already
-  has. And the values **drift as it loops**: ANCHOR x2 moves 218 → 392, CIPHER
-  781 → 1381, so later iterations are *worse*. One corrupted token appears
-  mid-stream (`[3el, 108, 686, 305]`).
-- **Suspected cause** — `SCENE_PROMPT` asks for **ABSOLUTE PIXEL coordinates**,
-  the `real` convention. SPEC §4 measured that pinning norm-1000 removes the need
-  to name a frame; under `real` the model must, and estimating pixels by eye has
-  no closing condition. There is also no `__IMAGE__` anchor, so no self-check it
-  can complete — the same anchor bounded qwen3.6's runaway from >122,880 tokens
-  to 10,910.
-- **Enforced by** — NOT YET. `scene_single_pinned` (pin only) and
-  `scene_single_anchored` (pin + anchor) are prepared and queued behind the
-  running suite, so the two halves are attributable rather than confounded.
-  Marked a hypothesis until they run.
-- **Cost so far** — this one arm forces the full context ladder for every
-  think-on cell in the suite, and the ladder re-runs ALL arms at every rung.
+- **Evidence** — three arms differing in one variable each,
+  `gemma4:26b-a4b-it-q4_K_M` think-on, same image, same everything else:
+
+  | arm | IoU | eval tokens per rung | reasoning | capped |
+  |---|---|---|---|---|
+  | `scene_single` (ABSOLUTE PIXEL) | **0.334** | 8192 → 24576 → 7576 | 16,080 ch | **twice** |
+  | `scene_single_pinned` (norm-1000) | **0.972** | 3185 / 3185 / 2748 | 4,065 ch | never |
+  | `scene_single_anchored` (+ `__IMAGE__`) | **0.972** | 3164 / 3164 / 2389 | 4,347 ch | never |
+
+  IoU **2.9× better**, reasoning **4× shorter**, runaway gone. Only the baseline
+  capped, and it dragged the whole cell up two rungs. The fixed arms' token counts
+  are byte-identical across rungs, so this is deterministic.
+- **THE PIN ALONE IS SUFFICIENT — the anchor adds nothing.** `pinned` equals
+  `anchored` at 0.972. This also disposes of a confound I had flagged: the
+  anchored prompt carried an explicit "do not re-estimate" stop instruction and
+  `pinned` does not, yet they perform identically. The stop instruction was
+  irrelevant; the convention was everything.
+- **Corroborating detail** — the reasoning stream shows why. `"Let's
+  re-estimate."` **10×**, `ANCHOR` re-derived to the **identical** numbers **8×**,
+  `"Wait"` **15×**, and values drifting *worse* as it looped (ANCHOR x2 218 → 392,
+  CIPHER 781 → 1381). The final answer is the worst one, which is what 0.334 is.
+- **Enforced by** — `scene_single_pinned` / `scene_single_anchored`.
+  `scene_single` is deliberately UNCHANGED: every published scene number was
+  measured with it, and rewriting it would silently invalidate the corpus.
+- **Cost** — one arm forced the full context ladder for every think-on cell in
+  the gemma4 suite, and the ladder re-runs all 16 arms per rung. It also produced
+  a published **0.334** that reads as a model failure and is a prompt artefact.
+- **Generalises** — this is the same mechanism SPEC §4 measured for the `real`
+  pin on the bbox arms, now reproduced on an unrelated task. **Suspect the
+  convention before the model whenever think-on runs away.**
 
 ### 2026-08-19 — Persisting the reasoning text is what made the above diagnosable
 - **Evidence** — the repetition counts, the identical re-derivations and the
@@ -259,7 +270,7 @@ checking actual state.**
 | Stated a rationale I had not measured | **2** | "chat adds template tokens" (identical); "`/api/generate` is behind" (gemma4 only) |
 | Generalised from one model | **2** | anchor rescues; endpoint drops reasoning |
 | Edited a module while a sweep ran against it | **1** | `NameError` mid-import, 1 cell lost |
-| Stated an intended action as a completed one | **1** | said "restarting the full suite now" without running the command; only the waiter was alive, host idle, zero cells |
+| Stated an intended action as a completed one | **2** | said "restarting the full suite now", and later "applying the patch and running now", without issuing either command. Second one idled the GPU ~2h. Guard: launch and `pgrep`-verify in the SAME command |
 | Over-broad regex deletion | **1** | 4 prompt constants removed with the function being replaced |
 
 **What actually caught these:** the adversarial verification pass, not the test

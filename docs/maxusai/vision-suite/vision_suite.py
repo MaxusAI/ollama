@@ -161,6 +161,91 @@ to corner, in exactly the coordinate system you use for every other box in image
 
 
 
+
+# --- the scene TERMINATION arms -----------------------------------------
+#
+# scene_single does not fail to understand the scene, it fails to STOP. See
+# the patch script in the session scratchpad for the reasoning-stream
+# evidence. These two isolate which half of the fix does the work: the pin
+# removes the need to name a frame, the anchor adds a self-check that can
+# actually complete. Pressure language is held identical in both.
+SCENE_PROMPT_PINNED = """You are a precision visual inspection system deployed in an industrial
+quality-assurance pipeline. Your task on this frame is exhaustive object detection,
+label transcription, and localization. Accuracy requirements are strict: downstream
+robotic actuators consume your bounding boxes directly, so a box that misses its object
+by more than a few percent of the frame causes a physical pick failure; a mis-transcribed
+label causes the wrong part to be routed. Work methodically: first scan the entire frame
+edge to edge, including corners and margins, then enumerate every distinct colored shape
+you can find. For every shape, read the text label printed immediately above it — labels
+are short uppercase code words, transcribe them EXACTLY, character by character, without
+guessing or normalizing. If a label is genuinely illegible at the available resolution,
+set "label" to null and "label_legible" to false rather than inventing a word; invented
+labels are the single most damaging failure mode in this pipeline. Also transcribe any
+other text present anywhere in the frame, however small, in the "other_text" array —
+serial numbers, watermarks, footers, anything. Bounding boxes use "norm1000" — each axis
+scaled independently to 0-1000, x by 1000/width and y by 1000/height. The coordinate
+space is 1000x1000 whatever the image's shape is. Format them [x1, y1, x2, y2] where
+(x1, y1) is the top-left corner and (x2, y2) the bottom-right corner of the shape itself
+(not including its label text). Do not estimate pixel positions; report the normalized
+value directly. For color, report the closest common English
+color name (red, blue, green, orange, purple, teal, yellow, pink, brown, gray, black).
+For shape kind use exactly "rectangle" or "ellipse". Respond with a SINGLE JSON object,
+no prose before or after, following exactly this schema:
+{{
+  "image_width": <int>, "image_height": <int>,
+  "object_count": <int>,
+  "objects": [
+    {{"label": <string or null>, "label_legible": <bool>, "kind": "rectangle"|"ellipse",
+      "color": <string>, "bbox": [x1, y1, x2, y2], "confidence": <float 0..1>}}
+  ],
+  "other_text": [<string>, ...],
+  "notes": <string, one short sentence on anything ambiguous>
+}}
+Do not omit any object. Do not merge adjacent objects. Count carefully before writing
+object_count and make it equal to the length of the objects array."""
+
+SCENE_PROMPT_ANCHORED = """You are a precision visual inspection system deployed in an industrial
+quality-assurance pipeline. Your task on this frame is exhaustive object detection,
+label transcription, and localization. Accuracy requirements are strict: downstream
+robotic actuators consume your bounding boxes directly, so a box that misses its object
+by more than a few percent of the frame causes a physical pick failure; a mis-transcribed
+label causes the wrong part to be routed. Work methodically: first scan the entire frame
+edge to edge, including corners and margins, then enumerate every distinct colored shape
+you can find. For every shape, read the text label printed immediately above it — labels
+are short uppercase code words, transcribe them EXACTLY, character by character, without
+guessing or normalizing. If a label is genuinely illegible at the available resolution,
+set "label" to null and "label_legible" to false rather than inventing a word; invented
+labels are the single most damaging failure mode in this pipeline. Also transcribe any
+other text present anywhere in the frame, however small, in the "other_text" array —
+serial numbers, watermarks, footers, anything. Bounding boxes use "norm1000" — each axis
+scaled independently to 0-1000, x by 1000/width and y by 1000/height. The coordinate
+space is 1000x1000 whatever the image's shape is. Format them [x1, y1, x2, y2] where
+(x1, y1) is the top-left corner and (x2, y2) the bottom-right corner of the shape itself
+(not including its label text). Do not estimate pixel positions; report the normalized
+value directly. For color, report the closest common English
+color name (red, blue, green, orange, purple, teal, yellow, pink, brown, gray, black).
+For shape kind use exactly "rectangle" or "ellipse". Respond with a SINGLE JSON object,
+no prose before or after, following exactly this schema:
+{{
+  "image_width": <int>, "image_height": <int>,
+  "object_count": <int>,
+  "objects": [
+    {{"label": <string or null>, "label_legible": <bool>, "kind": "rectangle"|"ellipse",
+      "color": <string>, "bbox": [x1, y1, x2, y2], "confidence": <float 0..1>}}
+  ],
+  "other_text": [<string>, ...],
+  "notes": <string, one short sentence on anything ambiguous>
+}}
+The objects array MUST BEGIN with one extra calibration entry whose "label" is
+"__IMAGE__" and whose "bbox" covers the ENTIRE image, corner to corner, in exactly
+the same convention as every other box. Emit it first, then the shapes. Once the
+calibration entry and the six boxes are written, the task is complete — do not
+re-estimate coordinates you have already reported.
+
+Do not omit any object. Do not merge adjacent objects. Count carefully before writing
+object_count and make it equal to the length of the objects array."""
+
+
 def center_in(pred, gtb):
     try:
         cx, cy = (pred[0] + pred[2]) / 2, (pred[1] + pred[3]) / 2
@@ -1205,6 +1290,14 @@ tests = [
     # own input, and a scene_single geometry cell that measured obedience to a
     # false premise. GT["scene_hd"] is already swapped by the GEOMETRY block, so
     # reading the size from it keeps the two in step by construction.
+    ("scene_single_pinned",
+     SCENE_PROMPT_PINNED.format(w=GT["scene_hd"]["size"][0],
+                                h=GT["scene_hd"]["size"][1]),
+     ["scene_hd.png"], score_scene),
+    ("scene_single_anchored",
+     SCENE_PROMPT_ANCHORED.format(w=GT["scene_hd"]["size"][0],
+                                  h=GT["scene_hd"]["size"][1]),
+     ["scene_hd.png"], score_scene),
     ("scene_single",
      SCENE_PROMPT.format(w=GT["scene_hd"]["size"][0], h=GT["scene_hd"]["size"][1]),
      ["scene_hd.png"], score_scene),

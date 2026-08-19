@@ -89,6 +89,15 @@ measurably worse on qwen3.8 and costs one cell out of fourteen on qwen3.6.
   flips are escaped by C2, not by thinking — see the table above; do not read
   that result as licence to send positional arrays to it.
 
+> **The norm-1000 pin also terminates runaway reasoning, measured 2026-08-19 on
+> an unrelated task.** `scene_single` asks for ABSOLUTE PIXEL coordinates and no
+> anchor. Under think-on `gemma4:26b-a4b-it-q4_K_M` scored **IoU 0.334** after
+> capping two ladder rungs. The identical prompt with norm-1000 substituted for
+> pixels scored **0.972** with no escalation, 4× less reasoning, and adding the
+> `__IMAGE__` anchor on top changed nothing. Estimating pixels by eye has no
+> closing condition; a normalized space does. **Suspect the convention before the
+> model whenever think-on runs away.**
+
 **The cost is tokens, not accuracy** — for qwen3.8 on this task. Budget for the
 context ladder to escalate and record the rung it settles at
 ([SPEC H4a](vision-harness-reuse.md)); a think-on cell that caps has produced a
