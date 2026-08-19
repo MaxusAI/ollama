@@ -5,6 +5,9 @@ supports it, and the artefact that now enforces it. An entry with no enforcing
 artefact is a note, not a learning — it will be forgotten and re-learned.
 
 Format: `### YYYY-MM-DD — claim` / **Evidence** / **Enforced by** / **Cost**.
+A claim that later fails is **kept and marked REFUTED**, never deleted — the
+sequence claim → retraction → refutation is more instructive than the final
+answer, and a deleted claim can be re-derived by the next person.
 "Cost" is what not knowing it already cost, in cells, hours, or wrong published
 numbers. It is the field that decides whether the enforcement was worth building.
 
@@ -169,7 +172,9 @@ that the claim had the SIGN backwards.
   alone: two frames to reconcile, and under thinking it deliberates until the
   budget dies.
 - **Enforced by** — `scene_single_pinned` / `scene_single_anchored` retained as
-  the evidence. `scene_single` unchanged.
+  the evidence; full tables and the process post-mortem in
+  [vision-campaign-2026-08-20-scene-termination.md](vision-campaign-2026-08-20-scene-termination.md).
+  `scene_single` unchanged.
 - **Cost** — a wrong claim was committed, pushed, and readable for ~2 hours; the
   correction needed two full 4-model runs. The cheap guard that would have caught
   it is the one now used: assert the single-variable property with code before
