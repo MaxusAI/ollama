@@ -183,11 +183,11 @@ set "label" to null and "label_legible" to false rather than inventing a word; i
 labels are the single most damaging failure mode in this pipeline. Also transcribe any
 other text present anywhere in the frame, however small, in the "other_text" array —
 serial numbers, watermarks, footers, anything. Bounding boxes use "norm1000" — each axis
-scaled independently to 0-1000, x by 1000/width and y by 1000/height. The coordinate
-space is 1000x1000 whatever the image's shape is. Format them [x1, y1, x2, y2] where
-(x1, y1) is the top-left corner and (x2, y2) the bottom-right corner of the shape itself
-(not including its label text). Do not estimate pixel positions; report the normalized
-value directly. For color, report the closest common English
+scaled independently to 0-1000, x by 1000/width and y by 1000/height, formatted
+[x1, y1, x2, y2] where (x1, y1) is the top-left corner and (x2, y2) the bottom-right
+corner of the shape itself (not including its label text). The image is exactly {w}
+pixels wide and {h} pixels tall, but report NORMALIZED 0-1000 values rather than
+pixels, so all coordinates must lie in the range 0-1000. For color, report the closest common English
 color name (red, blue, green, orange, purple, teal, yellow, pink, brown, gray, black).
 For shape kind use exactly "rectangle" or "ellipse". Respond with a SINGLE JSON object,
 no prose before or after, following exactly this schema:
@@ -218,11 +218,11 @@ set "label" to null and "label_legible" to false rather than inventing a word; i
 labels are the single most damaging failure mode in this pipeline. Also transcribe any
 other text present anywhere in the frame, however small, in the "other_text" array —
 serial numbers, watermarks, footers, anything. Bounding boxes use "norm1000" — each axis
-scaled independently to 0-1000, x by 1000/width and y by 1000/height. The coordinate
-space is 1000x1000 whatever the image's shape is. Format them [x1, y1, x2, y2] where
-(x1, y1) is the top-left corner and (x2, y2) the bottom-right corner of the shape itself
-(not including its label text). Do not estimate pixel positions; report the normalized
-value directly. For color, report the closest common English
+scaled independently to 0-1000, x by 1000/width and y by 1000/height, formatted
+[x1, y1, x2, y2] where (x1, y1) is the top-left corner and (x2, y2) the bottom-right
+corner of the shape itself (not including its label text). The image is exactly {w}
+pixels wide and {h} pixels tall, but report NORMALIZED 0-1000 values rather than
+pixels, so all coordinates must lie in the range 0-1000. For color, report the closest common English
 color name (red, blue, green, orange, purple, teal, yellow, pink, brown, gray, black).
 For shape kind use exactly "rectangle" or "ellipse". Respond with a SINGLE JSON object,
 no prose before or after, following exactly this schema:

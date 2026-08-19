@@ -119,50 +119,45 @@ anchored bbox request.
 - **Cost** — none; this closes a gap the named-coordinate sweep could not, since
   that sweep avoided the positional form rather than testing it.
 
-### 2026-08-19 — `scene_single`'s think-on collapse: gemma4 fix CONFIRMED, cause NOT established (confounded experiment)
-Asking a model to estimate absolute pixels by eye has no closing condition, so it
-never accepts its own answer. It is not a comprehension failure and not a gemma4
-weakness.
+### 2026-08-19 — REFUTED: the norm-1000 pin does not fix `scene_single` runaway. It causes it.
+Stated as confirmed, retracted the same day, then refuted outright by the
+corrected experiment. Recorded in full because the retraction alone would hide
+that the claim had the SIGN backwards.
 
-- **Evidence** — three arms differing in one variable each,
-  `gemma4:26b-a4b-it-q4_K_M` think-on, same image, same everything else:
+- **What was claimed** — `scene_single` asks for ABSOLUTE PIXEL coordinates, which
+  has no closing condition; pinning norm-1000 recovered gemma4:26b-a4b think-on
+  from IoU 0.334 to 0.972 with 4× less reasoning.
+- **Why that was wrong** — the `pinned` arm changed TWO variables. It swapped the
+  convention *and* dropped "The image is exactly {w} pixels wide and {h} pixels
+  tall". The recovery came from removing the dimensions, not from the pin.
+- **The corrected single-variable experiment** (dimensions retained in all three
+  arms, verified programmatically before launch), 4 models × 2 think modes:
 
-  | arm | IoU | eval tokens per rung | reasoning | capped |
+  | model | mode | baseline (px) | pinned | anchored |
   |---|---|---|---|---|
-  | `scene_single` (ABSOLUTE PIXEL) | **0.334** | 8192 → 24576 → 7576 | 16,080 ch | **twice** |
-  | `scene_single_pinned` (norm-1000) | **0.972** | 3185 / 3185 / 2748 | 4,065 ch | never |
-  | `scene_single_anchored` (+ `__IMAGE__`) | **0.972** | 3164 / 3164 / 2389 | 4,347 ch | never |
+  | gemma4:26b-a4b | on | 0.334 | **0.000** | 0.711 |
+  | qwen3.6:35b-a3b | on | **0.971** | **0.044** | 0.640 |
+  | nemotron3:33b | on | 0.753 | 0.434 | 0.499 |
+  | qwen3.8:27b | on | 0.973 | 0.981 | 0.962 |
 
-  IoU **2.9× better**, reasoning **4× shorter**, runaway gone. Only the baseline
-  capped, and it dragged the whole cell up two rungs. The fixed arms' token counts
-  are byte-identical across rungs, so this is deterministic.
-- **THE PIN ALONE IS SUFFICIENT — the anchor adds nothing.** `pinned` equals
-  `anchored` at 0.972. This also disposes of a confound I had flagged: the
-  anchored prompt carried an explicit "do not re-estimate" stop instruction and
-  `pinned` does not, yet they perform identically. The stop instruction was
-  irrelevant; the convention was everything.
-- **Corroborating detail** — the reasoning stream shows why. `"Let's
-  re-estimate."` **10×**, `ANCHOR` re-derived to the **identical** numbers **8×**,
-  `"Wait"` **15×**, and values drifting *worse* as it looped (ANCHOR x2 218 → 392,
-  CIPHER 781 → 1381). The final answer is the worst one, which is what 0.334 is.
-- **Enforced by** — `scene_single_pinned` / `scene_single_anchored`.
-  `scene_single` is deliberately UNCHANGED: every published scene number was
-  measured with it, and rewriting it would silently invalidate the corpus.
-- **Cost** — one arm forced the full context ladder for every think-on cell in
-  the gemma4 suite, and the ladder re-runs all 16 arms per rung. It also produced
-  a published **0.334** that reads as a model failure and is a prompt artefact.
-- **DOES NOT GENERALISE — falsified the same day, and the experiment was
-  confounded.** Extended to four models: pin helps gemma4 (0.334→0.972) and
-  qwen3.6 think-on (0.717→0.938), HURTS nemotron3 think-on (0.813→0.599), and
-  destroys qwen3.8 think-off (0.977→**0.088**). The anchor is worse than the pin
-  in three of four models.
-  The cause of the 0.088 is my own design error: the `pinned` arm changed **two**
-  variables, not one — it swapped the convention *and* removed "The image is
-  exactly {w} pixels wide and {h} pixels tall". qwen3.8 then answered in its own
-  **2500×1400** rescale frame, the ~1.30× frame SPEC §4 measured.
-  **What survives**: gemma4:26b-a4b's collapse is real and the modified prompt
-  fixes it. **What does not**: why, and everything about other models. Re-run with
-  the dimensions retained before believing any of it.
+  The pin is **worse than baseline in 3 of 4 models**, catastrophically so in two.
+  gemma4 pinned burned the full **122,880**-token budget for IoU 0.000. Think-off
+  is unaffected everywhere (0.973 / 0.975 / 0.870 / 0.977), so this is a
+  reasoning-time effect.
+- **What actually survives** — (a) gemma4:26b-a4b think-on on scene is genuinely
+  bad, 0.334 against its own 0.973 think-off, and NO prompt variant fixes it;
+  anchored reaches only 0.711. That is a model property. (b) `qwen3.6` has **no**
+  scene problem — baseline think-on is 0.971. Its runaway is specific to
+  `multi_3img`, and "qwen3.6 runs away under thinking" was over-broad.
+  (c) Stating a pixel size AND a normalized space appears worse than either
+  alone: two frames to reconcile, and under thinking it deliberates until the
+  budget dies.
+- **Enforced by** — `scene_single_pinned` / `scene_single_anchored` retained as
+  the evidence. `scene_single` unchanged.
+- **Cost** — a wrong claim was committed, pushed, and readable for ~2 hours; the
+  correction needed two full 4-model runs. The cheap guard that would have caught
+  it is the one now used: assert the single-variable property with code before
+  launching, not in prose afterwards.
 
 ### 2026-08-19 — Persisting the reasoning text is what made the above diagnosable
 - **Evidence** — the repetition counts, the identical re-derivations and the
@@ -277,7 +272,7 @@ checking actual state.**
 | Watched a marker file instead of the real completion condition | **3** | watchers left polling sentinels with no writer — 2h51m, 3h20m, and one on a log the killed run never wrote |
 | Published a number before the run that produced it landed | **2** | "53 of 54" (true: 55 of 56); frame ranges quoted as the sub-1.0 subset |
 | Stated a rationale I had not measured | **2** | "chat adds template tokens" (identical); "`/api/generate` is behind" (gemma4 only) |
-| Generalised from one model | **3** | anchor rescues; endpoint drops reasoning; "suspect the convention" published from n=1 and falsified at n=4 within the hour |
+| Generalised from one model | **4** | anchor rescues; endpoint drops reasoning; "suspect the convention" published from n=1 and falsified at n=4 within the hour |
 | Edited a module while a sweep ran against it | **1** | `NameError` mid-import, 1 cell lost |
 | Stated an intended action as a completed one | **2** | said "restarting the full suite now", and later "applying the patch and running now", without issuing either command. Second one idled the GPU ~2h. Guard: launch and `pgrep`-verify in the SAME command |
 | Changed two variables while calling it a single-variable arm | **1** | `scene_single_pinned` dropped the image-dimension sentence along with the convention; produced a 0.088 that looked like a model failure |

@@ -108,10 +108,17 @@ measurably worse on qwen3.8 and costs one cell out of fourteen on qwen3.6.
 > the same ~1.30× frame §4 measured — which `score_scene` cannot recover, hence
 > 0.088.
 >
-> What survives: gemma4:26b-a4b's think-on collapse is real and the modified
-> prompt fixes it. What does not: any claim about *why*, or about other models.
-> The experiment needs re-running with the image dimensions retained, so the
-> convention is the only thing that changes.
+> **Re-run with the dimensions retained: the claim is REFUTED, not merely
+> unsupported.** Single-variable arms, 4 models × 2 think modes — the pin scores
+> gemma4:26b-a4b **0.000** (full 122,880-token budget burned), qwen3.6 **0.044**
+> against a **0.971** baseline, nemotron3 0.434 against 0.753. It is worse than
+> the pixel baseline in 3 of 4 models and never better under thinking.
+>
+> What survives: gemma4:26b-a4b think-on on scene is genuinely poor (0.334 vs
+> 0.973 think-off) and no prompt variant recovers it — a model property, not a
+> prompt artefact. None of this bears on the bbox arms, where the norm-1000 pin
+> is measured at 111 of 112 cells; `scene_single` is a different task with a
+> different scorer and no anchor-derived conversion.
 
 **The cost is tokens, not accuracy** — for qwen3.8 on this task. Budget for the
 context ladder to escalate and record the rung it settles at
