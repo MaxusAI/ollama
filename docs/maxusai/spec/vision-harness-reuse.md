@@ -110,6 +110,31 @@ documents, chat replies and PR descriptions. Reformatting is what dropped the
 as scene IoU 0.000 when the settled value was 0.872 at 32768. A markdown table
 pasted without a code fence is both verbatim and rendered.
 
+**H13 — Report footers derive provenance from the score files, and a MIXED
+footer blocks publication.** T1 and T2 print host(s) and build(s) collected
+from the H11 fields of every file they render. A file that loaded but carries
+no `host`/`server_version` contributes an explicit "pre-H11 run (not
+recorded)" entry — it must never vanish from the set, because a footer built
+only from the rows that DO record provenance vouches for the rows that don't.
+More than one distinct host, build, or recording state renders **⚠ MIXED —
+rows/columns are not one campaign**, and ADR 0012 convention 10 makes that
+non-publishable: re-run the odd columns under one campaign tag or split the
+table.
+
+Not hypothetical: the 2026-08-20 five-model CUDA head-to-head mixed pre-H11
+`g4full1` gemma columns into `cudafull1`'s table and the footer showed one
+clean host — with gemma4:26b-a4b think-on measured at `num_ctx` 131072 against
+16384 everywhere else. Only the per-cell `(num_ctx)` brackets (ADR 0012 rule 6)
+exposed it.
+
+**Capped cells render `capped` in every template, and `capped` is a to-do, not
+a result.** `was_capped` is the one test (H5) and T2 applies it per block via
+`cap_or`. Before it did, qwen3.6:35b-a3b think-on multi published as
+`❌ ❌ ❌ 0/5 (16384)` and nemotron3 fine-text as `0/0/0/0/0` — grounding-failure
+renderings of cells that had merely hit `num_predict` 8192 and were never
+escalated. The owed number is the final-rung score (ADR 0012 rule 8): a
+campaign with `capped` cells below `CTX_MAX` has not finished running.
+
 ## 3. Before writing anything
 
 **H8 — Check the inventory first.** `vision-suite/README.md` §Files lists every
@@ -250,6 +275,8 @@ something previously hidden:
 | H4a | `run_engine_compare.sh` exits 2 when `CTX_MAX` leaves no CONTEXT-ladder rung above the think-on start; think-off is unaffected and `ALLOW_NO_LADDER=1` overrides |
 | H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
+| H13 (footers) | `test_summarizers.py::TestProvenanceFooter` — clean / all-pre-H11 / mixed-recording / two-host cases against the rendered footer |
+| H13 (capped rendering) | `cap_or` in `summarize_head_to_head.py` importing `was_capped` (H5); `test_summarizers.py::TestT2CappedCells` asserts a capped scene hides score and latency but keeps tok/s |
 | H9 | `client.py` is the only module that builds a payload; `test_client.py` (20 tests) asserts the wire format, including the tri-state `send_think` and the `num_ctx=False` sentinel that a naive `== False` would have collapsed |
 | H12 | `prompt_sha` / `images_sha` / `prompt_parts` on every score block, written by `client.generate()`; absence marks a pre-2026-08-20 cell |
 | H11 | `host` / `server_version` on every score block, written unconditionally by `client.generate()`; absence marks a pre-2026-08-20 cell |

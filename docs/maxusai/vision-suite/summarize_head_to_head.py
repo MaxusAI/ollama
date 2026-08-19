@@ -20,6 +20,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from summarize_engine_compare import was_capped  # noqa: E402  (H5: import, never redefine)
+
 
 def load(path):
     try:
@@ -46,6 +49,18 @@ def ctx(block):
     # file OR fallback source" and stops identifying either.
     n = (block or {}).get("req_num_ctx") or (block or {}).get("num_ctx")
     return f" ({n})" if n else " (?)"
+
+
+def cap_or(block, text):
+    """ADR 0012 convention 9: a capped cell renders "capped", never a score.
+
+    eval_count == req_num_predict means generation stopped at the harness cap,
+    so every score parsed from that output measures truncation, not the model.
+    T1 has rendered these as "capped" since the ladder landed; T2 didn't, and
+    published qwen3.6 think-on multi as ❌ ❌ ❌ 0/5 (16384) — "cannot ground" —
+    when the cell was "never terminated at this rung" (2026-08-20, cudafull1).
+    """
+    return f"capped{ctx(block)}" if was_capped(block) else text
 
 
 def main():
@@ -98,26 +113,28 @@ def main():
         tiers = [ft.get(f"recall_{px}px") for px in (22, 16, 12, 9, 7)]
         cols.append(name)
         cells.append({
-            ("scene", "bbox IoU"): (f"{sc['bbox_mean_iou']:.3f}" + ctx(sc)) if sc.get("bbox_mean_iou") is not None else "—",
+            ("scene", "bbox IoU"): cap_or(sc, (f"{sc['bbox_mean_iou']:.3f}" + ctx(sc)) if sc.get("bbox_mean_iou") is not None else "—"),
             ("scene", "labels / serial"):
-                f"{sc.get('labels_found', '—')}/{sc.get('labels_total', '—')}, {b(sc.get('serial_found'))}",
+                cap_or(sc, f"{sc.get('labels_found', '—')}/{sc.get('labels_total', '—')}, {b(sc.get('serial_found'))}"),
             ("document", "items / qty+price / total / invoice"):
-                (f"{dc.get('items_found', '—')}/{dc.get('items_total', '—')}, "
-                 f"{dc.get('qty_price_right', '—')}/{dc.get('items_total', '—')}, "
-                 f"{b(dc.get('total_right'))}, {b(dc.get('invoice_no'))}") if dc else "—",
-            ("document", "name_bbox IoU"): (f"{doc_iou:.3f}" + ctx(dc)) if doc_iou is not None else "—",
+                cap_or(dc, (f"{dc.get('items_found', '—')}/{dc.get('items_total', '—')}, "
+                            f"{dc.get('qty_price_right', '—')}/{dc.get('items_total', '—')}, "
+                            f"{b(dc.get('total_right'))}, {b(dc.get('invoice_no'))}") if dc else "—"),
+            ("document", "name_bbox IoU"): cap_or(dc, (f"{doc_iou:.3f}" + ctx(dc)) if doc_iou is not None else "—"),
             ("fine text", "22/16/12/9/7 px"):
-                ("/".join("—" if t is None else str(t) for t in tiers) + ctx(ft)) if ft else "—",
+                cap_or(ft, ("/".join("—" if t is None else str(t) for t in tiers) + ctx(ft)) if ft else "—"),
             ("multi (3 img)", "q1 / q2 / q4-bbox / chart"):
-                (f"{b(mu.get('q1_right'))} {b(mu.get('q2_right'))} {b(mu.get('q4_bbox_hit'))} "
-                 f"{mu.get('chart_values_found', '—')}/{mu.get('chart_total', '—')}" + ctx(mu)) if mu else "—",
+                cap_or(mu, (f"{b(mu.get('q1_right'))} {b(mu.get('q2_right'))} {b(mu.get('q4_bbox_hit'))} "
+                            f"{mu.get('chart_values_found', '—')}/{mu.get('chart_total', '—')}" + ctx(mu)) if mu else "—"),
             ("multi (3 img, anchored)", "q1 / q2 / q4-bbox / chart"):
-                (f"{b(ma.get('q1_right'))} {b(ma.get('q2_right'))} {b(ma.get('q4_bbox_hit'))} "
-                 f"{ma.get('chart_values_found', '—')}/{ma.get('chart_total', '—')}" + ctx(ma)) if ma else "—",
+                cap_or(ma, (f"{b(ma.get('q1_right'))} {b(ma.get('q2_right'))} {b(ma.get('q4_bbox_hit'))} "
+                            f"{ma.get('chart_values_found', '—')}/{ma.get('chart_total', '—')}" + ctx(ma)) if ma else "—"),
             ("throughput", "gen tok/s"): f"{gen:.0f}" if gen else "—",
             ("throughput", "prefill tok/s"): f"{pre:.0f}" if pre else "—",
-            ("latency", "s/req (unique image)"): f"{s_req:.1f}" if s_req else "—",
-            ("latency", "req/h (serial)"): f"{3600 / s_req:.0f}" if s_req else "—",
+            # A capped scene cell's eval_count IS the cap: s/req and req/h
+            # derived from it quote the harness setting as model latency.
+            ("latency", "s/req (unique image)"): "capped" if was_capped(sc) else (f"{s_req:.1f}" if s_req else "—"),
+            ("latency", "req/h (serial)"): "capped" if was_capped(sc) else (f"{3600 / s_req:.0f}" if s_req else "—"),
         })
 
     rows = list(cells[0].keys())

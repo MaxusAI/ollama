@@ -3,7 +3,8 @@
 - **Status:** accepted, 2026-08-08 (maintainer directive "resolve the issues",
   same day as proposal). Amended 2026-08-20: templates T4 (geometry sweep) and
   T5 (factor matrix) added with their generators; shared convention 9 (capped
-  cells) added. Validated in practice before acceptance: the
+  cells) added, then extended to T2 rendering the same day; convention 10
+  (mixed provenance) added. Validated in practice before acceptance: the
   2026-08-08 power campaign (PR #61/#62) was rendered exclusively through T1/T2
   with the latency pair and powermode provenance. Existing docs stay
   grandfathered; new reports use the templates.
@@ -36,7 +37,7 @@ from harness output MUST be emitted by the named generator**, not typed.
 | **T4 — Geometry sweep** | one row per geometry, one column group per model; anchor frame/ratio + chk/anc/bf columns keep SPEC C17's two failure modes distinguishable | geometry-generality campaigns (SPEC C13–C18); T1/T2/T3 are keyed on model, not image size | `vision-suite/summarize_geometry.py` |
 | **T5 — Factor matrix** | marginal effect per factor, split by model × think mode, geometry pooled with a named-worst-geometry spread guard; per-level capped counts; trustable-configs decision table | composable-arm campaigns (pin × anchor × coords) | `vision-suite/summarize_matrix.py` |
 
-Shared conventions, binding for all three:
+Shared conventions, binding for all five:
 
 1. **Provenance header** on every report: date, host, **power mode** (`pmset`
    powermode on macOS; `n/a` elsewhere), server version + payload + patchset,
@@ -88,16 +89,40 @@ Shared conventions, binding for all three:
    generator had already rendered correctly, which is what rule 1 above exists
    to prevent.
 
-9. **Capped cells never enter a pooled mean.** A cell whose `eval_count`
-   reached `req_num_predict` measures the harness cap, not the model; T1 has
-   rendered such cells as `capped` since the ladder landed, and pooled tables
-   (T5) exclude them and report the count per pooling level instead. The count
-   is a first-class result — it is where a termination failure shows — not
-   noise to average over. Measured 2026-08-20: qwen3.6:35b-a3b think-on was
-   60/80 capped on the CUDA factor matrix; pooling those cells published a
-   grounding marginal of 1.69/6 for a model that scores 6.00/6 in every cell
-   that terminates. Two failure modes, "cannot ground" and "cannot stop", must
-   never share one number.
+9. **Capped cells never enter a pooled mean, and never render as a score.** A
+   cell whose `eval_count` reached `req_num_predict` measures the harness cap,
+   not the model; T1 and T2 render such cells as `capped` (T2 since
+   2026-08-20 — until then it published qwen3.6:35b-a3b think-on multi as
+   `❌ ❌ ❌ 0/5 (16384)`, a grounding failure, and nemotron3 fine-text as
+   `0/0/0/0/0`, when both cells had simply hit `num_predict`), and pooled
+   tables (T5) exclude them and report the count per pooling level instead.
+   The count is a first-class diagnostic — it is where a termination failure
+   shows — not noise to average over. Measured 2026-08-20: qwen3.6:35b-a3b
+   think-on was 60/80 capped on the CUDA factor matrix; pooling those cells
+   published a grounding marginal of 1.69/6 for a model that scores 6.00/6 in
+   every cell that terminates. Two failure modes, "cannot ground" and "cannot
+   stop", must never share one number.
+
+   **A `capped` cell is not a result — it is an unfinished measurement.** The
+   result the reader is owed is the score at the final ladder rung (rule 8).
+   A campaign whose cells still read `capped` below `CTX_LADDER`'s ceiling has
+   not finished running, and `capped` at the ceiling is reported as the
+   model's documented non-termination, never left implicit. Rendering
+   `capped` is the generator refusing to lie; it is not permission to publish.
+
+10. **A report whose provenance footer reads ⚠ MIXED is not publishable.** T1
+    and T2 derive host and build from the score files (SPEC H11); a loaded
+    pre-H11 file contributes an explicit "pre-H11 run (not recorded)" entry so
+    it can never hide behind a recorded neighbour, and more than one distinct
+    host, build, or recording state trips the flag. A MIXED table is a
+    working view; the fix is re-running the odd columns under one campaign
+    tag, or splitting the table so each carries its own footer. A deliberate
+    cross-host comparison is its own report shape with per-column provenance,
+    not a MIXED single-campaign table. Measured 2026-08-20: the five-model
+    CUDA head-to-head quoted pre-H11 `g4full1` gemma columns under
+    `cudafull1`'s host line, with gemma4:26b-a4b think-on measured at
+    `num_ctx` 131072 against 16384 everywhere else — two campaigns and two
+    windows presented as one table.
 
 ## Alternatives considered
 

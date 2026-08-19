@@ -28,6 +28,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import summarize_engine_compare as sec  # noqa: E402
+import summarize_head_to_head as shh  # noqa: E402
 import summarize_reps as reps  # noqa: E402
 
 # One model, two think cells. Numbers chosen so every assertion below can name
@@ -472,6 +473,108 @@ class TestSiblingSummarizersDoNotClaimAnswerTokens(unittest.TestCase):
             self.assertEqual(bad, [], f"{name}: header claims answer tokens "
                                       f"without consulting the think mode")
         self.assertGreater(checked, 1, "the sweep found nothing to check")
+
+
+class TestProvenanceFooter(unittest.TestCase):
+    """The footer must never vouch for rows it has no provenance for.
+
+    A score file that predates H11 carries no host/server_version. The footer
+    aggregates over sets, so such a file used to contribute *nothing* — and a
+    table mixing an H11-era row with a pre-H11 row rendered one clean host, as
+    if both rows were that campaign. Measured 2026-08-20: the five-model CUDA
+    T2 quoted g4full1 (pre-H11 gemma) columns under cudafull1's host line.
+    A loaded pre-H11 file must surface as its own footer entry and trip MIXED.
+    """
+
+    HOST, VER = "http://10.0.0.1:11497", "0.32.14-test"
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def with_h11(self, host=None, ver=None):
+        s = json.loads(json.dumps(THINKOFF))
+        s["scene_single"]["host"] = host or self.HOST
+        s["scene_single"]["server_version"] = ver or self.VER
+        return s
+
+    def render_many(self, *models):
+        argv = ["summarize_engine_compare.py", "--dir", self.dir,
+                "--think", "false", *models]
+        out = io.StringIO()
+        with mock_argv(argv), contextlib.redirect_stdout(out):
+            sec.main()
+        return out.getvalue().splitlines()[-1]
+
+    def test_one_campaign_renders_a_clean_footer(self):
+        write(self.dir, "a:1b", "false", self.with_h11())
+        write(self.dir, "b:1b", "false", self.with_h11())
+        footer = self.render_many("a:1b", "b:1b")
+        self.assertIn(self.HOST, footer)
+        self.assertNotIn("MIXED", footer)
+        self.assertNotIn("pre-H11", footer)
+
+    def test_a_pre_h11_row_next_to_an_h11_row_is_mixed(self):
+        write(self.dir, "a:1b", "false", self.with_h11())
+        write(self.dir, "b:1b", "false", THINKOFF)
+        footer = self.render_many("a:1b", "b:1b")
+        self.assertIn(self.HOST, footer)
+        self.assertIn("pre-H11", footer)
+        self.assertIn("MIXED", footer)
+
+    def test_all_pre_h11_is_unvouched_but_not_mixed(self):
+        write(self.dir, "a:1b", "false", THINKOFF)
+        write(self.dir, "b:1b", "false", THINKOFF)
+        footer = self.render_many("a:1b", "b:1b")
+        self.assertIn("pre-H11", footer)
+        self.assertNotIn("MIXED", footer)
+
+    def test_two_hosts_are_mixed(self):
+        write(self.dir, "a:1b", "false", self.with_h11())
+        write(self.dir, "b:1b", "false", self.with_h11(host="http://10.0.0.2:11497"))
+        footer = self.render_many("a:1b", "b:1b")
+        self.assertIn("MIXED", footer)
+
+
+class TestT2CappedCells(unittest.TestCase):
+    """ADR 0012 convention 9 in T2: a capped block renders "capped", not a score.
+
+    T1 has done this since the ladder landed; T2 didn't, and published qwen3.6
+    think-on multi as ❌ ❌ ❌ 0/5 (16384) — a grounding failure — when
+    eval_count had hit req_num_predict, i.e. the cell never terminated at that
+    rung (2026-08-20, cudafull1). "Cannot ground" and "cannot stop" must never
+    share one rendering.
+    """
+
+    def render_t2(self, rundir, tag):
+        argv = ["summarize_head_to_head.py", "--dir", rundir, "--tags", tag]
+        out = io.StringIO()
+        with mock_argv(argv), contextlib.redirect_stdout(out):
+            shh.main()
+        return out.getvalue()
+
+    def rows(self, scores):
+        rundir = tempfile.mkdtemp()
+        with open(os.path.join(rundir, "scores_x.json"), "w") as fh:
+            json.dump(scores, fh)
+        rendered = self.render_t2(rundir, "x")
+        return {l.split("|")[2].strip(): l.split("|")[3].strip()
+                for l in rendered.splitlines() if l.startswith("|")}
+
+    def test_a_capped_scene_hides_score_and_latency_but_not_tps(self):
+        s = json.loads(json.dumps(THINKOFF))
+        s["scene_single"]["eval_count"] = s["scene_single"]["num_predict"]
+        r = self.rows(s)
+        self.assertEqual(r["bbox IoU"], "capped (16384)")
+        self.assertEqual(r["labels / serial"], "capped (16384)")
+        self.assertEqual(r["s/req (unique image)"], "capped")
+        self.assertEqual(r["req/h (serial)"], "capped")
+        self.assertEqual(r["gen tok/s"], "40")   # a rate survives truncation
+        self.assertIn("5/5", r["items / qty+price / total / invoice"])  # other blocks untouched
+
+    def test_an_uncapped_scene_still_renders_its_score(self):
+        r = self.rows(THINKOFF)
+        self.assertEqual(r["bbox IoU"], "0.900 (16384)")
+        self.assertEqual(r["req/h (serial)"], "279")  # 3600 / (412/40 + 2613/1000)
 
 
 if __name__ == "__main__":
