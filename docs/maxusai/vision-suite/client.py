@@ -33,6 +33,11 @@ from sampling import sampling_for
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Transport-failure backoff, in seconds. Overridable for tests; a host that is
+# genuinely down should fail in under a minute rather than hang a campaign.
+RETRY_BACKOFF = [int(x) for x in
+                 os.environ.get("RETRY_BACKOFF", "5,15,30").split(",") if x]
+
 
 def default_num_ctx():
     return int(os.environ.get("NUM_CTX", "16384"))
@@ -211,13 +216,49 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
             payload["images"] = images
         url = host + "/api/generate"
 
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(),
-                                 headers={"Content-Type": "application/json"})
-    try:
-        r = json.load(urllib.request.urlopen(
-            req, timeout=timeout or int(os.environ.get("HTTP_TIMEOUT", "1800"))))
-    except urllib.error.HTTPError as e:
-        raise context_error(e, num_predict, num_ctx) from None
+    body = json.dumps(payload).encode()
+    tmo = timeout or int(os.environ.get("HTTP_TIMEOUT", "1800"))
+    # RETRY TRANSPORT FAILURES, NEVER A DETERMINISTIC REJECTION.
+    #
+    # A server restart, a dropped connection or a 502/503/504 is a fact about the
+    # moment, not about the request -- retrying is free of meaning-change and
+    # saves a campaign. A 4xx is the server telling us the request itself is
+    # wrong: a context-overflow 400 will fail identically forever, and retrying
+    # it three times just delays an actionable error by 50 seconds.
+    #
+    # Measured 2026-08-19: a container restart on the remote host killed rep 3 of
+    # a 3-repeat sweep with "Remote end closed connection without response",
+    # after ~23 minutes of generation. Reps 1 and 2 were byte-identical, so the
+    # lost cell cost an hour and told us nothing new.
+    #
+    # The backoff is 5s / 15s / 30s: long enough for a container to come back,
+    # short enough not to mask a host that is genuinely down. Each attempt is
+    # announced, because a silent retry hides exactly the event a reader needs to
+    # know about when a cell's timing looks strange.
+    attempt, retries, last = 0, [], None
+    while True:
+        req = urllib.request.Request(url, data=body,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            r = json.load(urllib.request.urlopen(req, timeout=tmo))
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in (502, 503, 504) and attempt < len(RETRY_BACKOFF):
+                last = f"HTTP {e.code}"
+            else:
+                raise context_error(e, num_predict, num_ctx) from None
+        except Exception as e:                      # URLError, RemoteDisconnected, socket
+            if attempt >= len(RETRY_BACKOFF):
+                raise RuntimeError(
+                    f"{type(e).__name__}: {e} (after {attempt} retries at "
+                    f"{RETRY_BACKOFF[:attempt]}s)") from None
+            last = f"{type(e).__name__}: {e}"
+        wait = RETRY_BACKOFF[attempt]
+        attempt += 1
+        print(f"##### TRANSPORT RETRY {attempt}/{len(RETRY_BACKOFF)} in {wait}s "
+              f"— {last}", flush=True)
+        time.sleep(wait)
+        retries.append({"attempt": attempt, "waited_s": wait, "error": last})
 
     # Normalise both envelopes to the same shape. /api/generate returns
     # `response` and `thinking` at the top level; /api/chat nests them under
@@ -226,6 +267,11 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
     if "response" not in r:
         r["response"] = msg.get("content", "")
     r["thinking"] = r.get("thinking") or msg.get("thinking", "") or ""
+    # A cell that needed retries had the server disappear underneath it. Its
+    # timings are not comparable with a clean cell's, and that must be visible in
+    # the scores rather than inferred from a log nobody kept.
+    if retries:
+        r["_retries"] = retries
     r["_num_predict"] = num_predict
     r["_num_ctx"] = None if omit_ctx else num_ctx
     return r

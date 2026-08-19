@@ -174,6 +174,13 @@ back rather than making room, for use after a campaign or before yielding a
 shared machine. Both return what they could NOT evict rather than raising: a
 model held by another client is not this harness's to kill.
 
+**Transport failures MUST be retried, and deterministic rejections MUST NOT be.**
+5s / 15s / 30s. A dropped connection or a 502/503/504 says something about the
+moment; a context-overflow 400 says the request itself is wrong and will fail
+identically forever. Retries MUST be announced and recorded on the cell
+(`_retries`) — a cell whose server restarted mid-generation is not
+timing-comparable with a clean one.
+
 An eviction is **not** a process restart: server caches and other models survive.
 A `load_duration` measured after eviction MUST NOT be quoted against one measured
 after `RESTART_CMD`.
@@ -188,5 +195,5 @@ after `RESTART_CMD`.
 | H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
 | H9 | `client.py` is the only module that builds a payload; `test_client.py` (20 tests) asserts the wire format, including the tri-state `send_think` and the `num_ctx=False` sentinel that a naive `== False` would have collapsed |
-| H10 | `client.evict_others()` polls `/api/ps` until the eviction is observable and returns what it could not evict; `run_engine_compare.sh` calls it before each model when `RESTART_CMD` is absent, `COLD_START=0` opts out |
+| H10 | `client.RETRY_BACKOFF` = 5/15/30s with `_retries` recorded per cell; `test_client.py::TestTransportRetry` asserts a 400 calls `urlopen` exactly once while a 503 retries. `client.evict_others()` polls `/api/ps` until the eviction is observable and returns what it could not evict; `run_engine_compare.sh` calls it before each model when `RESTART_CMD` is absent, `COLD_START=0` opts out |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |

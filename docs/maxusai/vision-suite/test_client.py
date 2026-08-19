@@ -184,5 +184,77 @@ class TestCallersComplete(unittest.TestCase):
             os.remove(f)
 
 
+
+
+class TestTransportRetry(unittest.TestCase):
+    """Retry what is transient; never retry what is deterministic.
+
+    A container restart killed rep 3 of a 3-repeat sweep after ~23 minutes of
+    generation, with reps 1 and 2 already byte-identical -- an hour lost for no
+    information. A 400, by contrast, will fail identically forever."""
+
+    def setUp(self):
+        self._orig = urllib.request.urlopen
+        self._sleep = client.time.sleep
+        client.time.sleep = lambda s: None      # no real waiting in tests
+
+    def tearDown(self):
+        urllib.request.urlopen = self._orig
+        client.time.sleep = self._sleep
+
+    def _flaky(self, fail_times, exc):
+        state = {"n": 0}
+        def fake(req, timeout=None):
+            if state["n"] < fail_times:
+                state["n"] += 1
+                raise exc
+            return type("R", (), {"read": lambda s: b'{"response":"ok","eval_count":1}'})()
+        urllib.request.urlopen = fake
+        return state
+
+    def test_recovers_from_dropped_connection(self):
+        self._flaky(2, ConnectionResetError("Remote end closed connection"))
+        r = client.generate("http://h", "M", "p", ["IMG"])
+        self.assertEqual(r["response"], "ok")
+        self.assertEqual(len(r["_retries"]), 2)
+        self.assertEqual([x["waited_s"] for x in r["_retries"]], [5, 15])
+
+    def test_gives_up_after_the_backoff_is_exhausted(self):
+        self._flaky(99, ConnectionResetError("host down"))
+        with self.assertRaises(RuntimeError) as cm:
+            client.generate("http://h", "M", "p", ["IMG"])
+        self.assertIn("after 3 retries", str(cm.exception))
+
+    def test_clean_call_records_no_retries(self):
+        self._flaky(0, ConnectionResetError("never raised"))
+        self.assertNotIn("_retries", client.generate("http://h", "M", "p", ["IMG"]))
+
+    def test_400_is_NOT_retried(self):
+        """A context-overflow 400 is deterministic. Retrying it three times only
+        delays an actionable error by 50 seconds."""
+        calls = {"n": 0}
+        def fake(req, timeout=None):
+            calls["n"] += 1
+            raise urllib.error.HTTPError(
+                "u", 400, "Bad Request", {},
+                __import__("io").BytesIO(b'{"error":"exceed_context_size"}'))
+        urllib.request.urlopen = fake
+        with self.assertRaises(RuntimeError):
+            client.generate("http://h", "M", "p", ["IMG"])
+        self.assertEqual(calls["n"], 1, "a 400 must be raised on the first attempt")
+
+    def test_503_IS_retried(self):
+        """A restarting container answers 503 before it answers properly."""
+        state = {"n": 0}
+        def fake(req, timeout=None):
+            if state["n"] < 1:
+                state["n"] += 1
+                raise urllib.error.HTTPError("u", 503, "Unavailable", {},
+                                             __import__("io").BytesIO(b""))
+            return type("R", (), {"read": lambda s: b'{"response":"ok","eval_count":1}'})()
+        urllib.request.urlopen = fake
+        self.assertEqual(client.generate("http://h", "M", "p", ["IMG"])["response"], "ok")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

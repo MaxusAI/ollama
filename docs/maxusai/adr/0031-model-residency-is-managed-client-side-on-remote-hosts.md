@@ -68,6 +68,23 @@ unload <host> <model>`, `client.py evict <host> [keep]` and `client.py evict-all
 [H9](../spec/vision-harness-reuse.md) is one request path, and a shell script
 issuing its own API call is a second one.
 
+**6. Transport failures are retried with backoff; deterministic rejections are
+not.** 5s / 15s / 30s, then fail with the attempt history in the message. A
+dropped connection, a socket error or a 502/503/504 is a fact about the moment
+rather than about the request, and a restarting container answers 503 before it
+answers properly. A 4xx is the opposite: a context-overflow 400 will fail
+identically forever, so retrying it three times only delays an actionable error
+by 50 seconds. `urlopen` is called exactly once for a 400, and there is a test
+asserting it.
+
+Measured 2026-08-19: a container restart on 10.8.0.6 killed rep 3 of a 3-repeat
+sweep with `Remote end closed connection without response`, after ~23 minutes of
+generation. Reps 1 and 2 were already byte-identical, so an hour was spent
+learning nothing. Retries are announced on stdout and recorded as `_retries` on
+the cell — a cell whose server vanished mid-generation has timings that are not
+comparable with a clean cell's, and that must be visible rather than inferred
+from a log nobody kept.
+
 ## Consequences
 
 - Remote campaigns now cold-start per model. Their `load_duration` becomes
@@ -79,6 +96,9 @@ issuing its own API call is a second one.
   (`endpoint_exclusive` in preflight).
 - The wait costs wall-clock on every model switch. That is deliberate: the
   alternative is a campaign that dies partway through and blames the wrong model.
+- A campaign now survives a host restart instead of losing the cell it was on.
+  It does NOT survive a host that stays down: the backoff totals 50 seconds by
+  design, so a dead endpoint fails fast rather than hanging a sweep overnight.
 - `evict_others()` returns what it could not evict rather than raising. A model
   held by another client is not this harness's to kill, and failing the run over
   it would be worse than proceeding with the fact recorded.
