@@ -102,6 +102,57 @@ anchored bbox request.
   for, and because it does NOT clear `box_2d` — the positional form was never
   requested, so the flip risk is avoided rather than measured absent.
 
+### 2026-08-19 — `box_2d` is honoured by both gemma4 models when the order is requested
+- **Evidence** — the positional twin of the named-coordinate arm, one variable
+  changed, 14 geometries × 2 models × 2 think modes: **56/56** cells used
+  `box_2d`, declared `xyxy`, and `hits_declared` was **6/6 in every cell** —
+  the declaration was TRUE, matching `hits_anchor` and `hits_bestfit`. Zero
+  flips, including on the 26b MoE, the family that produced all 11 prior flips.
+  IoU 0.841–0.978 (26b), 0.781–0.964 (31b).
+- **Enforced by** — `bbox_contract_box2d_1img`.
+- **Caveat that must travel with the number** — the prompt states
+  `"coord_order": "xyxy"` in the requested shape, so this measures *"does gemma4
+  honour an explicitly requested order on `box_2d`"*, NOT *"what order does it
+  volunteer"*. The original 11 flips came from differently-worded arms. Whether
+  the fix is the explicit order, the per-object declaration, the anchor or the
+  build is **not** separated by this run.
+- **Cost** — none; this closes a gap the named-coordinate sweep could not, since
+  that sweep avoided the positional form rather than testing it.
+
+### 2026-08-19 — `scene_single` non-termination is a STOPPING problem, not comprehension (hypothesis, experiment queued)
+gemma4:26b-a4b think-on capped `scene_single` at 16384 and 32768 and climbed to
+65536 — a single-image arm, which weakens the earlier reading that runaway
+reasoning is about cross-image referencing.
+
+- **Evidence** — from the persisted reasoning stream, 16,080 chars: `"Let's
+  re-estimate."` **10×**, `ANCHOR: [72, 148, 218, 336]` re-derived to the
+  **identical** numbers **8×**, `"Wait"` **15×**, each of the six shapes
+  mentioned 25–39×. It is not converging — it re-confirms an answer it already
+  has. And the values **drift as it loops**: ANCHOR x2 moves 218 → 392, CIPHER
+  781 → 1381, so later iterations are *worse*. One corrupted token appears
+  mid-stream (`[3el, 108, 686, 305]`).
+- **Suspected cause** — `SCENE_PROMPT` asks for **ABSOLUTE PIXEL coordinates**,
+  the `real` convention. SPEC §4 measured that pinning norm-1000 removes the need
+  to name a frame; under `real` the model must, and estimating pixels by eye has
+  no closing condition. There is also no `__IMAGE__` anchor, so no self-check it
+  can complete — the same anchor bounded qwen3.6's runaway from >122,880 tokens
+  to 10,910.
+- **Enforced by** — NOT YET. `scene_single_pinned` (pin only) and
+  `scene_single_anchored` (pin + anchor) are prepared and queued behind the
+  running suite, so the two halves are attributable rather than confounded.
+  Marked a hypothesis until they run.
+- **Cost so far** — this one arm forces the full context ladder for every
+  think-on cell in the suite, and the ladder re-runs ALL arms at every rung.
+
+### 2026-08-19 — Persisting the reasoning text is what made the above diagnosable
+- **Evidence** — the repetition counts, the identical re-derivations and the
+  coordinate drift are all in `think_<tag>_<probe>.txt`, a file that did not
+  exist this morning. Before it, a runaway cell was indistinguishable from an
+  empty one: `eval_count` high, answer absent, cause unknowable.
+- **Enforced by** — `client.persist()`, SPEC H9.
+- **Cost** — every think-on cell measured before today discarded its reasoning,
+  so none of them can be diagnosed retrospectively.
+
 ---
 
 ## 2026-08-19 — method
@@ -185,6 +236,15 @@ anchored bbox request.
 - **Enforced by** — ADR 0031 decision 6; backoff 5/15/30 s; test asserts
   `urlopen` is called **exactly once** on a 400.
 
+### 2026-08-19 — The context ladder multiplies cost across ALL arms, not just the capped one
+- **Evidence** — one non-terminating arm (`scene_single`) forced gemma4:26b-a4b
+  think-on from 16384 → 32768 → 65536, and each rung re-runs the **full 16-arm
+  suite**. Think-off completed all 16 arms in **2.4 min**; the same model
+  think-on spent 8.5 min at 16384, 10.3 min at 32768, and 35+ min at 65536.
+- **Enforced by** — nothing yet. Recorded because it changes how a sweep should
+  be scoped: isolating a known non-terminating arm into its own run is far
+  cheaper than letting it drag every other arm up the ladder with it.
+
 ---
 
 ## 2026-08-19 — recurring failure patterns (mine)
@@ -194,11 +254,12 @@ checking actual state.**
 
 | pattern | occurrences | evidence |
 |---|---|---|
-| Watched a marker file instead of the real completion condition | **2** | two watchers left polling sentinels with no writer, 2h51m and 3h20m |
+| Watched a marker file instead of the real completion condition | **3** | watchers left polling sentinels with no writer — 2h51m, 3h20m, and one on a log the killed run never wrote |
 | Published a number before the run that produced it landed | **2** | "53 of 54" (true: 55 of 56); frame ranges quoted as the sub-1.0 subset |
 | Stated a rationale I had not measured | **2** | "chat adds template tokens" (identical); "`/api/generate` is behind" (gemma4 only) |
 | Generalised from one model | **2** | anchor rescues; endpoint drops reasoning |
 | Edited a module while a sweep ran against it | **1** | `NameError` mid-import, 1 cell lost |
+| Stated an intended action as a completed one | **1** | said "restarting the full suite now" without running the command; only the waiter was alive, host idle, zero cells |
 | Over-broad regex deletion | **1** | 4 prompt constants removed with the function being replaced |
 
 **What actually caught these:** the adversarial verification pass, not the test

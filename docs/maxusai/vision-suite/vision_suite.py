@@ -1042,6 +1042,47 @@ Respond with a SINGLE JSON object, no prose:
 }"""
 
 
+
+# --- the box_2d ARM (SPEC C2, the positional form) ---------------------------
+#
+# The EXACT twin of BBOX_CONTRACT_ANCHORED_PROMPT with one variable changed:
+# coordinates arrive as a positional `box_2d` array instead of named x1/y1/x2/y2.
+# Same head, same norm-1000 pin, same __IMAGE__ anchor, same per-object
+# declaration, same single image. Any difference between the two arms is
+# therefore attributable to the coordinate FORM and nothing else.
+#
+# It exists because C2 is the highest-impact clause in the contract and its
+# evidence is asymmetric: positional arrays came back `yxyx` while DECLARING
+# `xyxy` in 11 of 26 cells, named fields in 0 of 13 -- and every flip was a
+# gemma4 26b variant. The named-coordinate sweep cleared both gemma4 models
+# 14/14 across geometry, but that AVOIDS the failure rather than measuring it
+# absent, because the positional form was never sent.
+#
+# `box_2d` specifically, because that is the key gemma/Gemini are trained toward
+# and its native order is [y1, x1, y2, x2] -- the transposition C2 forbids is the
+# model's own convention here, not a mistake. coord_order is requested so the
+# DECLARATION can be checked against what the boxes actually do; a model that
+# says xyxy and means yxyx is the one error no numeric check catches.
+BBOX_CONTRACT_BOX2D_PROMPT = _BBOX_PLACEMENT_HEAD + """
+Give the coordinates as a positional array named "box_2d": [x1, y1, x2, y2].
+
+Declare the convention on EVERY object, next to that object's coordinates,
+including "coord_order".
+
+The FIRST entry must be a calibration entry with label "__IMAGE__" whose
+coordinates cover the ENTIRE first image, corner to corner, in the same
+convention as everything else. Then list the shapes.
+
+Respond with a SINGLE JSON object, no prose:
+{
+  "objects": [{"label": "__IMAGE__", "bbox_type": "norm1000",
+               "coord_order": "xyxy", "box_2d": [ , , , ]},
+             {"label": "<uppercase code word above the shape>",
+              "bbox_type": "norm1000",
+              "coord_order": "xyxy", "box_2d": [ , , , ]}]
+}"""
+
+
 # --- the FRAME arm (SPEC 4.2) ------------------------------------------------
 #
 # Real pixels + ref_size + anchor, ONE image. The only condition in the suite
@@ -1237,6 +1278,12 @@ tests = [
     # comparing the two at hd is what finally isolates the distractor effect.
     ("bbox_contract_anchored_1img",
      BBOX_CONTRACT_ANCHORED_PROMPT,
+     ["scene_hd.png"], score_bbox_contract),
+    # The positional twin of the arm above. Differs in ONE variable: box_2d
+    # instead of named x1/y1/x2/y2. See the prompt's comment for why that is the
+    # measurement C2 has never actually had.
+    ("bbox_contract_box2d_1img",
+     BBOX_CONTRACT_BOX2D_PROMPT,
      ["scene_hd.png"], score_bbox_contract),
     # THE FRAME ARM (SPEC 4.2, P1/P2/P4). Real pixels instead of norm-1000,
     # single image, anchor required.

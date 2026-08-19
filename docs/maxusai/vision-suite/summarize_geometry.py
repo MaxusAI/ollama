@@ -65,11 +65,64 @@ def cell(s):
     return f"{frame} | {ratio} | {chk} {anc}/{bf}{flag}"
 
 
+def perf_table(rows, models):
+    """Cost and accuracy per geometry.
+
+    prompt_eval_count is the column that makes the image-size axis legible: it is
+    the IMAGE token cost, and how it moves across geometries is the difference
+    between an architecture that budget-fills and one that scales with input.
+    Quoting a bbox result without it hides why a 320x320 cell and a 4K cell cost
+    what they do.
+
+    IoU is `iou_anchor` -- accuracy AFTER conversion through the anchor-derived
+    space, which is the number a consumer actually gets. hits_anchor says the
+    boxes landed on the right objects; IoU says how tightly."""
+    print("| geometry | sent | " + " | ".join(
+        f"prompt tok | eval tok | IoU | tok/s" for _ in models) + " |")
+    print("|---|---|" + "---|" * (4 * len(models)))
+    for g in GEOMS:
+        present = [rows.get((g, k)) for k in models]
+        if not any(present):
+            continue
+        sz = next(s["image_size"] for s in present if s)
+        line = f"| `{g}` | {sz[0]}×{sz[1]} |"
+        for s in present:
+            if not s:
+                line += " — | — | — | — |"
+                continue
+            iou = s.get("iou_anchor")
+            line += (f" {s.get('prompt_eval_count','—')} | {s.get('eval_count','—')} | "
+                     f"{iou:.3f} | {s.get('gen_tps','—')} |" if iou is not None else
+                     f" {s.get('prompt_eval_count','—')} | {s.get('eval_count','—')} | — | "
+                     f"{s.get('gen_tps','—')} |")
+        print(line)
+    print()
+    for k in models:
+        got = [rows.get((g, k)) for g in GEOMS]
+        got = [s for s in got if s]
+        pe = [s["prompt_eval_count"] for s in got if s.get("prompt_eval_count")]
+        ious = [s["iou_anchor"] for s in got if s.get("iou_anchor") is not None]
+        gts = [s["gen_tps"] for s in got if s.get("gen_tps")]
+        pts = [s["prefill_tps"] for s in got if s.get("prefill_tps")]
+        sreq = [s["eval_count"] / s["gen_tps"] + s["prompt_eval_count"] / s["prefill_tps"]
+                for s in got if s.get("gen_tps") and s.get("prefill_tps")
+                and s.get("eval_count") and s.get("prompt_eval_count")]
+        if not pe:
+            continue
+        print(f"- **{k}** — prompt tokens {min(pe)}–{max(pe)} "
+              f"(spread {max(pe)-min(pe)}), IoU {min(ious):.3f}–{max(ious):.3f} "
+              f"(mean {sum(ious)/len(ious):.3f}), gen {min(gts):.0f}–{max(gts):.0f} tok/s, "
+              f"prefill {min(pts):.0f}–{max(pts):.0f} tok/s, "
+              f"s/req {min(sreq):.1f}–{max(sreq):.1f} → **{3600/(sum(sreq)/len(sreq)):.0f} req/h** mean serial")
+
+
 def main():
     args = sys.argv[1:]
     rundir = os.path.dirname(os.path.abspath(__file__))
     if args and args[0] == "--dir":
         rundir, args = args[1], args[2:]
+    perf = "--perf" in args
+    args = [a for a in args if a != "--perf"]
     if len(args) < 2 or len(args) % 2:
         sys.exit(__doc__)
 
@@ -79,6 +132,9 @@ def main():
             print(f"\n**{arm}** — no cells found for prefix {prefix!r}\n")
             continue
         print(f"\n**{arm}** (`{prefix}-*`)\n")
+        if perf:
+            perf_table(rows, models)
+            continue
         head = "| geometry | sent |" + "".join(
             f" frame | ratio | chk anc/bf |" for _ in models)
         print(head)
