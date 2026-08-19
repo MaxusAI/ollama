@@ -22,6 +22,7 @@ Add features HERE. A probe that needs something this does not do should grow
 this function, not fork it.
 """
 import base64
+import hashlib
 import json
 import os
 import re
@@ -79,6 +80,12 @@ def endpoint():
     were calibrated there and equivalence is measured, not guaranteed, across
     models and builds -- endpoint_compare.py exists to re-check it."""
     return os.environ.get("ENDPOINT", "chat")
+
+
+def fingerprint(text):
+    """Short stable hash of an exact string. No normalisation — whitespace is
+    part of the prompt."""
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
 def b64_file(path):
@@ -272,6 +279,18 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
     # the scores rather than inferred from a log nobody kept.
     if retries:
         r["_retries"] = retries
+    # WORKLOAD FINGERPRINT. A score is only comparable with another score of the
+    # SAME workload, and until now nothing recorded what the workload was: a
+    # prompt edit silently made every prior number incomparable, with no way to
+    # detect it afterwards. This is the version-locking a benchmark suite needs
+    # (3DMark cites a scene version with every score); it lives here because
+    # every arm's request passes through this function, so no arm can forget it.
+    #
+    # Exact bytes, no normalisation — whitespace IS the prompt. The image is
+    # fingerprinted too: fixtures are gitignored and regenerated, so a
+    # re-rendered visimgs/ would otherwise change what was measured invisibly.
+    r["_prompt_sha"] = fingerprint(prompt)
+    r["_images_sha"] = fingerprint("".join(images)) if images else None
     r["_host"] = host
     r["_server_version"] = server_version(host)
     r["_num_predict"] = num_predict

@@ -1168,6 +1168,42 @@ Respond with a SINGLE JSON object, no prose:
 }"""
 
 
+
+# --- the DIALECT-NEUTRAL positional arm --------------------------------------
+#
+# The same single-variable twin as bbox_contract_box2d_1img -- positional array
+# instead of named x1/y1/x2/y2 -- but it does NOT dictate the key.
+#
+# BBOX_CONTRACT_PROMPT already settled this and I ignored it: "gemma4/Gemini are
+# trained toward box_2d and qwen-vl toward bbox_2d, so demanding one measures
+# naming compliance, not vision. Which name the model chose is recorded instead."
+# bbox_contract_box2d_1img hardcodes box_2d, which is gemma4's native dialect --
+# valid for gemma4, and for qwen/nemotron it would have measured whether they
+# will rename their output rather than whether a positional array flips axis
+# order. `field_name` on the score records which key came back.
+#
+# THE VARIABLE UNDER TEST IS POSITIONAL vs NAMED. Nothing else.
+BBOX_CONTRACT_POSITIONAL_PROMPT = _BBOX_PLACEMENT_HEAD + """
+Give the coordinates as a positional array of four numbers, [x1, y1, x2, y2].
+Name that field "box_2d" or "bbox_2d", whichever is natural to you.
+
+Declare the convention on EVERY object, next to that object's coordinates,
+including "coord_order".
+
+The FIRST entry must be a calibration entry with label "__IMAGE__" whose
+coordinates cover the ENTIRE first image, corner to corner, in the same
+convention as everything else. Then list the shapes.
+
+Respond with a SINGLE JSON object, no prose:
+{
+  "objects": [{"label": "__IMAGE__", "bbox_type": "norm1000",
+               "coord_order": "xyxy", "box_2d": [ , , , ]},
+             {"label": "<uppercase code word above the shape>",
+              "bbox_type": "norm1000",
+              "coord_order": "xyxy", "box_2d": [ , , , ]}]
+}"""
+
+
 # --- the FRAME arm (SPEC 4.2) ------------------------------------------------
 #
 # Real pixels + ref_size + anchor, ONE image. The only condition in the suite
@@ -1283,7 +1319,124 @@ from finetext_probe import NUM_PREDICT as FINETEXT_NUM_PREDICT, NUM_CTX as FINET
 # per-probe generation overrides; fine-text needs a bigger allowance than the
 # suite default (20 codes plus JSON scaffolding do not fit 2200 tokens), and an
 # exhausted allowance reads as a vision failure rather than a truncation.
-tests = [
+
+# --- COMPOSABLE bbox arms ----------------------------------------------------
+#
+# Orthogonal factors, one arm per combination, instead of hand-written prompts
+# that drift apart. think and geometry are runner axes (THINK_MODES, GEOMETRY),
+# so the whole matrix is:
+#
+#     8 arms  x  2 think modes  x  14 geometries  x  N models
+#
+#   pin      norm-1000 pinned, and the space stated (C1)  |  free choice
+#   anchor   __IMAGE__ calibration entry first (C3)       |  absent
+#   coords   named x1/y1/x2/y2 (C2)                       |  positional array
+#
+# The positional field NAME is resolved per model, not dictated. gemma4/Gemini
+# are trained toward box_2d and qwen-vl/nemotron toward bbox_2d;
+# BBOX_CONTRACT_PROMPT already records that "demanding one measures naming
+# compliance, not vision". `field_name` on the score still reports what actually
+# came back, so a model that ignores the offered name stays visible.
+DIALECT = (("gemma", "box_2d"), ("qwen", "bbox_2d"), ("nemotron", "bbox_2d"))
+
+
+def dialect_for(model):
+    """Native positional key for this model family; bbox_2d is the safer default
+    because it is what the non-gemma families in this corpus emit."""
+    m = (model or "").lower()
+    for frag, key in DIALECT:
+        if frag in m:
+            return key
+    return "bbox_2d"
+
+
+_PIN_PARA = """
+Use "bbox_type": "norm1000" — each axis scaled independently to 0-1000, x by
+1000/width and y by 1000/height. The coordinate space is 1000x1000 whatever the
+image's shape is."""
+
+_FREE_PARA = """
+Declare the convention you used in "bbox_type" — "norm1000" (each axis scaled to
+0-1000), "norm1" (0.0-1.0), or "real" (pixels, with "ref_size": [W, H]). No
+convention is preferred; pick the one you are most reliable in."""
+
+_ANCHOR_PARA = """
+The FIRST entry must be a calibration entry with label "__IMAGE__" whose
+coordinates cover the ENTIRE image, corner to corner, in the same convention as
+everything else. Then list the shapes."""
+
+
+# Component fingerprints per composed arm, filled by build_bbox_prompt(). A
+# whole-prompt hash says THAT the workload changed; these say WHICH section did,
+# which is the reason to compose prompts from named parts instead of editing one
+# blob. Keyed by arm name, so a scores file can carry them per cell.
+PROMPT_PARTS = {}
+
+
+def build_bbox_prompt(model, pin=True, anchor=True, coords="named"):
+    """One single-image bbox prompt from the factor combination.
+
+    Deliberately NOT built on _BBOX_PLACEMENT_HEAD: that head tells the model the
+    other images are distractors, and these arms send one image."""
+    key = dialect_for(model)
+    coord_para = ('\nGive each coordinate its own named field: "x1", "y1", "x2", '
+                  '"y2". Do not use a\npositional array.'
+                  if coords == "named" else
+                  f'\nGive the coordinates as a positional array of four numbers, '
+                  f'[x1, y1, x2, y2],\nin a field named "{key}".')
+    shape = ('"x1": , "y1": , "x2": , "y2": ' if coords == "named"
+             else f'"{key}": [ , , , ]')
+    btype = '"bbox_type": "norm1000",' if pin else '"bbox_type": "<your convention>",'
+    anchor_obj = (f'{{"label": "__IMAGE__", {btype}\n               "coord_order": "xyxy", {shape}}},\n              '
+                  if anchor else "")
+    parts = {"convention": _PIN_PARA if pin else _FREE_PARA,
+             "coords": coord_para,
+             "anchor": _ANCHOR_PARA if anchor else "",
+             "schema": f"{anchor_obj}{shape}",
+             "dialect": key if coords != "named" else "n/a"}
+    PROMPT_PARTS[_arm_name(pin, anchor, coords)] = {
+        k: client.fingerprint(v) for k, v in parts.items()}
+    return f"""You are a localization service. Find every distinct
+coloured shape in this image and report where each one is.
+{_PIN_PARA if pin else _FREE_PARA}
+
+Use "coord_order": "xyxy" — [x1, y1, x2, y2].
+{coord_para}
+
+Declare the convention on EVERY object, next to that object's coordinates.
+
+Each box covers the shape itself, not its label text. A box that disagrees with
+its declaration is worse than no answer at all, because a consumer trusts the
+declaration.
+{_ANCHOR_PARA if anchor else ""}
+
+Respond with a SINGLE JSON object, no prose:
+{{
+  "objects": [{anchor_obj}{{"label": "<uppercase code word above the shape>",
+               {btype}
+               "coord_order": "xyxy", {shape}}}]
+}}"""
+
+
+def _arm_name(pin, anchor, coords):
+    return (f"bboxm_{'pin' if pin else 'free'}"
+            f"_{'anc' if anchor else 'noanc'}"
+            f"_{'named' if coords == 'named' else 'pos'}")
+
+
+# Registered with a CALLABLE prompt, because the positional field name depends on
+# the model and MODEL is not known at import time.
+COMPOSED_ARMS = [
+    (_arm_name(pin, anchor, coords),
+     (lambda p=pin, a=anchor, c=coords: build_bbox_prompt(MODEL, pin=p, anchor=a, coords=c)),
+     ["scene_hd.png"], score_bbox_contract)
+    for pin in (True, False)
+    for anchor in (True, False)
+    for coords in ("named", "positional")
+]
+
+
+tests = COMPOSED_ARMS + [
     # The prompt STATES the image size, so it must state the size actually sent.
     # Under GEOMETRY the fixture changes but this string did not, telling the
     # model "1920 x 1080" while sending 320x320 -- a prompt that lies about its
@@ -1378,6 +1531,12 @@ tests = [
     ("bbox_contract_box2d_1img",
      BBOX_CONTRACT_BOX2D_PROMPT,
      ["scene_hd.png"], score_bbox_contract),
+    # Dialect-neutral twin of the arm above: the model picks the key, `field_name`
+    # records it. This is the one to run across models; box2d_1img is the
+    # gemma4-dialect special case already measured.
+    ("bbox_contract_positional_1img",
+     BBOX_CONTRACT_POSITIONAL_PROMPT,
+     ["scene_hd.png"], score_bbox_contract),
     # THE FRAME ARM (SPEC 4.2, P1/P2/P4). Real pixels instead of norm-1000,
     # single image, anchor required.
     #
@@ -1431,7 +1590,6 @@ def main():
     HOST = sys.argv[1]
     TAG = sys.argv[2]
     MODEL = sys.argv[3] if len(sys.argv) > 3 else "nemotron3:33b-q4_K_M"
-    results = {}
     run_tests = tests
     # ONLY_TESTS takes precedence over the positional [test] arg, but no longer
     # clobbers it — previously the env lookup overwrote argv[4] unconditionally,
@@ -1451,10 +1609,36 @@ def main():
     # test whenever ONLY_TESTS held more than one comma-separated name (no single
     # name equals the whole string) — producing an empty scores file that looked
     # like a model failure.
+    # SKIP WHAT IS ALREADY SCORED. A re-run costs only the missing arms, so a
+    # sweep killed halfway resumes where it died instead of repeating hours of
+    # inference. Arm-level, not cell-level. FORCE=1 re-runs everything.
+    existing = {}
+    _scores_path = f"{DIR}/scores_{TAG}.json"
+    if os.path.exists(_scores_path) and os.environ.get("FORCE") != "1":
+        try:
+            existing = json.load(open(_scores_path)) or {}
+        except Exception:
+            existing = {}
+        done = [t[0] for t in run_tests if t[0] in existing and "error" not in existing[t[0]]]
+        if done:
+            print(f"##### SKIP {len(done)} already-scored arm(s): {', '.join(done)}")
+        run_tests = [t for t in run_tests if t[0] not in
+                     {n for n in done}]
+        if not run_tests:
+            print(f"##### ALL ARMS ALREADY SCORED for {TAG}; nothing to do")
+            open(f"{DIR}/scores_{TAG}.json", "w").write(json.dumps(existing, indent=1))
+            print(f"SUITE DONE {TAG}")
+            return
+    results = dict(existing)
+
     for entry in run_tests:
         # 5th element is optional per-probe gen overrides; the original 4-tuples
         # keep working unchanged.
         name, prompt, images, scorer = entry[:4]
+        # A composed arm carries a CALLABLE prompt, because its positional
+        # field name depends on MODEL, which is not known at import time.
+        if callable(prompt):
+            prompt = prompt()
         gen_opts = entry[4] if len(entry) > 4 else {}
         print(f"--- {name} [{TAG}] ---", flush=True)
         try:
@@ -1483,6 +1667,14 @@ def main():
         # WHERE this ran and WHICH build served it. Without these a score is not
         # comparable with anything and the provenance can only be reconstructed
         # from tag names, which is memory rather than evidence.
+        # Workload identity. `prompt_sha` changes if ANY byte of the prompt
+        # changes; `prompt_parts` says WHICH section moved, which is the whole
+        # value of composing prompts from named components rather than editing
+        # one blob. `images_sha` catches a regenerated fixture.
+        sc["prompt_sha"] = r.get("_prompt_sha")
+        sc["images_sha"] = r.get("_images_sha")
+        if name in PROMPT_PARTS:
+            sc["prompt_parts"] = PROMPT_PARTS[name]
         sc["host"] = r.get("_host")
         sc["server_version"] = r.get("_server_version")
         sc["prompt_eval_count"] = r.get("prompt_eval_count")

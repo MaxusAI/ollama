@@ -208,6 +208,39 @@ Historical scores predate the field. A cell with no `host` is pre-2026-08-20 and
 its provenance is whatever its campaign document says — which is why the campaign
 docs state the host in their header.
 
+**H12 — Every cell records WHAT WORKLOAD it ran: `prompt_sha`, `images_sha`, and
+for composed arms `prompt_parts`.** Exact bytes, no normalisation — whitespace is
+part of the prompt. Written by `client.generate()`, so no arm can forget it.
+
+A score is only comparable with another score of the *same workload*, and nothing
+recorded what the workload was. Editing a prompt silently made every prior number
+incomparable with no way to detect it afterwards — the reason `scene_single` had
+to be left untouched and new arms added beside it, a discipline that was until
+now enforced only by remembering to. Fixtures are gitignored and regenerated, so
+a re-rendered `visimgs/` could change what was measured invisibly; `images_sha`
+catches that.
+
+This is the version-locking an established benchmark suite has and this harness
+lacked. 3DMark cites a scene version with every score and refuses to compare
+across versions; the same guarantee here is a hash comparison.
+
+**Component hashes are the reason to compose prompts from named parts rather than
+editing one blob.** A whole-prompt hash says *that* the workload changed;
+`prompt_parts` says *which section*. Measured: flipping the `pin` factor moves
+`convention` and `schema` and leaves `coords`, `anchor` and `dialect` byte-identical,
+so a diff is attributable to the factor under test rather than to an accidental
+edit elsewhere.
+
+Two consequences worth stating, because both are cases where the hash reveals
+something previously hidden:
+
+- The positional arm's prompt **differs by model family** (gemma4 is offered
+  `box_2d`, qwen and nemotron `bbox_2d`), so those cells carry different
+  `prompt_sha` values. They are deliberately not the same workload, and pooling
+  them is a cross-workload comparison that the data now makes visible.
+- A cell with no `prompt_sha` predates 2026-08-20. Its workload is whatever its
+  campaign document says, which is why campaign docs quote the arm and the date.
+
 ## 4. Conformance
 
 | requirement | enforced by |
@@ -218,6 +251,7 @@ docs state the host in their header.
 | H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
 | H9 | `client.py` is the only module that builds a payload; `test_client.py` (20 tests) asserts the wire format, including the tri-state `send_think` and the `num_ctx=False` sentinel that a naive `== False` would have collapsed |
+| H12 | `prompt_sha` / `images_sha` / `prompt_parts` on every score block, written by `client.generate()`; absence marks a pre-2026-08-20 cell |
 | H11 | `host` / `server_version` on every score block, written unconditionally by `client.generate()`; absence marks a pre-2026-08-20 cell |
 | H10 | `client.RETRY_BACKOFF` = 5/15/30s with `_retries` recorded per cell; `test_client.py::TestTransportRetry` asserts a 400 calls `urlopen` exactly once while a 503 retries. `client.evict_others()` polls `/api/ps` until the eviction is observable and returns what it could not evict; `run_engine_compare.sh` calls it before each model when `RESTART_CMD` is absent, `COLD_START=0` opts out |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |
