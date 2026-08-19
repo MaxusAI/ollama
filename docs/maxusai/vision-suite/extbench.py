@@ -28,6 +28,8 @@ and scores everything else ~0, VLMEvalKit auto-detects the scale but not the ord
 """
 import base64, json, os, re, sys, time, urllib.parse, urllib.request
 
+import client
+
 DIR = os.path.dirname(os.path.abspath(__file__))
 HOST = TAG = MODEL = BENCH = None
 
@@ -84,30 +86,22 @@ def cache_image(bench, idx, src):
 
 
 def gen(prompt, image_path, fmt=None):
+    """External-benchmark request, through the shared client (SPEC H1 / ADR 0028).
+
+    Pinned to temperature 0 with apply_sampling=False and to whichever endpoint
+    ENDPOINT names, defaulting to /api/generate as this tool always has: the
+    published external-benchmark slices were measured that way, and a benchmark
+    that silently changed sampling or endpoint would be scoring a different
+    configuration under the same name.
+    """
     num_ctx = int(os.environ.get("NUM_CTX", "16384"))
     num_predict = int(os.environ.get("NUM_PREDICT", "512"))
-    img = base64.b64encode(open(image_path, "rb").read()).decode()
-    payload = {
-        "model": MODEL, "prompt": prompt, "images": [img], "stream": False,
-        "options": {"num_predict": num_predict, "num_ctx": num_ctx, "temperature": 0},
-    }
-    if fmt:
-        payload["format"] = fmt
-    if os.environ.get("THINK", "false") != "on":
-        payload["think"] = False
-    timeout = int(os.environ.get("TIMEOUT", "900"))
-    if os.environ.get("ENDPOINT", "generate") == "chat":
-        payload["messages"] = [{"role": "user", "content": payload.pop("prompt"),
-                                "images": payload.pop("images")}]
-        req = urllib.request.Request(HOST + "/api/chat", data=json.dumps(payload).encode(),
-                                     headers={"Content-Type": "application/json"})
-        r = json.load(urllib.request.urlopen(req, timeout=timeout))
-        msg = r.get("message") or {}
-        r["response"], r["thinking"] = msg.get("content", ""), msg.get("thinking", "")
-        return r
-    req = urllib.request.Request(HOST + "/api/generate", data=json.dumps(payload).encode(),
-                                 headers={"Content-Type": "application/json"})
-    return json.load(urllib.request.urlopen(req, timeout=timeout))
+    return client.generate(
+        HOST, MODEL, prompt, [client.b64_file(image_path)],
+        num_predict=num_predict, num_ctx=num_ctx, fmt=fmt,
+        apply_sampling=False, extra_opts={"temperature": 0},
+        endpoint_override=os.environ.get("ENDPOINT", "generate"),
+        timeout=int(os.environ.get("TIMEOUT", "900")))
 
 
 # ---------------------------------------------------------------- scorers

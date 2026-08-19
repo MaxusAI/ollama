@@ -26,6 +26,16 @@
 # this runner does NOT auto-escalate — it reports a capped cell and the rung to
 # retry at, so a grid stays one cell per (model, think).
 set -u
+
+# ENDPOINT pinned to generate. The suite default flipped to chat on
+# 2026-08-19; every tag this runner has ever produced was measured on
+# /api/generate, and the two endpoints are only MEASURED equivalent on one
+# model and one build (see client.endpoint()), not guaranteed. Pinning keeps
+# old and new tags comparable; change it deliberately, not by inheriting a
+# default that moved underneath this file.
+ENDPOINT="${ENDPOINT:-generate}"
+export ENDPOINT
+
 cd "$(dirname "$0")"
 HOST="${1:?usage: run_grid.sh <host> <tag-prefix>}"
 PREFIX="${2:?usage: run_grid.sh <host> <tag-prefix>}"

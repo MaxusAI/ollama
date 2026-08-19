@@ -5,12 +5,13 @@ reference codes at descending font sizes, asks for exact transcription,
 scores per-size recall.
 
 Usage: finetext_probe.py <host> <tag> <model>
-Env: THINK=on|false, ENDPOINT=generate|chat, NUM_CTX, NUM_PREDICT, HTTP_TIMEOUT
+Env: THINK=on|false, ENDPOINT=chat|generate (default chat), NUM_CTX, NUM_PREDICT, HTTP_TIMEOUT
 """
 import json
 import re, os, sys, base64, random, urllib.request
 
 from sampling import sampling_for, provenance
+import client
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 IMG = os.path.join(DIR, "visimgs", "finetext.png")
@@ -107,34 +108,29 @@ def run(host, tag, model):
     img_b64 = base64.b64encode(open(IMG, "rb").read()).decode()
     num_ctx = int(os.environ.get("NUM_CTX", str(NUM_CTX)))
     num_predict = int(os.environ.get("NUM_PREDICT", str(NUM_PREDICT)))
-    timeout = int(os.environ.get("HTTP_TIMEOUT", "1800"))
-    ep = os.environ.get("ENDPOINT", "generate")
-    think = os.environ.get("THINK", "false") == "on"
-    # Per-model sampling, matching vision_suite.py — this probe runs the same
-    # cell through a second code path, so a divergence here shows up as the two
-    # harnesses disagreeing about the same model. See sampling.py.
-    opts = {"num_predict": num_predict, "num_ctx": num_ctx}
-    opts.update(sampling_for(model, think))
-    if os.environ.get("KV_CACHE_TYPE"):
-        opts["kv_cache_type"] = os.environ["KV_CACHE_TYPE"]
-    if ep == "chat":
-        payload = {"model": model, "stream": False, "format": "json", "options": opts,
-                   "messages": [{"role": "user", "content": prompt, "images": [img_b64]}]}
-        url = host + "/api/chat"
-    else:
-        payload = {"model": model, "prompt": prompt, "images": [img_b64],
-                   "stream": False, "format": "json", "options": opts}
-        url = host + "/api/generate"
-    if not think:
-        payload["think"] = False
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(),
-                                 headers={"Content-Type": "application/json"})
-    r = json.load(urllib.request.urlopen(req, timeout=timeout))
-    body = r.get("response") or (r.get("message") or {}).get("content", "")
+    # ONE request path for the whole suite (SPEC H1 / ADR 0028). This probe used
+    # to build its own payload, and it had already drifted from vision_suite's:
+    # different endpoint default, no `thinking` normalisation, no persistence,
+    # and no translation of the context-overflow 400. All of that now comes from
+    # client.generate() for free, and a fix there reaches both callers.
+    # Bound from the shared helper rather than re-reading THINK, so this file
+    # cannot disagree with the request that was actually sent. The rewire dropped
+    # this binding while leaving provenance(model, think) below, so every run
+    # raised NameError AFTER the inference completed -- the model was paid for and
+    # the result discarded, and under run_engine_compare.sh's `set -eu` that
+    # aborted the whole campaign.
+    think = client.think_on()
+    r = client.generate(host, model, PROMPT, [img_b64],
+                        num_predict=num_predict, num_ctx=num_ctx)
+    body = r.get("response", "")
+    chars = client.persist(tag, "finetext", r)
     s = {"tag": tag}
     s.update(score_codes(body))
     s["prompt_eval_count"] = r.get("prompt_eval_count")
     s["eval_count"] = r.get("eval_count")
+    # Free, tokenizer-free halves of the split; token_split.py turns these into
+    # exact thinking/answer/control token counts afterwards.
+    s.update(chars)
     # The request window these numbers were achieved under. Recall that comes in
     # low may be the model or may be a capped generation; without num_ctx and
     # num_predict the two are indistinguishable after the fact. Note this probe

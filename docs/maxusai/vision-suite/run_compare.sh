@@ -45,6 +45,16 @@
 # and identical prompt_eval_count — greedy sampling diverges on backend floating
 # point. Check prompt_eval_count before attributing any such delta to a patch.
 set -u
+
+# ENDPOINT pinned to generate. The suite default flipped to chat on
+# 2026-08-19; every tag this runner has ever produced was measured on
+# /api/generate, and the two endpoints are only MEASURED equivalent on one
+# model and one build (see client.endpoint()), not guaranteed. Pinning keeps
+# old and new tags comparable; change it deliberately, not by inheriting a
+# default that moved underneath this file.
+ENDPOINT="${ENDPOINT:-generate}"
+export ENDPOINT
+
 cd "$(dirname "$0")"
 
 PREFIX="${1:?usage: run_compare.sh <tag-prefix>}"

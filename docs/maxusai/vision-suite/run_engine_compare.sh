@@ -82,8 +82,23 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 MODELS="${MODELS:?set MODELS to the space-separated model list}"
 
 THINK_MODES="${THINK_MODES:-false on}"
-CTX_LADDER="${CTX_LADDER:-4096 8192 16384 32768 65536}"
-CTX_MAX="${CTX_MAX:-65536}"
+# 131072 added 2026-08-19. qwen3.6:35b-a3b think-on on multi_3img reached the old
+# top rung (65536) in 3/3 repeats and then hit the GENERATION cap exactly --
+# eval_count 57344 == num_predict 57344, with num_ctx never binding. A cell that
+# tops out is a diagnostic, not a result (ADR 0012 rule 8): all it established was
+# "needs more than 57344 tokens to finish thinking", which is a floor rather than
+# a measurement of what the model costs. The extra rung gives num_predict 122880
+# (nc - CTX_PROMPT_RESERVE) so the question can actually be answered.
+#
+# Consequence to be aware of: a genuinely non-terminating cell now burns up to
+# 122880 tokens before giving up, so a runaway cell costs roughly twice the wall
+# clock it used to. That is the price of measuring the tail instead of clipping it.
+CTX_LADDER="${CTX_LADDER:-4096 8192 16384 32768 65536 131072}"
+# Raised with the ladder. CTX_MAX is the CEILING the ladder stops at, so leaving
+# it at 65536 would have made the new 131072 rung inert -- the escalation would
+# still have stopped exactly where it did before, silently, and the run would
+# have "used the new ladder" while measuring nothing new.
+CTX_MAX="${CTX_MAX:-131072}"
 # Reserved for the prompt when deriving num_predict from a rung. The server
 # HARD-REJECTS (400) a request whose prompt + num_predict exceeds num_ctx —
 # it does not silently truncate — so this must exceed the largest prompt the
@@ -109,6 +124,13 @@ TAG_PREFIX="${TAG_PREFIX:-}"
 # ONLY_TESTS is passed through to vision_suite.py. The fine-text probe is a
 # separate entry point, so it is skipped unless the subset actually asks for it.
 ONLY_TESTS="${ONLY_TESTS:-}"
+# GEOMETRY selects a fixture from visimgs/geom/ instead of the 1920x1080
+# scene_hd.png (SPEC C13-C18). Unset, the runner behaves exactly as before and
+# tags are unchanged, so no existing campaign is affected. Set, it applies to
+# every model and think mode in the invocation — one geometry per run, because
+# the tag has no geometry field and two geometries would overwrite each other's
+# scores file. Sweep by looping the runner, not by listing sizes here.
+GEOMETRY="${GEOMETRY:-}"
 
 # THE CONTEXT LADDER IS NOT OPTIONAL FOR THINK-ON, AND THIS REFUSES RATHER THAN
 # WARNS. "Context ladder" means CTX_LADDER, the num_ctx rungs below — NOT the
@@ -187,6 +209,22 @@ for m in $MODELS; do
       # Cold server per CELL, not per model: think-on and think-off are separate
       # cells and the leakage caveat applies between them too. A re-run at a
       # higher rung is a new cell and gets its own cold start.
+      # Cold start. RESTART_CMD restarts the serving PROCESS and needs local
+      # control; against a remote host there is none, so those runs used to go
+      # warm without saying so. keep_alive:0 evicts the model, which is the
+      # per-model cold start preflight has always used. Applied only when
+      # RESTART_CMD is absent, so local behaviour is unchanged (H4).
+      if [ -z "${RESTART_CMD:-}" ] && [ "${COLD_START:-1}" = "1" ]; then
+        # Evict every OTHER model first and wait for the memory to actually come
+        # back, then cold-start this one. Unloading only the incoming model is a
+        # no-op -- the memory risk is the OUTGOING one still resident. keep_alive:0
+        # returns when the request is accepted, not when the weights are gone, so
+        # without the wait a sweep can hold two large models at once and OOM on
+        # whichever model is next. That failure reads as "this model is too big"
+        # rather than "the harness never freed the last one".
+        python3 "$DIR/client.py" evict "$HOST" || true
+        python3 "$DIR/client.py" unload "$HOST" "$m" || true
+      fi
       if [ -n "${RESTART_CMD:-}" ]; then
         sh -c "$RESTART_CMD"
         i=0
@@ -197,7 +235,7 @@ for m in $MODELS; do
         done
       fi
       ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
-        ONLY_TESTS="$ONLY_TESTS" \
+        ONLY_TESTS="$ONLY_TESTS" GEOMETRY="$GEOMETRY" \
         python3 "$DIR/vision_suite.py" "$HOST" "$tag" "$m"
       case ",$ONLY_TESTS," in
         ,,|*,finetext,*)

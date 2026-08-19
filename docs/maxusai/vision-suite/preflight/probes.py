@@ -127,6 +127,24 @@ class Ollama:
                  fmt=None, label=""):
         """One /api/generate call. Returns the server response plus timing.
 
+        DELIBERATELY /api/generate, NOT /api/chat -- do not "align" this with
+        vision_suite.py, which defaults to chat. Every expectation in
+        expectations.toml (text_baseline, the token ladder, pinned budgets) was
+        calibrated against generate. Measured 2026-08-19 the two endpoints are
+        token-identical on gemma4:31b-it-q4_K_M (1511/1511 think-off,
+        1514/1514 think-on) -- ollama templates on /api/generate too, so there is
+        no chat-template overhead. The pin is kept anyway because that
+        equivalence is a per-model, per-build measurement rather than a
+        guarantee, and ADR 0011 treats these expectations as versioned code.
+        Re-check with endpoint_compare.py before assuming it holds elsewhere.
+
+        NOTE for think-mode checks: /api/generate returned NO reasoning text for
+        GEMMA4 on 0.32.14-rc0-dynres while /api/chat returned 2021 chars for the
+        same request -- but nemotron3 and qwen3.8 return it fine on generate, so
+        this is per-model, not endpoint-wide. Anything here that needs the
+        reasoning ITSELF rather than its token count must not assume this
+        endpoint provides it for every arch.
+
         `queue_wait` is wall-clock minus the server's own reported total_duration:
         the time this request spent waiting for a slot. It is the only reliable
         signal that another client is saturating the endpoint — a saturated server

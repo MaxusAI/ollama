@@ -118,6 +118,73 @@ separate incidents in one week — six duplicate runners, four duplicate helpers
 one hand-typed table — all had the same cause: writing something that already
 existed.
 
+**H9 — There is ONE request path, and it is `client.generate()`.** No probe,
+runner or one-off builds an ollama payload of its own. This is H5 applied to the
+hardest-to-get-right part of the harness: a scorer that drifts produces a visibly
+wrong number, while a request that drifts produces a plausible one measured under
+conditions nobody recorded.
+
+It is not hypothetical. Five files had grown their own request code, and by the
+time they were consolidated they had already diverged on: the endpoint default,
+whether `thinking` was normalised out of the chat envelope, whether the response
+or the reasoning was persisted at all, and whether a context-overflow 400 was
+translated into an actionable message or surfaced as a bare `HTTP Error 400`.
+`finetext_probe.py` had all four defects and nobody noticed, because its scores
+looked ordinary.
+
+A probe needing behaviour `client.generate()` lacks MUST grow that function —
+with an explicit, named knob, defaulting to the existing behaviour (H4). The
+knobs that exist are `endpoint_override`, `apply_sampling`, `use_env_opts`,
+`send_think` and `num_ctx=False`, and each exists because one caller's published
+numbers depend on a payload detail: a calibrated probe must be able to send
+exactly what it was calibrated with. **Consolidation must not normalise a
+calibrated payload** — collapsing `send_think` into a single boolean silently
+turned an experimental think-on arm into "whatever the server defaults to".
+
+Payload behaviour MUST be covered by `test_client.py`. Both defects above shipped
+green through the scorer and summarizer suites, which assert nothing about what
+goes on the wire.
+
+**H10 — Cold start and model residency are the harness's job, not the host's.**
+Before a model is loaded, every OTHER resident model is evicted and the harness
+**waits** for the memory to come back; then the incoming model is cold-started.
+Decision and rationale in
+[ADR 0031](../adr/0031-model-residency-is-managed-client-side-on-remote-hosts.md).
+
+`RESTART_CMD` restarts the serving process and needs local control. Against a
+host we do not own there is none, and the runner used to skip the step silently —
+so remote campaigns measured warm loads while local ones measured cold, with
+nothing in the scores to tell them apart. `keep_alive: 0` is the per-model
+equivalent and is what `preflight/probes.py` has always used.
+
+Two details are load-bearing:
+
+- **Evict the OUTGOING model, not the incoming one.** The incoming model is
+  usually not resident. `OLLAMA_MAX_LOADED_MODELS=1` is the server-side answer
+  and is mandatory for a locally served sweep
+  ([apple-silicon-build](apple-silicon-build.md)), but it is fixed when the
+  server starts and is therefore unavailable exactly when it matters most.
+- **Wait for it.** `keep_alive: 0` returns when the request is accepted, not when
+  the weights are gone. Without the poll a sweep can hold two large models at
+  once — and the resulting OOM lands on whichever model was next, reading as
+  "that model is too big" rather than "the previous one was never freed".
+
+`evict_all()` is the same mechanism with a different intent — it hands the host
+back rather than making room, for use after a campaign or before yielding a
+shared machine. Both return what they could NOT evict rather than raising: a
+model held by another client is not this harness's to kill.
+
+**Transport failures MUST be retried, and deterministic rejections MUST NOT be.**
+5s / 15s / 30s. A dropped connection or a 502/503/504 says something about the
+moment; a context-overflow 400 says the request itself is wrong and will fail
+identically forever. Retries MUST be announced and recorded on the cell
+(`_retries`) — a cell whose server restarted mid-generation is not
+timing-comparable with a clean one.
+
+An eviction is **not** a process restart: server caches and other models survive.
+A `load_duration` measured after eviction MUST NOT be quoted against one measured
+after `RESTART_CMD`.
+
 ## 4. Conformance
 
 | requirement | enforced by |
@@ -127,4 +194,6 @@ existed.
 | H4a | `run_engine_compare.sh` exits 2 when `CTX_MAX` leaves no CONTEXT-ladder rung above the think-on start; think-off is unaffected and `ALLOW_NO_LADDER=1` overrides |
 | H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
+| H9 | `client.py` is the only module that builds a payload; `test_client.py` (20 tests) asserts the wire format, including the tri-state `send_think` and the `num_ctx=False` sentinel that a naive `== False` would have collapsed |
+| H10 | `client.RETRY_BACKOFF` = 5/15/30s with `_retries` recorded per cell; `test_client.py::TestTransportRetry` asserts a 400 calls `urlopen` exactly once while a 503 retries. `client.evict_others()` polls `/api/ps` until the eviction is observable and returns what it could not evict; `run_engine_compare.sh` calls it before each model when `RESTART_CMD` is absent, `COLD_START=0` opts out |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |
