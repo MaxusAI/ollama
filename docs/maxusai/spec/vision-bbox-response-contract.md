@@ -89,14 +89,29 @@ measurably worse on qwen3.8 and costs one cell out of fourteen on qwen3.6.
   flips are escaped by C2, not by thinking — see the table above; do not read
   that result as licence to send positional arrays to it.
 
-> **The norm-1000 pin also terminates runaway reasoning, measured 2026-08-19 on
-> an unrelated task.** `scene_single` asks for ABSOLUTE PIXEL coordinates and no
-> anchor. Under think-on `gemma4:26b-a4b-it-q4_K_M` scored **IoU 0.334** after
-> capping two ladder rungs. The identical prompt with norm-1000 substituted for
-> pixels scored **0.972** with no escalation, 4× less reasoning, and adding the
-> `__IMAGE__` anchor on top changed nothing. Estimating pixels by eye has no
-> closing condition; a normalized space does. **Suspect the convention before the
-> model whenever think-on runs away.**
+> **RETRACTED 2026-08-19, same day it was written.** This paragraph claimed the
+> norm-1000 pin terminates runaway reasoning generally, on the strength of ONE
+> model. Extended to four, it does not hold — and the experiment behind it was
+> confounded.
+>
+> | model | mode | baseline (px) | pinned |
+> |---|---|---|---|
+> | gemma4:26b-a4b | on | 0.334 | **0.972** |
+> | qwen3.6:35b-a3b | on | 0.717 | **0.938** |
+> | nemotron3:33b | on | 0.813 | **0.599** ↓ |
+> | qwen3.8:27b | off | 0.977 | **0.088** ↓↓ |
+>
+> The `pinned` arm differed from the baseline in **two** variables, not one: it
+> swapped pixels for norm-1000 *and* dropped the sentence "The image is exactly
+> {w} pixels wide and {h} pixels tall". qwen3.8, given neither a dimension nor a
+> convention it chose to honour, answered in **its own 2500×1400 rescale frame** —
+> the same ~1.30× frame §4 measured — which `score_scene` cannot recover, hence
+> 0.088.
+>
+> What survives: gemma4:26b-a4b's think-on collapse is real and the modified
+> prompt fixes it. What does not: any claim about *why*, or about other models.
+> The experiment needs re-running with the image dimensions retained, so the
+> convention is the only thing that changes.
 
 **The cost is tokens, not accuracy** — for qwen3.8 on this task. Budget for the
 context ladder to escalate and record the rung it settles at

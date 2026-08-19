@@ -119,7 +119,7 @@ anchored bbox request.
 - **Cost** — none; this closes a gap the named-coordinate sweep could not, since
   that sweep avoided the positional form rather than testing it.
 
-### 2026-08-19 — `scene_single`'s think-on collapse is caused by the ABSOLUTE PIXEL convention — CONFIRMED
+### 2026-08-19 — `scene_single`'s think-on collapse: gemma4 fix CONFIRMED, cause NOT established (confounded experiment)
 Asking a model to estimate absolute pixels by eye has no closing condition, so it
 never accepts its own answer. It is not a comprehension failure and not a gemma4
 weakness.
@@ -151,9 +151,18 @@ weakness.
 - **Cost** — one arm forced the full context ladder for every think-on cell in
   the gemma4 suite, and the ladder re-runs all 16 arms per rung. It also produced
   a published **0.334** that reads as a model failure and is a prompt artefact.
-- **Generalises** — this is the same mechanism SPEC §4 measured for the `real`
-  pin on the bbox arms, now reproduced on an unrelated task. **Suspect the
-  convention before the model whenever think-on runs away.**
+- **DOES NOT GENERALISE — falsified the same day, and the experiment was
+  confounded.** Extended to four models: pin helps gemma4 (0.334→0.972) and
+  qwen3.6 think-on (0.717→0.938), HURTS nemotron3 think-on (0.813→0.599), and
+  destroys qwen3.8 think-off (0.977→**0.088**). The anchor is worse than the pin
+  in three of four models.
+  The cause of the 0.088 is my own design error: the `pinned` arm changed **two**
+  variables, not one — it swapped the convention *and* removed "The image is
+  exactly {w} pixels wide and {h} pixels tall". qwen3.8 then answered in its own
+  **2500×1400** rescale frame, the ~1.30× frame SPEC §4 measured.
+  **What survives**: gemma4:26b-a4b's collapse is real and the modified prompt
+  fixes it. **What does not**: why, and everything about other models. Re-run with
+  the dimensions retained before believing any of it.
 
 ### 2026-08-19 — Persisting the reasoning text is what made the above diagnosable
 - **Evidence** — the repetition counts, the identical re-derivations and the
@@ -268,9 +277,10 @@ checking actual state.**
 | Watched a marker file instead of the real completion condition | **3** | watchers left polling sentinels with no writer — 2h51m, 3h20m, and one on a log the killed run never wrote |
 | Published a number before the run that produced it landed | **2** | "53 of 54" (true: 55 of 56); frame ranges quoted as the sub-1.0 subset |
 | Stated a rationale I had not measured | **2** | "chat adds template tokens" (identical); "`/api/generate` is behind" (gemma4 only) |
-| Generalised from one model | **2** | anchor rescues; endpoint drops reasoning |
+| Generalised from one model | **3** | anchor rescues; endpoint drops reasoning; "suspect the convention" published from n=1 and falsified at n=4 within the hour |
 | Edited a module while a sweep ran against it | **1** | `NameError` mid-import, 1 cell lost |
 | Stated an intended action as a completed one | **2** | said "restarting the full suite now", and later "applying the patch and running now", without issuing either command. Second one idled the GPU ~2h. Guard: launch and `pgrep`-verify in the SAME command |
+| Changed two variables while calling it a single-variable arm | **1** | `scene_single_pinned` dropped the image-dimension sentence along with the convention; produced a 0.088 that looked like a model failure |
 | Over-broad regex deletion | **1** | 4 prompt constants removed with the function being replaced |
 
 **What actually caught these:** the adversarial verification pass, not the test
