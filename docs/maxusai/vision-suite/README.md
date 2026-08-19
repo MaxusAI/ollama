@@ -29,6 +29,10 @@ first is image accounting and the second is generation length.
   nemotron's pinned cost 3390 → 3270). Start at
   [preflight/README.md](preflight/README.md); the operator procedure is the
   `ollama-preflight` skill.
+> **Asking a model for bounding boxes?** Start at
+> [SPEC §0 "The configuration to use"](../spec/vision-bbox-response-contract.md) —
+> the pinned prompt settings, the evidence for each, and when think-on is safe.
+
 - `client.py <unload|evict|evict-all> <host> [model]` — **the** ollama request path,
   plus model-residency control: `evict` frees everything except a model about to
   load, `evict-all` hands the host back. Both wait for the memory to actually

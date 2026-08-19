@@ -75,6 +75,21 @@ Not an efficiency gap — a qualitative difference.
   false, and then as "`/api/generate` is behind", which over-generalised from one
   model. Both were reasoning, not measurement.
 
+### 2026-08-19 — think-on is safe for the PINNED bbox task, and my blanket "think off" was over-broad
+The think-on failures in this corpus are concentrated in multi-image
+cross-referencing and under a `real` pin — not in the pinned, single-image,
+anchored bbox request.
+
+- **Evidence** — under the §0 configuration: qwen3.8 **14/14** geometries convert
+  6/6 in *both* think modes; qwen3.6 **14/14** off and **13/14** on, its single
+  failure being `sq320` (320×320), the geometry where both C7 checks lose
+  discriminating power. Against that: qwen3.6 think-on on `multi_3img` does not
+  terminate at all, and under a `real` pin its anchor converts at 1 of 14.
+- **Enforced by** — SPEC §0.1, which states the permission and the four
+  conditions it does *not* extend to.
+- **Cost** — I recommended "think OFF" as a flat rule from the multi-image
+  evidence. That would have given up thinking on a task where it is free.
+
 ---
 
 ## 2026-08-19 — method

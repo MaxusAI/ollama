@@ -19,6 +19,81 @@ accurately and describes the convention it used unreliably. Grounding is not the
 variable — `hits_bestfit` is 6/6 in nearly every failing cell — so a consumer's
 whole risk is converting correct coordinates with the wrong rule.
 
+## 0. The configuration to use
+
+The practical distillation of everything below. Every line is measured; the
+clause that establishes it is named.
+
+```
+bbox_type     "norm1000"  — pinned, AND state that the space is 1000x1000   (C1)
+coordinates   named x1 / y1 / x2 / y2, never a positional array             (C2)
+__IMAGE__     anchor entry, listed first, same convention as every box      (C3)
+declaration   per-object                                                    (C4)
+temperature   0
+think         see below — permitted, per model
+```
+
+| requirement | measured |
+|---|---|
+| pin norm-1000 | declarations usable **21/21**, against **5/21** for free choice and **3/21** for a `real` pin |
+| named coordinates | positional arrays returned `yxyx` while declaring `xyxy` in **11 of 26** cells; named fields in **0 of 13** |
+| the pin across geometry | **55 of 56** cells convert 6/6 over 14 image geometries × 2 models × 2 think modes |
+| per-object declaration | a measured null against document-level — 21/21 either way; preferred only because it survives truncation |
+
+**Named coordinates carry the most weight.** Axis transposition is the one error
+no numeric check can detect — a transposed box has the same range, the same
+extent aspect and no scale error — and the `__IMAGE__` anchor cannot help,
+because a full-image box is *symmetric under transposition*. Naming the fields
+makes the error unrepresentable rather than merely discouraged. `box_2d` and
+`bbox_2d` are positional and gemma-native `yxyx`; if a caller must emit them,
+the order has to be fixed at that caller's own boundary, not requested.
+
+### 0.1 think-on IS permitted for this task
+
+**Measured 2026-08-19, under the configuration above:**
+
+| model | think-off | think-on |
+|---|---|---|
+| `qwen3.8:27b-q4_K_M` | **14/14** geometries convert 6/6 | **14/14** |
+| `qwen3.6:35b-a3b-q4_K_M` | **14/14** | **13/14** — silent C7 failure at `sq320` only |
+
+[ADR 0022](../adr/0022-thinking-is-off-for-vision-work.md) turns thinking off for
+vision work generally, and [ADR 0023](../adr/0023-think-mode-is-per-model-and-measured-on-policy.md)
+makes the decision per model and on-policy. This section is that decision applied
+to *this* task, and it is more permissive than a blanket reading of 0022 would
+suggest: for a **pinned, single-image, anchored bbox request**, think-on is not
+measurably worse on qwen3.8 and costs one cell out of fourteen on qwen3.6.
+
+**What think-on is NOT safe for, on the same models:**
+
+- **Multi-image cross-referencing.** `qwen3.6:35b-a3b-q4_K_M` think-on on
+  `multi_3img` does not terminate: **122,880 tokens**, **313,054 characters** of
+  reasoning, **zero** answer, byte-identical across repeats at two ceilings.
+  Adding the `__IMAGE__` anchor bounds it to **10,910 tokens** and a correct
+  answer, so the anchor is not optional here — it is what makes the request
+  finite.
+- **A `real` pin.** qwen3.6's anchor converts 6/6 at **1 of 14** geometries under
+  `real`, against 14/14 under norm-1000.
+- **Small square images**, for qwen3.6: the single think-on failure is `sq320`
+  (320×320), which is exactly where C14 says both of C7's checks lose
+  discriminating power at once.
+- **Other model families.** `nemotron3` scene IoU degrades 0.840 → 0.391 under
+  thinking (ADR 0022), and the gemma4 26b family's axis flips are only partly
+  escaped by thinking. Neither was measured across geometry.
+
+**The cost is tokens, not accuracy** — for qwen3.8 on this task. Budget for the
+context ladder to escalate and record the rung it settles at
+([SPEC H4a](vision-harness-reuse.md)); a think-on cell that caps has produced a
+floor, not a cost.
+
+### 0.2 What this configuration does NOT cover
+
+`gemma4:31b` was never measured across geometry, and `box_2d` — positional, and
+gemma-native `yxyx` — is the exact form that flipped on the 26b family. Treat it
+as unverified rather than safe until measured. Everything above is the synthetic
+six-shape scene; a photograph with ambiguous object boundaries is a different
+test.
+
 ## 1. The request
 
 **C1 — Requests MUST pin norm-1000, and MUST state what the space is.** The
