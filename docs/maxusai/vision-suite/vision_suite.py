@@ -7,6 +7,7 @@ import json
 import re, sys, base64, os, urllib.request
 
 from sampling import sampling_for, provenance
+import salvage
 # THE request path lives in client.py — one implementation, per SPEC H1 /
 # ADR 0028. These names stay bound here so existing importers keep working.
 from client import (default_num_ctx, default_num_predict,
@@ -215,22 +216,25 @@ def get_bbox(o):
 
 FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
 
-def parse_json_response(text):
-    """json.loads with markdown-fence tolerance: engines that do not enforce
+def parse_json_response(text, require_key=None):
+    """Parse a response, salvaging structure where the content is recoverable.
+
+    Returns (obj_or_None, fenced, method). `method` is None for a clean parse and
+    otherwise names the salvage step -- see salvage.py, which owns the logic.
+
+    Fence tolerance is why this existed: engines that do not enforce
     format:"json" (the MLX runner before x/structured, ADR 0009) emit fenced
-    JSON; stripping is a no-op on grammar-constrained output. Scorers record
-    fenced=True so a non-enforcing engine is identifiable in the scores.
-    Returns (obj_or_None, fenced)."""
-    m = FENCE.search(text)
-    if m:
-        try:
-            return json.loads(m.group(1)), True
-        except Exception:
-            return None, True
-    try:
-        return json.loads(text), False
-    except Exception:
-        return None, False
+    JSON, and stripping is a no-op on grammar-constrained output.
+
+    require_key exists because VALID JSON IS NOT THE SAME AS USABLE JSON.
+    qwen3.6:35b-a3b-q8_0 think-on returned a perfectly parseable object whose
+    `answers` had been serialised into a string inside the images array; the cell
+    scored 0/3 on q1/q2/q4 with chart 5/5, and the recovered answers turn out to
+    match the same model's passing arm exactly. Without naming the key it needs,
+    a scorer cannot tell "the model got it wrong" from "the model put it in the
+    wrong slot", and those must not share a rate."""
+    obj, method = salvage.loads(text, require_key=require_key)
+    return obj, method == "fence", method
 
 def iou(a, b):
     ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
@@ -246,12 +250,14 @@ def score_scene(resp_text):
          "bbox_hits": 0, "bbox_mean_iou": 0.0, "bbox_space": None,
          "colors_right": 0, "serial_found": g["serial"] in resp_text,
          "object_count": None}
-    r, fenced = parse_json_response(resp_text)
+    r, fenced, _salv = parse_json_response(resp_text)
     if fenced:
         s["fenced"] = True
     if r is None:
         return s
     s["json_valid"] = True
+    if _salv:
+        s["json_salvaged"], s["salvage_method"] = True, _salv
     objs = r.get("objects") or []
     s["object_count"] = len(objs)
     by_label = {o.get("label"): o for o in objs if o.get("label")}
@@ -291,12 +297,14 @@ def score_doc(resp_text):
     s = {"json_valid": False, "invoice_no": False, "items_found": 0,
          "items_total": len(g["items"]), "qty_price_right": 0, "total_right": False,
          "name_bbox_hits": 0, "name_bbox_mean_iou": 0.0, "name_bbox_space": None}
-    r, fenced = parse_json_response(resp_text)
+    r, fenced, _salv = parse_json_response(resp_text)
     if fenced:
         s["fenced"] = True
     if r is None:
         return s
     s["json_valid"] = True
+    if _salv:
+        s["json_salvaged"], s["salvage_method"] = True, _salv
     s["invoice_no"] = g["invoice_no"] in json.dumps(r)
     items = r.get("line_items") or []
     matched = []
@@ -341,12 +349,22 @@ def score_multi(resp_text):
     s = {"json_valid": False, "q1_right": False, "q2_right": False,
          "q4_bbox_hit": False, "chart_values_found": 0,
          "chart_total": len(g["chart"]["bars"])}
-    r, fenced = parse_json_response(resp_text)
+    # require_key="answers": the observed q8_0 failure parsed cleanly and simply
+    # did not carry the key, so only a scorer that names what it needs can tell a
+    # wrong answer from a misplaced one.
+    r, fenced, _salv = parse_json_response(resp_text, require_key="answers")
     if fenced:
         s["fenced"] = True
     if r is None:
         return s
     s["json_valid"] = True
+    if _salv:
+        # Recorded, never silent. A cell salvaged at `embedded_key` is a model
+        # that answered correctly in the wrong slot; one salvaged at
+        # `largest_object` barely returned a response. Pooling those into one
+        # pass rate would hide exactly the distinction this field exists to draw.
+        s["json_salvaged"] = True
+        s["salvage_method"] = _salv
     a = r.get("answers") or {}
     s["q1_right"] = a.get("q1") == 2
     q2 = a.get("q2") or {}
@@ -586,12 +604,14 @@ def score_bbox_contract(resp_text):
          "degenerate_boxes": 0, "degenerate_labels": [],
          "declaration_valid": False, "declaration_matches_boxes": False,
          "contract_followed": False}
-    r, fenced = parse_json_response(resp_text)
+    r, fenced, _salv = parse_json_response(resp_text)
     if fenced:
         s["fenced"] = True
     if r is None:
         return s
     s["json_valid"] = True
+    if _salv:
+        s["json_salvaged"], s["salvage_method"] = True, _salv
 
     def read_decl(d):
         """(bbox_type, coord_order, ref_size) off a dict, normalized."""

@@ -145,6 +145,39 @@ Payload behaviour MUST be covered by `test_client.py`. Both defects above shippe
 green through the scorer and summarizer suites, which assert nothing about what
 goes on the wire.
 
+**H10 — Cold start and model residency are the harness's job, not the host's.**
+Before a model is loaded, every OTHER resident model is evicted and the harness
+**waits** for the memory to come back; then the incoming model is cold-started.
+Decision and rationale in
+[ADR 0031](../adr/0031-model-residency-is-managed-client-side-on-remote-hosts.md).
+
+`RESTART_CMD` restarts the serving process and needs local control. Against a
+host we do not own there is none, and the runner used to skip the step silently —
+so remote campaigns measured warm loads while local ones measured cold, with
+nothing in the scores to tell them apart. `keep_alive: 0` is the per-model
+equivalent and is what `preflight/probes.py` has always used.
+
+Two details are load-bearing:
+
+- **Evict the OUTGOING model, not the incoming one.** The incoming model is
+  usually not resident. `OLLAMA_MAX_LOADED_MODELS=1` is the server-side answer
+  and is mandatory for a locally served sweep
+  ([apple-silicon-build](apple-silicon-build.md)), but it is fixed when the
+  server starts and is therefore unavailable exactly when it matters most.
+- **Wait for it.** `keep_alive: 0` returns when the request is accepted, not when
+  the weights are gone. Without the poll a sweep can hold two large models at
+  once — and the resulting OOM lands on whichever model was next, reading as
+  "that model is too big" rather than "the previous one was never freed".
+
+`evict_all()` is the same mechanism with a different intent — it hands the host
+back rather than making room, for use after a campaign or before yielding a
+shared machine. Both return what they could NOT evict rather than raising: a
+model held by another client is not this harness's to kill.
+
+An eviction is **not** a process restart: server caches and other models survive.
+A `load_duration` measured after eviction MUST NOT be quoted against one measured
+after `RESTART_CMD`.
+
 ## 4. Conformance
 
 | requirement | enforced by |
@@ -155,4 +188,5 @@ goes on the wire.
 | H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
 | H9 | `client.py` is the only module that builds a payload; `test_client.py` (20 tests) asserts the wire format, including the tri-state `send_think` and the `num_ctx=False` sentinel that a naive `== False` would have collapsed |
+| H10 | `client.evict_others()` polls `/api/ps` until the eviction is observable and returns what it could not evict; `run_engine_compare.sh` calls it before each model when `RESTART_CMD` is absent, `COLD_START=0` opts out |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |

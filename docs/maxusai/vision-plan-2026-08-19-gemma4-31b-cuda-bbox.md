@@ -114,18 +114,37 @@ tokenizer validates itself against `eval_count` and needs no separate trust
 argument. If the gate fails, fall back to option 3 rather than publishing a
 split that looks exact and is not.
 
-**P2 — Add a JSON salvage pass.** Record `json_valid` (already present) plus
-`json_salvaged` and `salvage_method`. Salvage is ordered and each step is
-recorded, so "how mangled was it" is a measurement rather than a yes/no:
+**P2 — Add a JSON salvage pass. DONE, and the design above was wrong.**
+Implemented in `salvage.py`; records `json_salvaged` and `salvage_method`
+alongside the existing `json_valid`.
 
-1. strip markdown fences and any trailing second fence
-2. unescape backslash-escaped quotes inside an otherwise-plain object
-3. close unterminated strings/arrays/objects at truncation
-4. extract the largest parseable `{...}` substring
+This section originally specified fence-stripping, quote-unescaping and
+brace-repair for "malformed JSON". **The response was not malformed.** Inspecting
+the actual qwen3.6 q8_0 think-on cell: `json.loads` succeeds. The model had
+serialised its `answers` object into a **string inside the images array** —
 
-This is not hypothetical: qwen3.6 q8_0 under think-on emitted 15 escaped quotes,
-a doubled brace and a trailing ```` ```json ```` fence, with **semantically
-correct content** underneath — a cell scored ❌❌❌ purely on syntax.
+```
+{"images": [ {...}, {...}, {...},
+             "answers\": {\"q1\": 2, ... }}}```json{  " ]}
+```
+
+— so the JSON is valid, the content is correct, and `answers` is simply not a
+key. None of the four planned steps would have touched it.
+
+The fix is `require_key`: a scorer names the key it needs, and salvage searches
+string values for a `"<key>": {...}` fragment that landed in the wrong slot.
+**Valid JSON is not the same as usable JSON**, and without naming the key a
+scorer cannot tell "the model got it wrong" from "the model put it in the wrong
+place" — which must not share a rate.
+
+Verified against the real cell: recovered `q1: 2`, `q2: Q4/128`, matching the
+same model's *passing* arm exactly. Rescoring the 18-cell qwen3.6 set flips
+exactly **3 cells** ❌❌❌ → ✅✅✅, all `q8_0` think-on anchored; every other cell
+is byte-stable, so this is surgical rather than a scorer made permissive.
+Truncation repair and largest-object extraction are implemented too, as later
+fallbacks, and `salvage_method` distinguishes them — `embedded_key` is a model
+that answered correctly in the wrong slot, `largest_object` is one that barely
+returned a response, and pooling those would hide the distinction.
 
 **P3 — Never edit `vision_suite.py` while a sweep runs against it.** A live edit
 cost a cell in the geometry sweep (`NameError` mid-import). Land P1 and P2,

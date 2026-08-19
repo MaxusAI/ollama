@@ -203,6 +203,23 @@ This requirement deliberately does **not** feed `self_check` (C6/C7). That gates
 the coordinate space for the whole response and its remedy is wholesale
 rejection; conflating the two would discard five good boxes over one digit slip.
 
+> **Valid JSON is not the same as usable JSON — measured 2026-08-19.** C12 covers
+> a malformed box inside a well-formed response. The converse also occurs:
+> `qwen3.6:35b-a3b-q8_0` think-on returned a response that `json.loads` parses
+> perfectly and that simply did not contain the answers key, because the model had
+> serialised that object into a **string inside an unrelated array**. The content
+> was correct — `q1` and `q2` identical to the same model's passing arm — and the
+> cell scored 0/3.
+>
+> A consumer MUST therefore distinguish *parsed* from *carries what I asked for*.
+> A scorer that names the key it needs can recover the misplaced fragment; one
+> that only checks `json_valid` records a model failure that did not happen. This
+> is the response-level analogue of C12's principle: recover what is recoverable,
+> mark it, and never let a shape error be scored as a content error. The recovery
+> is implemented in `salvage.py` and reported per cell as `salvage_method`, which
+> MUST be quoted with any rate that includes salvaged cells — `embedded_key` and
+> `largest_object` are not the same kind of result.
+
 ## 3. Legacy responses
 
 **C11 — Responses that predate this contract fall back to the heuristic ladder,

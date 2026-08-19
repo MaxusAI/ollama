@@ -29,7 +29,10 @@ first is image accounting and the second is generation length.
   nemotron's pinned cost 3390 → 3270). Start at
   [preflight/README.md](preflight/README.md); the operator procedure is the
   `ollama-preflight` skill.
-- `client.py` — **the** ollama request path. Every probe issues requests through
+- `client.py <unload|evict|evict-all> <host> [model]` — **the** ollama request path,
+  plus model-residency control: `evict` frees everything except a model about to
+  load, `evict-all` hands the host back. Both wait for the memory to actually
+  return (ADR 0031); `keep_alive: 0` returns on acceptance, not on completion. Every probe issues requests through
   `client.generate()`; nothing else builds a payload (SPEC H1 / ADR 0028). Carries
   endpoint choice, sampling, the vision-budget options, the context-overflow 400
   translation, `thinking` normalisation across both envelopes, and persistence.

@@ -25,6 +25,7 @@ import base64
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 
@@ -249,3 +250,109 @@ def persist(tag, name, r):
     if think:
         open(f"{DIR}/think_{tag}_{name}.txt", "w").write(think)
     return {"thinking_chars": len(think), "answer_chars": len(text)}
+
+
+def unload(host, model, timeout=120):
+    """Force the model out of memory so the next request loads it cold.
+
+    `keep_alive: 0` is the remote equivalent of RESTART_CMD. The runner's
+    cold-start hook restarts the serving PROCESS, which is impossible against a
+    host you do not control -- so every remote campaign silently ran warm while
+    local ones ran cold, and their load_duration and first-token latency were
+    never comparable. preflight/probes.py has used this call since it was
+    written; it simply lived on the wrong side of the harness.
+
+    NOT a full process restart: it evicts the model but leaves the server's own
+    caches and any other loaded model alone. That is the right granularity for
+    per-model cold start and is what preflight relies on."""
+    req = urllib.request.Request(
+        host + "/api/generate",
+        data=json.dumps({"model": model, "keep_alive": 0}).encode(),
+        headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=timeout).read()
+        return True
+    except Exception:
+        return False
+
+
+def loaded(host, timeout=15):
+    """Models currently resident, as [(name, bytes)]. [] on any error."""
+    try:
+        r = json.load(urllib.request.urlopen(host + "/api/ps", timeout=timeout))
+        return [(m["name"], m.get("size", 0)) for m in r.get("models", [])]
+    except Exception:
+        return []
+
+
+def evict_others(host, keep=None, wait_s=90, poll=3):
+    """Unload every resident model except `keep`, and WAIT for it to take effect.
+
+    The wait is the whole point. `keep_alive: 0` returns as soon as the request
+    is accepted, not when the weights are actually out of memory, so a sweep that
+    unloads and immediately loads the next model can hold BOTH at once. On a
+    sweep of large models that is how a host runs out of memory partway through a
+    campaign -- and the failure lands on whichever model happened to be next,
+    which reads as that model being too big rather than as the harness never
+    having freed the previous one.
+
+    `OLLAMA_MAX_LOADED_MODELS=1` is the server-side answer and is mandatory for
+    a locally served sweep (SPEC apple-silicon-build). It is unavailable against
+    a host you do not control, which is exactly when this matters.
+
+    Returns (evicted, still_resident)."""
+    evicted = []
+    for name, _ in loaded(host):
+        if keep and name == keep:
+            continue
+        if unload(host, name):
+            evicted.append(name)
+    if not evicted:
+        # `keep` staying resident is the desired state, not a failure — reporting
+        # it as "still resident" made a clean no-op look like a stuck eviction.
+        return [], [n for n, _ in loaded(host) if n != keep]
+    waited = 0
+    while waited < wait_s:
+        resident = [n for n, _ in loaded(host) if n != keep]
+        if not resident:
+            return evicted, []
+        time.sleep(poll)
+        waited += poll
+    return evicted, [n for n, _ in loaded(host) if n != keep]
+
+
+def evict_all(host, wait_s=90, poll=3):
+    """Unload EVERY resident model and wait. Returns (evicted, still_resident).
+
+    Distinct from evict_others(keep=X) in intent, not just in arguments: that one
+    makes room for a model about to load, this one hands the host back. Use it
+    before yielding a shared machine to someone else, after a campaign, or when a
+    run died and left weights resident -- the harness has already had to free a
+    host that way once, and doing it by hand is how the wrong model gets killed.
+
+    Anything it could not evict is RETURNED, not raised: a model held by another
+    client is not this harness's to kill, and failing over it would be worse than
+    proceeding with the fact recorded."""
+    return evict_others(host, keep=None, wait_s=wait_s, poll=poll)
+
+
+if __name__ == "__main__":
+    # Tiny CLI so run_engine_compare.sh can cold-start a remote model without
+    # duplicating the request (SPEC H9: one request path, shell included).
+    import sys
+    if len(sys.argv) == 4 and sys.argv[1] == "unload":
+        ok = unload(sys.argv[2], sys.argv[3])
+        print(f"unload {sys.argv[3]}: {'ok' if ok else 'failed (continuing)'}")
+    elif len(sys.argv) == 3 and sys.argv[1] == "evict-all":
+        gone, stuck = evict_all(sys.argv[2])
+        print(f"evicted {gone or 'nothing'}"
+              + (f"; STILL RESIDENT after wait: {stuck}" if stuck else ""))
+    elif len(sys.argv) in (3, 4) and sys.argv[1] == "evict":
+        keep = sys.argv[3] if len(sys.argv) == 4 else None
+        gone, stuck = evict_others(sys.argv[2], keep=keep)
+        print(f"evicted {gone or 'nothing'}"
+              + (f"; STILL RESIDENT after wait: {stuck}" if stuck else ""))
+    else:
+        sys.exit("usage: client.py unload    <host> <model>\n"
+                 "       client.py evict     <host> [keep-model]\n"
+                 "       client.py evict-all <host>")
