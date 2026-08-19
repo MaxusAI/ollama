@@ -1371,6 +1371,7 @@ everything else. Then list the shapes."""
 # which is the reason to compose prompts from named parts instead of editing one
 # blob. Keyed by arm name, so a scores file can carry them per cell.
 PROMPT_PARTS = {}
+OFFERED_KEY = {}
 
 
 def build_bbox_prompt(model, pin=True, anchor=True, coords="named"):
@@ -1379,28 +1380,54 @@ def build_bbox_prompt(model, pin=True, anchor=True, coords="named"):
     Deliberately NOT built on _BBOX_PLACEMENT_HEAD: that head tells the model the
     other images are distractors, and these arms send one image."""
     key = dialect_for(model)
+    # NAMED: no coord_order, deliberately. read_decl infers the order from the
+    # named fields ONLY when the model did not declare one ("if not od and
+    # has_named_coords"), so supplying it hands back the ability to transpose --
+    # the exact error C2 chose named fields to make unrepresentable. The 21/21
+    # arm omits it for this reason and so does this one.
+    #
+    # POSITIONAL: the order is DECLARED, not pinned. Pinning xyxy while offering
+    # gemma its native box_2d (documented in this file as the yxyx convention)
+    # would make the arm "your key, but against your order" for gemma and "your
+    # key, your order" for qwen -- two different experiments under one arm name.
+    # Offering both and scoring against the declaration is what
+    # BBOX_CONTRACT_PROMPT already does.
     coord_para = ('\nGive each coordinate its own named field: "x1", "y1", "x2", '
-                  '"y2". Do not use a\npositional array.'
+                  '"y2". Do not use a\npositional array, and do not declare a '
+                  '"coord_order" — named fields state their own order.'
                   if coords == "named" else
-                  f'\nGive the coordinates as a positional array of four numbers, '
-                  f'[x1, y1, x2, y2],\nin a field named "{key}".')
+                  f'\nGive the coordinates as a positional array of four numbers in a field\n'
+                  f'named "{key}". Declare "coord_order" as either "xyxy" '
+                  f'([x1, y1, x2, y2]) or\n"yxyx" ([y1, x1, y2, x2]) — whichever '
+                  f'you actually used. A declaration that\ndisagrees with your '
+                  f'numbers is the one error no numeric check can catch.')
     shape = ('"x1": , "y1": , "x2": , "y2": ' if coords == "named"
-             else f'"{key}": [ , , , ]')
-    btype = '"bbox_type": "norm1000",' if pin else '"bbox_type": "<your convention>",'
-    anchor_obj = (f'{{"label": "__IMAGE__", {btype}\n               "coord_order": "xyxy", {shape}}},\n              '
+             else f'"coord_order": "<xyxy or yxyx>", "{key}": [ , , , ]')
+    # A free arm that picks "real" MUST be able to give ref_size, or decl_valid
+    # rejects it (bt == "real" and rf is not None) and a cell with PERFECT boxes
+    # scores hits_declared 0. ~17% of historical free-choice cells pick "real",
+    # so without the slot the pin-vs-free contrast is biased by a missing line in
+    # free's own template. BBOX_CONTRACT_PROMPT has the slot; so does this.
+    btype = ('"bbox_type": "norm1000",' if pin
+             else '"bbox_type": "<your convention>", "ref_size": [W, H],')
+    anchor_obj = (f'{{"label": "__IMAGE__", {btype} {shape}}},\n              '
                   if anchor else "")
     parts = {"convention": _PIN_PARA if pin else _FREE_PARA,
              "coords": coord_para,
              "anchor": _ANCHOR_PARA if anchor else "",
              "schema": f"{anchor_obj}{shape}",
              "dialect": key if coords != "named" else "n/a"}
+    # The literal key, not just its hash: a fingerprint of "box_2d" is
+    # undecodable without already knowing the candidate set, and which key was
+    # OFFERED is exactly the confound a reader needs to see next to field_name,
+    # which records what came back.
+    OFFERED_KEY[_arm_name(pin, anchor, coords)] = key if coords != "named" else None
     PROMPT_PARTS[_arm_name(pin, anchor, coords)] = {
         k: client.fingerprint(v) for k, v in parts.items()}
     return f"""You are a localization service. Find every distinct
 coloured shape in this image and report where each one is.
 {_PIN_PARA if pin else _FREE_PARA}
 
-Use "coord_order": "xyxy" — [x1, y1, x2, y2].
 {coord_para}
 
 Declare the convention on EVERY object, next to that object's coordinates.
@@ -1413,8 +1440,7 @@ declaration.
 Respond with a SINGLE JSON object, no prose:
 {{
   "objects": [{anchor_obj}{{"label": "<uppercase code word above the shape>",
-               {btype}
-               "coord_order": "xyxy", {shape}}}]
+               {btype} {shape}}}]
 }}"""
 
 
@@ -1675,6 +1701,7 @@ def main():
         sc["images_sha"] = r.get("_images_sha")
         if name in PROMPT_PARTS:
             sc["prompt_parts"] = PROMPT_PARTS[name]
+            sc["offered_key"] = OFFERED_KEY.get(name)
         sc["host"] = r.get("_host")
         sc["server_version"] = r.get("_server_version")
         sc["prompt_eval_count"] = r.get("prompt_eval_count")
