@@ -68,7 +68,7 @@ occupancy. Two things follow, and neither is optional:
   harness setting and moves 2.3x when the ladder climbs a rung. `was_capped()`
   marks these and summarizers render `capped` instead of a number; never quote one.
 
-See `docs/maxusai/spec/vision-harness-reuse.md` (H1–H8, and H4a for the ladder),
+See `docs/maxusai/spec/vision-harness-reuse.md` (H1–H9, H4a for the ladder, H9 for the single request path),
 `docs/maxusai/adr/0028-one-runner-one-set-of-helpers.md`,
 `docs/maxusai/adr/0022-thinking-is-off-for-vision-work.md` (the three traps), and
 `docs/maxusai/adr/0012-benchmark-report-templates.md`.

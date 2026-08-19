@@ -109,6 +109,13 @@ TAG_PREFIX="${TAG_PREFIX:-}"
 # ONLY_TESTS is passed through to vision_suite.py. The fine-text probe is a
 # separate entry point, so it is skipped unless the subset actually asks for it.
 ONLY_TESTS="${ONLY_TESTS:-}"
+# GEOMETRY selects a fixture from visimgs/geom/ instead of the 1920x1080
+# scene_hd.png (SPEC C13-C18). Unset, the runner behaves exactly as before and
+# tags are unchanged, so no existing campaign is affected. Set, it applies to
+# every model and think mode in the invocation — one geometry per run, because
+# the tag has no geometry field and two geometries would overwrite each other's
+# scores file. Sweep by looping the runner, not by listing sizes here.
+GEOMETRY="${GEOMETRY:-}"
 
 # THE CONTEXT LADDER IS NOT OPTIONAL FOR THINK-ON, AND THIS REFUSES RATHER THAN
 # WARNS. "Context ladder" means CTX_LADDER, the num_ctx rungs below — NOT the
@@ -197,7 +204,7 @@ for m in $MODELS; do
         done
       fi
       ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
-        ONLY_TESTS="$ONLY_TESTS" \
+        ONLY_TESTS="$ONLY_TESTS" GEOMETRY="$GEOMETRY" \
         python3 "$DIR/vision_suite.py" "$HOST" "$tag" "$m"
       case ",$ONLY_TESTS," in
         ,,|*,finetext,*)

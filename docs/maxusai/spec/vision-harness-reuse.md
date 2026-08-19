@@ -118,6 +118,33 @@ separate incidents in one week — six duplicate runners, four duplicate helpers
 one hand-typed table — all had the same cause: writing something that already
 existed.
 
+**H9 — There is ONE request path, and it is `client.generate()`.** No probe,
+runner or one-off builds an ollama payload of its own. This is H5 applied to the
+hardest-to-get-right part of the harness: a scorer that drifts produces a visibly
+wrong number, while a request that drifts produces a plausible one measured under
+conditions nobody recorded.
+
+It is not hypothetical. Five files had grown their own request code, and by the
+time they were consolidated they had already diverged on: the endpoint default,
+whether `thinking` was normalised out of the chat envelope, whether the response
+or the reasoning was persisted at all, and whether a context-overflow 400 was
+translated into an actionable message or surfaced as a bare `HTTP Error 400`.
+`finetext_probe.py` had all four defects and nobody noticed, because its scores
+looked ordinary.
+
+A probe needing behaviour `client.generate()` lacks MUST grow that function —
+with an explicit, named knob, defaulting to the existing behaviour (H4). The
+knobs that exist are `endpoint_override`, `apply_sampling`, `use_env_opts`,
+`send_think` and `num_ctx=False`, and each exists because one caller's published
+numbers depend on a payload detail: a calibrated probe must be able to send
+exactly what it was calibrated with. **Consolidation must not normalise a
+calibrated payload** — collapsing `send_think` into a single boolean silently
+turned an experimental think-on arm into "whatever the server defaults to".
+
+Payload behaviour MUST be covered by `test_client.py`. Both defects above shipped
+green through the scorer and summarizer suites, which assert nothing about what
+goes on the wire.
+
 ## 4. Conformance
 
 | requirement | enforced by |
@@ -127,4 +154,5 @@ existed.
 | H4a | `run_engine_compare.sh` exits 2 when `CTX_MAX` leaves no CONTEXT-ladder rung above the think-on start; think-off is unaffected and `ALLOW_NO_LADDER=1` overrides |
 | H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
+| H9 | `client.py` is the only module that builds a payload; `test_client.py` (20 tests) asserts the wire format, including the tri-state `send_think` and the `num_ctx=False` sentinel that a naive `== False` would have collapsed |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |

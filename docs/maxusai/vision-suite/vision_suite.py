@@ -7,109 +7,65 @@ import json
 import re, sys, base64, os, urllib.request
 
 from sampling import sampling_for, provenance
+# THE request path lives in client.py — one implementation, per SPEC H1 /
+# ADR 0028. These names stay bound here so existing importers keep working.
+from client import (default_num_ctx, default_num_predict,
+                    context_error as _context_error, persist as _persist)
+import client
 
 HOST = TAG = MODEL = None  # set in main()
 DIR = os.path.dirname(os.path.abspath(__file__))
 IMG = os.path.join(DIR, "visimgs")
 GT = json.load(open(f"{IMG}/ground_truth.json"))
 
+# SPEC C13-C18: the same scene at another image size. GEOMETRY swaps BOTH the
+# scene fixture and its ground truth, so every scorer keeps reading GT["scene_hd"]
+# and needs no geometry awareness at all -- the axis is the input, not the
+# scoring. Unset, nothing below changes and the corpus runs exactly as before.
+#
+# Only scene_hd.png is remapped. document.png and chart.png stay where they are
+# because the geometry axis runs on the SINGLE-image bbox_contract arm (SPEC
+# 4.1): varying geometry inside a three-image request would move image count and
+# the distractors' own geometry at the same time, and nothing in the result
+# could then be attributed to the scored image's shape.
+GEOM_DIR = os.path.join(IMG, "geom")
+GEOMETRY = os.environ.get("GEOMETRY") or None
+if GEOMETRY:
+    _gt_path = f"{GEOM_DIR}/ground_truth.json"
+    if not os.path.exists(_gt_path):
+        sys.exit(f"GEOMETRY={GEOMETRY} but {_gt_path} is missing "
+                 f"— run: python3 gen_geometry.py")
+    _geom_gt = json.load(open(_gt_path))
+    if GEOMETRY not in _geom_gt:
+        sys.exit(f"unknown GEOMETRY {GEOMETRY!r}; have: "
+                 f"{', '.join(sorted(_geom_gt))}")
+    GT["scene_hd"] = _geom_gt[GEOMETRY]
+
+
+def img_path(name):
+    if GEOMETRY and name == "scene_hd.png":
+        return os.path.join(GEOM_DIR, f"scene_{GEOMETRY}.png")
+    return os.path.join(IMG, name)
+
+
 def b64(name):
-    return base64.b64encode(open(f"{IMG}/{name}", "rb").read()).decode()
+    return base64.b64encode(open(img_path(name), "rb").read()).decode()
 
 # Single source of truth for the request window, so what gets recorded in the
 # scores cannot drift from what was actually sent. num_predict and the prompt
 # share num_ctx; a cell whose eval_count equals num_predict was capped, and one
 # where prompt + eval approaches num_ctx was bounded by the window instead.
-def default_num_ctx():
-    return int(os.environ.get("NUM_CTX", "16384"))
-
-
-def default_num_predict():
-    return int(os.environ.get("NUM_PREDICT", "2200"))
-
-
-def _context_error(e, num_predict, num_ctx):
-    """Turn the server's context-overflow 400 into an actionable message.
-
-    The invariant is prompt + num_predict <= num_ctx, and the server enforces it
-    before generating. Raising NUM_PREDICT without raising NUM_CTX therefore does
-    not relieve truncation, it converts it into a bare `HTTP Error 400: Bad
-    Request` that reads as a model or payload fault. It is neither — it is a
-    harness misconfiguration, and this says so with the numbers needed to fix it."""
-    try:
-        body = e.read().decode()
-    except Exception:
-        body = ""
-    m = re.search(r"n_prompt_tokens\\?[\"']?:\s*(\d+).*?n_ctx\\?[\"']?:\s*(\d+)", body, re.S)
-    if e.code == 400 and ("exceed_context_size" in body or m):
-        if m:
-            need, ctx = int(m.group(1)), int(m.group(2))
-            return RuntimeError(
-                f"num_ctx too small: request needs {need} tokens but num_ctx is {ctx}. "
-                f"prompt + num_predict must fit num_ctx (this call used "
-                f"num_predict={num_predict}, num_ctx={num_ctx}). "
-                f"Raise NUM_CTX to at least {need + 2048} (leaving headroom) — "
-                f"raising NUM_PREDICT alone cannot fix this.")
-        return RuntimeError(
-            f"context overflow with num_predict={num_predict}, num_ctx={num_ctx}: {body[:200]}")
-    return RuntimeError(f"HTTP {e.code}: {body[:200]}")
-
-
 def gen(prompt, images, num_predict=None, num_ctx=None):
-    if num_ctx is None:
-        num_ctx = default_num_ctx()
-    if num_predict is None:
-        num_predict = default_num_predict()
-    # Sampling is per-model and per-think-mode, NOT a hardcoded temperature 0.
-    # Think-off is still greedy (every published baseline depends on that);
-    # think-on uses the model card's values, because greedy decoding is what
-    # made reasoning fail to terminate. See sampling.py and
-    # ../runaway-reasoning-under-think.md.
-    think_on = os.environ.get("THINK", "false") == "on"
-    opts = {"num_predict": num_predict, "num_ctx": num_ctx}
-    opts.update(sampling_for(MODEL, think_on))
-    payload = {
-        "model": MODEL, "prompt": prompt, "images": images,
-        "stream": False, "format": "json",
-        "options": opts,
-    }
-    if os.environ.get("KV_CACHE_TYPE"):
-        payload["options"]["kv_cache_type"] = os.environ["KV_CACHE_TYPE"]
-    # Fork-only per-request vision budget (visionServerArgs in llm/llama_server.go,
-    # arch-gated to gemma4 and nemotron_h_omni). Pinning these to upstream's
-    # effective defaults turns a fork build into a BUDGET-MATCHED CONTROL, which is
-    # the only way to separate "our larger token budget changed the result" from
-    # "the llama.cpp payload differs" when comparing against a stock server on a
-    # different LLAMA_CPP_VERSION. See the control-arm section in README.md.
-    # These are Runner options — changing them reloads the model.
-    for env, opt in (("IMAGE_MIN_TOKENS", "image_min_tokens"),
-                     ("IMAGE_MAX_TOKENS", "image_max_tokens")):
-        if os.environ.get(env):
-            payload["options"][opt] = int(os.environ[env])
-    if not think_on:
-        payload["think"] = False
-    endpoint = os.environ.get("ENDPOINT", "generate")
-    if endpoint == "chat":
-        payload["messages"] = [{"role": "user", "content": payload.pop("prompt"),
-                                "images": payload.pop("images")}]
-        req = urllib.request.Request(HOST + "/api/chat",
-            data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
-        r = json.load(urllib.request.urlopen(req, timeout=int(os.environ.get("HTTP_TIMEOUT", "1800"))))
-        msg = r.get("message") or {}
-        r["response"] = msg.get("content", "")
-        r["thinking"] = msg.get("thinking", "")
-        r["_num_predict"], r["_num_ctx"] = num_predict, num_ctx
-        return r
-    req = urllib.request.Request(HOST + "/api/generate",
-        data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
-    try:
-        r = json.load(urllib.request.urlopen(req, timeout=int(os.environ.get("HTTP_TIMEOUT", "1800"))))
-    except urllib.error.HTTPError as e:
-        raise _context_error(e, num_predict, num_ctx) from None
-    # Stamp the EFFECTIVE limits so the caller records what actually ran rather
-    # than what it thought it asked for — gen_opts, env and defaults all feed in.
-    r["_num_predict"], r["_num_ctx"] = num_predict, num_ctx
-    return r
+    """Thin binding of client.generate() to this module's HOST/MODEL globals.
+
+    Deliberately holds NO request logic. Everything -- endpoint choice, sampling,
+    the vision-budget options, the context-overflow 400 translation, and
+    normalising `thinking` out of whichever envelope came back -- lives in
+    client.py so finetext_probe.py runs the identical path. Two copies of this
+    had already drifted apart once; see the module docstring there.
+    """
+    return client.generate(HOST, MODEL, prompt, images,
+                           num_predict=num_predict, num_ctx=num_ctx)
 
 SCENE_PROMPT = """You are a precision visual inspection system deployed in an industrial
 quality-assurance pipeline. Your task on this frame is exhaustive object detection,
@@ -196,25 +152,13 @@ Respond with a SINGLE JSON object, no prose:
                "q3": <string or null>, "q4": [x1,y1,x2,y2] or null}}
 }}"""
 
-
-# The same questions, plus a calibration entry, as a SEPARATE arm.
-#
-# Not folded into MULTI_PROMPT, because a prompt change reaches every model and
-# this one demonstrably does something. Measured 2026-08-18 on the ROCm host:
-# gemma4:31b-it-q4_K_M is unaffected in both think modes, but nemotron3:33b-q4_K_M
-# think-on returned NO usable response in 3 of 6 runs across both prompts, which
-# leaves 1 usable old sample against 2 usable new -- far too few to say whether
-# the paragraph moved its grounding, and its think-on grounding is independently
-# known bad (ADR 0022 records scene IoU 0.840 -> 0.391 under thinking).
-#
-# So the default arm keeps the prompt every published multi number was measured
-# against, and the calibration lives in its own arm where it can be measured
-# without putting an unrelated model's numbers at risk. score_multi reads the
 # anchor when one is present and ignores its absence, so both arms share a scorer.
 MULTI_ANCHORED_PROMPT = MULTI_PROMPT + """CALIBRATION. The "key_objects" array of image 1 must BEGIN with one extra entry
 whose "label" is "__IMAGE__" and whose "bbox" covers the ENTIRE image 1, corner
 to corner, in exactly the coordinate system you use for every other box in image
 1, including q4. If you resized image 1 internally, use the size YOU used."""
+
+
 
 def center_in(pred, gtb):
     try:
@@ -1078,6 +1022,42 @@ Respond with a SINGLE JSON object, no prose:
 }"""
 
 
+# --- the FRAME arm (SPEC 4.2) ------------------------------------------------
+#
+# Real pixels + ref_size + anchor, ONE image. The only condition in the suite
+# that forces a model to name the frame it is working in, which is what P1/P2/P4
+# are predictions about. Deliberately NOT built on _BBOX_PLACEMENT_HEAD: that
+# head declares the other images distractors, and there are no other images.
+BBOX_CONTRACT_REAL_1IMG_PROMPT = """You are a localization service. Find every
+distinct coloured shape in this image and report where each one is.
+
+Use "bbox_type": "real" — absolute pixel coordinates. Give "ref_size": [W, H] as
+well: the width and height of the image those pixels refer to. If you resized
+the image internally, give the size YOU used, not the size you were sent.
+
+Use "coord_order": "xyxy" — [x1, y1, x2, y2].
+
+Each box covers the shape itself, not its label text. A box that disagrees with
+its declaration is worse than no answer at all, because a consumer trusts the
+declaration.
+
+Give each coordinate its own named field: "x1", "y1", "x2", "y2". Do not use a
+positional array.
+
+The FIRST entry must be a calibration entry with label "__IMAGE__" whose
+coordinates cover the ENTIRE image, corner to corner, in the same convention as
+everything else. Then list the shapes.
+
+Respond with a SINGLE JSON object, no prose:
+{
+  "objects": [{"label": "__IMAGE__", "bbox_type": "real", "ref_size": [ , ],
+               "x1": , "y1": , "x2": , "y2": },
+              {"label": "<uppercase code word above the shape>",
+               "bbox_type": "real", "ref_size": [ , ],
+               "x1": , "y1": , "x2": , "y2": }]
+}"""
+
+
 # --- the ADVERSARIAL arms ----------------------------------------------------
 #
 # bbox_contract_anchored showed 21/21 compliance and anchor_beats_declared false
@@ -1158,7 +1138,15 @@ from finetext_probe import NUM_PREDICT as FINETEXT_NUM_PREDICT, NUM_CTX as FINET
 # suite default (20 codes plus JSON scaffolding do not fit 2200 tokens), and an
 # exhausted allowance reads as a vision failure rather than a truncation.
 tests = [
-    ("scene_single", SCENE_PROMPT.format(w=1920, h=1080), ["scene_hd.png"], score_scene),
+    # The prompt STATES the image size, so it must state the size actually sent.
+    # Under GEOMETRY the fixture changes but this string did not, telling the
+    # model "1920 x 1080" while sending 320x320 -- a prompt that lies about its
+    # own input, and a scene_single geometry cell that measured obedience to a
+    # false premise. GT["scene_hd"] is already swapped by the GEOMETRY block, so
+    # reading the size from it keeps the two in step by construction.
+    ("scene_single",
+     SCENE_PROMPT.format(w=GT["scene_hd"]["size"][0], h=GT["scene_hd"]["size"][1]),
+     ["scene_hd.png"], score_scene),
     ("document_single", DOC_PROMPT.format(w=1568, h=1568), ["document.png"], score_doc),
     ("multi_3img", MULTI_PROMPT, ["scene_hd.png", "document.png", "chart.png"], score_multi),
     # Opt-in via ONLY_TESTS; not in a default sweep, so no campaign's runtime or
@@ -1212,6 +1200,41 @@ tests = [
     ("bbox_contract_anchored",
      BBOX_CONTRACT_ANCHORED_PROMPT,
      ["scene_hd.png", "document.png", "chart.png"], score_bbox_contract),
+    # THE GEOMETRY ARM (SPEC C13-C18). Identical prompt to bbox_contract_anchored,
+    # one image instead of three.
+    #
+    # It has to exist because neither existing arm can carry the geometry axis:
+    # bbox_contract is single-image but asks for no __IMAGE__ entry, so it
+    # reports no frame at all (hits_anchor 0 by construction) and every geometry
+    # prediction is about the reported frame; bbox_contract_anchored has the
+    # anchor but sends three images, so changing the scored image's size also
+    # changes image count, total token load and the distractors' geometry at
+    # once, and nothing in the cell could be attributed to shape.
+    #
+    # Run it at GEOMETRY=hd to get the single-image baseline the rest of the
+    # sweep is read against. That cell is NOT comparable to the 21/21 and 42/42
+    # rates in the SPEC, which are three-image distractor-condition numbers —
+    # comparing the two at hd is what finally isolates the distractor effect.
+    ("bbox_contract_anchored_1img",
+     BBOX_CONTRACT_ANCHORED_PROMPT,
+     ["scene_hd.png"], score_bbox_contract),
+    # THE FRAME ARM (SPEC 4.2, P1/P2/P4). Real pixels instead of norm-1000,
+    # single image, anchor required.
+    #
+    # It exists because the first geometry sweep answered a different question
+    # than the one asked. Under the norm-1000 pin, both qwen models returned
+    # norm1000 at 12/12 geometries with anchor_implied_ref None — no frame is
+    # ever named, so there is nothing for P1/P2/P4 to measure. That is the
+    # contract working (C1 removes the frame from the problem), but it means the
+    # frame predictions need a condition where the model is FORCED to state one.
+    # Pinning "real" plus ref_size is that condition, and it is where qwen3.8's
+    # ~1.30x rescale showed up in the first place.
+    #
+    # Single-image head: the shared _BBOX_PLACEMENT_HEAD tells the model the
+    # other images are distractors, which is false when one image is sent.
+    ("bbox_contract_real_1img",
+     BBOX_CONTRACT_REAL_1IMG_PROMPT,
+     ["scene_hd.png"], score_bbox_contract),
     # The adversarial arms. Read hits_anchor, not contract_followed: these pin a
     # convention the corpus resists, so a low hits_declared is the POINT.
     ("bbox_contract_adv_real",
@@ -1281,7 +1304,9 @@ def main():
             results[name] = {"error": str(e)}
             continue
         text = r.get("response", "")
-        open(f"{DIR}/resp_{TAG}_{name}.json", "w").write(text)
+        # Answer AND reasoning to disk, via the shared helper so finetext_probe
+        # persists identically. Returns the char counts for the token split.
+        sc_chars = client.persist(TAG, name, r)
         # A SCORER CRASH MUST NOT ABORT THE CAMPAIGN. gen() has always been
         # guarded; scoring was not, so one malformed response killed the whole
         # run. That cost two models and four model-modes on 2026-08-17 — the
@@ -1297,6 +1322,27 @@ def main():
             sc = {"scorer_error": f"{type(e).__name__}: {e}"}
         sc["prompt_eval_count"] = r.get("prompt_eval_count")
         sc["eval_count"] = r.get("eval_count")
+        sc.update(sc_chars)
+        # SPEC C13: a conformance rate is scoped to the geometry it was measured
+        # at and MUST be quoted with it. Recorded on the cell for the same
+        # reason ADR 0012 rule 6 puts num_ctx there — a number whose meaning
+        # depends on an unrecorded setting is not a measurement. Only written
+        # when the axis is in use, so historical scores_*.json stay byte-shaped
+        # as they were.
+        if GEOMETRY:
+            sc["geometry"] = GEOMETRY
+            sc["image_size"] = GT["scene_hd"].get("size")
+            sc["image_aspect"] = GT["scene_hd"].get("aspect")
+            sc["label_px_clamped"] = GT["scene_hd"].get("label_px_clamped")
+            # SPEC C18: the image-token budget configuration MUST be recorded
+            # with every geometry result. gemma4 on fork defaults produces a
+            # SATURATING token curve while the same model pinned at 1088/1120 is
+            # flat, so a constant frame across geometries means "ceiling reached"
+            # under one configuration and "pinned, as instructed" under the
+            # other. Without this the cell cannot be read. Null when unpinned,
+            # which is itself the configuration.
+            sc["image_min_tokens"] = os.environ.get("IMAGE_MIN_TOKENS")
+            sc["image_max_tokens"] = os.environ.get("IMAGE_MAX_TOKENS")
         # Throughput. Ollama reports durations in nanoseconds. Recorded so a run
         # can be compared across backends (Metal vs CPU) as well as scored —
         # additive only, no effect on any existing score field.

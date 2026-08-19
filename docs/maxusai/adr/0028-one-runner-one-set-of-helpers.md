@@ -1,7 +1,7 @@
 # ADR 0028: the benchmark harness has one runner and one set of helpers; arms extend it, they do not fork it
 
 - **Status:** accepted 2026-08-17, on fork `main`. Enforced by
-  [SPEC: vision harness reuse](../spec/vision-harness-reuse.md) (H1–H8) and
+  [SPEC: vision harness reuse](../spec/vision-harness-reuse.md) (H1–H9; H9 extends this ADR to the request path, added 2026-08-19) and
   stated as an invariant in `AGENTS.md`.
 - **Date:** 2026-08-17
 - **Deciders:** MaxusAI fork maintainers

@@ -213,7 +213,286 @@ It is retained only for responses with no anchor. It cannot detect an axis swap
 under any circumstances, and its discriminator requires a non-square image with
 objects spread across the frame.
 
-## 4. Conformance
+## 4. Geometry generality
+
+**Status: measured 2026-08-19**, on two qwen families across the 14 geometries
+below — [vision-campaign-2026-08-19-geometry.md](../vision-campaign-2026-08-19-geometry.md),
+decision in [ADR 0030](../adr/0030-bbox-conformance-is-scoped-to-image-geometry.md).
+C13–C18 were pre-registered before the run per the
+[ADR 0011](../adr/0011-preflight-expectations-are-versioned-code.md) discipline;
+§4.2's predictions are left as written, with outcomes appended, so a prediction
+that failed stays visible rather than being quietly rewritten.
+
+**The headline: pinning norm-1000 removes image geometry as a variable.** 53 of
+54 cells convert 6/6 across every geometry, both models and both think modes.
+Under a `real` pin the same models split — qwen3.8 14/14, qwen3.6 **1/14** — so
+C1's pin is a correctness requirement and not only a declaration-honesty
+preference. Under norm-1000 the model never has to name the frame it works in;
+under `real` it must, and that is where its internal resize reaches the
+coordinates.
+
+**C13 — A conformance rate is scoped to the geometries it was measured at, and
+MUST be quoted with them.** Every rate in this SPEC — the 21/21, the 11 of 26,
+the 42/42, the 1 of 439, the 107 anchored cells — comes from the
+`bbox_contract_*` arms. Boxes are scored in one frame only, `scene_hd` at
+1920×1080, but **seven of the eight arms attach three images**, not one:
+`scene_hd` (1920×1080) together with `document.png` (**1568×1568**, square) and
+`chart.png` (**1280×960**, 4:3). The encoder has therefore never been shown a
+lone HD image in any rate-producing cell, and it has been shown a square image
+throughout. What is unmeasured is a *scored* geometry other than 16:9 HD; what
+is uncontrolled is the attached distractors' geometry.
+
+No rate here is established as a property of the contract. Each is a property of
+the contract *scored at 16:9 HD, in a three-image request whose other two images
+were 1568×1568 and 1280×960* — a description no rate in this document currently
+carries. A consumer converting a single pasted screenshot matches none of those
+conditions, and the SPEC previously admitted this only in a closing footnote.
+
+**C14 — C7's discriminating power is a joint property of the image geometry and
+where the objects sit in it, and MUST be reported alongside any `self_check`
+rate.** The two checks C7 requires do not degrade together, and each has a
+condition that silences it. Both conditions are computable **from the response
+alone** — this clause must not reach for `W` and `H`, because C7's whole value
+is that it "uses ONLY the response … not even the image dimensions", and a
+validator that needs the image dimensions cannot run on the unmeasured image it
+exists to serve:
+
+| condition (response-only) | effect on C7 |
+|---|---|
+| object extent aspect `ew/eh` ∈ **0.8–1.25** | **aspect check non-discriminating** — `bbox_self_check` tests `(aw/ah)/(ew/eh)` against exactly that band, so a fabricated *square* anchor lands inside it and is indistinguishable from a correct one |
+| anchor implies `real` with `max(X, Y) ≤ 1000` | **range check cannot separate `real` from `norm1000`** — real coordinates are ≤1000 by construction and pass a norm-1000 range test silently |
+| both at once | **C7 has no discriminating power.** Anchor extent *magnitude* is the only remaining signal |
+
+> **Measured 2026-08-19.** C7's silent-failure rate is geometry-dependent, and
+> the SPEC's 1-in-107 figure describes 16:9 HD rather than the validator. Under
+> a `real` pin across 14 geometries, qwen3.6 produced **four silent failures in
+> fourteen cells** — `vga`, `paste2`, `paste4`, `paste6`, each passing
+> `self_check` while the anchor converted only 2–3 boxes of 6. The mechanism is
+> the known one; geometry changes how often it fires. Quote C7's failure rate
+> with the geometry it was measured at, or not at all.
+
+The band is **0.8–1.25**, taken from `bbox_self_check` itself, not a tighter
+near-square guess: it is roughly five times wider than "aspect ≈ 1" and so
+catches far more images than an intuition about squareness suggests. Note the
+check compares the anchor against the **objects' extent**, not against the
+image — which is why the C7 amendment's false reject was caused by objects
+clustering rather than by the image's shape.
+
+A 320×320 image satisfies both rows simultaneously. This is the case the
+contract is least able to defend and has never been measured; it is also an
+entirely ordinary thing to paste into a chat window. Near-squareness is enough —
+it does not require exact 1:1, and it is not confined to small images.
+
+**C15 — Alignment-sensitive geometries MUST be derived from the
+architecture's `patch_stride`, never hardcoded.** Alignment is a joint property
+of the image and the encoder, not of the image alone. The corpus has two
+strides: 32 (`nemotron_h_omni`, `qwen35`, `qwen35moe` — patch 16 × merge 2) and
+48 (`gemma4` — patch 16 × merge 3), both recorded per-arch in
+`vision-suite/preflight/expectations.toml`.
+
+**1920×1080 is misaligned on the height axis for every architecture in the
+corpus**: `1080/32 = 33.75` and `1080/48 = 22.5`. The scored fixture has
+therefore never been on a clean grid — `scene_hd` pads to 1920×1088 (+0.7%) at
+stride 32 and to 1920×1104 (+2.2%) at stride 48. The pad is **not uniform across
+a request**: the two attached distractors are exactly grid-aligned at stride 32
+(`1568/32 = 49`; `1280/32 = 40`, `960/32 = 30`) and carry their own, different
+pads at stride 48, so a request has always mixed padded and unpadded images. A frame the model reports as
+~1.30× its input may be resize *and* pad, and no measurement to date separates
+them. An aligned twin must consequently be chosen by the arch's stride: 1920×1088 at
+stride 32, 1920×1104 at stride 48. **Both are generated as ordinary fixtures and
+both are literals** — C15 constrains the *selection*, not the rendering, since a
+fixture is a PNG written ahead of time while the architecture is known only once
+a model is loaded. A run that pairs `hd` with the wrong twin measures a 1.4% pad
+against a 0.7% one and reports the difference as a model property.
+
+**C16 — The geometry set MUST include non-round sizes.** Round dimensions
+cluster on or near the patch grid and systematically under-sample the
+misalignment the contract will actually meet. Images are pasted into a chat
+window at whatever size they happen to be — a cropped screenshot is 1387×907,
+not 1920×1080 — so a set built only from round numbers measures the friendliest
+corner of the input space and reports it as the contract's behaviour.
+
+**C17 — Frame direction MUST be measured in both directions.**
+
+> **Measured 2026-08-19, and the original text below was wrong.** Frames
+> *smaller* than the input are not rare — they are the common case once the
+> input stops being 1920×1080: **0.46×–0.96×** on qwen3.6 and **0.67×–0.93×** on
+> qwen3.8, across 14 geometries. The reported frame is also not a smooth
+> function of input size: qwen3.8 returns `2560×1440` for four different inputs
+> and `2337×1754` for two more, snapping to canonical sizes rather than scaling.
+> That is the concrete reason a caller cannot infer the frame and must read it
+> from the anchor. The claim below was an artefact of only ever sending one
+> geometry.
+
+Every anchor that has been *usable* reports a frame *larger* than the input. The
+one observed frame smaller than the input is the fabricated `real/[1200, 900]`
+cell in the C7 amendment above — on a 1920×1080 input, passing **both** checks
+with `hits_anchor` 3 against a best-fit of 6. The usable observations are all one
+way: qwen3.8 returns
+~2496 on a 1920-wide image, and the `ref_size` values in C5 (2500×1406,
+2560×1440, 2324×1312) are all above the input width. The conversion in C10 has
+therefore only ever been exercised where the frame exceeds the image. The
+stride-32 frame ceiling is `budget_max_tokens = 4096` × 32² = 4,194,304 px, or
+~2731×1536 at 16:9, so an input above ~2731 wide inverts the ratio and tests the
+opposite sign.
+
+**C18 — The image-token budget configuration MUST be recorded with every
+geometry result.** `gemma4` on fork defaults (40…1120) produces a saturating
+token curve; the same model pinned at 1088/1120 produces a flat one. A frame
+that is constant across geometries therefore means "budget ceiling reached"
+under one configuration and "pinned, as instructed" under the other, and the
+result cannot be read without knowing which. This is the geometry axis's
+equivalent of [ADR 0012](../adr/0012-benchmark-report-templates.md) rule 6,
+which requires `num_ctx` in the cell for exactly the same reason: a number whose
+meaning depends on an unrecorded setting is not a measurement.
+
+### 4.1 The geometry set
+
+Two tiers. Tier 1 isolates one variable per pair; tier 2 measures reliability
+under the distribution the contract actually meets. Regimes are computed from
+`image_min_pixels` and `budget_max_tokens` in `expectations.toml`, not assumed.
+
+**Image count is held at one.** The geometry axis runs on
+`bbox_contract_anchored_1img` — the `bbox_contract_anchored` prompt sent with
+one image instead of three — **not** on the seven three-image arms that produced
+the rates in §1–§3. That arm had to be added: neither existing arm can carry the
+axis. `bbox_contract` is single-image but requests no `__IMAGE__` entry, so it
+reports no frame at all and every prediction in §4.2 is about the reported
+frame; `bbox_contract_anchored` has the anchor but sends three images. Varying geometry inside
+a three-image request would move image count, total token load and the
+distractors' own geometry simultaneously, and the resulting cell could not
+attribute anything to the scored image's shape — the confound C13 exists to
+prevent. The cost is deliberate and must be stated in the report: **geometry
+results are not comparable to the distractor-condition rates in §1–§3.** The
+`hd` cell establishes the single-image baseline that the rest of the set is read
+against, and comparing the two conditions at `hd` also finally measures the
+distractor effect itself, which no cell has ever isolated.
+
+**Tier 1 — controlled pairs.**
+
+| id | W×H | aspect | isolates | qwen35 | gemma4 |
+|---|---|---|---|---|---|
+| `hd` | 1920×1080 | 1.778 | control — every existing rate in this SPEC | in-range | in-range |
+| `hd_al32` | 1920×1088 | 1.765 | **alignment only**, stride-32 arches (C15) | in-range | in-range |
+| `hd_al48` | 1920×1104 | 1.739 | **alignment only**, stride-48 arches (C15) | in-range | in-range |
+| `sq320` | 320×320 | 1.000 | **both C14 rows at once**; aligned @32, +10.3% pad @48 | UPscale | UPscale |
+| `vga` | 800×600 | 1.333 | C14 range row; asymmetric pad (+6.1% @48) is aspect-visible | UPscale | in-range |
+| `portrait` | 1080×1920 | 0.562 | **aspect only** — identical pixel count to `hd` | in-range | in-range |
+| `uhd` | 3072×1728 | 1.778 | above budget; **aligned at both strides** | DOWNscale | DOWNscale |
+| `uhd4k` | 3840×2160 | 1.778 | **C17 frame < input**; misaligned @32, aligned @48 | DOWNscale | DOWNscale |
+
+The set spans all three resize regimes — below floor, in range, above budget —
+for both architecture families. The regime columns are *derived* from
+`image_min_pixels` and `budget_max_tokens`, but they are consistent with the
+token curves already measured on the standard ladder
+([vision-token-budget-measurements.md](../vision-token-budget-measurements.md)):
+qwen35 reads 1038 / 1026 / 2042 / 2403 / 4058 — floored at the fixed
+`--image-min-tokens 1024` for the two smallest geometries, then scaling, then
+pressed just under the 4096 cap at 3072×1728, which is the downscale the table
+predicts.
+
+**One consequence is a free control.** On qwen35, `sq320` and `vga` are *both*
+below the 1024-token floor, so they arrive at the encoder with the **same token
+count and different aspect** (1.000 against 1.333). Any difference in reported
+extent between those two cells cannot be a token-count effect, which makes them
+a second, independent read on P3 that costs nothing extra to run.
+
+**Tier 2 — pasted sizes.** Drawn once from `random.seed(20260818)`, constrained
+to aspect 0.4–3.0 and rejected if divisible by 32 or 48 on either axis, then
+frozen as literals so the set is reproducible without re-running a generator:
+
+| id | W×H | aspect | pad @32 | pad @48 | C7 aspect | C7 range |
+|---|---|---|---|---|---|---|
+| `paste1` | 1668×733 | 2.276 | +2.1% | +5.5% | ok | ok |
+| `paste2` | 2812×2135 | 1.317 | +0.6% | +1.9% | ok — by 5% | ok |
+| `paste3` | 1235×1181 | 1.046 | +1.3% | +2.7% | **DEAD** | ok |
+| `paste4` | 2750×2379 | 1.156 | +1.0% | +2.1% | **DEAD** | ok |
+| `paste5` | 3030×1549 | 1.956 | +1.6% | +3.7% | ok | ok |
+| `paste6` | 3011×2317 | 1.300 | +1.8% | +1.9% | ok — by 4% |ok |
+
+Scored against C7's real 0.8–1.25 band (using image aspect as a stand-in for
+extent aspect, which holds for this fixture because its shapes span the frame),
+**two of six random pastes fall in the dead band and two more clear it by under
+5%**. Neither dead one is small: `paste3` is 1235×1181 and `paste4` is
+2750×2379. The blind spot is not a small-image problem, and it is not rare —
+which a set of round 16:9 sizes would never have shown.
+
+### 4.2 Pre-registered predictions
+
+Stated before measurement so they can fail.
+
+- **P1 — token-grid frame.** If the reported frame tracks the token grid rather
+  than the input, the extent should follow the arch's *token* curve, not its
+  pixel dimensions. For `gemma4` on fork defaults that curve **saturates rather
+  than being flat** — measured at 132 / 363 / 922 / 1091 / 1082 tokens across
+  the standard ladder geometries
+  ([vision-token-budget-measurements.md](../vision-token-budget-measurements.md))
+  — so the prediction is a *rising* extent across `sq320` and `vga` and a
+  *constant* one across `hd`, `uhd` and `uhd4k`, with the knee near the 1120
+  ceiling. A uniformly flat extent would refute P1 as surely as a uniformly
+  rising one. If P1 holds it explains why the frame artefact has only ever been
+  seen on qwen.
+
+  > **Do not restate this as "gemma4 is flat".** It is flat only when *pinned*
+  > (1133 / 1091 / 1102 / 1091 / 1082 at 1088/1120), and the geometry run must
+  > record which configuration it used — see C18. The same model is flat or
+  > saturating depending on a knob, and reading a pinned result as a default one
+  > inverts the conclusion.
+- **P2 — padding is in the frame.** For geometries misaligned to the arch's
+  stride, the reported extent's aspect differs from the input aspect by the pad
+  fraction. Detectable as `hd` vs `hd_aligned`. **This one may be
+  unresolvable**: the HD pad is 0.74% at stride 32, ≈7 units in norm-1000, at
+  the edge of what the space can express. `vga` at stride 48 (1.9% aspect shift,
+  ≈19 units) is the sensitive probe; `hd` is the one we care about.
+- **P3 — aspect-preserving vs letterboxed.** At `portrait`, an aspect-preserving
+  norm-1000 yields an extent aspect ≈0.562; a square-letterboxed space yields
+  ≈1.0. `hd` alone cannot distinguish these two hypotheses, which is why this
+  pair exists.
+- **P4 — square hides its own pad.** At `sq320` both axes pad equally, so the
+  extent aspect stays 1.0 regardless of padding. If the pad is in the frame it
+  is visible only in extent magnitude (336 vs 320 at stride 48), never in
+  aspect. A validator relying on aspect alone cannot see it.
+
+### 4.3 Acceptance
+
+The contract **holds at geometry G** for a model iff, at G: the `__IMAGE__`
+anchor is present and well-formed (C3, C12); the anchor-derived space converts
+to pixels within the same IoU tolerance as the `hd` baseline for that model; and
+where C14 marks a check non-discriminating, the result is recorded as
+*undetermined* rather than as a pass. **A `self_check` pass on a geometry where
+C14 says the check has no power is not evidence of conformance**, and pooling it
+into an aggregate rate is the specific error C13 exists to prevent.
+
+Scoring is restricted to shape IoU and anchor metrics. Text-dependent metrics —
+labels, the tiny serial — are **not** comparable across this set: glyph size
+scales with the fixture, a 14 px serial becomes ~2 px at 320×320, and a failure
+there is a legibility failure being misread as a contract failure. Text metrics
+MAY be recorded as diagnostics; they MUST NOT gate conformance at any geometry
+other than `hd`.
+
+### 4.4 Measurement order
+
+`qwen35` / `qwen35moe` first — qwen3.6 and qwen3.8 are the family where the
+rescaled frame is already known to occur (C5: `ref_size` 2500×1406, 2560×1440,
+2324×1312 on one 1920×1080 input), so they carry the most signal per cell and
+will show geometry instability soonest if it exists.
+
+**`gemma4` is the control and MUST still be measured.** Its stability across
+geometries is not a premise of this section — it *is* P1, and P1 is a
+prediction. Treating "gemma4 will be stable" as an assumption and skipping it
+would leave the qwen result with nothing to contrast against: a qwen extent that
+moves with input size means one thing if gemma4's holds constant and something
+entirely different if both move. The control is where P1's explanatory claim —
+that budget-filling is *why* the artefact is qwen-only — either survives or
+dies.
+
+Order within the run: `hd` first at every model, as the tie to the existing
+corpus, then tier 1, then tier 2. Both think modes throughout, per
+[ADR 0023](../adr/0023-think-mode-is-per-model-and-measured-on-policy.md) and the standing rule that a
+think-on cell is not optional; the context ladder runs per SPEC H4a and the rung
+reached is a first-class result, not a diagnostic.
+
+## 5. Conformance
 
 | requirement | enforced by |
 |---|---|
@@ -226,13 +505,21 @@ objects spread across the frame.
 | C10 | `factors()` in `score_bbox_contract` — the same three conversions, applied per box under the declared or anchor-derived space |
 | C12 | `degenerate_boxes` / `degenerate_labels` on every contract score, evaluated in the declared order. 1 of 439 responses on this host; verified not to fire on any of the 11 `yxyx`-transposed cells |
 | C11 | **Nothing enforces this.** The ladder is documented prose, exercised only by the `implied_scale` / `iou_at_implied_scale` diagnostics. Legacy handling is best-effort by construction |
+| C13 | `geometry` / `image_size` / `image_aspect` / `label_px_clamped` on every cell when the axis is in use; `summarize_geometry.py` renders them. Measured over 14 geometries × 2 models. The `hd` cell of the §4.1 set is the tie-back, but only to the single-image `bbox_contract` arm — it **cannot** reproduce the §1–§3 rates, which are three-image distractor-condition cells (`vision_suite.py:1199` ff.) and differ in image count, not just geometry |
+| C14 | **Enforcement pending.** `bbox_self_check()` returns a bare pass/fail and cannot express "non-discriminating". It needs a third state keyed off the **objects' extent aspect** and the anchor's implied frame — both already computed inside the function — so that it stays inside C7's response-only invariant. Keying it off `W`/`H` would break that invariant and is forbidden |
+| C15 | `patch_stride` per arch in `vision-suite/preflight/expectations.toml` — already versioned per ADR 0011. The `hd_aligned` fixture MUST read it rather than restating it |
+| C16 | The §4.1 tier-2 literals, frozen from `random.seed(20260818)`. Enforced by their being literals: a regenerated set would silently change what was measured |
+| C17 | `bbox_contract_real_1img` — the only arm that forces a model to name its frame. Measured: derived frames below input are the common case (0.46×–0.96× qwen3.6, 0.67×–0.93× qwen3.8), settling the direction the row below called unobserved. The direction is not wholly unobserved — the fabricated `real/[1200, 900]` cell in the C7 amendment went that way and passed both checks — which is the argument for measuring it, not against |
 
 All rates: server `0.32.5-maxusai-a5d65906`, powermode 2, think-off per
 [ADR 0022](../adr/0022-thinking-is-off-for-vision-work.md), cold restart per
 model, 7 configurations × 3 repeats.
 
-**Not covered.** One fixture at one image size. A square image, or one where
-`max(W, H) ≤ 1000`, makes the C7 aspect check non-discriminating and the range
-check ambiguous between `real` and `norm1000`; neither is measured. C7's
-thresholds (2% range tolerance, 0.8–1.25 aspect band) separate this corpus
-cleanly but are not derived from a model of the error distribution.
+**Not covered.** One fixture at one image size, 1920×1080. A square image, or
+one where `max(W, H) ≤ 1000`, makes the C7 aspect check non-discriminating and
+the range check ambiguous between `real` and `norm1000`. **§4 promotes this
+footnote to normative clauses C13–C17** and specifies the geometry set that
+measures it; until that run lands, every rate above should be read as scoped to
+16:9 HD. C7's thresholds (2% range tolerance, 0.8–1.25 aspect band) separate
+this corpus cleanly but are not derived from a model of the error distribution.
+

@@ -29,6 +29,13 @@ first is image accounting and the second is generation length.
   nemotron's pinned cost 3390 → 3270). Start at
   [preflight/README.md](preflight/README.md); the operator procedure is the
   `ollama-preflight` skill.
+- `client.py` — **the** ollama request path. Every probe issues requests through
+  `client.generate()`; nothing else builds a payload (SPEC H1 / ADR 0028). Carries
+  endpoint choice, sampling, the vision-budget options, the context-overflow 400
+  translation, `thinking` normalisation across both envelopes, and persistence.
+- `gen_geometry.py` — renders the SPEC C13–C18 geometry set (14 sizes) into
+  `visimgs/geom/`, with per-geometry ground truth scaled from fractional shape
+  coordinates. Never writes into `visimgs/`.
 - `gen_scenes.py` — deterministically renders the three test images into `visimgs/`
   plus `ground_truth.json`: a 1920×1080 labeled-shapes scene (20px labels, 14px corner
   serial), a 1568×1568 fake invoice (22px line items, 17px fine print), a 1280×960 bar
@@ -51,10 +58,14 @@ first is image accounting and the second is generation length.
   `IMAGE_MIN_TOKENS` / `IMAGE_MAX_TOKENS` (fork-only per-request vision budget,
   arch-gated to gemma4 and nemotron_h_omni; unset = build default. Recorded in the
   scores as `req_image_*_tokens` so a control run is identifiable after the fact),
-  `ENDPOINT=generate|chat` (default `generate` — `/api/chat` is what OpenWebUI and
-  ChatOllama use, and it has carried the upstream think+format two-pass fix since
-  v0.12.4, so think-on cells differ by endpoint on builds without the generate-side
-  fix). Writes `resp_<tag>_<test>.json` + `scores_<tag>.json` beside the script.
+  `ENDPOINT=chat|generate` (default **`chat`** since 2026-08-19 — it was
+  `generate`; every runner that never sets ENDPOINT now pins `generate`
+  explicitly to keep its published tags comparable. `/api/chat` is what OpenWebUI
+  and ChatOllama use, and it has carried the upstream think+format two-pass fix
+  since v0.12.4, so think-on cells differ by endpoint on builds without the
+  generate-side fix. Measured 2026-08-19: the endpoints are token-identical on
+  gemma4:31b-it-q4_K_M, but `/api/generate` returned NO reasoning text for that
+  model while `/api/chat` returned 2021 chars — see `endpoint_compare.py`). Writes `resp_<tag>_<test>.json` + `scores_<tag>.json` beside the script.
 - `gen_geoms.py [outdir]` — renders the eight geometries `measure.py` reads into `testimgs/`
   (deterministic noise + gridlines + corner markers, so the payload size is realistic and
   letterboxing is visible). Run it before `measure.py`; needs Pillow.
