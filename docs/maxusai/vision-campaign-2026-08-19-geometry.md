@@ -96,8 +96,11 @@ Columns: qwen3.6 think-off, qwen3.8 think-off, qwen3.6 think-on, qwen3.8 think-o
 ## 4. Findings
 
 **C17 is settled, and the SPEC's earlier wording was wrong.** Frames *smaller*
-than the input are not absent, they are the common case: 0.46×–0.96× on qwen3.6
-and 0.67×–0.93× on qwen3.8. The claim that every observed anchor reported a
+than the input are not absent, they are common: 8 of 13 qwen3.6 cells and 6 of 13
+qwen3.8 cells report a frame below 1.0×. The full ranges span BOTH directions —
+0.46×–2.50× (qwen3.6) and 0.67×–1.44× (qwen3.8); quoting only the sub-1.0 subset
+as if it were the range, as an earlier revision of this doc did, understates the
+spread and hides that the same model both upscales and downscales. The claim that every observed anchor reported a
 frame larger than the input was an artefact of only ever sending 1920×1080.
 
 **The reported frame is not a smooth function of input size.** qwen3.8 returns
