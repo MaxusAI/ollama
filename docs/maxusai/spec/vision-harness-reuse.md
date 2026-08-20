@@ -210,7 +210,13 @@ overwriting the suite's text — and think-on sampling is non-greedy (per the
 model card, `sampling.py`), so the two generations differed: control −114
 (gemma4:26b-a4b) and +444 (qwen3.8) on exactly the think-on finetext cells,
 every other cell in [0, 29]. Fixed 2026-08-20: the probe persists as
-`finetext_probe`.
+`finetext_probe`. Later proven character-exact for the qwen3.8 cell: the
+on-disk text matches the probe block's recorded 731 thinking chars (the
+scores block recorded 1,563), and it reconciles against the probe's own
+`eval_count` at control 3 — the split machinery was never wrong, only the
+identity. The two generations also scored differently (recall_9px 1/4
+against 2/4), which is the measured instance behind ADR 0012 conv. 4's
+think-on non-reproducibility note.
 
 ## 3. Before writing anything
 

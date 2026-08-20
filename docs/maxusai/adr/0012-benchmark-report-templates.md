@@ -59,7 +59,9 @@ Shared conventions, binding for all five:
    two same-window think-on finetext generations differed enough that
    `token_split.py`'s acceptance gate caught one run's `eval_count` being
    split against the other run's text (the double-persist incident,
-   SPEC H14).
+   SPEC H14). The two generations also SCORED differently: same cell, same
+   window, qwen3.8 recall_9px 1/4 against 2/4, with thinking 1,563 against
+   731 chars. A think-on quality cell is one draw, not a constant.
 6. **Quality cells carry their `num_ctx` in brackets: `value (num_ctx)`.**
    `num_ctx` is per **model and per test**, not per campaign — measured maxima
    for a valid think-on run span 3,258 (gemma4 fine-text) to 16,421 (nemotron3

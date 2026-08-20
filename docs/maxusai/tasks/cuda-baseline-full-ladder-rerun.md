@@ -298,3 +298,29 @@ think modes, splits gate-passed at [1, 4].
 | **total (uncapped, split cells)** | **72097** | **36026** | **21750** | **275791** |
 
 Provenance (from score files): host(s) ['http://10.8.0.6:11497'] · build(s) ['0.32.14-rc0-dynres-0-ga5d6590'] · thinking_tokens per SPEC H14 (token_split.py, gates [1,6]/[1,6]/[1,4]/[0,29])
+
+### Fine-text small tiers: qwen3.8's deficit is optical, not reasoning
+
+Why qwen3.8 reads `4/4/4/1/0` where gemma4 reads `4/4/4/4/3`: a
+character-level diff of the returned codes against `finetext_gt.json`
+(2026-08-20). qwen3.8 returns all 20 codes with correct structure, tier and
+slot; the small-tier misses are 2–3 character glyph confusions inside
+otherwise-correct codes — M↔N, W↔K, D↔O, V↔X/Y, digits 1↔3↔5↔9:
+
+- 9px (2/4): `RNK-0391-DW18` → `RMK-0391-OW18`; `FFW-8248-UJ83` → `FRM-8248-UJ83`
+- 7px (0/4): `NTR-7871-KK15` → `MTR-7871-KN13`; `AYK-9301-CK10` → `AVW-9301-CK30`;
+  `PDX-3473-YF99` → `PDV-3473-YF59`; `WKW-6311-UR66` → `MNW-6312-UR66`
+
+gemma4:31b on the identical image: 9px 4/4 exact; 7px 3/4, its one miss the
+same kind (`WKW…` → `WXM…`). The mode is irrelevant — qwen3.8 think-off shows
+the same tier profile (4/4/4/2/1) — so this is a vision-encoder resolution
+limit at 7–9px glyphs, not fabrication, refusal, or a thinking failure (its
+thinking stream is a clean tier-by-tier transcription plan). Plausible but
+unproven mechanism: qwen3.8 demonstrably works in an internally rescaled
+frame (~1.22× measured on the scene image, the q4 investigation above), and
+resampling is exactly what smears 7px strokes.
+
+The scoring caveat recorded with it: the diffed qwen3.8 codes are the PROBE
+generation's answer (the suite generation's text was the double-persist
+casualty); the suite generation scored 9px 1/4 vs the probe's 2/4 — same
+failure mode, different draw (ADR 0012 conv. 4).
