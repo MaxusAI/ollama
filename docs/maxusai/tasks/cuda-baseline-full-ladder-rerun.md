@@ -200,3 +200,56 @@ Exploratory render (rule 7) of the re-laddered arms, emitted by
 | bbox_contract_adv_real | 65536 | 14297 | stop | hits 5/6 declared, contract ❌, dialect norm1000/xyxy |
 
 Provenance (from score files): host(s) ['http://10.8.0.6:11497'] · build(s) ['0.32.14-rc0-dynres-0-ga5d6590'] · think=on, ladder 32768→131072, temp per sampling.py
+
+The canonical T1 campaign matrix, renderable since
+`summarize_engine_compare.py --prefix` landed (same day — T1 previously
+could not resolve TAG_PREFIX campaigns, and its quality cells gained the
+conv-9 `capped` guard in the same change):
+
+### T1 think=false
+
+## Scene grounding (six objects, norm-1000 boxes) + document extraction
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384 | 0.973 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 0.962 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 0.977 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| nemotron3:33b-q4_K_M | GGUF | 16384 | 0.870 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384 | 0.975 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+
+## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Answer tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | 536 | 150 | 1202 | 5.0 | 725 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | 538 | 56 | 646 | 12.2 | 296 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 2 | 1 | ❌ q4_bbox_hit | 544 | 65 | 1799 | 9.8 | 366 |
+| nemotron3:33b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 0 | ✅ q1 + q2 + q4-bbox | 512 | 209 | 4797 | 3.0 | 1196 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 2 | 2 | ✅ q1 + q2 + q4-bbox | 548 | 95 | 3228 | 6.6 | 545 |
+
+Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14-rc0-dynres-0-ga5d6590 · think=false
+
+### T1 think=on
+
+## Scene grounding (six objects, norm-1000 boxes) + document extraction
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 0.334 | 0/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 0.962 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 0.975 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/32768/65536 ⚠ | 0.577 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768/131072 ⚠ | 0.717 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+
+## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Gen tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | 7576 | 140 | 417 | 58.1 | 62 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | 1372 | 56 | 156 | 35.2 | 102 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 0 | ❌ q4_bbox_hit | 1148 | 66 | 1543 | 19.2 | 188 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/32768/65536 ⚠ | 4 | 4 | 4 | 4 | 0 | ❌ q4_bbox_hit | 5308 | 230 | 2251 | 24.3 | 148 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768/131072 ⚠ | 4 | 4 | 4 | 2 | 2 | capped | 21058 | 88 | 1546 | 242.0 | 15 |
+
+Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14-rc0-dynres-0-ga5d6590 · think=on

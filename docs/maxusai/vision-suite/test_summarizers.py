@@ -630,5 +630,72 @@ class TestWasCappedPrefersDoneReason(unittest.TestCase):
             {"done_reason": "length", "eval_count": 100, "num_predict": 8192}))
 
 
+class TestT1CampaignPrefix(unittest.TestCase):
+    """--prefix renders a TAG_PREFIX campaign; unset, tags derive as before (H4).
+
+    Without it the 2026-08-20 cudafull1 five-model baseline had no T1 render:
+    resolve_tag knew only bare model-derived tags, so the canonical campaign
+    matrix could not be produced for any prefixed campaign."""
+
+    MODEL = "gemma4:12b-it-q4_K_M"
+
+    def write_prefixed(self):
+        d = tempfile.mkdtemp()
+        tag = "cudafull1_" + sec.tag_for(self.MODEL, "false")
+        with open(os.path.join(d, f"scores_{tag}.json"), "w") as fh:
+            json.dump(THINKOFF, fh)
+        return d
+
+    def row(self, rendered):
+        return [l for l in rendered.splitlines()
+                if l.startswith(f"| {self.MODEL} |")][0]
+
+    def test_prefix_finds_the_campaign_file(self):
+        d = self.write_prefixed()
+        argv = ["summarize_engine_compare.py", "--dir", d, "--think", "false",
+                "--prefix", "cudafull1_", self.MODEL]
+        out = io.StringIO()
+        with mock_argv(argv), contextlib.redirect_stdout(out):
+            sec.main()
+        self.assertIn("0.900", self.row(out.getvalue()))  # scene IoU, not a dash row
+
+    def test_without_prefix_the_prefixed_file_stays_invisible(self):
+        d = self.write_prefixed()
+        self.assertNotIn("0.900", self.row(render(d, self.MODEL, "false")))
+
+
+class TestT1CappedQualityCells(unittest.TestCase):
+    """T1 quality cells render "capped", never a score (ADR 0012 conv 9).
+
+    The scene-derived throughput cells were guarded; the quality cells were
+    not — measured 2026-08-20, the capped qwen3.6 think-on multi ceiling cell
+    rendered "❌ q1_right, q2_right, q4_bbox_hit", a grounding failure, for a
+    cell that never terminated. Same defect class fixed in T2 that morning."""
+
+    MODEL = "gemma4:12b-it-q4_K_M"
+
+    def rows(self, scores):
+        d = tempfile.mkdtemp()
+        write(d, self.MODEL, "false", scores)
+        return [l for l in render(d, self.MODEL, "false").splitlines()
+                if l.startswith(f"| {self.MODEL} |")]
+
+    def test_a_capped_multi_renders_capped_not_grounding_failure(self):
+        s = json.loads(json.dumps(THINKOFF))
+        s["multi_3img"].update(eval_count=8192, num_predict=8192,
+                               q1_right=False, q2_right=False, q4_bbox_hit=False)
+        throughput_row = self.rows(s)[1]
+        self.assertIn("| capped |", throughput_row)
+        self.assertNotIn("❌", throughput_row)
+
+    def test_a_capped_scene_hides_every_grounding_cell(self):
+        s = json.loads(json.dumps(THINKOFF))
+        s["scene_single"]["eval_count"] = s["scene_single"]["num_predict"]
+        grounding_row = self.rows(s)[0]
+        self.assertNotIn("0.900", grounding_row)
+        self.assertNotIn("6/6", grounding_row)
+        self.assertIn("capped", grounding_row)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

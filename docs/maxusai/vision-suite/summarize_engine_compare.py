@@ -3,7 +3,7 @@
 
 Usage:
     python3 summarize_engine_compare.py [--dir RUNDIR] [--think false|on] \
-        <model> [model ...]
+        [--prefix TAG_PREFIX] <model> [model ...]
 
 --think selects which think cell to render (default "false"). Both cells are
 produced by run_engine_compare.sh and are separate results — render them as two
@@ -39,19 +39,25 @@ def tag_for(model, think=None):
     return base if think is None else f"{base}_think{think}"
 
 
-def resolve_tag(rundir, model, think):
+def resolve_tag(rundir, model, think, prefix=""):
     """Prefer the think-suffixed tag; fall back to the legacy bare tag.
 
     The fallback applies ONLY to think=false. Pre-2026-08-09 runs wrote the
     bare tag and were think-off, so serving them for a --think on request
     would silently render the wrong cell — the caller would see think-off
     numbers labelled as reasoning results.
+
+    `prefix` is the campaign namespace run_engine_compare.sh writes when
+    TAG_PREFIX is set — e.g. "cudafull1_" (TAG_PREFIX "cudafull" plus the
+    interpolated rep and separator). Without it T1 could not render a
+    prefixed campaign at all: the 2026-08-20 five-model cudafull1 baseline
+    had only the T2 pivot until this landed. Empty by default (H4).
     """
-    suffixed = tag_for(model, think)
+    suffixed = prefix + tag_for(model, think)
     if os.path.exists(os.path.join(rundir, f"scores_{suffixed}.json")):
         return suffixed
     if think == "false":
-        legacy = tag_for(model)
+        legacy = prefix + tag_for(model)
         if os.path.exists(os.path.join(rundir, f"scores_{legacy}.json")):
             return legacy
     return suffixed  # nothing on disk; report against the expected name
@@ -166,6 +172,13 @@ def main():
     if args and args[0] == "--think":
         think = args[1]
         args = args[2:]
+    # Campaign tag namespace, matching run_engine_compare.sh's TAG_PREFIX
+    # output (give the full literal prefix, e.g. "cudafull1_"). Unset, tags
+    # derive exactly as before (H4).
+    prefix = ""
+    if args and args[0] == "--prefix":
+        prefix = args[1]
+        args = args[2:]
     if not args:
         sys.exit(__doc__)
     engine_map = {}
@@ -188,7 +201,7 @@ def main():
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
 
     for model in args:
-        tag = resolve_tag(rundir, model, think)
+        tag = resolve_tag(rundir, model, think, prefix)
         eng = engine_for(model, engine_map)
         eng_cell = f"**{eng}**" if eng == "MLX" else eng
         scores = load(os.path.join(rundir, f"scores_{tag}.json")) or {}
@@ -217,6 +230,16 @@ def main():
         if scores and not any(sec.get("server_version") for sec in (sc, dc, mu, ft)):
             prov_vers.add("pre-H11 run (build not recorded)")
 
+        def q(block, text):
+            # ADR 0012 conv 9: a capped cell renders "capped", never a score.
+            # T1 carries the rung in its num_ctx column, so no bracket here.
+            # Guarding only the scene-derived throughput cells (below) left
+            # every quality cell exposed — measured 2026-08-20, the capped
+            # qwen3.6 think-on multi ceiling cell rendered
+            # "❌ q1_right, q2_right, q4_bbox_hit": "cannot ground" for a cell
+            # that never terminated, the exact defect fixed in T2 that morning.
+            return "capped" if was_capped(block) else text
+
         iou = sc.get("bbox_mean_iou")
         iou_cell = "—" if iou is None else (f"**{iou:.3f}**" if eng == "MLX" else f"{iou:.3f}")
         blc = (f"{sc.get('bbox_hits', '—')}/{sc.get('object_count', '—')} · "
@@ -225,19 +248,22 @@ def main():
         inv = (f"{dc.get('items_found', '—')}/{dc.get('items_total', '—')} · "
                f"{dc.get('qty_price_right', '—')}/{dc.get('items_total', '—')} · "
                f"{fmt_bool(dc.get('total_right'))}")
-        t1.append(f"| {model} | {eng_cell} | {ctx_cell} | {iou_cell} | {blc} | "
-                  f"{fmt_bool(sc.get('serial_found'))} | {inv} | {dc.get('name_bbox_hits', '—')} |")
+        t1.append(f"| {model} | {eng_cell} | {ctx_cell} | {q(sc, iou_cell)} | {q(sc, blc)} | "
+                  f"{q(sc, fmt_bool(sc.get('serial_found')))} | {q(dc, inv)} | "
+                  f"{q(dc, str(dc.get('name_bbox_hits', '—')))} |")
 
-        tiers = [str(ft.get(f"recall_{px}px", "—")) for px in (22, 16, 12, 9, 7)]
+        tiers = [q(ft, str(ft.get(f"recall_{px}px", "—"))) for px in (22, 16, 12, 9, 7)]
         # NOT "all Qs": the multi-image prompt asks four questions and q3 is
         # never scored, so a cell that answered q3 wrongly still reads as a clean
         # sweep. Name the three that are actually gated.
-        if mu.get("q1_right") and mu.get("q2_right") and mu.get("q4_bbox_hit"):
+        if was_capped(mu):
+            multi = "capped"
+        elif mu.get("q1_right") and mu.get("q2_right") and mu.get("q4_bbox_hit"):
             multi = "✅ q1 + q2 + q4-bbox"
         elif not mu:
             multi = "—"
         else:
-            fails = [q for q in ("q1_right", "q2_right", "q4_bbox_hit") if not mu.get(q)]
+            fails = [q_ for q_ in ("q1_right", "q2_right", "q4_bbox_hit") if not mu.get(q_)]
             multi = "❌ " + ", ".join(fails)
         gen = sc.get("gen_tps")
         pre = sc.get("prefill_tps")

@@ -31,7 +31,7 @@ from harness output MUST be emitted by the named generator**, not typed.
 
 | id | shape | when | generator |
 |---|---|---|---|
-| **T1 — Campaign matrix** | two tables: grounding+extraction, then OCR tiers + multi + throughput + latency; one row per model, `Engine` column, MLX bolded | full N-model campaigns on one host/power state | `vision-suite/summarize_engine_compare.py` (paired with `run_engine_compare.sh`) |
+| **T1 — Campaign matrix** | two tables: grounding+extraction, then OCR tiers + multi + throughput + latency; one row per model, `Engine` column, MLX bolded | full N-model campaigns on one host/power state | `vision-suite/summarize_engine_compare.py` (paired with `run_engine_compare.sh`; `--prefix` renders a TAG_PREFIX campaign namespace, e.g. `--prefix cudafull1_`) |
 | **T2 — Head-to-head pivot** | rows = test × metric, columns = models | deep comparison of ≤ 4 configurations | `vision-suite/summarize_head_to_head.py` (same scores files; `--tags` for ad-hoc tag names) |
 | **T3 — Platform baseline** | structured report: system-under-test, workloads, metric definitions, results, regression procedure, limitations | the living per-platform record | hand-maintained, but its table shapes are fixed and its §3 is the **only** place metric definitions live — other reports link, never restate |
 | **T4 — Geometry sweep** | one row per geometry, one column group per model; anchor frame/ratio + chk/anc/bf columns keep SPEC C17's two failure modes distinguishable | geometry-generality campaigns (SPEC C13–C18); T1/T2/T3 are keyed on model, not image size | `vision-suite/summarize_geometry.py` |
