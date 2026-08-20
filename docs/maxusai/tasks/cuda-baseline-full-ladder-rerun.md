@@ -164,3 +164,39 @@ Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14
 | latency | req/h (serial) | 62 | 102 | 188 | 148 | 15 |
 
 Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14-rc0-dynres-0-ga5d6590
+
+Exploratory render (rule 7) of the re-laddered arms, emitted by
+`render_residuals.py` from the score files:
+
+### nemotron3:33b-q4_K_M think=on
+
+| arm | final rung (num_ctx) | eval tok | done_reason | result |
+|---|---|---|---|---|
+| scene_single_anchored | 32768 | 13628 | — (pre-#207 block) | IoU 0.417, labels 6/6, serial ❌ |
+| bbox_contract_adv_real | 32768 | 9924 | — (pre-#207 block) | hits 0/6 declared, contract ❌, dialect norm1000/xyxy |
+
+### qwen3.6:35b-a3b-q4_K_M think=on
+
+| arm | final rung (num_ctx) | eval tok | done_reason | result |
+|---|---|---|---|---|
+| bboxm_pin_anc_named | 32768 | 14042 | — (pre-#207 block) | hits 6/6 declared, contract ✅, dialect norm1000/xyxy |
+| bboxm_pin_anc_pos | 32768 | 15542 | — (pre-#207 block) | hits 4/6 declared, contract ❌, dialect norm1000/xyxy |
+| bboxm_pin_noanc_named | 32768 | 21500 | — (pre-#207 block) | hits 6/6 declared, contract ✅, dialect norm1000/xyxy |
+| bboxm_pin_noanc_pos | 65536 | 9453 | stop | hits 6/6 declared, contract ✅, dialect norm1000/xyxy |
+| bboxm_free_anc_named | 32768 | 13461 | — (pre-#207 block) | hits 6/6 declared, contract ✅, dialect norm1000/xyxy |
+| bboxm_free_anc_pos | 32768 | 15070 | — (pre-#207 block) | hits 3/6 declared, contract ❌, dialect norm1000/xyxy |
+| bboxm_free_noanc_pos | 32768 | 18586 | — (pre-#207 block) | hits 6/6 declared, contract ✅, dialect norm1000/xyxy |
+| scene_single_pinned | 65536 | 4792 | stop | IoU 0.044, labels 6/6, serial ✅ |
+| scene_single_anchored | 65536 | 8423 | stop | IoU 0.640, labels 6/6, serial ✅ |
+| bbox_contract | 131072 | 122880 | length | capped — non-terminating at the ceiling |
+| bbox_contract_multi | 32768 | 17075 | — (pre-#207 block) | hits 6/6 declared, contract ✅, dialect real/xyxy |
+| bbox_contract_reasoning | 32768 | 8290 | — (pre-#207 block) | hits 5/6 declared, contract ❌, dialect norm1000/xyxy |
+| bbox_contract_perobject | 32768 | 16638 | — (pre-#207 block) | hits 6/6 declared, contract ✅, dialect norm1000/xyxy |
+| bbox_contract_anchored | 32768 | 11902 | — (pre-#207 block) | hits 6/6 declared, contract ✅, dialect norm1000/xyxy |
+| bbox_contract_anchored_1img | 32768 | 13932 | — (pre-#207 block) | hits 6/6 declared, contract ✅, dialect norm1000/xyxy |
+| bbox_contract_box2d_1img | 32768 | 14639 | — (pre-#207 block) | hits 6/6 declared, contract ✅, dialect norm1000/xyxy |
+| bbox_contract_positional_1img | 32768 | 21154 | — (pre-#207 block) | hits 6/6 declared, contract ✅, dialect norm1000/xyxy |
+| bbox_contract_real_1img | 131072 | 122880 | length | capped — non-terminating at the ceiling |
+| bbox_contract_adv_real | 65536 | 14297 | stop | hits 5/6 declared, contract ❌, dialect norm1000/xyxy |
+
+Provenance (from score files): host(s) ['http://10.8.0.6:11497'] · build(s) ['0.32.14-rc0-dynres-0-ga5d6590'] · think=on, ladder 32768→131072, temp per sampling.py
