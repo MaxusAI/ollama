@@ -16,6 +16,88 @@ are understated by an open server bug
 ([tasks/nemotron-thinkon-evalcount-undercount.md](tasks/nemotron-thinkon-evalcount-undercount.md));
 its `s/req` is unaffected.
 
+## A complete request, end to end
+
+Everything below this section explains *why*; this section is the *what*: one
+full, working request. It is emitted by
+[vision-suite/emit_request.py](vision-suite/emit_request.py), which captures
+the payload from `client.py`'s own construction (H9 — one payload builder),
+so it cannot drift from what the campaigns actually sent. Reproduce any
+variant yourself:
+
+```bash
+cd docs/maxusai/vision-suite
+python3 emit_request.py gemma4:31b-it-q4_K_M on            # trustable arm, think-on
+python3 emit_request.py qwen3.6:35b-a3b-q4_K_M false       # any model / mode
+python3 emit_request.py qwen3.8:27b-q4_K_M on bboxm_pin_anc_pos   # any arm
+```
+
+**gemma4:31b-it-q4_K_M, think=on, the trustable arm (`bboxm_pin_anc_named`)
+— emitted verbatim:**
+
+```
+POST http://HOST:11497/api/chat
+{
+  "model": "gemma4:31b-it-q4_K_M",
+  "stream": false,
+  "options": {
+    "num_predict": 8192,
+    "num_ctx": 16384,
+    "temperature": 0.0,
+    "top_p": 0.95,
+    "top_k": 64
+  },
+  "format": "json",
+  "messages": [
+    {
+      "role": "user",
+      "content": "You are a localization service. Find every distinct\ncoloured shape in this image and report where each one is.\n\nUse \"bbox_type\": \"norm1000\" — each axis scaled independently to 0-1000, x by\n1000/width and y by 1000/height. The coordinate space is 1000x1000 whatever the\nimage's shape is.\n\n\nGive each coordinate its own named field: \"x1\", \"y1\", \"x2\", \"y2\". Do not use a\npositional array, and do not declare a \"coord_order\" — named fields state their own order.\n\nDeclare the convention on EVERY object, next to that object's coordinates.\n\nEach box covers the shape itself, not its label text. A box that disagrees with\nits declaration is worse than no answer at all, because a consumer trusts the\ndeclaration.\n\nThe FIRST entry must be a calibration entry with label \"__IMAGE__\" whose\ncoordinates cover the ENTIRE image, corner to corner, in the same convention as\neverything else. Then list the shapes.\n\nRespond with a SINGLE JSON object, no prose:\n{\n  \"objects\": [{\"label\": \"__IMAGE__\", \"bbox_type\": \"norm1000\", \"x1\": , \"y1\": , \"x2\": , \"y2\": },\n              {\"label\": \"<uppercase code word above the shape>\",\n               \"bbox_type\": \"norm1000\", \"x1\": , \"y1\": , \"x2\": , \"y2\": }]\n}",
+      "images": [
+        "<base64 of visimgs/scene_hd.png>"
+      ]
+    }
+  ]
+}
+```
+
+Replace the image placeholder with the base64 of your PNG and `HOST` with the
+server. Note what the trustable arm actually looks like on the wire: **named
+coordinate fields** (`"x1":, "y1":, "x2":, "y2":`) with `"bbox_type":
+"norm1000"` declared on every object, and the `__IMAGE__` calibration entry
+first. Named fields state their own order, so the whole
+`box_2d`/`bbox_2d`/xyxy/yxyx dialect problem simply does not arise — the
+dialect arrays only enter with the positional arms
+(`emit_request.py <model> on bboxm_pin_anc_pos` offers `box_2d` to gemma and
+`bbox_2d` to qwen/nemotron automatically).
+
+**The same request, think=off** (emitted): the prompt and structure are
+identical; three things change —
+
+```json
+  "think": false,
+  "options": {"num_predict": 2200, "num_ctx": 16384, "temperature": 0}
+```
+
+(`think: false` appears at top level; when thinking is ON the field is
+omitted; card sampling keys drop out.)
+
+**Per-model deltas, think=on** — only `model` and `options` change; the
+named-arm prompt is model-independent (emitted for each):
+
+| model | think=on `options` |
+|---|---|
+| gemma4:31b / 26b-a4b | `{"num_predict": 8192, "num_ctx": 16384, "temperature": 0.0, "top_p": 0.95, "top_k": 64}` |
+| qwen3.6:35b-a3b | `{"num_predict": 8192, "num_ctx": 16384, "temperature": 0.0, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 1.5}` |
+| qwen3.8:27b, nemotron3:33b | `{"num_predict": 8192, "num_ctx": 16384}` — no card row, packaged defaults apply |
+
+**Handling the response**: check `done_reason` first. `"stop"` → use the
+result (strip the `__IMAGE__` entry before consuming the object list, rescale
+through it if `bbox_type` was not what you asked for). `"length"` → the
+window was too small for the thinking, not a model failure: re-send with the
+next rung (`num_ctx` 32768, `num_predict` 24576; then 65536/57344,
+131072/122880). The per-model sections below say which rung each model
+realistically needs.
+
 ## Rules that apply to every model
 
 1. **Sampling**: think-off runs greedy (`temperature: 0` — every baseline
@@ -104,6 +186,12 @@ open), **`prompt_eval_count`**, and the separated **`thinking`** /
 reasoning text).
 
 ### Response-schema vocabulary: dialects, spaces, order, anchor, pin
+
+The trustable arm sidesteps most of this with named fields — see the
+complete request at the top of this document. This vocabulary matters in two
+situations: when a prompt uses positional arrays (the `*_pos` arms), and
+whenever you consume a model's free-form output, because models volunteer
+these notations unprompted.
 
 One real object in every notation — DYNAMO, ground truth
 `[220, 600, 480, 860]` pixels in a 1920×1080 image
