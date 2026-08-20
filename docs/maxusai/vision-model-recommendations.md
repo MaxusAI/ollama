@@ -103,6 +103,84 @@ open), **`prompt_eval_count`**, and the separated **`thinking`** /
 **`response`** texts (only `/api/chat` returns both — `/api/generate` drops
 reasoning text).
 
+### Response-schema vocabulary: dialects, spaces, order, anchor, pin
+
+One real object in every notation — DYNAMO, ground truth
+`[220, 600, 480, 860]` pixels in a 1920×1080 image
+([vision-bbox-coordinate-conventions.md](vision-bbox-coordinate-conventions.md)
+is the full reference):
+
+```json
+{"label": "DYNAMO", "bbox_2d": [220, 600, 480, 860]}   // real px,  xyxy  (qwen/nemotron field name)
+{"label": "DYNAMO", "bbox_2d": [115, 556, 250, 796]}   // norm1000, xyxy  (x·1000/W, y·1000/H)
+{"label": "DYNAMO", "box_2d":  [556, 115, 796, 250]}   // norm1000, yxyx  (gemma/Gemini documented order)
+{"label": "DYNAMO", "box_2d":  [115, 556, 250, 796]}   // what gemma4 MEASURABLY emits: norm1000, xyxy
+```
+
+- **`box_2d` vs `bbox_2d`** — pure field-name dialect: gemma4/Gemini are
+  trained toward `box_2d`, qwen-vl and nemotron toward `bbox_2d`. Offer the
+  model its own name (demanding one measures naming compliance, not vision);
+  a consumer should accept `bbox`, `bbox_2d`, `box_2d` alike, as the suite's
+  scorers do.
+- **`norm1000`** — each axis independently scaled to 0–1000:
+  `x_norm = x_px · 1000 / W`. Convert back with `x_px = x_norm · W / 1000`.
+  Also seen: `norm1` (0.0–1.0) and `real` (absolute pixels — which is only
+  meaningful together with a frame, see `ref_size`).
+- **`xyxy` vs `yxyx`** — `[x1, y1, x2, y2]` (qwen convention) vs
+  `[y1, x1, y2, x2]` (the documented gemma/Gemini `box_2d` order). Measured
+  in this corpus gemma4 GGUF actually emits xyxy while declaring it; a
+  robust consumer tries both orders, as `score_multi` does.
+- **The self-describing contract** (ms-swift vocabulary, so a conforming
+  response is directly usable as fine-tuning data):
+
+  ```json
+  {
+    "bbox_type": "real",
+    "ref_size": [2500, 1406],
+    "coord_order": "xyxy",
+    "objects": [{"label": "DYNAMO", "box_2d": [286, 781, 625, 1119]}]
+  }
+  ```
+
+  `ref_size` is mandatory with `real`: "absolute pixels" is a convention
+  *plus a frame*, and qwen3.8 GGUF demonstrably reports in a ~1.3× frame —
+  honestly declaring `ref_size [2500, 1406]` for a 1920×1080 input. Divide it
+  out and its IoU goes 0.079 → 0.909. **Never trust the declaration alone on
+  adversarial input**: nemotron3 declares `real` and emits norm-1000 (0/6 on
+  that cell) — the direction that silently halves every box.
+
+- **Anchored** — ask that the objects array *begin* with a calibration entry
+  covering the entire image in the same convention as every other box
+  (prompt wording, verbatim: *"whose `label` is `__IMAGE__` and whose `bbox`
+  covers the ENTIRE image, corner to corner, in exactly the same convention
+  as every other box … If you resized image 1 internally, use the size YOU
+  used"*). The model then declares its true frame in-band:
+
+  ```json
+  "key_objects": [
+    {"label": "__IMAGE__", "bbox_2d": [0, 0, 2560, 1440]},
+    {"label": "DYNAMO",   "bbox_2d": [293, 800, 640, 1147]}
+  ]
+  ```
+
+  (that `[0, 0, 2560, 1440]` is qwen3.8's measured self-declaration for a
+  1920×1080 input). Effect: the consumer rescales through the declared frame
+  instead of guessing — measured to flip qwen3.8 and nemotron3 multi q4
+  ❌→✅, and to turn qwen3.6 think-on from never-terminating into a
+  9,598-token clean finish. Strip the `__IMAGE__` entry before treating the
+  list as content.
+
+- **Pinned** — prompt-side, no JSON key: the prompt states the frame and the
+  space outright (verbatim: *"Bounding boxes use `norm1000` … formatted
+  `[x1, y1, x2, y2]` … The image is exactly {w} pixels wide and {h} pixels
+  tall, but report NORMALIZED 0-1000 values"*). Effect: removes the model's
+  need to name a frame at all. The factor matrix measured pin as the largest
+  single marginal for the weaker configurations (gemma-26b-a4b think-off
+  +1.79/6, nemotron3 think-off +1.54/6) — and `pin + anchor + named` together
+  are the trustable arm. The one caution transfers from the qwen3.6 cell:
+  a pinned frame must state the size actually sent — a prompt that lies
+  about its own input measures obedience to a false premise.
+
 ## Per-model settings
 
 ### gemma4:26b-a4b-it-q4_K_M (MoE)
