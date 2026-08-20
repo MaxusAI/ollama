@@ -261,16 +261,21 @@ Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14
 
 ### Thinking tokens per probe (think=on) — exploratory (rule 7), from the H14 splits
 
+qwen3.8's nine missing arms (its run predated the matrix commit that
+added them to the default suite by six minutes) were measured
+2026-08-20 evening: all nine converged at the 16384 start rung in both
+think modes, splits gate-passed at [1, 4].
+
 | probe (think=on) | gemma4:26b-a4b | gemma4:31b | qwen3.8:27b | qwen3.6:35b-a3b |
 |---|---|---|---|---|
-| bboxm_pin_anc_named | 1466 | 541 | — | 13531 |
-| bboxm_pin_anc_pos | 3362 | 1690 | — | 14989 |
-| bboxm_pin_noanc_named | 3406 | 337 | — | 21058 |
-| bboxm_pin_noanc_pos | 1889 | 1557 | — | 8975 |
-| bboxm_free_anc_named | 2451 | 1258 | — | 12775 |
-| bboxm_free_anc_pos | 3041 | 692 | — | 14343 |
-| bboxm_free_noanc_named | 1508 | 729 | — | 5585 |
-| bboxm_free_noanc_pos | 2787 | 1343 | — | 18040 |
+| bboxm_pin_anc_named | 1466 | 541 | 699 | 13531 |
+| bboxm_pin_anc_pos | 3362 | 1690 | 762 | 14989 |
+| bboxm_pin_noanc_named | 3406 | 337 | 1335 | 21058 |
+| bboxm_pin_noanc_pos | 1889 | 1557 | 971 | 8975 |
+| bboxm_free_anc_named | 2451 | 1258 | 431 | 12775 |
+| bboxm_free_anc_pos | 3041 | 692 | 457 | 14343 |
+| bboxm_free_noanc_named | 1508 | 729 | 559 | 5585 |
+| bboxm_free_noanc_pos | 2787 | 1343 | 629 | 18040 |
 | scene_single_pinned | 1759 | 1836 | 1421 | 4184 |
 | scene_single_anchored | 3556 | 2413 | 1079 | 7729 |
 | scene_single | 7153 | 833 | 690 | 20445 |
@@ -285,11 +290,11 @@ Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14
 | bbox_contract_anchored | 1862 | 891 | 1027 | 11391 |
 | bbox_contract_anchored_1img | 1810 | 859 | 676 | 13404 |
 | bbox_contract_box2d_1img | 3378 | 1047 | 844 | 14086 |
-| bbox_contract_positional_1img | 3195 | 981 | — | 20599 |
+| bbox_contract_positional_1img | 3195 | 981 | 1064 | 20599 |
 | bbox_contract_real_1img | 2112 | 894 | 607 | capped (131072) |
 | bbox_contract_adv_real | 2676 | 1289 | 528 | 13640 |
 | bbox_contract_adv_norm1 | 2385 | 916 | 616 | 4312 |
 | finetext | · | 1809 | · | 1438 |
-| **total (uncapped, split cells)** | **72097** | **36026** | **14843** | **275791** |
+| **total (uncapped, split cells)** | **72097** | **36026** | **21750** | **275791** |
 
 Provenance (from score files): host(s) ['http://10.8.0.6:11497'] · build(s) ['0.32.14-rc0-dynres-0-ga5d6590'] · thinking_tokens per SPEC H14 (token_split.py, gates [1,6]/[1,6]/[1,4]/[0,29])
