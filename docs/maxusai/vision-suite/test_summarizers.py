@@ -727,5 +727,34 @@ class TestT1ThinkTokColumn(unittest.TestCase):
         self.assertIn("| — | 5588 |", row)
 
 
+class TestT1AnchoredMultiColumn(unittest.TestCase):
+    """The anchored multi variant is its own T1 column, never folded into the
+    unanchored one — the pair is the evidence that a q4-bbox miss was a frame
+    error rather than a grounding failure. Measured 2026-08-20, qwen3.8 AND
+    nemotron3 think-on both flip ❌→✅ under the calibration entry."""
+
+    MODEL = "gemma4:12b-it-q4_K_M"
+
+    def test_the_pair_renders_side_by_side_and_independent(self):
+        d = tempfile.mkdtemp()
+        s = json.loads(json.dumps(THINKOFF))
+        s["multi_3img"]["q4_bbox_hit"] = False
+        s["multi_3img_anchored"] = {"q1_right": True, "q2_right": True,
+                                    "q4_bbox_hit": True, "num_ctx": 16384}
+        write(d, self.MODEL, "false", s)
+        rendered = render(d, self.MODEL, "false")
+        self.assertIn("| Multi-image (3 imgs) | Multi anchored |", t2_header(rendered))
+        row = [l for l in rendered.splitlines()
+               if l.startswith(f"| {self.MODEL} |")][1]
+        self.assertIn("❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox |", row)
+
+    def test_a_missing_anchored_block_is_a_dash(self):
+        d = tempfile.mkdtemp()
+        write(d, self.MODEL, "false", THINKOFF)
+        row = [l for l in render(d, self.MODEL, "false").splitlines()
+               if l.startswith(f"| {self.MODEL} |")][1]
+        self.assertIn("✅ q1 + q2 + q4-bbox | — |", row)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -203,11 +203,13 @@ Provenance (from score files): host(s) ['http://10.8.0.6:11497'] · build(s) ['0
 
 The canonical T1 campaign matrix, renderable since
 `summarize_engine_compare.py --prefix` landed (same day). Its quality
-cells carry the conv-9 `capped` guard, and the throughput table carries
-**Think tok** — token_split.py's exact reasoning-token count, gate-proven
-against eval_count with each server's own vocab (nemotron3 renders `—`:
-no local tokenizer passed the gate; a GGUF-array reconstruction was
-refused by the gate at 54/54 cells, which is the gate working):
+cells carry the conv-9 `capped` guard; the throughput table carries the
+anchored-multi column beside the unanchored one (the pair distinguishes
+a frame error from a grounding failure) and **Think tok** —
+token_split.py's exact reasoning-token count, gate-proven against
+eval_count with each server's own vocab (nemotron3 renders `—`: no
+local tokenizer passed the gate; a GGUF-array reconstruction was
+refused at 54/54 cells, which is the gate working):
 
 ### T1 think=false
 
@@ -223,13 +225,13 @@ refused by the gate at 54/54 cells, which is the gate working):
 
 ## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
 
-| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Think tok | Answer tok | Gen tok/s | Prefill tok/s | s/req | req/h |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | 0 | 536 | 150 | 1202 | 5.0 | 725 |
-| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | 0 | 538 | 56 | 646 | 12.2 | 296 |
-| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 2 | 1 | ❌ q4_bbox_hit | 0 | 544 | 65 | 1799 | 9.8 | 366 |
-| nemotron3:33b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 0 | ✅ q1 + q2 + q4-bbox | — | 512 | 209 | 4797 | 3.0 | 1196 |
-| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 2 | 2 | ✅ q1 + q2 + q4-bbox | 0 | 548 | 95 | 3228 | 6.6 | 545 |
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Answer tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | 0 | 536 | 150 | 1202 | 5.0 | 725 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | 0 | 538 | 56 | 646 | 12.2 | 296 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 2 | 1 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | 0 | 544 | 65 | 1799 | 9.8 | 366 |
+| nemotron3:33b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 512 | 209 | 4797 | 3.0 | 1196 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 2 | 2 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | 0 | 548 | 95 | 3228 | 6.6 | 545 |
 
 Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14-rc0-dynres-0-ga5d6590 · think=false
 
@@ -247,12 +249,12 @@ Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14
 
 ## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
 
-| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Think tok | Gen tok | Gen tok/s | Prefill tok/s | s/req | req/h |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | 7153 | 7576 | 140 | 417 | 58.1 | 62 |
-| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | 833 | 1372 | 56 | 156 | 35.2 | 102 |
-| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 0 | ❌ q4_bbox_hit | 690 | 1148 | 66 | 1543 | 19.2 | 188 |
-| nemotron3:33b-q4_K_M | GGUF | 16384/32768/65536 ⚠ | 4 | 4 | 4 | 4 | 0 | ❌ q4_bbox_hit | — | 5308 | 230 | 2251 | 24.3 | 148 |
-| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768/131072 ⚠ | 4 | 4 | 4 | 2 | 2 | capped | 20445 | 21058 | 88 | 1546 | 242.0 | 15 |
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Gen tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | 7153 | 7576 | 140 | 417 | 58.1 | 62 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | 833 | 1372 | 56 | 156 | 35.2 | 102 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 0 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | 690 | 1148 | 66 | 1543 | 19.2 | 188 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/32768/65536 ⚠ | 4 | 4 | 4 | 4 | 0 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | — | 5308 | 230 | 2251 | 24.3 | 148 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768/131072 ⚠ | 4 | 4 | 4 | 2 | 2 | capped | ✅ q1 + q2 + q4-bbox | 20445 | 21058 | 88 | 1546 | 242.0 | 15 |
 
 Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14-rc0-dynres-0-ga5d6590 · think=on

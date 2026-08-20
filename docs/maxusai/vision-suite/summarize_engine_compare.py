@@ -197,8 +197,8 @@ def main():
           "| Invoice (items · qty+price · total) | name_bbox in-band |",
           "|---|---|---|---|---|---|---|---|"]
     t2 = ["| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) "
-          f"| Think tok | {token_column(think)} | Gen tok/s | Prefill tok/s | s/req | req/h |",
-          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+          f"| Multi anchored | Think tok | {token_column(think)} | Gen tok/s | Prefill tok/s | s/req | req/h |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
 
     for model in args:
         tag = resolve_tag(rundir, model, think, prefix)
@@ -211,13 +211,19 @@ def main():
         sc = scores.get("scene_single", {})
         dc = scores.get("document_single", {})
         mu = scores.get("multi_3img", {})
+        # The anchored variant is a SEPARATE column, never folded into the one
+        # beside it — the pair is the whole evidence that a q4-bbox miss was a
+        # frame error rather than a grounding failure (same argument as T2's
+        # anchored row; measured 2026-08-20, qwen3.8 AND nemotron3 think-on
+        # both flip ❌→✅ under the calibration entry, for different reasons).
+        ma = scores.get("multi_3img_anchored", {})
 
         # The window these numbers were achieved under. A cell measured at a
         # different num_ctx is not comparable on throughput (KV size affects
         # decode speed), and a short result at a small window may be a cap
         # rather than the model. "—" means the run predates the field.
-        ctx_cell = ctx_for(sc, dc, mu, ft)
-        for sec in (sc, dc, mu, ft):
+        ctx_cell = ctx_for(sc, dc, mu, ft, ma)
+        for sec in (sc, dc, mu, ft, ma):
             if sec.get("host"):
                 prov_hosts.add(sec["host"])
             if sec.get("server_version"):
@@ -225,9 +231,9 @@ def main():
         # A loaded pre-H11 file contributes the sentinel so mixing it with an
         # H11-era row renders both entries and trips the MIXED warning --
         # otherwise the footer shows one clean host for rows it can't vouch for.
-        if scores and not any(sec.get("host") for sec in (sc, dc, mu, ft)):
+        if scores and not any(sec.get("host") for sec in (sc, dc, mu, ft, ma)):
             prov_hosts.add("pre-H11 run (host not recorded)")
-        if scores and not any(sec.get("server_version") for sec in (sc, dc, mu, ft)):
+        if scores and not any(sec.get("server_version") for sec in (sc, dc, mu, ft, ma)):
             prov_vers.add("pre-H11 run (build not recorded)")
 
         def q(block, text):
@@ -253,18 +259,23 @@ def main():
                   f"{q(dc, str(dc.get('name_bbox_hits', '—')))} |")
 
         tiers = [q(ft, str(ft.get(f"recall_{px}px", "—"))) for px in (22, 16, 12, 9, 7)]
-        # NOT "all Qs": the multi-image prompt asks four questions and q3 is
-        # never scored, so a cell that answered q3 wrongly still reads as a clean
-        # sweep. Name the three that are actually gated.
-        if was_capped(mu):
-            multi = "capped"
-        elif mu.get("q1_right") and mu.get("q2_right") and mu.get("q4_bbox_hit"):
-            multi = "✅ q1 + q2 + q4-bbox"
-        elif not mu:
-            multi = "—"
-        else:
-            fails = [q_ for q_ in ("q1_right", "q2_right", "q4_bbox_hit") if not mu.get(q_)]
-            multi = "❌ " + ", ".join(fails)
+
+        def multi_cell(block):
+            # NOT "all Qs": the multi-image prompt asks four questions and q3
+            # is never scored, so a cell that answered q3 wrongly still reads
+            # as a clean sweep. Name the three that are actually gated.
+            if was_capped(block):
+                return "capped"
+            if block.get("q1_right") and block.get("q2_right") and block.get("q4_bbox_hit"):
+                return "✅ q1 + q2 + q4-bbox"
+            if not block:
+                return "—"
+            fails = [k for k in ("q1_right", "q2_right", "q4_bbox_hit")
+                     if not block.get(k)]
+            return "❌ " + ", ".join(fails)
+
+        multi = multi_cell(mu)
+        anchored = multi_cell(ma)
         gen = sc.get("gen_tps")
         pre = sc.get("prefill_tps")
         # Unique-image steady state (baseline §4.2): decode + full prefill from
@@ -299,7 +310,7 @@ def main():
             s_cell = f"{s_req:.1f}" if s_req else "—"
             rh_cell = f"{3600 / s_req:.0f}" if s_req else "—"
         t2.append(f"| {model} | {eng_cell} | {ctx_cell} | " + " | ".join(tiers) +
-                  f" | {multi} | {think_cell} | {tok_cell} | {round(gen) if gen else '—'} | {round(pre) if pre else '—'}"
+                  f" | {multi} | {anchored} | {think_cell} | {tok_cell} | {round(gen) if gen else '—'} | {round(pre) if pre else '—'}"
                   f" | {s_cell} | {rh_cell} |")
 
     print("## Scene grounding (six objects, norm-1000 boxes) + document extraction\n")
