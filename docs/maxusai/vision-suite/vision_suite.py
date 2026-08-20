@@ -1731,6 +1731,12 @@ def main():
         sc["server_version"] = r.get("_server_version")
         sc["prompt_eval_count"] = r.get("prompt_eval_count")
         sc["eval_count"] = r.get("eval_count")
+        # The server's own stop verdict; was_capped prefers it over the
+        # eval_count arithmetic (SPEC H4b). Absent on pre-2026-08-20 blocks
+        # and on a connection-closed final — both fall back to the arithmetic,
+        # so this is copied only when the server actually said something.
+        if r.get("done_reason"):
+            sc["done_reason"] = r["done_reason"]
         sc.update(sc_chars)
         # SPEC C13: a conformance rate is scoped to the geometry it was measured
         # at and MUST be quoted with it. Recorded on the cell for the same

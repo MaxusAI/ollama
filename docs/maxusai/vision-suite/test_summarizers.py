@@ -601,5 +601,34 @@ class TestResumeNeverSkipsCapped(unittest.TestCase):
         self.assertFalse(vs.arm_done({}))
 
 
+class TestWasCappedPrefersDoneReason(unittest.TestCase):
+    """The server's stop verdict outranks the token arithmetic (SPEC H4b).
+
+    done_reason "length" is capped even when eval_count sits under the
+    recorded cap (thinking continuations can overshoot it), and "stop" is
+    finished even at the exact cap boundary. Blocks without done_reason —
+    every cell recorded before 2026-08-20, plus connection-closed finals,
+    which serialize with the field omitted — keep the
+    eval_count >= num_predict fallback, so no historical file changes verdict."""
+
+    def test_length_is_capped_whatever_the_arithmetic_says(self):
+        self.assertTrue(sec.was_capped(
+            {"done_reason": "length", "eval_count": 100, "num_predict": 8192}))
+
+    def test_stop_is_finished_even_at_the_exact_cap_boundary(self):
+        self.assertFalse(sec.was_capped(
+            {"done_reason": "stop", "eval_count": 8192, "num_predict": 8192}))
+
+    def test_absent_done_reason_keeps_the_arithmetic_fallback(self):
+        self.assertTrue(sec.was_capped({"eval_count": 8192, "num_predict": 8192}))
+        self.assertFalse(sec.was_capped({"eval_count": 412, "num_predict": 8192}))
+
+    def test_resume_trusts_the_verdict_through_arm_done(self):
+        self.assertTrue(vs.arm_done(
+            {"done_reason": "stop", "eval_count": 8192, "num_predict": 8192}))
+        self.assertFalse(vs.arm_done(
+            {"done_reason": "length", "eval_count": 100, "num_predict": 8192}))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

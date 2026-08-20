@@ -110,6 +110,27 @@ fixed resume re-runs exactly the capped arms and nothing else, which is the
 sanctioned way to finish an interrupted or frozen ladder without paying for
 the finished cells again.
 
+**The cap verdict is the server's `done_reason` where recorded; the token
+arithmetic is the fallback.** Since 2026-08-20 every score block copies
+`done_reason` from the response, and `was_capped` prefers it: `"length"` is
+capped and `"stop"` is finished, whatever `eval_count` says. The arithmetic
+misreads two real cases — a model that emits its final token exactly at the
+cap (`eval == num_predict`, `done_reason "stop"`), and a thinking
+continuation that overshoots the recorded cap (eval 8290 against 8192,
+measured 2026-08-20 on qwen3.6 `bbox_contract_reasoning`). Blocks without the
+field keep the `eval_count >= num_predict` fallback, so historical files
+never change verdict by upgrading the summarizers.
+
+The value inventory, from this repo's server code (the serving build is this
+fork): the runner emits `stop` or `length` (`llm/llama_server.go`, from
+llama.cpp's `StopType == "limit"`); `server/routes.go` synthesizes `length`
+when thinking fills the window before a format-constrained continuation, and
+`load`/`unload` for bare load and eviction requests, which are never scored;
+`DoneReasonConnectionClosed` maps to `""` (`llm/server.go String()`) and the
+API field is `omitempty`, so a dropped connection arrives with NO
+`done_reason` at all — absence is not evidence of age, only of "no verdict",
+which is exactly what the fallback handles.
+
 ## 2. Reporting
 
 **H5 — Shared helpers are imported, never redefined.** `engine_for`,
@@ -293,7 +314,7 @@ something previously hidden:
 | H1, H2 | `run_engine_compare.sh` is the only script in `vision-suite/` that iterates `$MODELS`; a second one is the defect |
 | H3, H4 | `REPEATS` / `TAG_PREFIX` / `ONLY_TESTS` are inert when unset — verified with `sh -x` on both paths |
 | H4a | `run_engine_compare.sh` exits 2 when `CTX_MAX` leaves no CONTEXT-ladder rung above the think-on start; think-off is unaffected and `ALLOW_NO_LADDER=1` overrides |
-| H4b | `arm_done` in `vision_suite.py` importing `was_capped` (H5); `test_summarizers.py::TestResumeNeverSkipsCapped` asserts capped, error, and missing blocks all re-run |
+| H4b | `arm_done` in `vision_suite.py` importing `was_capped` (H5); `test_summarizers.py::TestResumeNeverSkipsCapped` asserts capped, error, and missing blocks all re-run; `::TestWasCappedPrefersDoneReason` asserts the `done_reason` verdict outranks the arithmetic and absence falls back to it |
 | H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
 | H13 (footers) | `test_summarizers.py::TestProvenanceFooter` — clean / all-pre-H11 / mixed-recording / two-host cases against the rendered footer |

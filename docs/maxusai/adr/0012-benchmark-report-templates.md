@@ -110,6 +110,11 @@ Shared conventions, binding for all five:
    model's documented non-termination, never left implicit. Rendering
    `capped` is the generator refusing to lie; it is not permission to publish.
 
+   Since 2026-08-20 the verdict itself is the server's `done_reason` where
+   recorded — `length` is capped, `stop` is finished — with
+   `eval_count >= num_predict` as the fallback for cells that predate the
+   field (SPEC H4b carries the value inventory and edge cases).
+
 10. **A report whose provenance footer reads ⚠ MIXED is not publishable.** T1
     and T2 derive host and build from the score files (SPEC H11); a loaded
     pre-H11 file contributes an explicit "pre-H11 run (not recorded)" entry so

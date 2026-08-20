@@ -130,6 +130,11 @@ def run(host, tag, model):
     s["server_version"] = r.get("_server_version")
     s["prompt_eval_count"] = r.get("prompt_eval_count")
     s["eval_count"] = r.get("eval_count")
+    # Server's stop verdict, same contract as vision_suite (SPEC H4b):
+    # recorded only when present, so old blocks and connection-closed finals
+    # stay distinguishable by absence and fall back to the arithmetic.
+    if r.get("done_reason"):
+        s["done_reason"] = r["done_reason"]
     # Free, tokenizer-free halves of the split; token_split.py turns these into
     # exact thinking/answer/control token counts afterwards.
     s.update(chars)

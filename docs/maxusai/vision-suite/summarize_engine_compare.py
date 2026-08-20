@@ -64,8 +64,24 @@ def was_capped(sec):
     measures the harness setting, not the model — and it moves 2.3x when the
     ladder escalates a rung. Such a req/h must never be quoted as a model
     result.
+
+    The server's own verdict wins where recorded: done_reason "length" is
+    capped and "stop" is finished, whatever the token arithmetic says. The
+    arithmetic misreads two real cases — a model that emits its final token
+    exactly at the cap (eval == num_predict, done_reason "stop"), and a
+    thinking continuation that overshoots the recorded cap (eval 8290 against
+    8192, measured 2026-08-20 on qwen3.6 bbox_contract_reasoning). Blocks
+    recorded before 2026-08-20 carry no done_reason and keep the
+    eval_count >= num_predict fallback — as does a connection-closed final,
+    which serializes with the field omitted (llm/server.go maps
+    DoneReasonConnectionClosed to "" and the API field is omitempty).
     """
     sec = sec or {}
+    dr = sec.get("done_reason")
+    if dr == "length":
+        return True
+    if dr == "stop":
+        return False
     cap = sec.get("num_predict")
     ev = sec.get("eval_count")
     return bool(cap and ev and ev >= cap)
