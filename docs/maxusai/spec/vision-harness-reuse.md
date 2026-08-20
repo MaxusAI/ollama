@@ -151,6 +151,16 @@ documents, chat replies and PR descriptions. Reformatting is what dropped the
 as scene IoU 0.000 when the settled value was 0.872 at 32768. A markdown table
 pasted without a code fence is both verbatim and rendered.
 
+The same rule covers **request examples**: `emit_request.py` captures the
+payload from `client.py`'s own construction (H9) for any model, think mode
+and arm, and documentation pastes its output. Measured 2026-08-20: the
+recommendations doc's first draft hand-assembled its request fragments, the
+maintainer could not reconstruct a working request from them, and the
+fragments were WRONG about the recommended shape — they showed
+`box_2d`/`bbox_2d` dialect arrays where the trustable `pin_anc_named` arm
+actually uses named coordinate fields. A hand-typed example asserts a wire
+format nothing enforces; an emitted one cannot drift.
+
 **H13 — Report footers derive provenance from the score files, and a MIXED
 footer blocks publication.** T1 and T2 print host(s) and build(s) collected
 from the H11 fields of every file they render. A file that loaded but carries
@@ -358,7 +368,7 @@ something previously hidden:
 | H4a | `run_engine_compare.sh` exits 2 when `CTX_MAX` leaves no CONTEXT-ladder rung above the think-on start; think-off is unaffected and `ALLOW_NO_LADDER=1` overrides |
 | H4b | `arm_done` in `vision_suite.py` importing `was_capped` (H5); `test_summarizers.py::TestResumeNeverSkipsCapped` asserts capped, error, and missing blocks all re-run; `::TestWasCappedPrefersDoneReason` asserts the `done_reason` verdict outranks the arithmetic and absence falls back to it |
 | H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
-| H7 | ADR 0012 rules 1 and 8 |
+| H7 | ADR 0012 rules 1 and 8; request examples via `emit_request.py` (payload captured from `client.py`, never re-derived) |
 | H13 (footers) | `test_summarizers.py::TestProvenanceFooter` — clean / all-pre-H11 / mixed-recording / two-host cases against the rendered footer |
 | H13 (capped rendering) | `cap_or` in `summarize_head_to_head.py` importing `was_capped` (H5); `test_summarizers.py::TestT2CappedCells` asserts a capped scene hides score and latency but keeps tok/s; `q()`/`multi_cell` in `summarize_engine_compare.py` guard every T1 quality cell — `::TestT1CappedQualityCells` |
 | H14 | `token_split.py`'s acceptance gate (`--write` refuses without it, and skips-by-name irreconcilable cells); `test_summarizers.py::TestT1ThinkTokColumn` asserts stamped-count-or-dash, never an estimate; `finetext_probe.py` persists as `finetext_probe` (one producer per persist name) |
