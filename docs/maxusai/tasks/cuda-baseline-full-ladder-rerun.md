@@ -1,8 +1,10 @@
 # TASK: re-run the five-model CUDA baseline — full ladder, one campaign tag
 
-**Opened:** 2026-08-20. **Status:** root cause found and fixed same day
-(SPEC H4b); re-run scoped to the DELTA below — determinism at temperature 0
-(ADR 0012 conv. 4) makes re-measuring finished cells pure duplication.
+**Opened:** 2026-08-20. **Status:** DONE 2026-08-20 12:22 — delta run
+completed, all acceptance criteria met; see Outcome at the bottom. Root cause
+found and fixed the same day (SPEC H4b); the re-run was scoped to the DELTA
+below — determinism at temperature 0 (ADR 0012 conv. 4) makes re-measuring
+finished cells pure duplication.
 
 ## Root cause — why the ladder never climbed
 
@@ -105,3 +107,47 @@ non-terminating qwen3.6 arm costs ~205k tokens to prove non-convergence.
 - Every quality cell carries its final-rung `(num_ctx)`; rungs may differ
   between cells — that is rule 8 working, not a defect.
 - Tables pasted verbatim from the generators (H7), both think modes.
+
+## Outcome — 2026-08-20, delta run 10:29–12:22 AEST (1h53m)
+
+Every T2 quality cell now carries a final-rung result; the one remaining
+`capped` cell is qwen3.6 think-on `multi_3img` at the 131072 CEILING —
+eval_count 122880 == num_predict, i.e. **documented non-termination**
+(ADR 0012 conv 9): the model will not stop thinking on this probe at any
+rung in the ladder. Rendered by the generator, pasted verbatim (H7):
+
+### T2 think=false
+
+| test | metric | cudafull1_gemma4_26b-a4b-it-q4_K_M_thinkfalse | cudafull1_gemma4_31b-it-q4_K_M_thinkfalse | cudafull1_qwen3_8_27b-q4_K_M_thinkfalse | cudafull1_nemotron3_33b-q4_K_M_thinkfalse | cudafull1_qwen3_6_35b-a3b-q4_K_M_thinkfalse |
+|---|---|---|---|---|---|---|
+| scene | bbox IoU | 0.973 (16384) | 0.962 (16384) | 0.977 (16384) | 0.870 (16384) | 0.975 (16384) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.756 (16384) | 0.752 (16384) | 0.550 (16384) | 0.044 (16384) | 0.607 (16384) |
+| fine text | 22/16/12/9/7 px | 4/4/4/3/3 (16384) | 4/4/4/4/3 (16384) | 4/4/4/2/1 (16384) | 4/4/4/3/0 (16384) | 4/4/4/2/2 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ❌ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| throughput | gen tok/s | 150 | 56 | 65 | 209 | 95 |
+| throughput | prefill tok/s | 1202 | 646 | 1799 | 4797 | 3228 |
+| latency | s/req (unique image) | 5.0 | 12.2 | 9.8 | 3.0 | 6.6 |
+| latency | req/h (serial) | 725 | 296 | 366 | 1196 | 545 |
+
+Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14-rc0-dynres-0-ga5d6590
+
+### T2 think=on
+
+| test | metric | cudafull1_gemma4_26b-a4b-it-q4_K_M_thinkon | cudafull1_gemma4_31b-it-q4_K_M_thinkon | cudafull1_qwen3_8_27b-q4_K_M_thinkon | cudafull1_nemotron3_33b-q4_K_M_thinkon | cudafull1_qwen3_6_35b-a3b-q4_K_M_thinkon |
+|---|---|---|---|---|---|---|
+| scene | bbox IoU | 0.334 (65536) | 0.962 (16384) | 0.975 (16384) | 0.577 (16384) | 0.717 (32768) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.714 (16384) | 0.709 (16384) | 0.858 (16384) | 0.114 (16384) | 0.401 (16384) |
+| fine text | 22/16/12/9/7 px | 4/4/4/4/3 (16384) | 4/4/4/4/3 (16384) | 4/4/4/1/0 (16384) | 4/4/4/4/0 (65536) | 4/4/4/2/2 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ❌ 5/5 (16384) | ✅ ✅ ❌ 5/5 (32768) | capped (131072) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (32768) | ✅ ✅ ✅ 5/5 (32768) |
+| throughput | gen tok/s | 140 | 56 | 66 | 230 | 88 |
+| throughput | prefill tok/s | 417 | 156 | 1543 | 2251 | 1546 |
+| latency | s/req (unique image) | 58.1 | 35.2 | 19.2 | 24.3 | 242.0 |
+| latency | req/h (serial) | 62 | 102 | 188 | 148 | 15 |
+
+Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14-rc0-dynres-0-ga5d6590
