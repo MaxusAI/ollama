@@ -190,9 +190,14 @@ non-negative and ≤ 64 across the sample — before `--write` stamps
 `thinking_tokens` / `answer_tokens` / `control_tokens` into the score blocks.
 Never estimate from characters: a 62-token response measured 21% control
 tokens, so proportions lie. T1's `Think tok` column renders the stamped count
-or `—`; a model with no gate-passing tokenizer gets no number rather than a
-wrong one (nemotron3, 2026-08-20: a BPE rebuilt from its GGUF token/merge
-arrays was refused at 54/54 cells — the gate doing exactly its job).
+or `—`; a model that cannot pass the gate gets no number rather than a wrong
+one. The gate can indict the METRIC, not just the tokenizer: for nemotron3
+think-on it refused the server's own counts (`--server` mode, which has no
+vocab to mismatch) at 54/54 cells because `eval_count` itself does not cover
+the deferred-thinking generation — a live-reproduced server bug
+(tasks/nemotron-thinkon-evalcount-undercount.md), found precisely because
+the gate refuses to write a split that the identity
+`eval = think + answer + control` cannot support.
 
 A few outliers in a large clean sample indict the DATA, not the vocab — a
 wrong tokenizer skews every cell. With ≥ 20 clean cells and ≤ 10% bad, the

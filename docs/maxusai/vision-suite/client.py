@@ -122,7 +122,7 @@ def context_error(e, num_predict, num_ctx):
 def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
              fmt="json", extra_opts=None, endpoint_override=None,
              think=None, apply_sampling=True, timeout=None,
-             send_think="auto", use_env_opts=True):
+             send_think="auto", use_env_opts=True, raw=False):
     """One vision request. Returns the server dict, normalised.
 
     `images` are base64 strings. The returned dict always carries `response`
@@ -180,6 +180,13 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
         opts.update(extra_opts)
 
     payload = {"model": model, "stream": False, "options": opts}
+    # raw skips the chat template on /api/generate. token_split.py's --server
+    # mode counts prompt_eval_count of bare text, and a template wrapper would
+    # add tokens that belong to the template, not the text. Inert unless set
+    # (H4); meaningless on /api/chat, so callers pair it with
+    # endpoint_override="generate".
+    if raw:
+        payload["raw"] = True
     if fmt:
         payload["format"] = fmt
     # send_think is TRI-STATE, because the callers genuinely differ and collapsing

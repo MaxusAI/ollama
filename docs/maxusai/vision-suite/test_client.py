@@ -118,6 +118,19 @@ class TestEndpoint(unittest.TestCase):
         self.assertEqual(p["messages"][0]["images"], ["IMG"])
 
 
+class TestRawField(unittest.TestCase):
+    """raw skips the chat template; token_split.py --server counts
+    prompt_eval_count of bare text, and a template wrapper would add tokens
+    that belong to the template, not the text. Inert unless set (H4)."""
+
+    def test_omitted_by_default(self):
+        self.assertNotIn("raw", call().payload)
+
+    def test_sent_when_requested(self):
+        p = call(endpoint_override="generate", raw=True).payload
+        self.assertIs(p["raw"], True)
+
+
 class TestTextOnly(unittest.TestCase):
     """An empty image list is a text-only request and must omit the key.
 
@@ -178,8 +191,11 @@ class TestCallersComplete(unittest.TestCase):
         with Capture({"response": '{"codes": []}', "thinking": "",
                       "eval_count": 5, "prompt_eval_count": 9}):
             finetext_probe.run("http://h", "UNITTEST", "M")
+        # resp_*_finetext_probe.json, NOT resp_*_finetext.json: the probe
+        # persists under its own name so it can never overwrite the suite's
+        # folded finetext text (SPEC H14 — one producer per persist name).
         for f in (f"{client.DIR}/ft_UNITTEST.json",
-                  f"{client.DIR}/resp_UNITTEST_finetext.json"):
+                  f"{client.DIR}/resp_UNITTEST_finetext_probe.json"):
             self.assertTrue(os.path.exists(f), f)
             os.remove(f)
 

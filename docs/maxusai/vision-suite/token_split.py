@@ -2,6 +2,7 @@
 """Split eval_count into thinking / answer / control tokens, exactly.
 
     python3 token_split.py --hf <repo-or-path> <tag> [<tag> ...]
+    python3 token_split.py --server <host> <model> <tag> [<tag> ...]
     python3 token_split.py --gguf <path-to.gguf> <tag> [<tag> ...]
     python3 token_split.py --check <tag> ...          # chars only, no tokenizer
 
@@ -71,7 +72,42 @@ def load_tokenizer(kind, ref):
                  "matching repo, and rely on the acceptance gate to catch a "
                  "mismatch. (Reading tokens+merges out of the blob and rebuilding "
                  "the BPE merge table is the exact path, but a half-correct "
-                 "reimplementation would defeat the gate's purpose.)")
+                 "reimplementation would defeat the gate's purpose. Tried "
+                 "2026-08-20 for nemotron3 via the gguf package + tokenizers "
+                 "BPE: refused at 54/54 cells — use --server instead, which "
+                 "cannot have a vocab mismatch.)")
+    if kind == "server":
+        # THE SERVER IS THE REFERENCE TOKENIZER. prompt_eval_count of a
+        # raw-mode /api/generate request IS the server counting the text with
+        # the exact vocab that produced eval_count — no reconstruction, no
+        # repo-matching, nothing for the gate to catch except this function's
+        # own overhead handling. raw:true skips the chat template (a wrapper
+        # would add tokens that belong to the template, not the text), and
+        # the per-request constant the runner still prepends (BOS, when the
+        # model declares one) is MEASURED, not assumed: "\n" is a single base
+        # token in every BPE and SPM vocab this suite has met, so
+        # count("\n") - 1 is the overhead. If that ever goes wrong the error
+        # is constant per request, shifts every control residue equally, and
+        # the acceptance gate refuses — the same self-detection argument as
+        # --hf. Cost: one prefill-only request per text on a live host.
+        host, model = ref
+        import client
+
+        def count(text):
+            r = client.generate(host, model, text, [], num_predict=1,
+                                num_ctx=32768, fmt=None,
+                                endpoint_override="generate", think=False,
+                                apply_sampling=False, send_think=False,
+                                use_env_opts=False, raw=True)
+            return r["prompt_eval_count"]
+
+        overhead = count("\n") - 1
+
+        def enc(s):
+            # An empty text is zero tokens by definition; an empty raw prompt
+            # would instead be a bare load request (done_reason "load").
+            return count(s) - overhead if s else 0
+        return enc
     return None
 
 
@@ -95,6 +131,8 @@ def main():
     kind = ref = None
     if args and args[0] in ("--hf", "--gguf"):
         kind, ref, args = args[0][2:], args[1], args[2:]
+    elif args and args[0] == "--server":
+        kind, ref, args = "server", (args[1], args[2]), args[3:]
     elif args and args[0] == "--check":
         args = args[1:]
     write = "--write" in args
