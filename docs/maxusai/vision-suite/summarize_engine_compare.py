@@ -197,8 +197,8 @@ def main():
           "| Invoice (items · qty+price · total) | name_bbox in-band |",
           "|---|---|---|---|---|---|---|---|"]
     t2 = ["| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) "
-          f"| {token_column(think)} | Gen tok/s | Prefill tok/s | s/req | req/h |",
-          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+          f"| Think tok | {token_column(think)} | Gen tok/s | Prefill tok/s | s/req | req/h |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
 
     for model in args:
         tag = resolve_tag(rundir, model, think, prefix)
@@ -278,18 +278,28 @@ def main():
         # Under think-on those tokens include the reasoning, which is why the
         # header follows the mode -- see token_column.
         ev = sc.get("eval_count")
+        # Exact reasoning-token count from token_split.py, which tokenizes the
+        # persisted thinking text with the server's own vocab and proves the
+        # split against eval_count (its acceptance gate). Written into the
+        # scene block by --write; absent means the split has not run or the
+        # gate refused a tokenizer for this model — render "—", never a
+        # char-proportional estimate (a 62-token response measured 21% control
+        # tokens, so proportions lie). Think-off rows show a true 0.
+        tt = sc.get("thinking_tokens")
         if was_capped(sc):
             # eval_count is the cap here, not a generated length; both it and
             # anything derived from it are meaningless as model results.
             tok_cell = f"≥{ev} ⚠"
+            think_cell = "capped"
             s_cell = "capped"
             rh_cell = "capped"
         else:
             tok_cell = str(ev) if ev else "—"
+            think_cell = str(tt) if tt is not None else "—"
             s_cell = f"{s_req:.1f}" if s_req else "—"
             rh_cell = f"{3600 / s_req:.0f}" if s_req else "—"
         t2.append(f"| {model} | {eng_cell} | {ctx_cell} | " + " | ".join(tiers) +
-                  f" | {multi} | {tok_cell} | {round(gen) if gen else '—'} | {round(pre) if pre else '—'}"
+                  f" | {multi} | {think_cell} | {tok_cell} | {round(gen) if gen else '—'} | {round(pre) if pre else '—'}"
                   f" | {s_cell} | {rh_cell} |")
 
     print("## Scene grounding (six objects, norm-1000 boxes) + document extraction\n")

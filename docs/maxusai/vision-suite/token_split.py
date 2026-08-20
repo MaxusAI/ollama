@@ -122,6 +122,31 @@ def main():
     ok = True
     if enc:
         bad = [r for r in residues if r < 0 or r > GATE_MAX]
+        # A FEW outliers in a large clean sample are not a vocab mismatch — a
+        # wrong tokenizer skews EVERY cell, so ≥90% of cells landing in
+        # [0, GATE_MAX] proves the vocab and indicts the outliers' DATA
+        # instead: text on disk that is not the generation eval_count counted.
+        # Known cause, measured 2026-08-20 on cudafull1: the finetext
+        # double-persist (fixed in finetext_probe.py the same day) overwrote
+        # the suite's text with the probe's own run, and think-on sampling is
+        # non-greedy, so the generations differ — control -114 (gemma4
+        # 26b-a4b) and +444 (qwen3.8) on exactly those cells while 53/54 and
+        # 35/36 sat in [0, 6]. Such cells get NO split — named, excluded from
+        # the table and from --write — because a split of someone else's text
+        # would be exact-looking and wrong.
+        if bad and len(residues) - len(bad) >= GATE_MIN_SAMPLE \
+                and len(bad) * 10 <= len(residues):
+            bad_rows = [r for r in rows
+                        if not 0 <= r["control_tokens"] <= GATE_MAX]
+            print(f"⚠ SKIPPED {len(bad_rows)} cell(s) whose persisted text "
+                  f"does not reconcile with eval_count:")
+            for r in bad_rows:
+                print(f"    {r['tag']} {r['probe']} "
+                      f"(control {r['control_tokens']})")
+            print()
+            rows = [r for r in rows if 0 <= r["control_tokens"] <= GATE_MAX]
+            residues = [r for r in residues if 0 <= r <= GATE_MAX]
+            bad = []
         if bad and len(residues) < GATE_MIN_SAMPLE:
             # A NEGATIVE or absurd residue is disqualifying at ANY sample size:
             # it means the tokenizer counted more tokens than the server

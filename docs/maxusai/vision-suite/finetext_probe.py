@@ -123,7 +123,14 @@ def run(host, tag, model):
     r = client.generate(host, model, PROMPT, [img_b64],
                         num_predict=num_predict, num_ctx=num_ctx)
     body = r.get("response", "")
-    chars = client.persist(tag, "finetext", r)
+    # Persisted under the probe's OWN name. It used to share "finetext" with
+    # vision_suite's folded test, so whichever ran second overwrote the other's
+    # think_/resp_ text files — and under think-on's non-greedy sampling the
+    # two generations differ, so token_split.py tokenized THIS probe's text
+    # against the SUITE's eval_count. Measured 2026-08-20 on cudafull1:
+    # control_tokens -114 (gemma4:26b-a4b) and +444 (qwen3.8) on exactly the
+    # think-on finetext cells, with every other cell clean.
+    chars = client.persist(tag, "finetext_probe", r)
     s = {"tag": tag}
     s.update(score_codes(body))
     s["host"] = r.get("_host")

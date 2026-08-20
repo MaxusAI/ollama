@@ -146,7 +146,7 @@ class TestRenderedTables(unittest.TestCase):
         row = [l for l in render(self.dir, self.MODEL, "on").split("\n")
                if l.startswith(f"| {self.MODEL} |")][1]
         self.assertIn(f"≥{capped['scene_single']['num_predict']} ⚠", row)
-        self.assertEqual(row.count("capped"), 2)   # s/req and req/h
+        self.assertEqual(row.count("capped"), 3)   # Think tok, s/req, req/h
 
 
 class TestRepsInterval(unittest.TestCase):
@@ -695,6 +695,36 @@ class TestT1CappedQualityCells(unittest.TestCase):
         self.assertNotIn("0.900", grounding_row)
         self.assertNotIn("6/6", grounding_row)
         self.assertIn("capped", grounding_row)
+
+
+class TestT1ThinkTokColumn(unittest.TestCase):
+    """"Think tok" is token_split.py's exact reasoning-token count, or "—".
+
+    Only the gate-proven split may fill it; absence (split not run, or the
+    gate refused every tokenizer offered, as for nemotron3 on 2026-08-20)
+    renders "—", never a char-proportional estimate — token_split measured
+    21% control tokens on one response, so proportions lie."""
+
+    MODEL = "gemma4:12b-it-q4_K_M"
+
+    def render_scene(self, extra):
+        d = tempfile.mkdtemp()
+        s = json.loads(json.dumps(THINKON))
+        s["scene_single"].update(extra)
+        write(d, self.MODEL, "on", s)
+        rendered = render(d, self.MODEL, "on")
+        return (t2_header(rendered),
+                [l for l in rendered.splitlines()
+                 if l.startswith(f"| {self.MODEL} |")][1])
+
+    def test_split_counts_render_between_multi_and_total(self):
+        head, row = self.render_scene({"thinking_tokens": 4321})
+        self.assertIn("| Think tok | Gen tok |", head)
+        self.assertIn("| 4321 | 5588 |", row)
+
+    def test_an_unsplit_block_renders_a_dash_not_an_estimate(self):
+        _, row = self.render_scene({})
+        self.assertIn("| — | 5588 |", row)
 
 
 if __name__ == "__main__":
