@@ -176,6 +176,37 @@ renderings of cells that had merely hit `num_predict` 8192 and were never
 escalated. The owed number is the final-rung score (ADR 0012 rule 8): a
 campaign with `capped` cells below `CTX_MAX` has not finished running.
 
+"Every template" means every CELL, not every table: T1 guarded only its
+scene-derived throughput cells until later the same day, and its first
+prefixed-campaign render printed the capped qwen3.6 think-on multi ceiling
+cell as `❌ q1_right, q2_right, q4_bbox_hit` — the identical defect class,
+found by rendering, fixed with the per-block `q()`/`multi_cell` guards.
+
+**H14 — Reasoning-token counts come only from `token_split.py`'s gate-proven
+split.** `eval_count` conflates thinking with answer. The split tokenizes the
+persisted thinking/answer text with the server's own vocab and must prove
+itself against `eval_count` — control residue (`eval - thinking - answer`)
+non-negative and ≤ 64 across the sample — before `--write` stamps
+`thinking_tokens` / `answer_tokens` / `control_tokens` into the score blocks.
+Never estimate from characters: a 62-token response measured 21% control
+tokens, so proportions lie. T1's `Think tok` column renders the stamped count
+or `—`; a model with no gate-passing tokenizer gets no number rather than a
+wrong one (nemotron3, 2026-08-20: a BPE rebuilt from its GGUF token/merge
+arrays was refused at 54/54 cells — the gate doing exactly its job).
+
+A few outliers in a large clean sample indict the DATA, not the vocab — a
+wrong tokenizer skews every cell. With ≥ 20 clean cells and ≤ 10% bad, the
+split names and skips the irreconcilable cells instead of refusing
+everything, and never writes a split for them. The measured cause was a
+harness flaw, and its rule is worth stating on its own: **two producers must
+never persist under one `(tag, probe)` name.** The suite's folded finetext
+test and `finetext_probe.py` both wrote `(tag, "finetext")`, the probe
+overwriting the suite's text — and think-on sampling is non-greedy (per the
+model card, `sampling.py`), so the two generations differed: control −114
+(gemma4:26b-a4b) and +444 (qwen3.8) on exactly the think-on finetext cells,
+every other cell in [0, 29]. Fixed 2026-08-20: the probe persists as
+`finetext_probe`.
+
 ## 3. Before writing anything
 
 **H8 — Check the inventory first.** `vision-suite/README.md` §Files lists every
@@ -318,7 +349,8 @@ something previously hidden:
 | H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
 | H13 (footers) | `test_summarizers.py::TestProvenanceFooter` — clean / all-pre-H11 / mixed-recording / two-host cases against the rendered footer |
-| H13 (capped rendering) | `cap_or` in `summarize_head_to_head.py` importing `was_capped` (H5); `test_summarizers.py::TestT2CappedCells` asserts a capped scene hides score and latency but keeps tok/s |
+| H13 (capped rendering) | `cap_or` in `summarize_head_to_head.py` importing `was_capped` (H5); `test_summarizers.py::TestT2CappedCells` asserts a capped scene hides score and latency but keeps tok/s; `q()`/`multi_cell` in `summarize_engine_compare.py` guard every T1 quality cell — `::TestT1CappedQualityCells` |
+| H14 | `token_split.py`'s acceptance gate (`--write` refuses without it, and skips-by-name irreconcilable cells); `test_summarizers.py::TestT1ThinkTokColumn` asserts stamped-count-or-dash, never an estimate; `finetext_probe.py` persists as `finetext_probe` (one producer per persist name) |
 | H9 | `client.py` is the only module that builds a payload; `test_client.py` (20 tests) asserts the wire format, including the tri-state `send_think` and the `num_ctx=False` sentinel that a naive `== False` would have collapsed |
 | H12 | `prompt_sha` / `images_sha` / `prompt_parts` on every score block, written by `client.generate()`; absence marks a pre-2026-08-20 cell |
 | H11 | `host` / `server_version` on every score block, written unconditionally by `client.generate()`; absence marks a pre-2026-08-20 cell |

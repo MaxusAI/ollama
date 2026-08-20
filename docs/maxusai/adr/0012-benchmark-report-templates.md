@@ -53,7 +53,13 @@ Shared conventions, binding for all five:
    indistinguishable from "fine" and is forbidden.
 4. **Determinism note**: quality cells are bit-reproducible at temperature 0
    per (payload, backend, budget, image); cross-image noise floor ±0.01 IoU.
-   Reports state deviations, not re-derive them.
+   Reports state deviations, not re-derive them. Temperature 0 means
+   think-off: think-on samples per the model card (`sampling.py`), so
+   think-on cells are NOT bit-reproducible run to run — measured 2026-08-20,
+   two same-window think-on finetext generations differed enough that
+   `token_split.py`'s acceptance gate caught one run's `eval_count` being
+   split against the other run's text (the double-persist incident,
+   SPEC H14).
 6. **Quality cells carry their `num_ctx` in brackets: `value (num_ctx)`.**
    `num_ctx` is per **model and per test**, not per campaign — measured maxima
    for a valid think-on run span 3,258 (gemma4 fine-text) to 16,421 (nemotron3
@@ -94,7 +100,11 @@ Shared conventions, binding for all five:
    not the model; T1 and T2 render such cells as `capped` (T2 since
    2026-08-20 — until then it published qwen3.6:35b-a3b think-on multi as
    `❌ ❌ ❌ 0/5 (16384)`, a grounding failure, and nemotron3 fine-text as
-   `0/0/0/0/0`, when both cells had simply hit `num_predict`), and pooled
+   `0/0/0/0/0`, when both cells had simply hit `num_predict`; T1's QUALITY
+   cells gained the guard later the same day — only its scene-derived
+   throughput cells were protected, and its first prefixed-campaign render
+   printed the capped qwen3.6 multi ceiling cell as
+   `❌ q1_right, q2_right, q4_bbox_hit`), and pooled
    tables (T5) exclude them and report the count per pooling level instead.
    The count is a first-class diagnostic — it is where a termination failure
    shows — not noise to average over. Measured 2026-08-20: qwen3.6:35b-a3b
