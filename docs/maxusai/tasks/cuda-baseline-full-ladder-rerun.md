@@ -258,3 +258,38 @@ Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14
 | qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768/131072 ⚠ | 4 | 4 | 4 | 2 | 2 | capped | ✅ q1 + q2 + q4-bbox | 20445 | 21058 | 88 | 1546 | 242.0 | 15 |
 
 Provenance (from score files): host(s) http://10.8.0.6:11497 · build(s) 0.32.14-rc0-dynres-0-ga5d6590 · think=on
+
+### Thinking tokens per probe (think=on) — exploratory (rule 7), from the H14 splits
+
+| probe (think=on) | gemma4:26b-a4b | gemma4:31b | qwen3.8:27b | qwen3.6:35b-a3b |
+|---|---|---|---|---|
+| bboxm_pin_anc_named | 1466 | 541 | — | 13531 |
+| bboxm_pin_anc_pos | 3362 | 1690 | — | 14989 |
+| bboxm_pin_noanc_named | 3406 | 337 | — | 21058 |
+| bboxm_pin_noanc_pos | 1889 | 1557 | — | 8975 |
+| bboxm_free_anc_named | 2451 | 1258 | — | 12775 |
+| bboxm_free_anc_pos | 3041 | 692 | — | 14343 |
+| bboxm_free_noanc_named | 1508 | 729 | — | 5585 |
+| bboxm_free_noanc_pos | 2787 | 1343 | — | 18040 |
+| scene_single_pinned | 1759 | 1836 | 1421 | 4184 |
+| scene_single_anchored | 3556 | 2413 | 1079 | 7729 |
+| scene_single | 7153 | 833 | 690 | 20445 |
+| document_single | 3403 | 1992 | 616 | 2224 |
+| multi_3img | 3658 | 1275 | 799 | capped (131072) |
+| multi_3img_anchored | 5583 | 2209 | 1119 | 9598 |
+| bbox_contract | 2302 | 1024 | 1160 | capped (131072) |
+| bbox_contract_multi | 1825 | 5393 | 802 | 16757 |
+| bbox_contract_reasoning | 2850 | 1408 | 940 | 7843 |
+| bbox_contract_pinned | 1504 | 405 | 906 | 2619 |
+| bbox_contract_perobject | 1176 | 405 | 1013 | 16226 |
+| bbox_contract_anchored | 1862 | 891 | 1027 | 11391 |
+| bbox_contract_anchored_1img | 1810 | 859 | 676 | 13404 |
+| bbox_contract_box2d_1img | 3378 | 1047 | 844 | 14086 |
+| bbox_contract_positional_1img | 3195 | 981 | — | 20599 |
+| bbox_contract_real_1img | 2112 | 894 | 607 | capped (131072) |
+| bbox_contract_adv_real | 2676 | 1289 | 528 | 13640 |
+| bbox_contract_adv_norm1 | 2385 | 916 | 616 | 4312 |
+| finetext | · | 1809 | · | 1438 |
+| **total (uncapped, split cells)** | **72097** | **36026** | **14843** | **275791** |
+
+Provenance (from score files): host(s) ['http://10.8.0.6:11497'] · build(s) ['0.32.14-rc0-dynres-0-ga5d6590'] · thinking_tokens per SPEC H14 (token_split.py, gates [1,6]/[1,6]/[1,4]/[0,29])
