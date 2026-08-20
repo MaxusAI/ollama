@@ -81,6 +81,41 @@ identical; three things change —
 (`think: false` appears at top level; when thinking is ON the field is
 omitted; card sampling keys drop out.)
 
+**The response schema the prompt asks for**, formatted for readability
+(inside the prompt it appears as the escaped one-liner above; `x1…y2` are the
+slots the model fills):
+
+```json
+{
+  "objects": [
+    {"label": "__IMAGE__", "bbox_type": "norm1000",
+     "x1": 0, "y1": 0, "x2": 1000, "y2": 1000},
+    {"label": "<uppercase code word above the shape>", "bbox_type": "norm1000",
+     "x1": 0, "y1": 0, "x2": 0, "y2": 0}
+  ]
+}
+```
+
+**And what actually comes back** — gemma4:31b think=on's measured answer to
+exactly the request above (`resp_cudafull1_gemma4_31b-it-q4_K_M_thinkon_bboxm_pin_anc_named.json`,
+verbatim, six shapes elided to two):
+
+```json
+{
+  "objects": [
+    {"label": "__IMAGE__", "bbox_type": "norm1000",
+     "x1": 0, "y1": 0, "x2": 1000, "y2": 1000},
+    {"label": "DYNAMO", "bbox_type": "norm1000",
+     "x1": 115, "y1": 554, "x2": 252, "y2": 797}
+  ]
+}
+```
+
+The `__IMAGE__` entry at `[0, 0, 1000, 1000]` is the model confirming it
+answered in the requested frame; DYNAMO lands within 1–2 norm-1000 units of
+ground truth (`[115, 556, 250, 796]`). Strip the calibration entry, convert
+each coordinate with `px = v · size / 1000`, done.
+
 **Per-model deltas, think=on** — only `model` and `options` change; the
 named-arm prompt is model-independent (emitted for each):
 
