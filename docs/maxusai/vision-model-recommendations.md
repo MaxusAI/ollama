@@ -18,10 +18,17 @@ its `s/req` is unaffected.
 
 ## Rules that apply to every model
 
-1. **Sampling**: think-off runs greedy (temperature 0 — every baseline
-   depends on it). Think-on uses the model card's sampling via `sampling.py`;
-   greedy decoding under thinking is what produces runaway reasoning
-   ([runaway-reasoning-under-think.md](runaway-reasoning-under-think.md)).
+1. **Sampling**: think-off runs greedy (`temperature: 0` — every baseline
+   depends on it). Think-on ALSO runs `temperature: 0` since 2026-08-17
+   (`THINK_TEMPERATURE`, fork policy: reproducibility over termination — a
+   non-terminating cell under this policy is expected behaviour for the
+   affected families, measured by the ladder, not a vision failure), plus
+   the card's non-temperature keys where a card is readable (`sampling.py`).
+   qwen3.8 and nemotron3 have no readable card row, so they run their
+   packaged defaults — qwen3.8's are non-greedy, which is why its think-on
+   cells are single draws. Greedy thinking is what produces runaway
+   reasoning ([runaway-reasoning-under-think.md](runaway-reasoning-under-think.md));
+   this policy accepts that cost knowingly — see `sampling.py`'s header.
 2. **Window**: think-off fits everywhere at `num_ctx` 16384 / `num_predict`
    2200. Think-on: never pin a fixed window — start at 16384 with
    `num_predict = num_ctx − 8192` and let the CONTEXT ladder escalate per
@@ -47,6 +54,54 @@ its `s/req` is unaffected.
    signal while the eval_count bug is open.
 6. **Endpoint**: `/api/chat` with `format: "json"` (the calibrated campaign
    path; `/api/generate` drops reasoning text).
+
+## The exact request JSON
+
+Everything above lands on the wire through one payload shape (`client.py` is
+the single request path, SPEC H9). The campaign's exact think-on request for
+gemma4:
+
+```json
+{
+  "model": "gemma4:31b-it-q4_K_M",
+  "stream": false,
+  "format": "json",
+  "messages": [{"role": "user", "content": "<prompt>", "images": ["<base64>", "..."]}],
+  "options": {
+    "num_predict": 8192,
+    "num_ctx": 16384,
+    "temperature": 0,
+    "top_p": 0.95,
+    "top_k": 64
+  }
+}
+```
+
+Think-off differs in three places: `"think": false` appears at top level,
+`options.num_predict` is `2200`, and the card keys drop out (options carry
+only `num_predict`, `num_ctx`, `temperature: 0`).
+
+| key | values used | effect |
+|---|---|---|
+| `stream: false` | always | one JSON body back; `done_reason`, `eval_count`, `thinking`, `response` arrive together |
+| `format: "json"` | always | grammar-constrained output. On thinking models this engages the server's deferred-thinking / constrained-continuation machinery — the path where nemotron3's `eval_count` undercount lives |
+| `think` | `false` sent when thinking is off; **omitted** when on | tri-state on purpose: the template renders differently depending on the field's presence, worth a token or two. Pin it in both directions only when an experiment requires it (`send_think=True` in `client.py`) |
+| `messages[].images` | base64 strings | `/api/chat` form; `/api/generate` uses top-level `prompt` + `images`. An empty image list must OMIT the key — `"images": []` is neither an image request nor a text-only one |
+| `options.num_predict` | 2200 off / `num_ctx − 8192` on | the hard generation cap. Hitting it returns `done_reason: "length"` — an unfinished measurement (capped), never a score. Think-on derives it from the rung so the pair stays coherent as the ladder climbs |
+| `options.num_ctx` | 16384 start; ladder 32768 → 65536 → 131072 | the shared window. The server hard-rejects (400) any request where prompt + `num_predict` exceeds it — no silent truncation. KV doubles per rung (decode speed drops), and termination itself is window-dependent: nemotron3 fine-text capped a 24,576 budget at 32768 yet finished in 4,909 tokens at 65536 |
+| `options.temperature` | `0`, both modes | fork policy (`THINK_TEMPERATURE`). Reproducible cells; the cost is non-termination pressure on qwen3.6/gemma-26b-a4b free-form think-on, handled by the ladder + `done_reason`, not by raising temperature |
+| `options.top_p / top_k / min_p / presence_penalty` | gemma4: `0.95 / 64`; qwen3.6: `0.95 / 20 / 0.0 / 1.5`; qwen3.8, nemotron3: **not sent** | card-sourced, think-on only, never tuned by us. With temperature 0 they are mostly inert; absent rows mean packaged defaults apply (qwen3.8's are non-greedy — its think-on cells differ run to run) |
+| `options.kv_cache_type` | only when `KV_CACHE_TYPE` env set | runner option, reloads the model; raise for uncapped think-mode probes |
+| `options.image_min_tokens / image_max_tokens` | only when env set | fork-only per-request vision budget, arch-gated to gemma4 and nemotron_h_omni. Pin to upstream defaults to build a budget-matched control against a stock server |
+| `raw: true` | token-counting only | `/api/generate` only: skips the chat template so `prompt_eval_count` counts bare text — `token_split.py --server`'s mechanism. Never used for scored cells |
+
+Response keys the recommendations gate on: **`done_reason`** (`stop` =
+finished, `length` = capped/unfinished, absent = no verdict — dropped
+connection or pre-2026-08-20 cell), **`eval_count`** (all generated tokens,
+thinking included; understated for nemotron3 think-on while its bug is
+open), **`prompt_eval_count`**, and the separated **`thinking`** /
+**`response`** texts (only `/api/chat` returns both — `/api/generate` drops
+reasoning text).
 
 ## Per-model settings
 
