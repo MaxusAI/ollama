@@ -98,6 +98,19 @@ capped in the score files — the fixed resume will pick them up if a later
 investigation needs them laddered; do not let them ride along here, a
 non-terminating qwen3.6 arm costs ~205k tokens to prove non-convergence.
 
+**Residuals laddered after all** (maintainer directive "run uncapped",
+2026-08-20 afternoon; `run_cudafull1_residual_2026-08-20.log`, stash
+`stash/2026-08-20-pre-residual-ladder/`). Nemotron's two arms converged at
+32768. qwen3.6's 19 arms: 13 converged at 32768, 4 at 65536
+(`bboxm_pin_noanc_pos`, `scene_single_pinned`, `scene_single_anchored`,
+`bbox_contract_adv_real`), and **2 did not converge at the 131072 ceiling** —
+`bbox_contract` and `bbox_contract_real_1img`, each burning the full 122,880
+budget, recorded with the server's own `done_reason: length` (the first
+production verdicts after PR #207). Final campaign state: across all ten
+`cudafull1` files the only capped cells are qwen3.6 think-on `multi_3img`,
+`bbox_contract`, `bbox_contract_real_1img`, all AT the ceiling — three
+documented non-terminating probes, zero unfinished measurements below it.
+
 ## Acceptance
 
 - T2 renders both think modes with **zero `capped` quality cells**, except
