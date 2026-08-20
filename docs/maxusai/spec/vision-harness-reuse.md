@@ -90,6 +90,26 @@ past in a run that takes hours; a wrong throughput number gets published.
 > impossible. Comparability against an arm that could not measure the rung is
 > not a reason to also not measure it.
 
+**H4b — Resume skips only FINISHED arms; a capped block always re-runs.**
+`vision_suite.py`'s idempotent resume ("skip what is already scored") defines
+scored via `arm_done`: present, no `error`, and not `was_capped` (H5 — the one
+definition). This is not a detail of the resume feature; it is what makes
+H4a's per-cell escalation work at all. The runner re-invokes the suite at each
+higher rung against the same tag, so if presence alone counted as done, every
+arm would be skipped and the ladder would no-op — silently, because the
+capped blocks already in the file carry a plausible `num_ctx`.
+
+Not hypothetical: resume landed 2026-08-20 00:38 (the idempotent-runs commit)
+treating any error-free block as done, and the cudafull1 campaign ran that
+night. Its think-on cells froze at (16384, 8192) — the runner escalated,
+vision_suite answered "ALL ARMS ALREADY SCORED", and the next capped-check
+passed because the stale 8192 eval_counts sat below the new rung's cap —
+while g4full1, run hours earlier without resume, climbed to 131072. Fixed the
+same day. The corollary for delta re-runs: re-running a campaign tag with the
+fixed resume re-runs exactly the capped arms and nothing else, which is the
+sanctioned way to finish an interrupted or frozen ladder without paying for
+the finished cells again.
+
 ## 2. Reporting
 
 **H5 — Shared helpers are imported, never redefined.** `engine_for`,
@@ -273,6 +293,7 @@ something previously hidden:
 | H1, H2 | `run_engine_compare.sh` is the only script in `vision-suite/` that iterates `$MODELS`; a second one is the defect |
 | H3, H4 | `REPEATS` / `TAG_PREFIX` / `ONLY_TESTS` are inert when unset — verified with `sh -x` on both paths |
 | H4a | `run_engine_compare.sh` exits 2 when `CTX_MAX` leaves no CONTEXT-ladder rung above the think-on start; think-off is unaffected and `ALLOW_NO_LADDER=1` overrides |
+| H4b | `arm_done` in `vision_suite.py` importing `was_capped` (H5); `test_summarizers.py::TestResumeNeverSkipsCapped` asserts capped, error, and missing blocks all re-run |
 | H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
 | H7 | ADR 0012 rules 1 and 8 |
 | H13 (footers) | `test_summarizers.py::TestProvenanceFooter` — clean / all-pre-H11 / mixed-recording / two-host cases against the rendered footer |

@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import summarize_engine_compare as sec  # noqa: E402
 import summarize_head_to_head as shh  # noqa: E402
 import summarize_reps as reps  # noqa: E402
+import vision_suite as vs  # noqa: E402
 
 # One model, two think cells. Numbers chosen so every assertion below can name
 # which field it came from: the think-on count is deliberately far larger than
@@ -575,6 +576,29 @@ class TestT2CappedCells(unittest.TestCase):
         r = self.rows(THINKOFF)
         self.assertEqual(r["bbox IoU"], "0.900 (16384)")
         self.assertEqual(r["req/h (serial)"], "279")  # 3600 / (412/40 + 2613/1000)
+
+
+class TestResumeNeverSkipsCapped(unittest.TestCase):
+    """A capped block is an UNFINISHED measurement (ADR 0012 conv 9), so the
+    suite's resume must re-run it. Treating capped as done is the defect that
+    silenced the context ladder on 2026-08-20: run_engine_compare.sh escalated
+    the rung, vision_suite skipped every arm as "already scored", and
+    cudafull1's think-on cells froze at (16384, 8192) — while g4full1, run
+    hours earlier without the resume logic, climbed to 131072. Per-cell
+    escalation only works if "done" means "finished", not "present"."""
+
+    def test_finished_block_is_done(self):
+        self.assertTrue(vs.arm_done({"eval_count": 412, "num_predict": 8192}))
+
+    def test_capped_block_is_not_done(self):
+        self.assertFalse(vs.arm_done({"eval_count": 8192, "num_predict": 8192}))
+
+    def test_error_block_is_not_done(self):
+        self.assertFalse(vs.arm_done({"error": "connection reset"}))
+
+    def test_missing_block_is_not_done(self):
+        self.assertFalse(vs.arm_done(None))
+        self.assertFalse(vs.arm_done({}))
 
 
 if __name__ == "__main__":

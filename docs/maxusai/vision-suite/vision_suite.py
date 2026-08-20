@@ -13,6 +13,10 @@ import salvage
 from client import (default_num_ctx, default_num_predict,
                     context_error as _context_error, persist as _persist)
 import client
+# The ONE definition of "generation stopped at the harness cap" (SPEC H5:
+# import, never redefine). Resume needs it because a capped arm is an
+# unfinished measurement, not a result — see arm_done.
+from summarize_engine_compare import was_capped
 
 HOST = TAG = MODEL = None  # set in main()
 DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1611,6 +1615,19 @@ tests = COMPOSED_ARMS + [
           os.environ.get("NUM_CTX", FINETEXT_NUM_CTX)))}),
 ]
 
+def arm_done(block):
+    """True when an existing scores block is a FINISHED measurement.
+
+    Error blocks re-run (the request itself failed) — and so do CAPPED blocks:
+    eval_count at num_predict measures the harness cap, not the model
+    (ADR 0012 conv. 9). Treating capped as done is what silenced the context
+    ladder on 2026-08-20: the runner escalated the rung, resume skipped every
+    arm as "already scored", and cudafull1's think-on cells froze at
+    (16384, 8192) while pre-idempotency g4full1 had climbed to 131072.
+    """
+    return bool(block) and "error" not in block and not was_capped(block)
+
+
 def main():
     global HOST, TAG, MODEL
     HOST = sys.argv[1]
@@ -1638,6 +1655,9 @@ def main():
     # SKIP WHAT IS ALREADY SCORED. A re-run costs only the missing arms, so a
     # sweep killed halfway resumes where it died instead of repeating hours of
     # inference. Arm-level, not cell-level. FORCE=1 re-runs everything.
+    # "Scored" means FINISHED (arm_done): capped and error blocks always
+    # re-run, which is also what makes the runner's per-cell ladder escalation
+    # work at all — at each higher rung, exactly the still-capped arms re-run.
     existing = {}
     _scores_path = f"{DIR}/scores_{TAG}.json"
     if os.path.exists(_scores_path) and os.environ.get("FORCE") != "1":
@@ -1645,9 +1665,14 @@ def main():
             existing = json.load(open(_scores_path)) or {}
         except Exception:
             existing = {}
-        done = [t[0] for t in run_tests if t[0] in existing and "error" not in existing[t[0]]]
+        done = [t[0] for t in run_tests if arm_done(existing.get(t[0]))]
         if done:
             print(f"##### SKIP {len(done)} already-scored arm(s): {', '.join(done)}")
+        recap = [t[0] for t in run_tests
+                 if t[0] in existing and was_capped(existing[t[0]])]
+        if recap:
+            print(f"##### RE-RUN {len(recap)} capped arm(s) — unfinished, "
+                  f"ADR 0012 conv 9: {', '.join(recap)}")
         run_tests = [t for t in run_tests if t[0] not in
                      {n for n in done}]
         if not run_tests:
