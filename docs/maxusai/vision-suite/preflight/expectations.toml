@@ -72,10 +72,23 @@ platform = "cuda"
 version_pattern = '^0\.32\.\d+(-rc\d+)?-dynres(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
 patchset = ["001", "002", "004", "005", "903"]
 arches = ["nemotron_h_omni", "gemma4", "qwen35"]
-# The real payload identity. b10434 = 7e4c0a96880d, upstream v0.32.14-rc0's pin.
+# The real payload identity. Was b10434 = 7e4c0a96880d (upstream v0.32.14-rc0's
+# pin) until the v0.32.15 upstream sync moved it to b10488 = 9d77fa172.
+#
+# RE-BASELINED 2026-08-21 for b10488. The pin change is deliberate and the
+# ladders below were re-measured on the new payload before it was made, not
+# after: measure_ladder.py against 0.32.14-dynres-108-g76918a7 on a private
+# endpoint returned byte-identical rows for all three arches --
+# nemotron_h_omni [266, 266, 578, 2306, 3270], gemma4 [1102 x 5],
+# qwen35 [1034, 1034, 1034, 2306, 4082] -- with the same budgets, pixel windows
+# and strides. So NO expected value below was edited; only this identity moved.
+# The full preflight on that build was PASS=17 / FAIL=1 with payload_pin as the
+# sole failure, which is precisely this pin doing its job before the update.
+#
 # 903 fixes the MMQ ids-path tail-padding under-allocation and is still required
-# here: ggml-org/llama.cpp#27044 is open, and b10434 still carries the defect.
-llama_cpp_build = "7e4c0a968"
+# here: ggml-org/llama.cpp#27044 was re-checked on 2026-08-21 and is still open,
+# so b10488 carries the defect exactly as b10434 did.
+llama_cpp_build = "9d77fa172"
 
 [profiles.rocm-0-32-1-dynres]
 platform = "rocm"
