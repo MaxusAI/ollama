@@ -1808,6 +1808,13 @@ def main():
                          ("IMAGE_MAX_TOKENS", "req_image_max_tokens")):
             if os.environ.get(env):
                 sc[key] = int(os.environ[env])
+        # Same contract for MTP draft depth. Tested with "not in (None, '')"
+        # rather than truthiness because "0" is a MEANINGFUL arm here -- it is
+        # how an off-arm states MTP was disabled rather than unspecified -- and
+        # `if os.environ.get(env)` would drop exactly that cell, leaving the
+        # control indistinguishable from a run that never set the option.
+        if os.environ.get("DRAFT_NUM_PREDICT") not in (None, ""):
+            sc["req_draft_num_predict"] = int(os.environ["DRAFT_NUM_PREDICT"])
         # num_ctx / num_predict are PER MODEL AND PER TEST — nemotron3's
         # document_single needs 16,421 tokens while its scene_single needs 7,622,
         # and gemma4 terminates inside 10,691 for every test. A run is not
