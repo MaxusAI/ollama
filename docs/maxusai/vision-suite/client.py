@@ -176,6 +176,15 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
                      ("IMAGE_MAX_TOKENS", "image_max_tokens")):
         if use_env_opts and os.environ.get(env):
             opts[opt] = int(os.environ[env])
+    # MTP / speculative draft depth (--spec-draft-n-max on the llama-server
+    # side). Sent whenever DRAFT_NUM_PREDICT is set, INCLUDING "0": server-side
+    # routes.go zeroes the option unless it was explicitly set, so "0" is the
+    # only way to state "MTP off" rather than "unspecified", and an arm that
+    # omitted it could not be distinguished from one that disabled it. Also a
+    # Runner option -- changing it reloads the model. Inert on the MLX runner,
+    # which never reads draft_num_predict and picks depth adaptively instead.
+    if use_env_opts and os.environ.get("DRAFT_NUM_PREDICT") not in (None, ""):
+        opts["draft_num_predict"] = int(os.environ["DRAFT_NUM_PREDICT"])
     if extra_opts:
         opts.update(extra_opts)
 
@@ -302,6 +311,11 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
     r["_server_version"] = server_version(host)
     r["_num_predict"] = num_predict
     r["_num_ctx"] = None if omit_ctx else num_ctx
+    # Stamped for the same reason as the two above (ADR 0012 rule 1): a score
+    # measured with MTP on and one measured with it off are otherwise
+    # indistinguishable in the file, and the arm would live only in the tag.
+    if "draft_num_predict" in opts:
+        r["_draft_num_predict"] = opts["draft_num_predict"]
     return r
 
 
