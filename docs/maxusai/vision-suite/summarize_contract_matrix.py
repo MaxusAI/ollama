@@ -14,6 +14,12 @@ construction.
 Usage:
   summarize_contract_matrix.py --think false <model> [<model> ...]
   summarize_contract_matrix.py --think on --log /tmp/fullsuite.log <model> ...
+  summarize_contract_matrix.py --think on --prefix cudafull1_ <model> ...
+
+--prefix is run_engine_compare.sh's TAG_PREFIX campaign namespace, the same
+flag summarize_engine_compare.py and summarize_head_to_head.py already take.
+Without it a prefixed campaign renders every arm as "—" and reads as a model
+that answered nothing, when the scores are simply under another tag.
 
 --log adds the per-model power-mode table. run_engine_compare.sh stamps
 powermode into its run log per cell and the score files do not carry it, so
@@ -50,13 +56,15 @@ def powermodes(logpath):
 
 def main():
     argv = sys.argv[1:]
-    think, logpath = "false", None
+    think, logpath, prefix = "false", None, ""
     while argv and argv[0].startswith("--"):
         flag = argv.pop(0)
         if flag == "--think":
             think = argv.pop(0)
         elif flag == "--log":
             logpath = argv.pop(0)
+        elif flag == "--prefix":
+            prefix = argv.pop(0)
         else:
             sys.exit(f"unknown flag {flag}")
     models = argv
@@ -67,7 +75,7 @@ def main():
     print("| Model | Engine | " + " | ".join(SHORT[a] for a in ARMS) + " | num_ctx |")
     print("|---" * (len(ARMS) + 3) + "|")
     for model in models:
-        tag = resolve_tag(DIR, model, think)
+        tag = resolve_tag(DIR, model, think, prefix)
         d = load(os.path.join(DIR, f"scores_{tag}.json"))
         if d is None:
             print(f"| {model} | {engine_for(model, {})} | " +
