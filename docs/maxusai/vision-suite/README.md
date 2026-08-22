@@ -360,6 +360,38 @@ Always check `prompt_eval_count` before attributing such a delta to a patch.
   norm-1000-prompt, think on). The scorer's `bbox_space` field verifies what
   came back.
 
+## Which models belong in a CUDA campaign roster
+
+**The default roster is the GGUF teachers**: `gemma4:31b-it-q4_K_M`,
+`nemotron3:33b-q4_K_M`, `qwen3.6:35b-a3b-q4_K_M`. MLX-store models on this
+backend — anything `*-nvfp4`, `*-mlx-bf16`, `*-mxfp8` — are an **opt-in arm**,
+not part of the default sweep. Name them explicitly in `MODELS` when you want
+them and expect to babysit the run.
+
+This is a scheduling convention, not a judgement on the runtime: `mlx-cuda` is a
+real profile, it is still built, and preflight still gates on it. What makes MLX
+models unsuitable for an unattended CUDA roster is that the MLX runner's
+admission check prices a load as weights only, so a `num_ctx` rung that does not
+fit is not refused — it is accepted and then killed by `cudaMallocAsync` partway
+through prefill, and the scheduler reloads and retries. Measured 2026-08-22 on
+`gemma4:31b-coding-mtp-bf16` (59.13 GiB resident, 63.5 GB on disk): **13
+out-of-memory aborts, 3 illegal-memory-access aborts, 13 runner restarts, 128
+prefill attempts and not one completed cell**, while the same model on a
+text-only prompt at the same `num_ctx` ran fine. A roster that includes such a
+model does not fail — it stalls, indefinitely, on whichever cell is too big.
+See [the MLX runner admits on weight size alone](../mlx-admission-prices-weights-only.md).
+
+Practical rules for the opt-in arm:
+
+- Give a large MLX model the card to itself. A 63.5 GB model peaked at 76.76 GiB
+  against a 97.9 GB card that also carries other tenants.
+- Watch the first multi-image cell. Single-image cells fit long after
+  multi-image ones stop fitting, so a green `scene_single` proves nothing.
+- `OLLAMA_MLX_MEMORY_LIMIT` on the server is the mitigation, at a throughput
+  cost that concentrates on exactly the multi-image cells (see
+  `x/mlxrunner/runner.go`'s `configureCacheLimit` comment). A constrained arm's
+  quality numbers stay comparable; its throughput numbers do not.
+
 ## Running an ARM (repeats, subsets, sampling overrides)
 
 **Never hand-roll a loop over models.** `run_engine_compare.sh` is the only
