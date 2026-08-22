@@ -12,7 +12,7 @@ have nothing to do with each other. Say which one you mean.
 | term | what it is | defined in |
 | --- | --- | --- |
 | **token ladder** — `ladder_sizes`, `ladder`, `ladder_tolerance` | five fixed 16:9 image **geometries**, and the visual-token **cost** measured at each. Answers "what does this arch charge as the image grows"; a flat row means a budget-filling arch, a rising row means it scales with pixels. | `preflight/expectations.toml` |
-| **context ladder** — `CTX_LADDER`, "escalated to 32768" | `num_ctx` **rungs** (4096 / 8192 / 16384 / 32768 / 65536) the runner climbs when a think-on cell exhausts its budget. Answers "how much window did this model need to finish". | `run_engine_compare.sh` |
+| **context ladder** — `CTX_LADDER`, "escalated to 32768" | `num_ctx` **rungs** (4096 / 8192 / 16384 / 32768 / 65536 / 131072) the runner climbs when a think-on cell exhausts its budget, or when the window is too small for `prompt + num_predict` and the server rejects it. Answers "how much window did this model need to finish". | `run_engine_compare.sh` |
 
 A row can move on one and not the other: a payload change that leaves the token
 ladder identical can still change which context rung a model needs, because the
@@ -65,6 +65,12 @@ first is image accounting and the second is generation length.
   `IMAGE_MIN_TOKENS` / `IMAGE_MAX_TOKENS` (fork-only per-request vision budget,
   arch-gated to gemma4 and nemotron_h_omni; unset = build default. Recorded in the
   scores as `req_image_*_tokens` so a control run is identifiable after the fact),
+  `DRAFT_NUM_PREDICT` (MTP / speculative draft depth, `--spec-draft-n-max` on the
+  llama-server side; recorded as `req_draft_num_predict`. **Set it to `0` for an
+  off-arm rather than leaving it unset** — `server/routes.go` zeroes the option
+  unless it was explicitly set, so "unset" and "disabled" are the same request but
+  only one of them is self-describing in the scores. Inert on the MLX runner,
+  which never reads `draft_num_predict` and picks depth adaptively instead),
   `ENDPOINT=chat|generate` (default **`chat`** since 2026-08-19 — it was
   `generate`; every runner that never sets ENDPOINT now pins `generate`
   explicitly to keep its published tags comparable. `/api/chat` is what OpenWebUI
@@ -149,7 +155,17 @@ first is image accounting and the second is generation length.
   actually ship" — uncapped everywhere, highest mean, smallest spread.
 - `run_engine_compare.sh <host>` — **engine-parity campaign** (MLX safetensors vs
   llama-server GGUF): cold server per model via `RESTART_CMD`, then the three-suite
-  run and the fine-text probe per model. `summarize_engine_compare.py <model…>`
+  run and the fine-text probe per model. `CTX_START` / `CTX_START_THINKON` set the
+  FIRST rung each think mode runs at (both default 16384; `CTX_LADDER` still supplies
+  the rungs escalation climbs to). They are separate because think-on derives
+  `num_predict` as `num_ctx - CTX_PROMPT_RESERVE`, so a start rung at or below the
+  8192 reserve yields `num_predict <= 0` and cannot run. A low think-off start is
+  cheaper — a 16384 window allocates KV most think-off cells never reach — and is
+  safe because escalation fires on a **context-overflow rejection** as well as on a
+  cap: the server enforces `prompt + num_predict <= num_ctx` before generating and
+  returns 400, which carries no `eval_count`, so a cell that does not fit simply
+  climbs off the low rung instead of being recorded as a failure.
+  `summarize_engine_compare.py <model…>`
   renders the two comparison tables from the per-tag `scores_*/ft_*` files —
   the format of [vision-campaign-2026-08-08-mlx.md](../vision-campaign-2026-08-08-mlx.md);
   keep it stable so runs diff cleanly.
