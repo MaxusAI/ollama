@@ -93,6 +93,21 @@ THINK_MODES="${THINK_MODES:-false on}"
 # Consequence to be aware of: a genuinely non-terminating cell now burns up to
 # 122880 tokens before giving up, so a runaway cell costs roughly twice the wall
 # clock it used to. That is the price of measuring the tail instead of clipping it.
+# CTX_START / CTX_START_THINKON are the FIRST rung each think mode runs at;
+# CTX_LADDER supplies the rungs escalation climbs to from there. They are
+# separate because the two modes have different floors: think-on derives
+# num_predict as (nc - CTX_PROMPT_RESERVE), so a start rung at or below the
+# reserve yields num_predict <= 0 and cannot run at all.
+#
+# Starting think-off lower is worth real wall clock -- a 16384 window allocates
+# KV for tokens most think-off cells never reach, and a bigger window decodes
+# slower. It is safe only where prompt + num_predict fits the rung: at 8192 with
+# the default num_predict 2200 that is gemma4 (3765 + 2200) but NOT nemotron3,
+# whose multi_3img prompt is 6203 and needs 8403. Rather than forbid the low
+# start, the loop below now escalates on a context-overflow rejection exactly as
+# it does on a cap, so a model that does not fit simply climbs off the low rung.
+CTX_START="${CTX_START:-16384}"
+CTX_START_THINKON="${CTX_START_THINKON:-16384}"
 CTX_LADDER="${CTX_LADDER:-4096 8192 16384 32768 65536 131072}"
 # Raised with the ladder. CTX_MAX is the CEILING the ladder stops at, so leaving
 # it at 65536 would have made the new 131072 rung inert -- the escalation would
@@ -187,9 +202,9 @@ for m in $MODELS; do
     # Reasoning models think before answering; too small a cap yields an empty
     # response, not a short one. See the header note.
     if [ "$think" = "on" ]; then
-      nc="${NUM_CTX:-${NUM_CTX_THINKON:-16384}}"
+      nc="${NUM_CTX:-${NUM_CTX_THINKON:-$CTX_START_THINKON}}"
     else
-      nc="${NUM_CTX:-16384}"
+      nc="${NUM_CTX:-$CTX_START}"
     fi
 
     while :; do
@@ -244,7 +259,14 @@ for m in $MODELS; do
         *) echo "##### SKIP finetext_probe (ONLY_TESTS=$ONLY_TESTS)" ;;
       esac
 
-      # Did any test hit the cap? Only then is a bigger window worth paying for.
+      # Did any test hit the cap, or get rejected because the window was too
+      # small? Either way a bigger window is what unblocks it. The overflow case
+      # matters once CTX_START is set below 16384: the server enforces
+      # prompt + num_predict <= num_ctx BEFORE generating, so an oversized prompt
+      # is a 400 with no eval_count at all. Escalating only on eval_count left
+      # such a cell recorded as a failure at the low rung and never retried --
+      # which reads as "the model cannot do this test" when the truth is
+      # "the harness asked for it in too small a window".
       capped=$(python3 - "$DIR/scores_${tag}.json" "$np" <<'PYEOF'
 import json, sys
 try:
@@ -252,7 +274,17 @@ try:
 except Exception:
     print(""); raise SystemExit
 cap = int(sys.argv[2])
-print(" ".join(k for k, v in d.items() if (v.get("eval_count") or 0) >= cap))
+hit, over = [], []
+for k, v in d.items():
+    if not isinstance(v, dict):
+        continue
+    if (v.get("eval_count") or 0) >= cap:
+        hit.append(k)
+        continue
+    err = v.get("error")
+    if isinstance(err, str) and ("num_ctx too small" in err or "context overflow" in err):
+        over.append(k)
+print(" ".join(hit + over))
 PYEOF
 )
       [ -z "$capped" ] && break
