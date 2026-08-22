@@ -116,7 +116,7 @@ GGUF roster models came through with zero error blocks.
 
 ## Reproduction — from a cold start, every time
 
-Driver: `thrash_repro.py` — N text-only `/api/generate` requests against
+Driver: [`vision-suite/mlx_thrash_probe.py`](vision-suite/mlx_thrash_probe.py) — N text-only `/api/generate` requests against
 `gemma4:12b-nvfp4`, each with a **distinct prompt length** (`"Count: 0 1 2 … i"`),
 `num_predict=1`, `num_ctx=8192`, cold container each phase.
 
@@ -124,7 +124,7 @@ Driver: `thrash_repro.py` — N text-only `/api/generate` requests against
 |---|---|---|---|
 | A | new (`27fec909`) | `MLX_CUDA_GRAPH_CACHE_SIZE=8` | **120/120 fail from request #1**. Server: `thrashing=372`, `cudaGraph=4`, 120 runner restarts |
 | B | new | **defaults** (cache 400, check on), 1000 requests | clean for 707 with latency climbing 0.2 → 11.4 s (each new length is a miss), **request 708 → `500-cudaGraph`**, then 292 clean on the fresh counter. Server: `cudaGraph=3`, **`thrashing=0`** |
-| C | old (`adf21dea`) | `MLX_CUDA_GRAPH_CACHE_SIZE=8` | `500-thrash` from request #1 (same as A) — **the pre-merge build has it** |
+| C | old (`adf21dea`) | `MLX_CUDA_GRAPH_CACHE_SIZE=8` | **120/120 fail from request #1**. Server: `thrashing=372`, `cudaGraph=3`, 120 runner restarts — **the pre-merge build has the full signature, masked second failure included** |
 
 Phase B is the campaign's signature reproduced on demand: the visible error is
 `cudaGraph`, the thrash text is absent, and the server stack is the same double
