@@ -2,9 +2,12 @@ package mlxrunner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/ollama/ollama/x/internal/mlxthread"
 )
 
 // recoverValue runs fn and returns what it panicked with, or nil.
@@ -97,5 +100,44 @@ func TestRunRequestReportsFirstPanicThroughGuard(t *testing.T) {
 	}
 	if !strings.HasPrefix(err.Error(), "mlx runner aborted: mlx: Graph cache thrashing detected") {
 		t.Errorf("the reported cause must be the first panic, got %q", err.Error())
+	}
+}
+
+// Production never takes runRequest's mlxThread == nil branch (server.go always
+// builds the Runner with a worker), so the first-panic guarantee has to hold
+// through mlxthread too: the worker recovers the *firstPanic, wraps it in its
+// own panicError and re-raises it on the calling goroutine, and recoverRequest
+// prints that with %v. The message must still lead with the original cause,
+// not with the worker-stack preamble.
+func TestRunRequestReportsFirstPanicThroughMLXThread(t *testing.T) {
+	worker, err := mlxthread.Start("test", func() error { return nil })
+	if err != nil {
+		t.Fatalf("start worker: %v", err)
+	}
+	t.Cleanup(func() { _ = worker.Stop(context.Background(), nil) })
+
+	r := &Runner{mlxThread: worker}
+	req := Request{
+		Ctx: context.Background(),
+		Pipeline: func(context.Context, Request) error {
+			defer guardClose("prefix-cache session", func() {
+				panic("mlx: cudaGraphAddDependencies(...) failed: invalid argument")
+			})
+			panic("mlx: Graph cache thrashing detected")
+		},
+	}
+	err = r.runRequest(req)
+	if err == nil {
+		t.Fatal("expected an error from a panicking pipeline, got nil")
+	}
+	var fatal fatalRunnerError
+	if !errors.As(err, &fatal) {
+		t.Errorf("expected fatalRunnerError so Run stops the runner, got %T", err)
+	}
+	if !strings.HasPrefix(err.Error(), "mlx runner aborted: mlx: Graph cache thrashing detected") {
+		t.Errorf("through mlxthread the reported cause must still be the first panic, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "mlx worker stack") {
+		t.Errorf("mlxthread's worker stack should still be attached after the cause, got %q", err.Error())
 	}
 }
