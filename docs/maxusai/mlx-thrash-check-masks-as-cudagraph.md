@@ -176,6 +176,14 @@ turn a slow path into a dead request.
 
 ## What would fix it in the fork
 
+> **Implemented in #212** (branch `fix/mlx-thrash-check-default-off`): the runner
+> subprocess now starts with `MLX_ENABLE_CACHE_THRASHING_CHECK=0` unless the operator
+> exported the variable (`x/mlxrunner/client.go`, `mlxRunnerEnvDefaults`), and the
+> pipeline's deferred cleanups go through `guardClose` (`x/mlxrunner/unwind.go`) so a
+> cleanup that fails during unwinding no longer replaces the first panic in the log.
+> Images built before that commit (including `sync-0.32.15`) still need the env set
+> on the container.
+
 1. **Set `MLX_ENABLE_CACHE_THRASHING_CHECK=0` for the MLX runner subprocess by
    default** (next to the `CUDA_PATH` / `CUDA_HOME` `setEnv` calls in
    `x/mlxrunner/client.go`), overridable by an operator who wants the advisory.
