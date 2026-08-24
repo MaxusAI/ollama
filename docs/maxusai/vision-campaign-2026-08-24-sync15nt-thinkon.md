@@ -142,6 +142,123 @@ Provenance (from score files): host(s) http://127.0.0.1:11502 · build(s) 0.32.1
 
 Provenance (from score files): host(s) http://127.0.0.1:11502 · build(s) 0.32.14-dynres-108-g76918a7 · think=false
 
+## Cross-engine view — GGUF vs MLX on the CUDA host
+
+GGUF rows below are the `sync15_1_` cells (2026-08-21/22, same image, host and
+fixtures; llama-server engine). GGUF requests never touch the MLX runner, so the
+thrashing fuse that invalidated the first MLX think-on batch does not affect
+them. MLX think-on rows are this campaign; MLX think-off rows are `sync15_1_`
+except `qwen3.6:35b-a3b-nvfp4` (this campaign). Same-family pairs differ in
+quantization (nvfp4 vs q4_K_M) — the quant is part of each engine's serving
+format, so the pairs compare *served stacks*, not bare kernels. Note
+`gemma4:26b-nvfp4` (dense) vs `gemma4:26b-a4b` (MoE) is **not** a same-model
+pair.
+
+### think=false — scene grounding + document
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | 8192 | **0.956** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:26b-nvfp4 | **MLX** | 8192 | **0.973** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 8192 | 0.973 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:31b-nvfp4 | **MLX** | 8192 | **0.962** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 0.962 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:e4b-it-q4_K_M | GGUF | 8192 | 0.341 | 3/7 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ❌ | 3 |
+| gemma4:e2b-it-q4_K_M | GGUF | 8192/131072 ⚠ | 0.087 | 1/8 · 6/6 · 6/6 | ✅ | 1/5 · 1/5 · ✅ | 0 |
+| qwen3.8:27b-nvfp4 | **MLX** | 8192 | **0.999** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.8:27b-q4_K_M | GGUF | 8192 | 0.977 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | 8192 | **0.963** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384 | 0.975 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| nemotron3:33b-q4_K_M | GGUF | 16384 | 0.870 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| nemotron3:33b-q8 | GGUF | 8192 | 0.870 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 4 |
+
+### think=false — fine-text OCR + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Answer tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | 8192 | 4 | 4 | 3 | 0 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 535 | 22 | 1001 | 26.1 | 138 |
+| gemma4:26b-nvfp4 | **MLX** | 8192 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 547 | 30 | 589 | 21.3 | 169 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 8192 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 536 | 181 | 1327 | 4.2 | 852 |
+| gemma4:31b-nvfp4 | **MLX** | 8192 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 537 | 28 | 880 | 21.1 | 171 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 538 | 52 | 436 | 14.2 | 253 |
+| gemma4:e4b-it-q4_K_M | GGUF | 8192 | 4 | 4 | 0 | 0 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 501 | 180 | 3054 | 3.3 | 1080 |
+| gemma4:e2b-it-q4_K_M | GGUF | 8192/131072 ⚠ | capped | capped | capped | capped | capped | ❌ q4_bbox_hit | ❌ q4_bbox_hit | — | 697 | 235 | 3446 | 3.5 | 1042 |
+| qwen3.8:27b-nvfp4 | **MLX** | 8192 | 4 | 4 | 4 | 2 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 549 | 21 | 8404 | 26.5 | 136 |
+| qwen3.8:27b-q4_K_M | GGUF | 8192 | 4 | 4 | 4 | 2 | 1 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | — | 544 | 70 | 1815 | 9.2 | 391 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | 8192 | 4 | 4 | 4 | 2 | 1 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 538 | 26 | 8854 | 21.0 | 171 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 2 | 2 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 548 | 108 | 3323 | 5.8 | 616 |
+| nemotron3:33b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 512 | 270 | 5038 | 2.4 | 1485 |
+| nemotron3:33b-q8 | GGUF | 8192 | 4 | 4 | 4 | 3 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 512 | 227 | 4956 | 2.8 | 1288 |
+
+### think=on — scene grounding + document
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | 16384/65536 ⚠ | capped | capped | capped | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:26b-nvfp4 | **MLX** | 16384/32768/65536 ⚠ | **0.970** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 0.334 | 0/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:31b-nvfp4 | **MLX** | 16384 | **0.964** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 0.962 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:e4b-it-q4_K_M | GGUF | 16384 | 0.292 | 3/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 2 |
+| gemma4:e2b-it-q4_K_M | GGUF | 16384 | 0.238 | 4/6 · 6/6 · 5/6 | ✅ | 0/5 · 0/5 · ✅ | 0 |
+| qwen3.8:27b-nvfp4 | **MLX** | 16384 | **0.999** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 0.990 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | 16384/65536 ⚠ | capped | capped | capped | 5/5 · 5/5 · ✅ | 4 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768/131072 ⚠ | 0.717 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/32768 ⚠ | 0.862 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 4 |
+| nemotron3:33b-q8 | GGUF | 16384/32768 ⚠ | 0.265 | 0/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 5 |
+
+### think=on — fine-text OCR + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Answer tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | 16384/65536 ⚠ | capped | capped | capped | capped | capped | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | capped | ≥57344 ⚠ | 72 | 2604 | capped | capped |
+| gemma4:26b-nvfp4 | **MLX** | 16384/32768/65536 ⚠ | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | capped | — | 6008 | 77 | 88 | 97.6 | 37 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 7576 | 173 | 478 | 47.4 | 76 |
+| gemma4:31b-nvfp4 | **MLX** | 16384 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1977 | 44 | 184 | 54.3 | 66 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1372 | 57 | 165 | 34.3 | 105 |
+| gemma4:e4b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 1 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 2086 | 179 | 1539 | 12.7 | 283 |
+| gemma4:e2b-it-q4_K_M | GGUF | 16384 | 0 | 0 | 0 | 0 | 0 | ❌ q4_bbox_hit | ❌ q1_right | — | 1756 | 243 | 1779 | 8.2 | 440 |
+| qwen3.8:27b-nvfp4 | **MLX** | 16384 | 4 | 4 | 4 | 1 | 1 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1030 | 29 | 4381 | 35.7 | 101 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 0 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | — | 1084 | 68 | 1572 | 17.5 | 205 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | 16384/65536 ⚠ | 4 | 4 | 4 | 2 | 2 | ✅ q1 + q2 + q4-bbox | ❌ q4_bbox_hit | capped | ≥57344 ⚠ | 76 | 4052 | capped | capped |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768/131072 ⚠ | 4 | 4 | 4 | 2 | 2 | capped | ✅ q1 + q2 + q4-bbox | — | 21058 | 104 | 2407 | 203.6 | 18 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/32768 ⚠ | 4 | 4 | 4 | 4 | 0 | ✅ q1 + q2 + q4-bbox | ❌ q1_right, q2_right, q4_bbox_hit | — | 3583 | 271 | 2760 | 14.2 | 253 |
+| nemotron3:33b-q8 | GGUF | 16384/32768 ⚠ | 4 | 4 | 4 | 4 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 6223 | 232 | 2354 | 28.0 | 129 |
+
+### Same-weights pairs, at a glance
+
+| pair | mode | scene IoU GGUF / MLX | req/h GGUF / MLX | GGUF req/h advantage |
+|---|---|---|---|---|
+| gemma4:31b | off | 0.962 / 0.962 | 253 / 171 | 1.5× |
+| qwen3.8:27b | off | 0.977 / **0.999** | 391 / 136 | 2.9× |
+| qwen3.6:35b-a3b | off | **0.975** / 0.963 | 616 / 171 | 3.6× |
+| gemma4:31b | on | 0.962 / **0.964** | 105 / 66 | 1.6× |
+| qwen3.8:27b | on | 0.990 / **0.999** | 205 / 101 | 2.0× |
+
+### Reading the cross-engine view
+
+- **Scores: engine parity.** Same-weights pairs agree to within quant-level
+  differences, and those cut both ways (nvfp4 ahead on qwen3.8's scene IoU,
+  q4_K_M ahead on qwen3.6's). No column shows an engine-level quality gap.
+- **Throughput: GGUF wins 1.5–3.6× req/h on this host.** MLX-CUDA's prefill is
+  the fastest in the fleet (qwen: 8,400–8,900 tok/s vs GGUF's 1,800–3,300), but
+  its short-answer decode runs 21–30 tok/s against GGUF's 52–270, and a
+  ~540-token think-off answer is almost all decode. Long think-on generations
+  amortize MLX decode to 72–77 tok/s, which narrows the gap (1.6–2.0×) without
+  closing it.
+- **Think-on hazards are cross-engine, not an MLX property.** MLX loops (12b,
+  qwen3.6-nvfp4); GGUF has its own — `gemma4:26b-a4b` scene falls to 0.334,
+  `qwen3.6-q4_K_M` spends 21 K think tokens for 18 req/h at the 131072 rung,
+  `nemotron3-q8` scene 0.265. Only 31b and qwen3.8 are think-on-safe on either
+  engine, and neither gains a metric from thinking (ADR 0022/0023 hold).
+- Mixed-rung rows (⚠) are not throughput-comparable; read tok/s and req/h only
+  within single-rung rows.
+
+No decision is recorded here. If the serving call "GGUF serves short-answer
+vision extraction on the CUDA host until MLX-CUDA's per-request decode overhead
+is addressed" is adopted, capture it as an ADR citing this section.
+
 ## Findings
 
 **1. No regression from the v0.32.15 sync.** `gemma4:31b-nvfp4` is the one cell
