@@ -70,6 +70,42 @@ def ladder_image_b64(size):
         return base64.b64encode(fh.read()).decode()
 
 
+POISON_W, POISON_H, POISON_PITCH = 1350, 1800, 56
+
+
+def poison_image_b64():
+    """Base64 of the qwen2.5vl fp16-overflow trigger: a 56 px black/white
+    checkerboard at 1350x1800. Pixel-identical to
+    docs/maxusai/make_poison_repro_image.py (#214) but rendered with the
+    stdlib PNG writer above so the harness stays dependency-free. The pattern
+    measures 69,120 max |activation| at the 3B tower's final block -- 1.06x
+    fp16's 65,504 ceiling -- and deterministically garbles fp16-accumulate
+    CUDA serving, while f32/bf16 accumulation decodes it correctly."""
+    path = os.path.join(IMGDIR, f"poison_checker{POISON_PITCH}_{POISON_W}x{POISON_H}.png")
+    if not os.path.exists(path):
+        w, h, p = POISON_W, POISON_H, POISON_PITCH
+        rows = []
+        for offset in (0, 1):
+            row = bytearray(w * 3)
+            for x in range(w):
+                if ((x // p) + offset) % 2:
+                    row[3 * x] = row[3 * x + 1] = row[3 * x + 2] = 255
+            rows.append(bytes(row))
+        raw = bytearray()
+        for y in range(h):
+            raw += b"\x00" + rows[(y // p) % 2]
+        ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+        png = (b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr)
+               + _chunk(b"IDAT", zlib.compress(bytes(raw), 6)) + _chunk(b"IEND", b""))
+        os.makedirs(IMGDIR, exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as fh:
+            fh.write(png)
+        os.replace(tmp, path)
+    with open(path, "rb") as fh:
+        return base64.b64encode(fh.read()).decode()
+
+
 # --------------------------------------------------------------------------
 # Ollama client
 # --------------------------------------------------------------------------
