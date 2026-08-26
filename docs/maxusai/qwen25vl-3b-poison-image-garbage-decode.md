@@ -136,3 +136,36 @@ keeping the vision tower/merger GEMMs out of fp16 accumulation (F32 prec on the 
 or f32/bf16 vision tensors in the GGUF) in whichever engine serves. The release-level
 A/B (`0.24.0` vs `0.30.0`) accordingly now reads as a per-image trigger-set boundary,
 not as the introduction point of the class.
+
+## Release matrix and workaround (2026-08-26, capstone)
+
+Both trigger images probed per release, fresh container per cell, GPU residency
+verified via `/api/ps` (the mmproj-on-CPU rows are fit-check behavior, not config):
+
+| Serving | Vision runs on | `02c9d7e1…` | `04431b0d…` |
+|---|---|---|---|
+| 0.7.1 (Go engine, full GPU) | GPU | H | **X** |
+| 0.24.0 (Go engine, full GPU, 12.14/12.14 GB) | GPU | H | H |
+| 0.30.0 (first llama-server release), roomy GPU | GPU | **X** | H |
+| 0.30.0, crowded GPU (fit check → `--no-mmproj-offload`) | CPU | H | H |
+| 0.32.15 (fork and stock), any CUDA GPU | GPU | **X** | H |
+| 0.32.15 with `options.num_gpu = 36` (of 37 layers) | CPU | H | H |
+| any build, CPU-only | CPU | H | H |
+
+Conclusions:
+
+1. **The clip-path trigger set has been present since the very first llama-server
+   release (0.30.0)** and is stable through 0.32.15. The Go engine had a different
+   trigger set at 0.7.1; by 0.24.0 neither known trigger fires there (its own unknown
+   set is not excluded — per-implementation sets are the rule).
+2. **mmproj offload is memory-conditional** (`shouldDisableMMProjOffload`: cpu-only /
+   partial-text-offload / projector+1 GiB fit), so poison exposure varies with free
+   VRAM at load time — the same model on the same box can be healthy or poisoned
+   depending on what else is resident. This explains intermittent reports.
+3. **Operational workaround on current builds**: request `options.num_gpu` one below
+   the model's layer count (36 for the 3B) → `partial-text-offload` → llama-server
+   gets `--no-mmproj-offload` → the vision path runs on CPU in fp32 and the class
+   cannot fire, while the LM stays on GPU. Verified `HHHH` on both triggers.
+4. Persistence half of the defect: 0.30.0 (no `--context-shift --keep 4`) recovers
+   after a poison request; 0.32.x (with them) stays poisoned until reload — the
+   prefix cache appears to retain the NaN state. Worth splitting into its own fix.
