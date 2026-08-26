@@ -6,11 +6,20 @@ class is alive (`HHXH` on the `02c9d7e1…` trigger) and
 `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` heals it (`HH`); the three-way A/B is
 causal — `f32` and `bf16` heal, `f16` reproduces. `bf16` healing confirms
 range-not-mantissa: cuBLAS bf16 GEMMs accumulate in fp32, so both settings
-satisfy "≥fp32 accumulation". This gate ships `f32` (closest to CPU
-numerics); `bf16` is the perf-optimized alternative an operator can choose,
-since an operator-set value always wins. Remaining validation before deploy:
-the same probe once against a fork build with the gate live (dress
-rehearsal), then preflight.
+satisfy "≥fp32 accumulation".
+
+**Dress rehearsal PASSED on both failing GPU generations** (PR #215 comments
+5422486826 and 5422669657): a branch-built `/bin/ollama` over
+`maxusai/ollama:sync-0.32.15` gives gate-default **HHH** on the poison probe
+with `f32` verified in the runner env — Blackwell and Turing alike; operator
+`=f16` wins and reproduces stock garbage (Blackwell sticky `HXX`, Turing
+recovering `HXH`); operator `=bf16` wins and heals on both, including sm_75
+(no native bf16 tensor cores — cuBLAS still takes the path), at timing
+parity with f32 (Blackwell 676 vs 734 ms, Turing 1059 vs 1223 ms warm poison
+encode, n=1 each). `f32` stays the gate default: closest to CPU numerics and
+bf16 buys nothing measured; `bf16` remains a per-container operator choice
+validated on every CUDA generation in the estate. Remaining before deploy:
+standard preflight on a fully built image.
 
 **What:** when the launcher starts a llama-server runner for arch `qwen25vl`,
 `applyArchServerEnvs` (`llm/llama_server.go`) sets
@@ -56,8 +65,8 @@ knob disappears from a future pin.
   deliberate; if 7B baseline continuity outweighs latent risk, the gate can
   key on `qwen25vl` + embedding width 2048 to hit only the 3B.
 - Operator override: any inherited `GGML_CUDA_CUBLAS_COMPUTE_TYPE` value is
-  preserved (`=f16` reproduces stock behavior for A/B; `=bf16` is the
-  range-safe middle ground worth one probe cell).
+  preserved (`=f16` reproduces stock behavior for A/B; `=bf16` also heals,
+  measured on Blackwell and Turing both, at timing parity with f32).
 - CUDA and ROCm both honor the knob (shared `ggml-cuda` source). CPU ignores
   it (already fp32-accumulate); Metal and Vulkan payloads do not read it —
   Apple serving is a separate numerics domain, covered by preflight.
@@ -73,10 +82,11 @@ Probe shape and H/X decision table: `docs/maxusai/clip-mm-prec-f32-validation.md
 Its step 0 (the zero-rebuild env test — this exact mechanism) is **done**:
 measured healed on stock 0.33.0 with the three-way `f32`/`bf16`/`f16` A/B
 (PR #214 comment 5421905441), resolving the decision table to "ship the
-gate". Still to run on a gated fork build: the same 3-request probe with no
-env set (gate supplies `f32`) → expect `HHH`, and the causality check
-`-e GGML_CUDA_CUBLAS_COMPUTE_TYPE=f16` → garbage must return. Verify the
-gate is live in the runner env via the subprocess debug log line
+gate". The gated-fork-build dress rehearsal is also **done**, on both GPUs
+(see the Status block above; PR #215 comments 5422486826 / 5422669657):
+gate-default `HHH` with `f32` verified in the runner env, `=f16` override
+wins and reproduces the garbage, `=bf16` override wins and heals. To verify
+the gate on any future build: the subprocess debug log line
 (`llm/llama_server.go` logs `GGML_*` keys at startup) or
 `/proc/<runner-pid>/environ`.
 
