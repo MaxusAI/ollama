@@ -1,5 +1,17 @@
 # qwen25vl → GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32 (launcher-gated, no payload patch)
 
+**Status: mechanism CONFIRMED at runtime (2026-08-26, PR #214 comment
+5421905441).** On stock `ollama/ollama:0.33.0` (latest release) the poison
+class is alive (`HHXH` on the `02c9d7e1…` trigger) and
+`GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` heals it (`HH`); the three-way A/B is
+causal — `f32` and `bf16` heal, `f16` reproduces. `bf16` healing confirms
+range-not-mantissa: cuBLAS bf16 GEMMs accumulate in fp32, so both settings
+satisfy "≥fp32 accumulation". This gate ships `f32` (closest to CPU
+numerics); `bf16` is the perf-optimized alternative an operator can choose,
+since an operator-set value always wins. Remaining validation before deploy:
+the same probe once against a fork build with the gate live (dress
+rehearsal), then preflight.
+
 **What:** when the launcher starts a llama-server runner for arch `qwen25vl`,
 `applyArchServerEnvs` (`llm/llama_server.go`) sets
 `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` in that subprocess's environment — unless
@@ -57,11 +69,15 @@ knob disappears from a future pin.
 
 ## Validation
 
-Probe shape and H/X decision table: `docs/maxusai/clip-mm-prec-f32-validation.md`
-(step 0 is this exact mechanism; step 2's causality check becomes
-`-e GGML_CUDA_CUBLAS_COMPUTE_TYPE=f16` on a gated build → garbage must
-return). Verify the gate is live in the runner env via the subprocess debug
-log line (`llm/llama_server.go` logs the filtered env at startup) or
+Probe shape and H/X decision table: `docs/maxusai/clip-mm-prec-f32-validation.md`.
+Its step 0 (the zero-rebuild env test — this exact mechanism) is **done**:
+measured healed on stock 0.33.0 with the three-way `f32`/`bf16`/`f16` A/B
+(PR #214 comment 5421905441), resolving the decision table to "ship the
+gate". Still to run on a gated fork build: the same 3-request probe with no
+env set (gate supplies `f32`) → expect `HHH`, and the causality check
+`-e GGML_CUDA_CUBLAS_COMPUTE_TYPE=f16` → garbage must return. Verify the
+gate is live in the runner env via the subprocess debug log line
+(`llm/llama_server.go` logs `GGML_*` keys at startup) or
 `/proc/<runner-pid>/environ`.
 
 ## Pin-bump hazard
