@@ -518,5 +518,92 @@ class TestExpectationsFile(unittest.TestCase):
                                     f"{pid}/{arch}: unmeasured with no reason")
 
 
+class _PoisonStub:
+    """tags/unload/generate for check_poison_probe; responses are canned."""
+
+    def __init__(self, responses, models=("qwen2.5vl:3b-q4_K_M",)):
+        self.responses = list(responses)
+        self.models = list(models)
+        self.queue_waits = []
+        self.unloads = 0
+
+    def tags(self):
+        return self.models
+
+    def unload(self, model):
+        self.unloads += 1
+
+    def generate(self, model, prompt, **kw):
+        return self.responses.pop(0)
+
+
+class TestPoisonProbe(unittest.TestCase):
+    """The #214 degenerate-decode fingerprint and the probe's verdict wiring.
+
+    The classifier must key on the actual poison signature — done_reason null
+    or a single repeated glyph — and NOT on short/empty responses, which the
+    num_predict trap and think-budget exhaustion produce for other reasons.
+    """
+
+    EXPECT = {"model": "qwen2.5vl:3b-q4_K_M"}
+
+    def test_degenerate_fingerprints(self):
+        deg = checks.is_degenerate_decode
+        self.assertTrue(deg("?" * 31, None))          # clip-path poison
+        self.assertTrue(deg("!" * 31, None))          # 0.7.1 Go-engine poison
+        self.assertTrue(deg("?" * 31, "stop"))        # glyph run, however finished
+        self.assertTrue(deg("anything", None))        # done_reason null alone
+        self.assertFalse(deg("The photo shows a checkerboard.", "stop"))
+        self.assertFalse(deg("", "stop"))             # empty is a different defect
+        self.assertFalse(deg("OK", "stop"))           # short is not degenerate
+        self.assertFalse(deg("???", "stop"))          # under the run-length floor
+
+    def test_skip_without_expectation(self):
+        r = checks.check_poison_probe(_PoisonStub([]), None, "cuda-dynres-903")
+        self.assertEqual(r["status"], SKIP)
+
+    def test_pass_on_healthy_decode_and_clean_slot(self):
+        stub = _PoisonStub([
+            {"response": "A black and white checkerboard.", "done_reason": "stop"},
+            {"response": "OK", "done_reason": "stop"},
+        ])
+        r = checks.check_poison_probe(stub, self.EXPECT, "cuda-dynres-903")
+        self.assertEqual(r["status"], PASS)
+        self.assertEqual(stub.unloads, 2)  # fresh slot in, clean server out
+
+    def test_fail_on_degenerate_trigger(self):
+        stub = _PoisonStub([
+            {"response": "?" * 31, "done_reason": None},
+            {"response": "?" * 31, "done_reason": None},
+        ])
+        r = checks.check_poison_probe(stub, self.EXPECT, "cuda-dynres-903")
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("trigger request", r["summary"])
+
+    def test_fail_on_slot_residue(self):
+        stub = _PoisonStub([
+            {"response": "A checkerboard pattern.", "done_reason": "stop"},
+            {"response": "?" * 31, "done_reason": None},
+        ])
+        r = checks.check_poison_probe(stub, self.EXPECT, "cuda-dynres-903")
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("slot residue", r["summary"])
+
+    def test_fail_when_model_missing(self):
+        stub = _PoisonStub([], models=["something-else:latest"])
+        r = checks.check_poison_probe(stub, self.EXPECT, "cuda-dynres-903")
+        self.assertEqual(r["status"], FAIL)
+
+    def test_poison_tables_reference_real_profiles(self):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            exp = tomllib.load(fh)
+        for pid, entry in exp.get("poison", {}).items():
+            self.assertIn(pid, exp["profiles"],
+                          f"[poison.{pid}] names a profile that does not exist")
+            self.assertTrue(entry.get("model", "").strip(),
+                            f"[poison.{pid}] has no model")
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -363,6 +363,13 @@ def main():
     results.append(checks.check_patch_marker(profile, container, args.exec_cmd))
     flush()
 
+    # Defect-class canary, keyed by profile rather than arch: it loads its own
+    # small model, so it runs even when --arch narrows the run.
+    print("poison probe (qwen2.5vl fp16-accumulate canary, loads a 3B)...")
+    results.append(checks.check_poison_probe(
+        client, exp.get("poison", {}).get(profile_id), profile_id))
+    flush()
+
     arches = args.arch or profile["arches"]
     unknown = [a for a in arches if a not in profile["arches"]]
     if unknown:

@@ -8,7 +8,8 @@ import subprocess
 import time
 
 from probes import (ProbeError, container_logs, grep_binary_marker,
-                    ladder_image_b64, llama_cpp_build, parse_pixel_lines)
+                    ladder_image_b64, llama_cpp_build, parse_pixel_lines,
+                    poison_image_b64)
 
 PASS, FAIL, SKIP, NEEDS_BASELINE, ERROR, CONTENTION = (
     "PASS", "FAIL", "SKIP", "NEEDS_BASELINE", "ERROR", "CONTENTION")
@@ -145,6 +146,74 @@ def check_patch_marker(profile, container, exec_cmd=None):
     return result("go_patch_marker", PASS,
                   f"--image-max-tokens present in binary ({actual})",
                   expected=expected, actual=actual)
+
+
+# --------------------------------------------------------------------------
+# 2b. Poison probe — the qwen2.5vl fp16-accumulate overflow canary (#214)
+# --------------------------------------------------------------------------
+
+def is_degenerate_decode(response, done_reason):
+    """The #214 poison fingerprint: done_reason null, or one glyph repeated
+    ('?'x31 on the clip path, '!'x31 on the 0.7.1 Go engine). A short or
+    empty response is NOT this signature — the num_predict trap and
+    think-budget exhaustion produce those and mean something else."""
+    if done_reason is None:
+        return True
+    text = (response or "").strip()
+    return len(text) > 5 and len(set(text)) == 1
+
+
+def check_poison_probe(client, expect, profile_id):
+    """Send the synthetic 1.06x-fp16-ceiling checkerboard to the recorded
+    model on a fresh slot and require a healthy decode, then a text-only
+    follow-up on the same slot to require no poisoning residue.
+
+    This is a defect-class canary, not an arch baseline: qwen2.5vl's vision
+    tower carries final-block massive activations that overflow fp16 GEMM
+    accumulation on CUDA/HIP (#214, measured). The launcher closes the class
+    by injecting GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32 into qwen25vl runners
+    (docs/maxusai/qwen25vl-cublas-f32-env.md); a build without that gate — or
+    a container overriding it to f16 — fails this check deterministically."""
+    if not expect:
+        return result("poison_probe", SKIP,
+                      "no poison-probe expectation recorded for this profile")
+    model = expect["model"]
+    if model not in client.tags():
+        return result("poison_probe", FAIL, f"{model} is not on this server",
+                      expected=model)
+    client.unload(model)
+    try:
+        trig = client.generate(model, "Describe this image in one sentence.",
+                               images=[poison_image_b64()], num_predict=48,
+                               num_ctx=8192, label="poison_probe")
+        after = client.generate(model, "Reply with the single word OK.",
+                                num_predict=8, num_ctx=8192,
+                                label="poison_probe_after")
+    except ProbeError as exc:
+        return result("poison_probe", ERROR, str(exc))
+    finally:
+        client.unload(model)
+    bad_trig = is_degenerate_decode(trig.get("response"), trig.get("done_reason"))
+    bad_after = is_degenerate_decode(after.get("response"), after.get("done_reason"))
+    if bad_trig or bad_after:
+        where = "trigger request" if bad_trig else "follow-up (slot residue)"
+        r = trig if bad_trig else after
+        return result(
+            "poison_probe", FAIL, f"degenerate decode on the {where}",
+            expected="healthy decode of the synthetic checkerboard trigger",
+            actual=f"done_reason={r.get('done_reason')!r} "
+                   f"head={(r.get('response') or '')[:40]!r}",
+            diagnosis="The fp16-accumulate cuBLAS path is live for this model: "
+                      "the qwen25vl runner gate is missing from this binary or "
+                      "overridden to f16 in the container environment. See "
+                      "docs/maxusai/qwen25vl-cublas-f32-env.md and "
+                      "docs/maxusai/qwen25vl-3b-poison-image-garbage-decode.md.")
+    return result(
+        "poison_probe", PASS,
+        f"1.06x-ceiling trigger decodes healthily "
+        f"({len((trig.get('response') or '').strip())} chars, "
+        f"done_reason={trig.get('done_reason')!r}); slot clean after",
+        actual=(trig.get("response") or "")[:60])
 
 
 # --------------------------------------------------------------------------
