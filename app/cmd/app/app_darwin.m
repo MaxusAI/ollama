@@ -8,13 +8,21 @@
 #import <ServiceManagement/ServiceManagement.h>
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
+#include <stdlib.h>
 
 extern NSString *SystemWidePath;
 
-static NSString *const ClaudeDownloadURL =
-    @"https://claude.ai/api/desktop/darwin/universal/dmg/latest/redirect";
 static NSString *const ClaudeDownloadPageURL = @"https://claude.com/download";
+static NSString *const ShowAppsInMenuDefaultsKey = @"ShowAppsInMenu";
 static NSBundle *OllamaResourceBundle(void);
+
+static BOOL shouldShowAppsInMenu(void) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    if ([defaults objectForKey:ShowAppsInMenuDefaultsKey] == nil) {
+        return YES;
+    }
+    return [defaults boolForKey:ShowAppsInMenuDefaultsKey];
+}
 
 static NSImage *integrationAppIcon(NSString *appName,
                                    NSString *fallbackSymbolName) {
@@ -316,6 +324,8 @@ static NSImage *integrationAppIcon(NSString *appName,
 @property(assign, nonatomic) BOOL claudeAppEnabled;
 @property(assign, nonatomic) BOOL claudeAppReady;
 @property(strong, nonatomic) IntegrationMenuRow *claudeAppRow;
+@property(strong, nonatomic) NSMenuItem *claudeMenuItem;
+@property(strong, nonatomic) NSMenuItem *claudeMenuSeparatorItem;
 @property(strong, nonatomic) NSURLSession *claudeDownloadSession;
 @property(strong, nonatomic) NSURLSessionDownloadTask *claudeDownloadTask;
 @property(strong, nonatomic) NSAlert *claudeDownloadAlert;
@@ -329,11 +339,13 @@ static NSImage *integrationAppIcon(NSString *appName,
 @property(assign, nonatomic) BOOL systemTerminationReplyPending;
 @property(strong, nonatomic) NSApplication *systemTerminationApplication;
 - (void)openClaudeApp:(id)sender;
-- (void)downloadClaude;
-- (void)finishClaudeDownload;
+- (enum ClaudeInstallResult)downloadClaude;
+- (enum ClaudeInstallResult)finishClaudeDownload;
 - (void)showClaudeDownloadFailure:(NSError *)error;
+- (void)showClaudeInstallFailure:(NSError *)error;
 - (void)toggleClaudeAppProxy:(NSButton *)sender;
 - (void)refreshClaudeAppState;
+- (void)applyShowAppsInMenu:(BOOL)visible;
 - (void)requestQuit;
 - (void)completeSystemTermination;
 @end
@@ -410,29 +422,31 @@ static NSImage *ollamaApplicationIcon(void) {
     [menu setDelegate:self];
     [menu setAutoenablesItems:NO];
 
-    NSMenuItem *claudeMenuItem = [[NSMenuItem alloc] initWithTitle:@"Claude"
-                                                            action:nil
-                                                     keyEquivalent:@""];
-    [claudeMenuItem setEnabled:YES];
+    self.claudeMenuItem = [[NSMenuItem alloc] initWithTitle:@"Claude"
+                                                     action:nil
+                                              keyEquivalent:@""];
+    [self.claudeMenuItem setEnabled:YES];
     self.claudeAppRow = [[IntegrationMenuRow alloc]
         initWithTitle:@"Claude"
            symbolName:@"sparkles"
                target:self
            openAction:@selector(openClaudeApp:)
          toggleAction:@selector(toggleClaudeAppProxy:)];
-    [claudeMenuItem setView:self.claudeAppRow];
-    [menu addItem:claudeMenuItem];
+    [self.claudeMenuItem setView:self.claudeAppRow];
+    [menu addItem:self.claudeMenuItem];
     [self refreshClaudeAppState];
-    [menu addItem:[NSMenuItem separatorItem]];
+    self.claudeMenuSeparatorItem = [NSMenuItem separatorItem];
+    [menu addItem:self.claudeMenuSeparatorItem];
+    [self applyShowAppsInMenu:shouldShowAppsInMenu()];
 
-    NSMenuItem *openMenuItem =
-        [[NSMenuItem alloc] initWithTitle:@"Open Chat"
-                                   action:@selector(openUI)
+    NSMenuItem *appsMenuItem =
+        [[NSMenuItem alloc] initWithTitle:@"Open Ollama"
+                                   action:@selector(appsUI)
                             keyEquivalent:@""];
-    [openMenuItem setTarget:self];
-    [menu addItem:openMenuItem];
+    [appsMenuItem setTarget:self];
+    [menu addItem:appsMenuItem];
 
-    [menu addItemWithTitle:@"Settings..."
+    [menu addItemWithTitle:@"Settings"
                     action:@selector(settingsUI)
              keyEquivalent:@","];
     [menu addItem:[NSMenuItem separatorItem]];
@@ -577,6 +591,8 @@ static NSImage *ollamaApplicationIcon(void) {
             darwinStartHiddenTasks();
         } else if (showOnboarding) {
             StartUI("/");
+        } else {
+            StartUI("/connect");
         }
     });
 }
@@ -597,7 +613,7 @@ static NSImage *ollamaApplicationIcon(void) {
 }
 
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)hasVisibleWindows {
-    [self openUI];
+    ShowUI();
     return YES;
 }
 
@@ -609,6 +625,10 @@ static NSImage *ollamaApplicationIcon(void) {
 }
 
 - (void)refreshClaudeAppState {
+    BOOL hasUsed = HasUsedClaudeDesktopIntegration();
+    BOOL visible = shouldShowAppsInMenu() && hasUsed;
+    [self.claudeMenuItem setHidden:!visible];
+    [self.claudeMenuSeparatorItem setHidden:!visible];
     BOOL installed = IsClaudeDesktopInstalled();
     BOOL startFailed = ClaudeGatewayStartFailed();
     BOOL portConflict = startFailed && ClaudeGatewayPortConflict();
@@ -625,6 +645,12 @@ static NSImage *ollamaApplicationIcon(void) {
     [self.claudeAppRow setIntegrationActive:self.claudeAppEnabled];
     [self.claudeAppRow setIntegrationReady:self.claudeAppReady];
     RefreshClaudeProxyMenu();
+}
+
+- (void)applyShowAppsInMenu:(BOOL)visible {
+    visible = visible && HasUsedClaudeDesktopIntegration();
+    [self.claudeMenuItem setHidden:!visible];
+    [self.claudeMenuSeparatorItem setHidden:!visible];
 }
 
 - (void)menuDidClose:(NSMenu *)menu {
@@ -715,9 +741,49 @@ static NSImage *ollamaApplicationIcon(void) {
     }
 }
 
-- (void)downloadClaude {
+- (void)showClaudeInstallFailure:(NSError *)error {
+    appLogInfo([NSString stringWithFormat:@"Unable to install Claude: %@",
+                                          error]);
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setAlertStyle:NSAlertStyleWarning];
+    [alert setIcon:ollamaApplicationIcon()];
+    [alert setMessageText:@"Claude couldn’t be installed"];
+    [alert setInformativeText:
+        @"Try again or install Claude from its website."];
+    [alert addButtonWithTitle:@"Open download page"];
+    [alert addButtonWithTitle:@"Cancel"];
+    if ([alert runModal] == NSAlertFirstButtonReturn) {
+        [[NSWorkspace sharedWorkspace]
+            openURL:[NSURL URLWithString:ClaudeDownloadPageURL]];
+    }
+}
+
+- (enum ClaudeInstallResult)downloadClaude {
     if (self.claudeDownloadTask != nil) {
-        return;
+        return ClaudeInstallCancelled;
+    }
+
+    char *downloadAuthorization = NULL;
+    char *downloadURL = ClaudeDesktopDownloadRequest(&downloadAuthorization);
+    NSString *downloadURLString = downloadURL == NULL
+        ? nil
+        : [NSString stringWithUTF8String:downloadURL];
+    NSString *authorization = downloadAuthorization == NULL
+        ? nil
+        : [NSString stringWithUTF8String:downloadAuthorization];
+    free(downloadURL);
+    free(downloadAuthorization);
+    NSURL *url = downloadURLString == nil
+        ? nil
+        : [NSURL URLWithString:downloadURLString];
+    if (url == nil || authorization.length == 0) {
+        NSError *error = [NSError
+            errorWithDomain:@"com.ollama.app"
+                       code:3
+                   userInfo:@{NSLocalizedDescriptionKey:
+                       @"Ollama could not authenticate the download request."}];
+        [self showClaudeDownloadFailure:error];
+        return ClaudeInstallFailed;
     }
 
     [self.claudeAppRow setInactiveStatusText:@"Downloading Claude…"];
@@ -728,7 +794,7 @@ static NSImage *ollamaApplicationIcon(void) {
     [self.claudeDownloadAlert setIcon:ollamaApplicationIcon()];
     [self.claudeDownloadAlert setMessageText:@"Downloading Claude"];
     [self.claudeDownloadAlert setInformativeText:
-        @"The installer will open when the download finishes."];
+        @"Claude will be installed when the download finishes."];
     [self.claudeDownloadAlert addButtonWithTitle:@"Cancel"];
     self.claudeDownloadProgress = [[NSProgressIndicator alloc]
         initWithFrame:NSMakeRect(0, 0, 260, 12)];
@@ -749,8 +815,10 @@ static NSImage *ollamaApplicationIcon(void) {
         sessionWithConfiguration:configuration
                         delegate:self
                    delegateQueue:[NSOperationQueue mainQueue]];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    [request setValue:authorization forHTTPHeaderField:@"Authorization"];
     self.claudeDownloadTask = [self.claudeDownloadSession
-        downloadTaskWithURL:[NSURL URLWithString:ClaudeDownloadURL]];
+        downloadTaskWithRequest:request];
 
     [NSApp activateIgnoringOtherApps:YES];
     [self.claudeDownloadTask resume];
@@ -761,11 +829,28 @@ static NSImage *ollamaApplicationIcon(void) {
         !self.claudeDownloadCompleted) {
         self.claudeDownloadCancelled = YES;
         [self.claudeDownloadTask cancel];
-        return;
+        return ClaudeInstallCancelled;
     }
     if (self.claudeDownloadCompleted) {
-        [self finishClaudeDownload];
+        return [self finishClaudeDownload];
     }
+    return ClaudeInstallCancelled;
+}
+
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+willPerformHTTPRedirection:(NSHTTPURLResponse *)response
+        newRequest:(NSURLRequest *)request
+  completionHandler:(void (^)(NSURLRequest * _Nullable))completionHandler {
+    (void)response;
+    if (session != self.claudeDownloadSession ||
+        task != self.claudeDownloadTask) {
+        completionHandler(request);
+        return;
+    }
+    NSMutableURLRequest *redirect = [request mutableCopy];
+    [redirect setValue:nil forHTTPHeaderField:@"Authorization"];
+    completionHandler(redirect);
 }
 
 - (void)URLSession:(NSURLSession *)session
@@ -829,7 +914,7 @@ didFinishDownloadingToURL:(NSURL *)location {
 
     if (error == nil) {
         NSString *fileName = [NSString
-            stringWithFormat:@"Claude-%@.dmg", [NSUUID UUID].UUIDString];
+            stringWithFormat:@"Claude-%@.zip", [NSUUID UUID].UUIDString];
         NSURL *installerURL = [NSURL fileURLWithPath:
             [NSTemporaryDirectory() stringByAppendingPathComponent:fileName]];
         if ([[NSFileManager defaultManager] moveItemAtURL:location
@@ -859,7 +944,7 @@ didCompleteWithError:(NSError *)error {
     [self finishClaudeDownload];
 }
 
-- (void)finishClaudeDownload {
+- (enum ClaudeInstallResult)finishClaudeDownload {
     BOOL cancelled = self.claudeDownloadCancelled;
 
     [self.claudeDownloadProgress stopAnimation:nil];
@@ -877,7 +962,7 @@ didCompleteWithError:(NSError *)error {
         self.claudeDownloadedInstallerURL = nil;
         self.claudeDownloadCancelled = NO;
         self.claudeDownloadCompleted = NO;
-        return;
+        return ClaudeInstallCancelled;
     }
     if (self.claudeDownloadError != nil ||
         self.claudeDownloadedInstallerURL == nil) {
@@ -893,21 +978,33 @@ didCompleteWithError:(NSError *)error {
         self.claudeDownloadedInstallerURL = nil;
         self.claudeDownloadCancelled = NO;
         self.claudeDownloadCompleted = NO;
-        return;
+        return ClaudeInstallFailed;
     }
-    if (![[NSWorkspace sharedWorkspace]
-            openURL:self.claudeDownloadedInstallerURL]) {
-        NSError *openError = [NSError
+    [self.claudeAppRow setInactiveStatusText:@"Installing Claude…"];
+    BOOL installed = InstallClaudeDesktopArchive(
+        self.claudeDownloadedInstallerURL.fileSystemRepresentation);
+    NSError *removeError = nil;
+    [[NSFileManager defaultManager]
+        removeItemAtURL:self.claudeDownloadedInstallerURL
+                  error:&removeError];
+    if (removeError != nil) {
+        appLogInfo([NSString stringWithFormat:
+            @"Unable to remove downloaded Claude archive: %@", removeError]);
+    }
+    if (!installed) {
+        NSError *installError = [NSError
             errorWithDomain:@"com.ollama.app"
                        code:4
                    userInfo:@{NSLocalizedDescriptionKey:
-                       @"The Claude installer could not be opened."}];
-        [self showClaudeDownloadFailure:openError];
+                       @"Claude could not be installed."}];
+        [self showClaudeInstallFailure:installError];
     }
     self.claudeDownloadError = nil;
     self.claudeDownloadedInstallerURL = nil;
     self.claudeDownloadCancelled = NO;
     self.claudeDownloadCompleted = NO;
+    [self refreshClaudeAppState];
+    return installed ? ClaudeInstallerOpened : ClaudeInstallFailed;
 }
 
 - (void)toggleClaudeAppProxy:(NSButton *)sender {
@@ -925,9 +1022,12 @@ didCompleteWithError:(NSError *)error {
         [installAlert addButtonWithTitle:@"Download Claude"];
         [installAlert addButtonWithTitle:@"Cancel"];
         if ([installAlert runModal] == NSAlertFirstButtonReturn) {
-            [self downloadClaude];
+            if ([self downloadClaude] != ClaudeInstallerOpened) {
+                return;
+            }
+        } else {
+            return;
         }
-        return;
     }
     BOOL restartClaude = IsClaudeDesktopRunning();
     if (restartClaude) {
@@ -955,6 +1055,11 @@ didCompleteWithError:(NSError *)error {
             [sender setEnabled:YES];
             if (!succeeded) {
                 BOOL portConflict = enabled && ClaudeGatewayPortConflict();
+                char *rawGatewayError = ClaudeGatewayErrorMessage();
+                NSString *gatewayError = rawGatewayError != NULL && rawGatewayError[0] != '\0'
+                    ? [NSString stringWithUTF8String:rawGatewayError]
+                    : nil;
+                free(rawGatewayError);
                 [self refreshClaudeAppState];
                 NSAlert *alert = [[NSAlert alloc] init];
                 [alert setAlertStyle:NSAlertStyleWarning];
@@ -966,7 +1071,9 @@ didCompleteWithError:(NSError *)error {
                         : @"Unable to remove Ollama from Claude")];
                 [alert setInformativeText:portConflict
                     ? [NSString stringWithFormat:@"Change OLLAMA_HOST or quit the app using port %d, then try again.", ClaudeGatewayPort()]
-                    : @"Ollama could not update Claude. Check the Ollama log for details."];
+                    : (gatewayError.length > 0
+                        ? gatewayError
+                        : @"Ollama could not update Claude. Check the Ollama log for details.")];
                 [alert runModal];
                 return;
             }
@@ -983,6 +1090,10 @@ didCompleteWithError:(NSError *)error {
             }
         });
     });
+}
+
+- (void)appsUI {
+    [self uiRequest:@"/connect"];
 }
 
 - (void)newChat {
@@ -1304,16 +1415,29 @@ decidePolicyForNavigationAction:(WKNavigationAction *)action
     return nil;
 }
 
-// TODO (jmorganca): the confirm button is always "Confirm"
-// it should be customizable in the future
 - (void)webView:(WKWebView *)webView
     runJavaScriptConfirmPanelWithMessage:(NSString *)message
     initiatedByFrame:(WKFrameInfo *)frame
     completionHandler:(void (^)(BOOL))completionHandler {
 
     NSAlert *alert = [[NSAlert alloc] init];
-    [alert setMessageText:message];
-    [alert addButtonWithTitle:@"Confirm"];
+    [alert setAlertStyle:NSAlertStyleWarning];
+    [alert setIcon:ollamaApplicationIcon()];
+
+    if ([message isEqualToString:@"Restart Claude Desktop to use Ollama? Any running task will stop."]) {
+        [alert setMessageText:@"Restart Claude Desktop to use Ollama?"];
+        [alert setInformativeText:
+            @"Claude Desktop must restart to use Ollama. Any running task will stop."];
+        [alert addButtonWithTitle:@"Restart Claude Desktop"];
+    } else if ([message isEqualToString:@"Restart Claude Desktop to remove Ollama? Any running task will stop."]) {
+        [alert setMessageText:@"Restart Claude Desktop to remove Ollama?"];
+        [alert setInformativeText:
+            @"Claude Desktop must restart to remove Ollama. Any running task will stop."];
+        [alert addButtonWithTitle:@"Restart Claude Desktop"];
+    } else {
+        [alert setMessageText:message];
+        [alert addButtonWithTitle:@"Confirm"];
+    }
     [alert addButtonWithTitle:@"Cancel"];
 
     completionHandler([alert runModal] == NSAlertFirstButtonReturn);
@@ -1418,6 +1542,7 @@ decidePolicyForNavigationAction:(WKNavigationAction *)action
 AppDelegate *appDelegate;
 void run(bool so, bool sh) {
     [NSApplication sharedApplication];
+    [NSApp setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameAqua]];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
     appDelegate = [[AppDelegate alloc] init];
     [NSApp setDelegate:appDelegate];
@@ -1813,6 +1938,34 @@ void updateClaudeProxyMenu(unsigned long long routed) {
     } else {
         dispatch_async(dispatch_get_main_queue(), updateMenu);
     }
+}
+
+bool ShowAppsInMenu(void) {
+    return shouldShowAppsInMenu();
+}
+
+void SetShowAppsInMenu(bool visible) {
+    [[NSUserDefaults standardUserDefaults]
+        setBool:visible
+         forKey:ShowAppsInMenuDefaultsKey];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [appDelegate applyShowAppsInMenu:visible];
+    });
+}
+
+enum ClaudeInstallResult installClaudeDesktop(void) {
+    __block enum ClaudeInstallResult result = ClaudeInstallFailed;
+    void (^install)(void) = ^{
+        if (appDelegate != nil) {
+            result = [appDelegate downloadClaude];
+        }
+    };
+    if ([NSThread isMainThread]) {
+        install();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), install);
+    }
+    return result;
 }
 
 void quit() {
