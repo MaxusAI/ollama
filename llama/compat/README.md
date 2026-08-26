@@ -56,6 +56,23 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   this must not be backported to a lineage pinned at or below b9990 — there is
   nothing there to fix and the patch will not apply), and
   `docs/maxusai/upstream-mmq-ids-padding-issue.md` for the upstream report.
+- `904-fix-clip-mm-prec-f32.patch` - **not a compatibility shim** (see "Number
+  bands" below). Forces fp32 accumulation (`GGML_PREC_F32`) on every
+  f16-weight `mul_mat` in the mtmd/clip vision and audio graphs, as a
+  post-pass over the built graph in `reserve_compute_meta` and `clip_encode`.
+  With default precision the CUDA/HIP backend runs those GEMMs through cuBLAS
+  with 16F compute (`compute_type = src0->type` in
+  `ggml_cuda_mul_mat_cublas`), and the fp16 partial sums overflow on specific
+  inputs — qwen2.5vl-3b returns `'?'×31` garbage and poisons the runner slot —
+  while the CPU backend always accumulates in fp32 and serves the same image
+  correctly. The post-pass covers matmuls regardless of construction path
+  (`build_mm`, direct `ggml_mul_mat` calls, `ggml_conv_2d` lowering, and
+  per-model `build_mm` overrides). `OLLAMA_CLIP_MM_PREC=f16` restores stock
+  behavior for A/B runs. Numerics change on CUDA/HIP for **every** mtmd model
+  (they now match the CPU path) — expect a small vision-encode slowdown and
+  possible drift against recorded vision baselines. Diagnosis:
+  `docs/maxusai/qwen25vl-3b-poison-image-garbage-decode.md` (PR #214);
+  validation runbook: `docs/maxusai/clip-mm-prec-f32-validation.md`.
 - `compat.cmake`, `apply-patch.cmake` - CMake glue and an idempotent applier
   (used by `llama/server/CMakeLists.txt`) that applies every `*.patch` under
   this directory by numeric filename order — the hooks patch plus each
