@@ -1,0 +1,66 @@
+# qwen2.5vl:3b — one image yields `???` garbage and permanently poisons the runner until reload
+
+**Status: OPEN bug report (measured 2026-08-26). Reproduces on STOCK `ollama/ollama:0.32.15` ⇒ upstream ollama bug, not a fork regression — should also be reported upstream.**
+
+## Summary
+
+A specific, ordinary-looking corpus image makes **qwen2.5vl:3b in every quant (q4_K_M, q8_0, fp16)** return `done_reason: null` with `???????…` garbage content — and after that one request, **the resident runner returns the same garbage for every subsequent request** (any image, any prompt) until the model is reloaded (`ollama stop <tag>`). The 7B of the same family (3584-embed) processes the identical image cleanly across a full 2,496-request production run; 32B untested but shares the 7B embed width.
+
+The permanent-poisoning aspect is the dangerous part: one bad image silently invalidates every later answer from the resident model.
+
+## Minimal repro
+
+One `/api/chat` request:
+
+- model: `qwen2.5vl:3b-q4_K_M` (or `3b-q8_0` / `3b-fp16`)
+- messages: any system + user text, `images: [<the poison image>]`
+- options: `{"num_ctx": 8192, "temperature": 0.0, "num_predict": 250}`
+
+Poison image: md5 `02c9d7e1563a7c6089f688ddff8ad590`, RGB PNG 756×1008 (an insurance-corpus photo; the resized copy lives at `/mnt/4TB_SN850X_RAID1_BTRFS/opt/github/SyncTechAU/data/experiments/00017.8/image_cache/02c9d7e1563a7c6089f688ddff8ad590_3136_802816_28_v2.png` on the CUDA box — attach privately as needed). A **pixel-identical lossless PNG re-save still triggers it**, so the trigger is pixel content, not container/chunks/ICC.
+
+Response: `done_reason: null`, `content: "???????????????????????????????"`. Every request after it on the same resident instance — including known-good images — returns the same garbage until `ollama stop`.
+
+## Evidence matrix (fresh instance per test; H = healthy, X = garbage)
+
+| Build | Model | Test | Pattern |
+|---|---|---|---|
+| sync-0.32.15 (vsuite, `0.32.14-dynres-108-g76918a7`, :11502) | 3b-q4_K_M | 10 ordinary images | `HHHHHHHHHH` |
+| sync-0.32.15 | 3b-q4_K_M | production sequence, poison at #4 | `HHHXXX` |
+| sync-0.32.15 | 3b-q4_K_M | poison FIRST, then known-good | `XX` |
+| sync-0.32.15 | 3b-q8_0 | production sequence | `HHHXXX` |
+| sync-0.32.15 | 3b-fp16 | poison first, then good | `XX` |
+| `0.32.14-rc0-dynres-0-ga5d6590` (:11497) | 3b-q4_K_M | poison first, then good | `XX` |
+| **STOCK `ollama/ollama:0.32.15`** (image `38861297e420`, same registry blob `e9758e589d44…`, fresh pull, throwaway container) | 3b-q4_K_M | poison first, then good | `XX` |
+| sync-0.32.15 | 7b-q4_K_M | full 2,496-request run incl. the poison image | clean |
+
+Quant-independent (q4_K_M = q8_0 = fp16) ⇒ the shared component is the 3B (2048-embed) mmproj/merger path. Runner log at load:
+
+```
+handle_qwen25vl_clip: detected Ollama-format qwen25vl GGUF used as mmproj; translating
+load_hparams: projector:          qwen2.5vl_merger
+```
+
+Suspicion: the projector emits NaN/garbage embeddings for this input and the runner slot never recovers.
+
+## Server launch flags (vsuite, from `docker logs vsuite`)
+
+```
+/usr/lib/ollama/llama-server --model /root/.ollama/models/blobs/sha256-a99b7f83… \
+  --port … --host 127.0.0.1 --no-webui --offline -c 8192 -np 1 --log-verbosity 4 \
+  --no-jinja --chat-template chatml --mmproj /root/.ollama/models/blobs/sha256-a99b7f83… \
+  --image-min-tokens 1024 --flash-attn auto -b 1024 -ub 1024 --split-mode none \
+  --main-gpu 0 --context-shift --keep 4
+```
+
+(The stock build's flags differ; it fails identically, so the flags are not the trigger.)
+
+## Downstream impact
+
+- Experiment `00017.8`'s qwen2.5vl-3B ladder rungs are blocked; two 2,496-request arms produced garbage before the pattern was isolated. Full diagnosis record: `data/experiments/00017.8/eval/_quarantine_broken_serving/README.md` in the SyncTechAU workspace (feat-model-builder checkout).
+- The consuming harness now aborts after 10 consecutive unhealthy responses (`done_reason` not stop/length, or `???` content) — recommended defense for any sustained-inference client until this is fixed.
+
+## Next steps
+
+1. Reproduce with the attached image against upstream `ollama/ollama` main and file upstream.
+2. Bisect the 3B mmproj path (`handle_qwen25vl_clip` translation vs the projector weights) for NaN emission on this input.
+3. Consider a runner-level guard: detect degenerate decode (all-`?` / unknown-token loops) and recycle the slot instead of serving poisoned state.
