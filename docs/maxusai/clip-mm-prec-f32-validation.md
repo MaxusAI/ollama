@@ -1,8 +1,17 @@
 # clip mm prec f32 — validation runbook for patch 904
 
-**Status: PREPARED 2026-08-26, awaiting the PR #214 release-level A/B before
-runtime validation.** Compile validation done; no GPU probe has been run for
-this patch yet.
+**Status: SHELVED 2026-08-26 — hypothesis CONFIRMED, but the launcher
+env-gate ships instead.** Step 0 below is done (PR #214 comment 5421905441):
+the class is alive on stock `ollama/ollama:0.33.0` (`HHXH`) and
+`GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` heals it (`HH`), with a causal three-way
+A/B — `f32`/`bf16` heal, `f16` reproduces (bf16 heals because cuBLAS bf16
+GEMMs accumulate fp32: range, not mantissa). The decision table resolved to
+shipping the fix; the vehicle chosen is the Go-side arch gate
+(`docs/maxusai/qwen25vl-cublas-f32-env.md`, branch
+`fix/qwen25vl-cublas-f32-env`), which needs no payload patch. Patch 904
+stays compile-validated on this branch as the per-op, upstreamable form and
+the fallback if a future pin drops the env knob. No GPU probe has been run
+for 904 itself.
 
 Fix under test: `llama/compat/904-fix-clip-mm-prec-f32.patch` — force
 `GGML_PREC_F32` on every f16-weight `mul_mat` in the mtmd/clip graph, so
@@ -41,7 +50,12 @@ the GPUs (the release A/B container `qwen-release-probe0` was resident when
 this was written). Tear down probe containers in the same script that starts
 them, and verify `nvidia-smi` is clean afterwards.
 
-## Step 0 — zero-rebuild hypothesis test (run this first)
+## Step 0 — zero-rebuild hypothesis test (DONE — first row hit)
+
+**Resolved 2026-08-26** (PR #214 comment 5421905441): on stock 0.33.0 the
+poison probe heals with `=f32` and with `=bf16`, and reproduces with `=f16`
+— the first row of the decision table below, so the fix ships. Kept for the
+method record:
 
 The pinned `b10488` ggml already ships a global override:
 `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` forces F32 compute for **all** cuBLAS
@@ -121,10 +135,14 @@ runtime test — no nvcc, minutes not hours:
 
 ## Scope — what 904 does NOT address
 
-- The **separable slot-poisoning** (FA-linked sticky garbage on Blackwell
-  until reload). If fp16 overflow is the only garbage source, poisoning has
-  nothing to stick to — but the runner-level recycle-on-degenerate-decode
-  guard from the report is still worth having.
+- The **separable slot-poisoning**. Refined by comment 5421905441:
+  sticky-until-reload occurs only in the 0.32.10–0.32.15 window (stock and
+  fork alike — i.e. our current build); 0.30.0, 0.32.9, and 0.33.0 recover
+  on the next request. Supports the prefix-cache/`--context-shift --keep`
+  retention theory, not the earlier FA-on-Blackwell framing. If fp16
+  overflow is the only garbage source, poisoning has nothing to stick to —
+  but the runner-level recycle-on-degenerate-decode guard from the report is
+  still worth having while we sit inside the sticky window.
 - The **Turing + `--flash-attn off` crash-loop** (`unexpected EOF` on any
   image request) — independent defect.
 - The **Go-engine (0.7.1-era) disjoint trigger set** (`04431b0d…`): current
