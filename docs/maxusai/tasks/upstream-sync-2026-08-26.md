@@ -73,9 +73,14 @@ branch on top.
 2. ✅ `go test ./server/ ./model/renderers/ ./model/parsers/ ./llm/` green in
    the `golang:1.26` container (`-u 1000:1000`, `-buildvcs=false`; the
    fileutil root-caveat and the app/dist embed baseline from #208 apply).
-3. ☐ mlx suite + vision golden tests (`x/mlxrunner/vision_golden_test.go`,
-   12b/26b/31b) on the Metal host — the semantic gate for the two
-   overlapping files.
+3. ✅ (unit layer) `go test ./x/mlxrunner/` on the merged tree: 244 tests
+   pass in-container — including upstream's new 390-line
+   `prefix_cache_scenario_test.go` and the fork's unit layer, i.e. the
+   targeted semantic gate for the two overlapping files. ☐ (native layer)
+   the runtime-dependent tests SKIP without MLX (`TestDFlash*` — which
+   cover the draft-cache-settling commit directly) plus the 12b/26b/31b
+   vision goldens: run on the Metal host, naturally bundled with the
+   `mlx-metal` preflight in criterion 4.
 4. ☐ Image build (bigdisk builder; GOFLAGS version stamp per
    `scripts/env.sh`; expect the MLX-stage cache miss ≈ 3 h nvcc) + full
    preflight on the CUDA host (`poison_probe` included) + `mlx-metal`
