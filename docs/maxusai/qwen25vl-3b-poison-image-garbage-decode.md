@@ -109,3 +109,30 @@ Status of the "Next steps" above: (1) **done** — reproduced on stock
 `ollama/ollama:0.32.15`; upstream prior art linked in the comments (ollama#14170,
 ollama#17687, llama.cpp#23608). (2) **superseded** by this localization. (3) still
 recommended as a runner-level defense.
+
+### Correction (2026-08-26, later the same day): 0.7.1 is NOT a clean implementation — trigger sets are disjoint, the class exists in both engines
+
+Running the full production val fold through `ollama/ollama:0.7.1` falsified the
+"known-good implementation" claim above. Measured:
+
+| Image (md5, shape) | clip.cpp path (0.32.x) | Go engine (0.7.1) |
+|---|---|---|
+| `02c9d7e1…` (756×1008) — the original poison | **X** (`?`×31) | H (sensible answer) |
+| `04431b0d…` (1288×616) — newly found | H (sensible answer) | **X** (`!`×31) |
+| ordinary corpus images | H | H |
+
+`04431b0d…` garbles a **freshly reloaded** 0.7.1 slot on request #1 and poisons it for
+every later request (verified after `ollama stop`), i.e. an image-specific trigger with
+the exact same signature — degenerate single-glyph decode (`!` here vs `?` there),
+`done_reason: null`, sticky slot until reload. The cross-probe on a fresh 0.32.15
+container confirms `04431b0d…` is healthy on the clip path.
+
+Interpretation: the overflow class is **latent in the shared CUDA fp16 vision compute of
+both implementations**; each graph's op order/precision decides *which* activation
+patterns cross the fp16 cliff, so each implementation has its own (disjoint) poison set.
+This strengthens the f16-weight-matmul localization above, and narrows the fix guidance:
+a clip.cpp-only precision patch would merely move the trigger set — the durable fix is
+keeping the vision tower/merger GEMMs out of fp16 accumulation (F32 prec on the mm ops,
+or f32/bf16 vision tensors in the GGUF) in whichever engine serves. The release-level
+A/B (`0.24.0` vs `0.30.0`) accordingly now reads as a per-image trigger-set boundary,
+not as the introduction point of the class.
