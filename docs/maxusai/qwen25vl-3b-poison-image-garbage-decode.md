@@ -194,3 +194,31 @@ conservative choice. Fix guidance for upstream sharpens to: default the multimod
 Correction to the earlier knob matrix: the `GGML_CUDA_FORCE_MMQ=1` row was an inert
 env — neither `GGML_CUDA_FORCE_MMQ` nor `GGML_CUDA_FORCE_CUBLAS` exists in `b10488`'s
 runtime env set — so that row duplicated the control, proving nothing about MMQ.
+
+## What makes a poison image a poison — measured (2026-08-26)
+
+Hooked every stage of the HF `Qwen2.5-VL-3B-Instruct` vision tower in bf16
+(fp32-like range, so true magnitudes survive) and recorded max |activation| for a
+known-good corpus image vs both trigger images
+(script: `measure_qwen25vl3b_vision_activations.py`, same smart-resized pixels the
+serving path consumes):
+
+| stage | good | `02c9d7e1…` | `04431b0d…` |
+|---|---|---|---|
+| `blocks.31.mlp` (final block) | 37,376 | **55,808** | **50,688** |
+| mid-tower plateau (blocks 17–27) | ~13,000 | ~12,200 | ~13,800 |
+| fp16 max finite | 65,504 | 0.85× | 0.77× |
+
+The 3B vision tower has a massive-activation structure in its **final block**: even
+ordinary images drive it to ~0.5–0.6× of fp16's ceiling. A "poison" image is simply
+one whose content pushes those outlier channels ~50% higher — and while the *stored*
+values still fit fp16, the **partial sums inside the next fp16-accumulate GEMM**
+(the block-31 MLP projection / the merger consuming it) transiently exceed 65,504
+before cancellation, overflow to inf, and cascade to NaN. Hence: deterministic
+(same pixels → same activations → same overflow), rare-but-inevitable across a large
+corpus (the margin between 37K "fine" and 56K "poison" is thin), implementation-
+specific trigger sets (different GEMM tilings hit different partial-sum peaks), and
+catastrophic for fine-tunes (any checkpoint that shifts these outlier scales up —
+typhoon-ocr, fp16 bitsandbytes training — moves *every* input over the cliff).
+bf16/f32 accumulation is immune because the range ceiling moves from 6.5×10⁴ to
+~3.4×10³⁸.
