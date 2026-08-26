@@ -169,3 +169,28 @@ Conclusions:
 4. Persistence half of the defect: 0.30.0 (no `--context-shift --keep 4`) recovers
    after a poison request; 0.32.x (with them) stays poisoned until reload — the
    prefix cache appears to retain the NaN state. Worth splitting into its own fix.
+
+## Mechanism confirmed + runtime kill-switch (2026-08-26, Glenn's find)
+
+Glenn asked whether `GGML_CUDA_CUBLAS_COMPUTE_TYPE` had been tried — it had not, and
+it exists in the pinned llama.cpp (`b10488` `ggml/src/ggml-cuda/ggml-cuda.cu`), a
+runtime override of the cuBLAS mul_mat compute type (`f32|bf16|f16|auto`; default for
+f16 weights on fast-fp16 hardware = `CUBLAS_COMPUTE_16F`, i.e. fp16 accumulate).
+Measured on the current stack (sync-0.32.15), GPU0, fully GPU-resident, same axis:
+
+| `GGML_CUDA_CUBLAS_COMPUTE_TYPE` | `02c9d7e1…` | `04431b0d…` | slot after |
+|---|---|---|---|
+| unset (auto → f16 accumulate) | X | H | sticky |
+| **`f32`** | **H** | H | clean |
+| **`bf16`** | **H** | H | clean |
+| `f16` (explicit positive control) | X | — | sticky |
+
+**Root cause confirmed: fp16 accumulation in the cuBLAS GEMMs.** Flipping the
+accumulate type heals the poison image at full GPU residency with no CPU cost —
+`bf16` is likely perf-neutral (tensor cores, fp32 accumulate), `f32` the maximally
+conservative choice. Fix guidance for upstream sharpens to: default the multimodal
+(vision tower/merger) matmuls to ≥fp32 accumulation, or at minimum document this env.
+
+Correction to the earlier knob matrix: the `GGML_CUDA_FORCE_MMQ=1` row was an inert
+env — neither `GGML_CUDA_FORCE_MMQ` nor `GGML_CUDA_FORCE_CUBLAS` exists in `b10488`'s
+runtime env set — so that row duplicated the control, proving nothing about MMQ.
