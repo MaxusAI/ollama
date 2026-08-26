@@ -64,3 +64,48 @@ Suspicion: the projector emits NaN/garbage embeddings for this input and the run
 1. Reproduce with the attached image against upstream `ollama/ollama` main and file upstream.
 2. Bisect the 3B mmproj path (`handle_qwen25vl_clip` translation vs the projector weights) for NaN emission on this input.
 3. Consider a runner-level guard: detect degenerate decode (all-`?` / unknown-token loops) and recycle the slot instead of serving poisoned state.
+
+## Root-cause localization (2026-08-26 follow-up)
+
+Evidence accumulated in the PR #214 comment trail, promoted here as the current best
+statement of the fault:
+
+**The one fp16 stage common to every failing CUDA config and absent from the healthy
+CPU path is the f16-weight matmuls of the vision tower/merger — fp16-accumulate GEMM
+on CUDA vs fp32 accumulate on CPU.**
+
+Supporting matrix (full tables and logs in the PR comments):
+
+- **CPU-only serving is HEALTHY** (`NVIDIA_VISIBLE_DEVICES=void`, `size_vram` verified
+  0.0): the poison image gets sensible labels. CUDA garbles on **both** Blackwell and
+  Turing; the 7B is healthy everywhere → arch-independent within CUDA, model-specific.
+- **Every runtime knob is ruled out**: `--flash-attn` on AND off (Blackwell FA-off
+  still garbles), KV cache `f32` and `bf16`, `GGML_CUDA_FORCE_MMQ=1` — every CUDA
+  config that serves at all produces garbage on the poison request. The fault is in
+  vision-encoder compute **shared by the FA and non-FA attention paths**, upstream of
+  the KV cache. (clip.cpp at pin `b10488` already sets `GGML_PREC_F32` on vision
+  flash-attn and ships the non-FA KQ F32 override commented out — attention precision
+  is not the (only) overflow site.)
+- **Separable defect**: the permanent slot poisoning is FA-linked on Blackwell (FA on
+  → sticky `XX` until reload; FA off → next request healthy, `HXH`; Turing recovers
+  even with FA on).
+- **Known-good implementation on the SAME blob and SAME GPUs**: `ollama/ollama:0.7.1`
+  (Go-engine qwen25vl vision path) = `HHH` on Turing and Blackwell, fully GPU-resident
+  (`size_vram` verified; its CUDA payload compiles sm_120), pixel-exact preprocessing
+  (980 measured vs 972 expected image tokens) — and it describes the poison image
+  sensibly.
+- **Regression boundary**: `9db4bdba` "runner: Remove CGO engines, use llama-server
+  exclusively for GGML models (#16031)" (2026-05-29) deletes the healthy Go
+  implementation and routes qwen25vl to llama-server/clip.cpp. Last release without
+  it: `v0.24.0`; first with it: `v0.30.0`. Release-level A/B pending.
+
+Fix candidates: force F32 precision on the clip graph's f16-weight mm ops (the
+`build_mm` family, including restoring the commented-out KQ override), or ship the
+vision-tower/mmproj tensors as f32/bf16 in the GGUF so the CUDA GEMMs leave the
+fp16-accumulate path. Consistent with the widely observed Qwen2.5-VL fp16
+activation-overflow behavior (fp16 fine-tuning garbles, bf16 is clean).
+
+Status of the "Next steps" above: (1) **done** — reproduced on stock
+`ollama/ollama:0.32.15`; upstream prior art linked in the comments (ollama#14170,
+ollama#17687, llama.cpp#23608). (2) **superseded** by this localization. (3) still
+recommended as a runner-level defense.
