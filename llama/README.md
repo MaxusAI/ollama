@@ -50,7 +50,11 @@ For build prerequisites, platform notes, and backend selection, see the
 - llama-server contracts: launch args and defaults, status and error payloads,
   memory/offload log lines, `system_info:`, flash-attention logging,
   `--main-gpu`, split-mode behavior, and scheduler-sensitive flags consumed by
-  `llm/llama_server.go` or `server/sched.go`.
+  `llm/llama_server.go` or `server/sched.go`. Also the arch-gated env knobs
+  the launcher sets for the subprocess (`applyArchServerEnvs`):
+  `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` for qwen25vl assumes the pinned ggml
+  still reads that variable in `ggml/src/ggml-cuda/ggml-cuda.cu` — see
+  `docs/maxusai/qwen25vl-cublas-f32-env.md`.
 - Streaming: any new SSE frame shape, heartbeat, keepalive ping, completion
   marker, or response cadence on paths Ollama parses directly.
 - Model and conversion surfaces: new architectures, tensor names, GGUF
