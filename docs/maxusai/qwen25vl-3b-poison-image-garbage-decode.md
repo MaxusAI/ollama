@@ -222,3 +222,63 @@ catastrophic for fine-tunes (any checkpoint that shifts these outlier scales up 
 typhoon-ocr, fp16 bitsandbytes training — moves *every* input over the cliff).
 bf16/f32 accumulation is immune because the range ceiling moves from 6.5×10⁴ to
 ~3.4×10³⁸.
+
+## Shareable synthetic repro + the size axis (2026-08-26, capstone 2)
+
+Earlier we reported that synthetic triggers "don't transfer". That was **wrong in one
+important respect**, and the correction is the most useful result in this document:
+adversarially-optimized noise does not transfer, but **ordinary high-contrast patterns
+rendered at a large working size do**.
+
+`make_poison_repro_image.py` (committed alongside) writes a 56 px black/white
+checkerboard at 1350x1800. On **stock `ollama/ollama:0.32.9`** with **stock
+`qwen2.5vl:3b-q4_K_M`**, fully GPU-resident:
+
+| serving | result |
+|---|---|
+| default (fp16 cuBLAS accumulate) | **`?` x31, `done_reason: null`** (deterministic, every call) |
+| `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` | healthy — describes the checkerboard |
+
+No corpus image, no client data, no fine-tune required: three lines of PIL reproduce
+the bug end to end. The committed PNG is the exact file we tested.
+
+### Image SIZE is a first-class trigger axis
+
+Measured max |activation| at `blocks.31.mlp` (bf16 HF tower, fp16 ceiling 65,504):
+
+| image | size | max abs | vs fp16 | serving (0.32.9, qwen 3B) |
+|---|---|---|---|---|
+| corpus poison `04431b0d` | 1288x616 | 50,688 | 0.77x | H on 0.32.x (X on 0.7.1) |
+| same, upscaled longest->1800 | 1800x860 | **66,048** | **1.01x** | **X** |
+| same, tiled 2x2 -> 1800 | 1800x860 | **70,144** | **1.07x** | **X** |
+| corpus poison `02c9d7e1` | 756x1008 | 55,808 | 0.85x | X |
+| same, upscaled -> 1800 | 1350x1800 | 62,208 | 0.95x | H |
+| ordinary corpus image | 1008x756 | 37,376 | 0.57x | H |
+| same, upscaled -> 1800 | 1800x1350 | 59,392 | 0.91x | H |
+| synthetic checkerboard p56 | 1350x1800 | 69,120 | 1.06x | **X** |
+| synthetic checkerboard p14/p28, rings p5 | 1350x1800 | 50,432-65,280 | 0.77-1.00x | **X** |
+
+Two mechanisms compound, and both point the same way:
+
+1. **Upscaling raises the activation peaks** (~1.6x from 1008 -> 1800 px on the same
+   content) — an image that is safe at one working size becomes a trigger at another.
+   This retires the idea of a fixed "poison image": the same pixels are safe or fatal
+   depending on the size the client sends.
+2. **Longer visual sequences lengthen the GEMM reductions**, so partial sums overflow
+   even when the *stored* maxima stay under the ceiling (the synthetic rings at 0.77x
+   still garble at 3,072 merged tokens, while a natural image at 0.95x does not).
+
+Practical consequence for clients: **the bigger the image, the more exposed you are.**
+Anything that renders documents at 1800-2048 px (olmOCR-style pipelines, including
+`typhoon_ocr`'s `ocr_document(target_image_dim=1800)`) sits in the worst part of this
+space.
+
+### Cross-model note
+
+`scb10x/typhoon-ocr1.5-3b` (upstream ollama#17687, same 31-glyph signature with `@`)
+stayed healthy on every one of these images across 0.7.1/0.24.0/0.30.0/0.32.9/0.32.15/
+0.33.0, photos and documents alike, including the 1800 px pipeline reproduced from its
+own package source. Its fine-tuned vision weights carry different activation scales, so
+its trigger set is disjoint from the base model's — the same per-implementation pattern
+seen between ollama's Go and clip engines. Finding their specific trigger would need
+that checkpoint's HF weights and the same measurement sweep.
