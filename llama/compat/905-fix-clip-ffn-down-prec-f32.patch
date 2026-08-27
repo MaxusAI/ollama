@@ -1,0 +1,19 @@
+--- a/tools/mtmd/clip.cpp	2026-08-27 20:08:29.733435227 +1000
++++ b/tools/mtmd/clip.cpp	2026-08-27 20:08:29.734435265 +1000
+@@ -721,6 +721,16 @@
+ 
+     if (down) {
+         cur = build_mm(down, cur);
++        // MAXUSAI: the FFN down-projection consumes the activation-function
++        // output, where vision towers with massive-activation outliers peak
++        // (qwen2.5-vl block 31 reaches ~0.9x fp16's 65504 on ordinary images).
++        // With default precision the CUDA backend runs this f16-weight GEMM
++        // through cuBLAS with 16F compute; measured, 3 of 15.7M elements
++        // overflow to inf, which NaNs the image embeddings and produces a
++        // degenerate decode.  Force fp32 accumulation for this one matmul.
++        if (cur->op == GGML_OP_MUL_MAT) {
++            ggml_mul_mat_set_prec(cur, GGML_PREC_F32);
++        }
+     }
+ 
+     if (down_b) {

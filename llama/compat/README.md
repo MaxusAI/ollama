@@ -56,23 +56,36 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   this must not be backported to a lineage pinned at or below b9990 — there is
   nothing there to fix and the patch will not apply), and
   `docs/maxusai/upstream-mmq-ids-padding-issue.md` for the upstream report.
-- `904-fix-clip-mm-prec-f32.patch` - **not a compatibility shim** (see "Number
-  bands" below). Forces fp32 accumulation (`GGML_PREC_F32`) on every
-  f16-weight `mul_mat` in the mtmd/clip vision and audio graphs, as a
-  post-pass over the built graph in `reserve_compute_meta` and `clip_encode`.
-  With default precision the CUDA/HIP backend runs those GEMMs through cuBLAS
-  with 16F compute (`compute_type = src0->type` in
-  `ggml_cuda_mul_mat_cublas`), and the fp16 partial sums overflow on specific
-  inputs — qwen2.5vl-3b returns `'?'×31` garbage and poisons the runner slot —
-  while the CPU backend always accumulates in fp32 and serves the same image
-  correctly. The post-pass covers matmuls regardless of construction path
-  (`build_mm`, direct `ggml_mul_mat` calls, `ggml_conv_2d` lowering, and
-  per-model `build_mm` overrides). `OLLAMA_CLIP_MM_PREC=f16` restores stock
-  behavior for A/B runs. Numerics change on CUDA/HIP for **every** mtmd model
-  (they now match the CPU path) — expect a small vision-encode slowdown and
-  possible drift against recorded vision baselines. Diagnosis:
+- `905-fix-clip-ffn-down-prec-f32.patch` - **not a compatibility shim** (see
+  "Number bands" below). Sets `GGML_PREC_F32` on the FFN **down-projection**
+  in `clip_graph::build_ffn` — one call, ten lines. That matmul consumes the
+  activation-function output, where vision towers with massive-activation
+  outliers peak; with default precision the CUDA/HIP backend runs this
+  f16-weight GEMM through cuBLAS with 16F compute
+  (`compute_type = src0->type` in `ggml_cuda_mul_mat_cublas`) and it
+  overflows. Localised by instrumenting the graph with a non-finite eval
+  callback: on stock-pin b10488 the first bad node is `ffn_down-31`
+  (MUL_MAT, src0 `v.blk.31.ffn_down.weight` f16 [3420,1280]) with **3 inf out
+  of 15,728,640 elements** — enough to NaN the image embeddings and produce
+  the `'?'×31` degenerate decode. Validated end to end: with no global
+  precision forcing, stock `libmtmd` gives garbage on the synthetic
+  checkerboard and this patch gives a correct description, with zero
+  non-finite nodes reported.
+
+  **Supersedes 904** (removed; see git history), which set `GGML_PREC_F32` on
+  *every* f16 matmul in the clip graph. 904 was only compile-validated and
+  changed numerics for every mtmd model; 905 is measured, and touches one
+  matmul. Note 905 still sits in the shared `build_ffn`, so it protects the
+  down-projection for all mtmd vision models — which is the intended scope,
+  since that is where this class of overflow occurs.
+
+  **Trap when A/B testing this patch:** `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f16`
+  **overrides** per-op `GGML_PREC_F32` — the env check runs *after* the
+  `op_params` check in `ggml_cuda_mul_mat_cublas`. Use `=auto` to disable the
+  launcher's f32 gate without also defeating this patch; `=f16` produces a
+  false negative. Diagnosis:
   `docs/maxusai/qwen25vl-3b-poison-image-garbage-decode.md` (PR #214);
-  validation runbook: `docs/maxusai/clip-mm-prec-f32-validation.md`.
+  runbook: `docs/maxusai/clip-mm-prec-f32-validation.md`.
 - `compat.cmake`, `apply-patch.cmake` - CMake glue and an idempotent applier
   (used by `llama/server/CMakeLists.txt`) that applies every `*.patch` under
   this directory by numeric filename order — the hooks patch plus each

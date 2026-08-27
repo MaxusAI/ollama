@@ -1,4 +1,4 @@
-# clip mm prec f32 — validation runbook for patch 904
+# clip fp32-accumulation fix — validation runbook (patch 905, formerly 904)
 
 **Status: SHELVED 2026-08-26 — hypothesis CONFIRMED, but the launcher
 env-gate ships instead.** Step 0 below is done (PR #214 comment 5421905441):
@@ -162,3 +162,57 @@ trigger-set boundary (see the doc's correction section), not the introduction
 point of the class — 904 targets the clip path every current build serves
 with, so the prepared fix is valid under any A/B outcome. The A/B result
 chooses the *narrative* for the upstream filing, not the fix.
+
+
+## 2026-08-27 — node localised, and the fix reduced to one call (patch 905)
+
+The blanket patch 904 is retired in favour of **905**, which sets
+`GGML_PREC_F32` on the FFN down-projection alone. What changed:
+
+**The failing node is now observed, not inferred.** An env-gated
+non-finite eval callback (`ggml_backend_sched_set_eval_callback`, exported as
+`docs/maxusai/vision-suite/synthetic-triggers/clip-nan-tracer.patch`) reports
+the first bad node on stock-pin b10488 with the synthetic checkerboard:
+
+```
+node #1106  name='ffn_down-31'  op=MUL_MAT  type=f32
+shape=[1280,12288]   bad=3/15728640   nan=0  inf=3
+src[0]: v.blk.31.ffn_down.weight  f16 [3420,1280]
+src[1]: ffn_swiglu-31             f32 [3420,12288]
+```
+
+Three elements of 15.7 M overflow — 0.00002% — and that is sufficient: the
+`inf` reaches the merger, the image embeddings come back NaN
+(`MTMD_DEBUG_EMBEDDINGS` shows `mean=nan, sum=nan` on GPU versus clean stats
+on CPU), and the model emits a degenerate token until `tokenRepeat > 30`
+aborts. With `=f32` the same run reports **zero** non-finite nodes.
+
+**The one-call fix is validated end to end**, with no global precision
+forcing on either side (`GGML_CUDA_CUBLAS_COMPUTE_TYPE=auto`):
+
+| build | verdict |
+|---|---|
+| control — stock `libmtmd` | **X** — `'?'` garbage |
+| patched — `set_prec(F32)` on `ffn_down` only | **H** — describes the checkerboard |
+
+**Two traps recorded so the next person does not lose an hour:**
+
+1. `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f16` **overrides per-op `GGML_PREC_F32`**
+   (the env check runs after the `op_params` check). Using `=f16` to defeat
+   the launcher gate also defeats the patch — a false negative. Use `=auto`.
+2. Iterating on the clip graph does **not** need a CUDA build. `clip.cpp`
+   compiles into `libmtmd.so`, which is backend-agnostic; rebuild that target
+   (~2 min) and bind-mount it over the image's `libmtmd.so.0.<ver>`. Host
+   Ubuntu 24.04 builds load fine in the ubuntu:24.04 runtime image.
+
+**Prior art found 2026-08-27.** The model-level fragility is documented:
+huggingface/transformers#33294 reports Qwen2-VL fp16 producing *"gibberish
+output (repeated exclamation marks)"* with `probability tensor contains
+either inf, nan` — the same fingerprint as the Go engine's `'!'×31` — fixed
+by PR #33312, then corrected in #35151 because that fix zeroed the `-inf`
+causal mask. Qwen's own guidance is that the models are trained in bf16 and
+fp16's range overflows, matching our measurement that `bf16` heals.
+No report of this class in llama.cpp's clip path was found; the closest is
+ggml-org/llama.cpp#20081 (Qwen3.5-27B mmproj, image-specific vision garbage
+on Vulkan versus CUDA, no precision cause identified, unresolved) — a
+plausible sibling worth testing with this fix.
