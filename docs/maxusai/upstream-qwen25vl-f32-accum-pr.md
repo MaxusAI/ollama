@@ -4,7 +4,11 @@
 
 **Attach with the PR:** `docs/maxusai/vision-suite/synthetic-triggers/trigger_checker56_1350x1800.png` (12 KB, md5 `afc8ff7e84ee8958878b44675565d5b0`) — verified as the committed file on stock 0.30.0 and 0.33.0.
 
-Measured-claims inventory: checkerboard verified on stock 0.30.0 + 0.32.9 + 0.33.0; corpus triggers on 0.30.0/0.32.9/0.32.15/0.33.0; 0.24.0 falsified as clean by a reproducible synthetic (`checker_p14`, `!`×30); 0.7.1 resisted 159 synthetics because its ~1 MP max_pixels cap downscales them (its corpus trigger is decode-fragile — see the synthetic-triggers README). File with:
+**Companion llama.cpp patch (optional, one call):** `llama/compat/905-fix-clip-ffn-down-prec-f32.patch` on branch `fix/clip-mm-prec-f32` — sets `GGML_PREC_F32` on the FFN down-projection, the node the tracer named. Validated end to end.
+
+Measured-claims inventory: checkerboard verified on stock 0.30.0 + 0.32.9 + 0.33.0; corpus triggers on 0.30.0/0.32.9/0.32.15/0.33.0; 0.24.0 falsified as clean by a reproducible synthetic; 0.7.1 affected (CPU healthy / GPU garbage) but resists 199 synthetics due to its ~1 MP token cap; failing node localised to `ffn_down-31` (3 inf of 15.7M).
+
+File with:
 
 ```bash
 gh pr create --repo ollama/ollama --head MaxusAI:qwen25vl-cublas-f32-accum --base main --title "llm: force fp32 cuBLAS accumulation for qwen2.5-vl runners" --body-file docs/maxusai/upstream-qwen25vl-f32-accum-pr.md
@@ -66,9 +70,37 @@ Cost: vision-encode GEMMs for this family run f32 (weights dequantized + `cublas
 - Slot follow-ups stay clean after a healed trigger request.
 - `go test ./llm/` green; `gofumpt` clean.
 
+## Prior art
+
+The model-level fragility is documented: [huggingface/transformers#33294](https://github.com/huggingface/transformers/issues/33294) reports Qwen2-VL in fp16 producing *"gibberish output (repeated exclamation marks)"* alongside `probability tensor contains either inf, nan or element < 0`, with fp32 clean — the same fingerprint we see. It was fixed by PR #33312 (replace inf with zeros in attention weights), then corrected in [#35151](https://github.com/huggingface/transformers/issues/35151) because that fix also zeroed the `-inf` causal mask. Qwen's own guidance is that these models are trained in bf16 and fp16's range overflows, which matches our measurement that `bf16` heals as well as `f32`.
+
+We found no report of this class in llama.cpp's clip/mtmd path. The closest is [ggml-org/llama.cpp#20081](https://github.com/ggml-org/llama.cpp/issues/20081) — Qwen3.5-27B mmproj giving drastically wrong vision output on Vulkan versus CUDA, reliably and only for *specific images*, with no precision cause identified and still unresolved. That is the same phenomenon shape on a different backend and may well be the same root cause.
+
 ## Scope notes for review
 
-- **Why not fix clip.cpp?** The durable fix arguably belongs in ggml-org/llama.cpp (e.g. `GGML_PREC_F32` on the clip graph's f16-weight matmuls — we have a working patch of that shape and can file it there). This PR protects ollama users today via a knob ggml already ships, with no native-code changes and a one-line revert path once an upstream llama.cpp fix lands.
+- **Why not fix clip.cpp?** It should also be fixed there, and we have localised it precisely. Instrumenting the clip graph with a non-finite eval callback names the failing node on pin `b10488`:
+
+  ```
+  node #1106  name='ffn_down-31'  op=MUL_MAT  type=f32
+  shape=[1280,12288]   bad=3/15728640   nan=0  inf=3
+  src[0]: v.blk.31.ffn_down.weight  f16 [3420,1280]
+  src[1]: ffn_swiglu-31             f32 [3420,12288]
+  ```
+
+  **Three elements out of 15.7 million** overflow to `inf` — enough to NaN the image embeddings (`MTMD_DEBUG_EMBEDDINGS` reports `mean=nan, sum=nan` on GPU and clean stats on CPU) and produce the degenerate decode. So the minimal llama.cpp fix is a single call in `clip_graph::build_ffn`:
+
+  ```c
+  if (down) {
+      cur = build_mm(down, cur);
+      if (cur->op == GGML_OP_MUL_MAT) {
+          ggml_mul_mat_set_prec(cur, GGML_PREC_F32);   // FFN down-proj consumes the activation peak
+      }
+  }
+  ```
+
+  Validated end to end with no global precision forcing on either side: stock `libmtmd` garbles the checkerboard, this one call yields a correct description and zero non-finite nodes. We are happy to file that as a separate llama.cpp PR. This ollama-side PR is still worth taking on its own: it protects users on every currently released llama.cpp pin, needs no native-code change, and reverts in one line once an upstream fix lands.
+
+  *A/B caveat for reviewers:* `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f16` **overrides** per-op `GGML_PREC_F32` (the env check runs after the `op_params` check in `ggml_cuda_mul_mat_cublas`), so testing the per-op fix with `=f16` produces a false negative. Use `=auto`.
 - **Why f32 and not bf16 as the default?** Both heal; f32 is closest to CPU numerics and measured at parity. bf16 remains one env var away for any deployment that prefers it.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
