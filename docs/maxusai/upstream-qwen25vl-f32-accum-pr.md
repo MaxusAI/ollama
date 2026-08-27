@@ -1,6 +1,10 @@
 # Upstream PR draft: llm: force fp32 cuBLAS accumulation for qwen2.5-vl runners
 
-**Prepared 2026-08-27; claims tightened twice same day** (release ranges, then the 768-image fold results and the knob-absence grep from the release-fold session). Branch `qwen25vl-cublas-f32-accum` (this fork, commit 833e4a1f) carries the 90-line adaptation of PR #215's gate onto upstream `ollama/ollama` main (13f2fb8c): `go test ./llm/` green, gofumpt clean. Measured-claims inventory: checkerboard verified on stock 0.32.9; corpus triggers on stock 0.30.0/0.32.9/0.32.15/0.33.0; 768-image fold fails 0.7.1 at row 8 and 0.24.0 at row ~172 (disjoint per-engine trigger sets — no engine clean); GGML_CUDA_CUBLAS_COMPUTE_TYPE absent from pre-0.30 binaries (grep with GGML_CUDA_FORCE_MMQ positive control), so only the llama-server era is runtime-fixable. File with:
+**Prepared 2026-08-27; claims tightened as measurements landed.** Branch `qwen25vl-cublas-f32-accum` (this fork, commit 833e4a1f) carries the 90-line adaptation onto upstream `ollama/ollama` main (13f2fb8c): `go test ./llm/` green, gofumpt clean.
+
+**Attach with the PR:** `docs/maxusai/vision-suite/synthetic-triggers/trigger_checker56_1350x1800.png` (12 KB, md5 `afc8ff7e84ee8958878b44675565d5b0`) — verified as the committed file on stock 0.30.0 and 0.33.0.
+
+Measured-claims inventory: checkerboard verified on stock 0.30.0 + 0.32.9 + 0.33.0; corpus triggers on 0.30.0/0.32.9/0.32.15/0.33.0; 0.24.0 falsified as clean by a reproducible synthetic (`checker_p14`, `!`×30); 0.7.1 resisted 159 synthetics because its ~1 MP max_pixels cap downscales them (its corpus trigger is decode-fragile — see the synthetic-triggers README). File with:
 
 ```bash
 gh pr create --repo ollama/ollama --head MaxusAI:qwen25vl-cublas-f32-accum --base main --title "llm: force fp32 cuBLAS accumulation for qwen2.5-vl runners" --body-file docs/maxusai/upstream-qwen25vl-f32-accum-pr.md
@@ -22,11 +26,13 @@ cells = ((xs // 56) + (ys // 56)) % 2
 Image.fromarray(np.where(cells[..., None], 255, 0).astype(np.uint8).repeat(3, axis=2)).save("trigger.png")
 ```
 
+(An identical prebuilt PNG is attached to this PR — 12 KB, md5 `afc8ff7e84ee8958878b44675565d5b0`, 1350×1800 — so no dependency on numpy/Pillow versions. Being exactly specified integer pixels it has no decoder ambiguity: the generator and the file reproduce bit-identically.)
+
 Send `trigger.png` to stock `qwen2.5vl:3b-q4_K_M` (`/api/chat` or `/api/generate`, `temperature 0`), fully GPU-resident (measured on stock 0.32.9; the same clip vision path with the same fp16-accumulate GEMMs serves every release since 0.30):
 
 | serving | result |
 |---|---|
-| default | `'?'×31`, `done_reason: null` — every call, every quantization (q4_K_M / q8_0 / fp16) |
+| default | `'?'×31`, `done_reason: null` — every call, every quantization (q4_K_M / q8_0 / fp16) — verified with this exact file on stock **0.30.0** and **0.33.0** |
 | `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` (or `bf16`) | correct description of the checkerboard |
 | CPU-only | correct |
 
