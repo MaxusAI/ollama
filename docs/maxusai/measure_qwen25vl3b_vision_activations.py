@@ -10,10 +10,10 @@ import torch
 from PIL import Image
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
-MODEL_PATH = "/mnt/4TB_SN850X_RAID1_BTRFS/opt/github/Qwen/Qwen2.5-VL-3B-Instruct"
-assert os.path.isdir(MODEL_PATH), MODEL_PATH
-CACHE = ("/mnt/4TB_SN850X_RAID1_BTRFS/opt/github/SyncTechAU/data/experiments/"
-         "00017.8/image_cache")
+MODEL_PATH = os.environ.get("QWEN_VL_MODEL", "Qwen/Qwen2.5-VL-3B-Instruct")
+CACHE = os.environ.get("CORPUS_IMAGE_DIR", "")  # private corpus; no default
+if not CACHE:
+    raise SystemExit("CORPUS_IMAGE_DIR is not set. This script reads photographs from a\nprivate corpus that is deliberately not committed; point it at your own directory.")
 IMAGES = {
     "good":        CACHE + "/003a01a50fac895a4693c2d0d914a0f7_3136_802816_28_v2.png",
     "poison-032x": CACHE + "/02c9d7e1563a7c6089f688ddff8ad590_3136_802816_28_v2.png",
