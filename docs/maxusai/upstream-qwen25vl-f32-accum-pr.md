@@ -1,6 +1,6 @@
 # Upstream PR draft: llm: force fp32 cuBLAS accumulation for qwen2.5-vl runners
 
-**Prepared 2026-08-27.** Branch `qwen25vl-cublas-f32-accum` (on this fork, commit 5a3806cd) carries the 90-line adaptation of PR #215's gate onto upstream `ollama/ollama` main (13f2fb8c): `go test ./llm/` green, gofumpt clean. File with:
+**Prepared 2026-08-27, release-range claims corrected same day.** Branch `qwen25vl-cublas-f32-accum` (on this fork, commit 5a739d53) carries the 90-line adaptation of PR #215's gate onto upstream `ollama/ollama` main (13f2fb8c): `go test ./llm/` green, gofumpt clean. Measured-claims inventory: checkerboard verified on stock 0.32.9; corpus triggers on stock 0.30.0/0.32.9/0.32.15/0.33.0; pre-0.30 Go engine has a disjoint trigger set (no release is clean — the triggers move). File with:
 
 ```bash
 gh pr create --repo ollama/ollama --head MaxusAI:qwen25vl-cublas-f32-accum --base main --title "llm: force fp32 cuBLAS accumulation for qwen2.5-vl runners" --body-file docs/maxusai/upstream-qwen25vl-f32-accum-pr.md
@@ -22,7 +22,7 @@ cells = ((xs // 56) + (ys // 56)) % 2
 Image.fromarray(np.where(cells[..., None], 255, 0).astype(np.uint8).repeat(3, axis=2)).save("trigger.png")
 ```
 
-Send `trigger.png` to stock `qwen2.5vl:3b-q4_K_M` (`/api/chat` or `/api/generate`, `temperature 0`), fully GPU-resident, on any stock release from 0.32.9 to 0.33.0:
+Send `trigger.png` to stock `qwen2.5vl:3b-q4_K_M` (`/api/chat` or `/api/generate`, `temperature 0`), fully GPU-resident (measured on stock 0.32.9; the same clip vision path with the same fp16-accumulate GEMMs serves every release since 0.30):
 
 | serving | result |
 |---|---|
@@ -30,7 +30,9 @@ Send `trigger.png` to stock `qwen2.5vl:3b-q4_K_M` (`/api/chat` or `/api/generate
 | `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` (or `bf16`) | correct description of the checkerboard |
 | CPU-only | correct |
 
-Ordinary photos trigger it too (a corpus of insurance photos surfaced it); large high-contrast images are the worst case, so 1800–2048 px OCR-style pipelines are maximally exposed. In some releases (0.32.10–0.32.15) the first poisoned request additionally leaves the runner slot returning garbage for **every subsequent request** until reload.
+Ordinary photos trigger it too — a corpus of insurance photos surfaced the class, and those corpus triggers reproduce on stock **0.30.0, 0.32.9, 0.32.15 and 0.33.0**. Large high-contrast images are the worst case, so 1800–2048 px OCR-style pipelines are maximally exposed. On 0.32.10–0.32.15 the first poisoned request additionally leaves the runner slot returning garbage for **every subsequent request** until reload (other releases recover on the next request).
+
+Releases before 0.30 served this family through the since-removed Go vision engine. That implementation is **not** clean either — it has its own *disjoint* trigger set (a different corpus image garbles 0.7.1 on request #1 and poisons its slot), because fp16 overflow depends on GEMM summation order, so each implementation picks different victims. This checkerboard targets the clip path; the fix direction applies to any fp16-accumulate implementation of this tower.
 
 ## Mechanism (measured, not inferred)
 
