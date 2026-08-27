@@ -1,4 +1,11 @@
-# Upstream PR draft: llm: force fp32 cuBLAS accumulation for qwen2.5-vl runners
+# Upstream PR: llm: force fp32 cuBLAS accumulation for qwen2.5-vl runners
+
+**FILED 2026-08-27 as [ollama/ollama#18070](https://github.com/ollama/ollama/pull/18070).**
+The body below is what was submitted. Follow-up posted as
+[comment 5439106009](https://github.com/ollama/ollama/pull/18070#issuecomment-5439106009):
+`scb10x/typhoon-ocr1.5-3b` — the model in upstream ollama#17687 — reproduces
+the garble on the shareable checkerboard and is healed by this gate, so that
+issue now has a data-free reproducer.
 
 **Prepared 2026-08-27; claims tightened as measurements landed.** Branch `qwen25vl-cublas-f32-accum` (this fork, commit 833e4a1f) carries the 90-line adaptation onto upstream `ollama/ollama` main (13f2fb8c): `go test ./llm/` green, gofumpt clean.
 
