@@ -16,7 +16,7 @@ One `/api/chat` request:
 - messages: any system + user text, `images: [<the poison image>]`
 - options: `{"num_ctx": 8192, "temperature": 0.0, "num_predict": 250}`
 
-Poison image: md5 `02c9d7e1563a7c6089f688ddff8ad590`, RGB PNG 756×1008 (a photograph from a private customer corpus; held on the CUDA box and available privately on request — deliberately not committed and not path-referenced here). A **pixel-identical lossless PNG re-save still triggers it**, so the trigger is pixel content, not container/chunks/ICC.
+Poison image: md5 `02c9d7e1563a7c6089f688ddff8ad590`, RGB PNG 756×1008 (a photograph from a private customer corpus — **not committed, not path-referenced, and not shareable**; the public reproducer for this class is the generated checkerboard in `docs/maxusai/vision-suite/synthetic-triggers/`). A **pixel-identical lossless PNG re-save still triggers it**, so the trigger is pixel content, not container/chunks/ICC.
 
 Response: `done_reason: null`, `content: "???????????????????????????????"`. Every request after it on the same resident instance — including known-good images — returns the same garbage until `ollama stop`.
 
