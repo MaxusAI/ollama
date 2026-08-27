@@ -18,8 +18,16 @@ recovering `HXH`); operator `=bf16` wins and heals on both, including sm_75
 parity with f32 (Blackwell 676 vs 734 ms, Turing 1059 vs 1223 ms warm poison
 encode, n=1 each). `f32` stays the gate default: closest to CPU numerics and
 bf16 buys nothing measured; `bf16` remains a per-container operator choice
-validated on every CUDA generation in the estate. Remaining before deploy:
-standard preflight on a fully built image.
+validated on every CUDA generation in the estate.
+
+**DEPLOYED 2026-08-27** on `maxusai/ollama:sync-0.33.0`
+(`0.33.0-dynres-0-g5171887`, main @ `51718870`): full CUDA preflight PASS
+19/19 with `poison_probe` on the natively-gated binary, then vsuite
+recreated with **no** workaround env vars — runner env shows the
+gate-injected `f32` while the container env is clean, and the checkerboard
+trigger decodes healthily in production. The interim global-f32 container
+workaround (2026-08-26 ~11:49Z → 2026-08-27) is retired; scored cells from
+that window carry global-f32 numerics.
 
 **What:** when the launcher starts a llama-server runner for arch `qwen25vl`,
 `applyArchServerEnvs` (`llm/llama_server.go`) sets

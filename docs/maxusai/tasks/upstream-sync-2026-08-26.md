@@ -1,11 +1,16 @@
 # TASK: merge upstream v0.33.0 (ebf200f9) into main
 
-**Opened:** 2026-08-26. **Status:** merge PERFORMED on this branch (zero
-conflicts); local test gates run; the Metal-host gates and the image
-build + preflight remain, listed under acceptance criteria. The build is
-deliberately deferred — the operator paused rebuilds; vsuite carries the
-interim `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` workaround until a build from
-this lineage replaces it.
+**Opened:** 2026-08-26. **Status 2026-08-27:** merged (#217 @ `2dcf2956`),
+built (`maxusai/ollama:sync-0.33.0` from `51718870`), full CUDA preflight
+PASS 19/19 incl. `poison_probe`, and **deployed** — vsuite runs it with no
+workaround env vars (the gate injects f32 natively; production-proven with
+the checkerboard cell). The interim global-f32 era on vsuite ran 2026-08-26
+~11:49Z → 2026-08-27; mark scored cells in that window. Version identity:
+the first build stamped `0.32.14-dynres-112-g5171887`; tag `v0.33.0-dynres`
+was then cut at `51718870` and the image re-stamped
+`0.33.0-dynres-0-g5171887` — the two strings are one build
+([ADR 0032](../adr/0032-fork-version-identity-tags-each-upstream-fold.md),
+pattern widened in PR #218). Remaining: criterion 3/4's Metal half only.
 
 ## Scope
 
@@ -81,11 +86,15 @@ branch on top.
    cover the draft-cache-settling commit directly) plus the 12b/26b/31b
    vision goldens: run on the Metal host, naturally bundled with the
    `mlx-metal` preflight in criterion 4.
-4. ☐ Image build (bigdisk builder; GOFLAGS version stamp per
-   `scripts/env.sh`; expect the MLX-stage cache miss ≈ 3 h nvcc) + full
-   preflight on the CUDA host (`poison_probe` included) + `mlx-metal`
-   preflight on the Apple host, since the in-scope changes are mlx-runtime
-   behavior. Deferred until the operator green-lights the rebuild.
+4. ✅ (CUDA half, 2026-08-27) `maxusai/ollama:sync-0.33.0` built (bigdisk;
+   the MLX-stage cache miss cost ~3 h as forecast) and full preflight
+   **VERDICT PASS 19/19** — poison_probe on the natively-gated binary,
+   nemotron pinned included (#217 comment 5427926448). Deployed to vsuite
+   with no workaround env vars; runner env shows gate-injected f32,
+   checkerboard decodes healthily. Re-stamped `0.33.0-dynres-0-g5171887`
+   after the v0.33.0-dynres tag (ADR 0032, PR #218).
+   ☐ (Metal half) `mlx-metal` preflight + the criterion-3 native tests and
+   goldens on the Apple host.
 5. ✅ Merge-commit body notes SPEC H11 `server_version` as the comparability
    boundary for benchmark cells measured on builds from this merge, and
    that vsuite's interim global-f32 workaround retires when this deploys.

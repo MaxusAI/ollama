@@ -316,6 +316,15 @@ CUDA ~93 on the same model and cell), and **build changes behaviour** — gemma4
 returns no reasoning at all on `/api/generate` for one build and returns it
 normally on another.
 
+One build can carry two `server_version` strings when the fork re-tags an
+already-built source: main @ `51718870` shipped first as
+`0.32.14-dynres-112-g5171887` and was re-stamped as
+`0.33.0-dynres-0-g5171887` (same Go tree, same payload `9d77fa172`).
+Equivalences are recorded in
+[ADR 0032](../adr/0032-fork-version-identity-tags-each-upstream-fold.md) —
+and only pairs recorded there may be treated as one build by H13's MIXED
+rule; any unlisted string pair stays two builds.
+
 Before this existed, cross-host coverage could only be reconstructed from
 tag-name prefixes and the memory of whoever launched the run. That is not
 evidence: nothing in the data prevented an Apple cell being pooled with a CUDA
