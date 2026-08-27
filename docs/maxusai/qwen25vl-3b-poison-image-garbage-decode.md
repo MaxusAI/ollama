@@ -16,7 +16,7 @@ One `/api/chat` request:
 - messages: any system + user text, `images: [<the poison image>]`
 - options: `{"num_ctx": 8192, "temperature": 0.0, "num_predict": 250}`
 
-Poison image: md5 `02c9d7e1563a7c6089f688ddff8ad590`, RGB PNG 756×1008 (an insurance-corpus photo; the resized copy lives at `/mnt/4TB_SN850X_RAID1_BTRFS/opt/github/SyncTechAU/data/experiments/00017.8/image_cache/02c9d7e1563a7c6089f688ddff8ad590_3136_802816_28_v2.png` on the CUDA box — attach privately as needed). A **pixel-identical lossless PNG re-save still triggers it**, so the trigger is pixel content, not container/chunks/ICC.
+Poison image: md5 `02c9d7e1563a7c6089f688ddff8ad590`, RGB PNG 756×1008 (a photograph from a private customer corpus; held on the CUDA box and available privately on request — deliberately not committed and not path-referenced here). A **pixel-identical lossless PNG re-save still triggers it**, so the trigger is pixel content, not container/chunks/ICC.
 
 Response: `done_reason: null`, `content: "???????????????????????????????"`. Every request after it on the same resident instance — including known-good images — returns the same garbage until `ollama stop`.
 
@@ -56,7 +56,7 @@ Suspicion: the projector emits NaN/garbage embeddings for this input and the run
 
 ## Downstream impact
 
-- Experiment `00017.8`'s qwen2.5vl-3B ladder rungs are blocked; two 2,496-request arms produced garbage before the pattern was isolated. Full diagnosis record: `data/experiments/00017.8/eval/_quarantine_broken_serving/README.md` in the SyncTechAU workspace (feat-model-builder checkout).
+- Experiment `00017.8`'s qwen2.5vl-3B ladder rungs are blocked; two 2,496-request arms produced garbage before the pattern was isolated. Full diagnosis record lives in the private evaluation workspace, under the experiment's `_quarantine_broken_serving/` notes.
 - The consuming harness now aborts after 10 consecutive unhealthy responses (`done_reason` not stop/length, or `???` content) — recommended defense for any sustained-inference client until this is fixed.
 
 ## Next steps

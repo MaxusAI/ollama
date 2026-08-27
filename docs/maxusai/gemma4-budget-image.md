@@ -133,7 +133,7 @@ End-to-end after deployment: the server log's llama-server launch line must cont
 the full budget shows `prompt_eval_count` ≈ text tokens + ~1,015 (measured 2,233 for
 a ~1,218-token prompt — matching the reference server bit-for-bit).
 
-## Deploy (SyncTechAU/data compose)
+## Deploy (downstream data-pipeline compose)
 
 `docker/docker-compose.yaml` `ollama` service — pin the tag and never pull (the
 image is local-only unless someone pushes it to a registry):
