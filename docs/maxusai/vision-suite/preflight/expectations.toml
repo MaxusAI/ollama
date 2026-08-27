@@ -69,7 +69,14 @@ platform = "cuda"
 # `-<n>-g<sha>`, and a digit where the tag writes `-rc0`. Before the tag existed
 # git describe returned NOTHING on main and every build depended on someone
 # passing VERSION= by hand -- one release build shipped reporting 0.0.0.
-version_pattern = '^0\.32\.\d+(-rc\d+)?-dynres(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
+#
+# Widened 0.32 -> 0.3[23] on 2026-08-27: the v0.33.0-dynres tag (at 51718870,
+# the #217 fold of upstream v0.33.0) makes describe yield 0.33.0-dynres-0-g...
+# The payload did NOT move (llama.cpp pin stays 9d77fa172, patchset identical),
+# so the 0.32.x and 0.33.x version families deliberately share this profile and
+# these measured values; the payload_pin below is what actually identifies the
+# numbers' provenance.
+version_pattern = '^0\.3[23]\.\d+(-rc\d+)?-dynres(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
 patchset = ["001", "002", "004", "005", "903"]
 arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # The real payload identity. Was b10434 = 7e4c0a96880d (upstream v0.32.14-rc0's
