@@ -454,6 +454,48 @@ class TestMeasureLadderBudgetFields(unittest.TestCase):
         self.assertNotIn("custom_bounds", out)
 
 
+class TestLineageProfilesTrackOneVersionFamily(unittest.TestCase):
+    """The two lineage profiles describe ONE host and must not drift apart.
+
+    cuda-dynres-903 and mlx-cuda are both keyed on the containerised `-dynres`
+    stamp of the same CUDA machine; which one applies is chosen by --platform,
+    not by the version. Every other profile is pinned to an exact baseline on
+    purpose (mlx-metal: "tightened at first baseline") and a new version there
+    wants a new profile with re-measured expectations, per ADR 0011.
+
+    This exists because widening one and not the other has already happened
+    twice. #175 fixed mlx-cuda's pattern at creation -- it required "-maxusai-",
+    the NATIVE macOS stamp, and so could not match the container it describes.
+    #218 then widened cuda-dynres-903 to 0.33.x for the v0.33.0 sync and left
+    mlx-cuda at 0.32.
+
+    The failure is silent in the worst way: --platform mlx-cuda does not fail
+    red, it fails to RESOLVE A PROFILE, so the gate becomes unreachable rather
+    than failing. A version pattern is the one field that breaks by standing
+    still.
+    """
+
+    LINEAGE = ("cuda-dynres-903", "mlx-cuda")
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_lineage_profiles_share_a_version_pattern(self):
+        pats = {p: self.exp["profiles"][p]["version_pattern"] for p in self.LINEAGE}
+        self.assertEqual(len(set(pats.values())), 1,
+                         f"lineage profiles drifted: {pats}")
+
+    def test_pinned_profiles_are_not_swept_along(self):
+        """Widening must not be applied to a profile pinned at a baseline."""
+        for pid in ("mlx-metal", "metal-0-32-14", "cpu", "rocm-0-32-1-dynres"):
+            pat = self.exp["profiles"][pid]["version_pattern"]
+            self.assertNotIn("[23]", pat,
+                             f"{pid} is baseline-pinned; a new version needs a "
+                             f"new profile with re-measured expectations (ADR 0011)")
+
+
 class TestExpectationsFile(unittest.TestCase):
     """The data file is the contract; keep it internally consistent."""
 
