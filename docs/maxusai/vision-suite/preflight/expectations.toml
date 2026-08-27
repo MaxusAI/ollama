@@ -186,6 +186,29 @@ b10434, and TestImageTokensForSize still passes, so the Go-side sizing model is
 unchanged too.
 """
 
+[profiles.mlx-metal-0-33-0]
+platform = "mlx-metal"
+# The #208 fold moved both payload pins (LLAMA_CPP_VERSION b10434 -> b10488,
+# MLX adf21dea -> 27fec909); #217 then folded upstream v0.33.0 with pins
+# unchanged. The MLX runner is the payload under test here, so the MLX bump
+# alone requires this new profile — ADR 0011 rule: a different payload is a
+# different profile, never a widened pattern over two. Deliberately narrow to
+# the 0.33.0 base per ADR 0032: a new base fails the gate until its fold
+# reviews the pins.
+version_pattern = '^0\.33\.0-maxusai-[0-9a-f]{7,40}$'
+patchset = []                     # llama.cpp compat patches do not apply to MLX
+reference_image = "native macOS build — no container"
+expect_patch_marker = 1
+arches = ["gemma4", "gemma4_unified", "qwen35moe", "qwen35"]
+notes = """
+Successor to mlx-metal-0-32-14 after the #208 payload move. Every row below
+was measured fresh on 0.33.0-maxusai-21cfe88e (llama.cpp b10488, MLX
+27fec909) against the build-under-test on :11437. Vision golden parity at
+this MLX pin is pinned in x/mlxrunner/vision_golden_test.go: the bf16
+control measures <=0.06 per element while fused-nvfp4 drift reaches <=0.19
+— quantisation and runner regressions must not be conflated.
+"""
+
 [profiles.metal-0-32-14]
 platform = "metal"
 # The GGUF/Metal half of Apple Silicon on the v0.32.14 payload (b10434).
@@ -1031,6 +1054,69 @@ scaling = "ladder"
 ladder_tolerance = 2
 ladder = [68, 146, 578, 2306, 5186]       # prefix == text_only == 13
 
+# --------------------------------------------------------- mlx-metal 0.33.0 --
+# Measured 2026-08-27 against the build-under-test on 127.0.0.1:11437
+# (0.33.0-maxusai-21cfe88e, llama.cpp b10488, MLX 27fec909) with
+# measure_ladder.py; rows rendered from its --out JSON, never retyped
+# (ADR 0012 rule 8). EVERY VALUE TAKEN FRESH (ADR 0011); all four arches
+# reproduce their mlx-metal-0-32-14 numbers exactly — the payload move is
+# inert for token accounting, as PR #166 found for the llama.cpp half.
+# Budget/pixel fields are operator-asserted stride arithmetic on the native
+# path (no container log); test_verdicts pins the arithmetic and the ladder
+# check demonstrates the budgets live.
+
+[expect.mlx-metal-0-33-0.gemma4]
+status = "measured"
+measured_on = "2026-08-27"
+model = "gemma4:31b-mlx-bf16"
+patch_stride = 48
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280
+image_max_pixels = 2580480
+scaling = "flat"
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]   # prefix == text_only == 19
+
+[expect.mlx-metal-0-33-0.gemma4_unified]
+status = "measured"
+measured_on = "2026-08-27"
+model = "gemma4:12b-nvfp4"
+patch_stride = 48
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280
+image_max_pixels = 2580480
+scaling = "flat"
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]   # prefix == text_only == 19
+
+[expect.mlx-metal-0-33-0.qwen35moe]
+status = "measured"
+measured_on = "2026-08-27"
+model = "qwen3.6:35b-a3b-nvfp4"
+patch_stride = 32
+budget_min_tokens = 64
+budget_max_tokens = 16384
+image_min_pixels = 65536
+image_max_pixels = 16777216
+scaling = "dynamic"
+ladder_tolerance = 2
+ladder = [68, 146, 578, 2306, 5186]   # prefix == text_only == 13
+
+[expect.mlx-metal-0-33-0.qwen35]
+status = "measured"
+measured_on = "2026-08-27"
+model = "qwen3.8:27b-nvfp4"
+patch_stride = 32
+budget_min_tokens = 64
+budget_max_tokens = 16384
+image_min_pixels = 65536
+image_max_pixels = 16777216
+scaling = "dynamic"
+ladder_tolerance = 2
+ladder = [68, 146, 578, 2306, 5186]   # prefix == text_only == 13
+
 # ------------------------------------------------------------- mlx-cuda --
 # NEVER MEASURED. Declared so the cell is visible; see the profile note. Adding
 # values here means measuring them on a CUDA host serving the MLX store, per
@@ -1202,6 +1288,41 @@ require_nonempty_thinking = true
 # because a think budget that fits today is not evidence about a longer
 # prompt. The token count itself is indicative only: think-on is stochastic
 # and a preflight re-run of this cell measured a different figure.
+
+# Measured 2026-08-27 on the first mlx-metal-0-33-0 preflight
+# (runs/preflight-mlx-metal-0330-first.json): all four arches emit valid
+# JSON after non-empty thinking, nowhere near the num_predict trap, so the
+# 4000 floor is kept rather than tightened — a think budget that fits today
+# is not evidence about a longer prompt, and think-on token counts are
+# indicative only (stochastic between runs).
+
+[expect.mlx-metal-0-33-0.gemma4.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured: eval_count 116 of 4000, 292 chars of thinking, valid JSON.
+
+[expect.mlx-metal-0-33-0.gemma4_unified.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured: eval_count 451 of 4000, 1550 chars of thinking, valid JSON.
+
+[expect.mlx-metal-0-33-0.qwen35moe.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured: eval_count 508 of 4000, 1797 chars of thinking, valid JSON.
+
+[expect.mlx-metal-0-33-0.qwen35.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured: eval_count 292 of 4000, 825 chars of thinking, valid JSON.
 
 # --------------------------------------------------------------------------
 # Poison probes — defect-class canaries, keyed by PROFILE, not per-arch.

@@ -184,18 +184,23 @@ func TestVisionGoldenParity(t *testing.T) {
 		}
 	}
 	// Per-element bound: Go runs fused 4-bit quantized matmuls where the
-	// reference matmuls dequantized bf16 weights, and 27 tower layers
-	// accumulate the difference (observed ≤0.14 at element σ≈1.3-2.5, while
-	// aggregates agree to 0.1%). Structural bugs — wrong norm, swapped axis,
-	// missing scale — move elements by whole σ and fail this and the
-	// aggregate checks together.
+	// reference matmuls dequantized bf16 weights, and the tower layers
+	// accumulate the difference (observed ≤0.14 at element σ≈1.3-2.5 when
+	// calibrated 2026-08-11; ≤0.19 on the 26b/31b towers after the
+	// 2026-08-27 MLX pin bump to 27fec909 changed fused-kernel rounding,
+	// while aggregates stay within 0.2% and a bf16-vs-bf16 control run of
+	// this test — gemma4:26b-mlx-bf16 against its own regenerated golden —
+	// measured ≤0.06, pinning the drift to the quantized kernels, not the
+	// port). Structural bugs — wrong norm, swapped axis, missing scale —
+	// move elements by whole σ and fail this and the aggregate checks
+	// together.
 	var maxRowDelta float64
 	checkRow := func(row int, want []float64) {
 		for j, g := range want {
 			v := float64(feats[row*d+j])
 			delta := math.Abs(v - g)
 			maxRowDelta = math.Max(maxRowDelta, delta)
-			if delta > 0.15+0.05*math.Abs(g) {
+			if delta > 0.20+0.05*math.Abs(g) {
 				t.Errorf("row %d elem %d: %.4f vs golden %.4f", row, j, v, g)
 			}
 		}

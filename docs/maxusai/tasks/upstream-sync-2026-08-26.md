@@ -10,7 +10,14 @@ the first build stamped `0.32.14-dynres-112-g5171887`; tag `v0.33.0-dynres`
 was then cut at `51718870` and the image re-stamped
 `0.33.0-dynres-0-g5171887` — the two strings are one build
 ([ADR 0032](../adr/0032-fork-version-identity-tags-each-upstream-fold.md),
-pattern widened in PR #218). Remaining: criterion 3/4's Metal half only.
+pattern widened in PR #218). **Metal half closed 2026-08-27:** native build
+`0.33.0-maxusai-21cfe88e` on 10.8.0.3, criterion-3 native layer green
+(`TestDFlash*` all pass; 12b/26b/31b goldens pass after the `d53d33a5`
+recalibration for the 27fec909 MLX pin — bf16 control ≤0.06 proves the
+port, fused-nvfp4 drift ≤0.19 is kernel rounding), and the new
+`mlx-metal-0-33-0` profile measured fresh with **preflight VERDICT PASS**
+(`preflight/runs/preflight-mlx-metal-0330-first.json`). All four arches
+reproduce their 0-32-14 ladders exactly. **DONE.**
 
 ## Scope
 
@@ -81,11 +88,14 @@ branch on top.
 3. ✅ (unit layer) `go test ./x/mlxrunner/` on the merged tree: 244 tests
    pass in-container — including upstream's new 390-line
    `prefix_cache_scenario_test.go` and the fork's unit layer, i.e. the
-   targeted semantic gate for the two overlapping files. ☐ (native layer)
-   the runtime-dependent tests SKIP without MLX (`TestDFlash*` — which
-   cover the draft-cache-settling commit directly) plus the 12b/26b/31b
-   vision goldens: run on the Metal host, naturally bundled with the
-   `mlx-metal` preflight in criterion 4.
+   targeted semantic gate for the two overlapping files. ✅ (native layer,
+   2026-08-27, 10.8.0.3) `go test ./x/mlxrunner/ -p 1` green natively;
+   `TestDFlash*` — which cover the draft-cache-settling commit directly —
+   all pass with real MLX. The 12b/26b/31b vision goldens pass after the
+   `d53d33a5` recalibration: the 27fec909 MLX pin changed fused-nvfp4
+   kernel rounding (per-element drift ≤0.19, aggregates within 0.2%), and
+   the bf16-vs-bf16 control measured ≤0.06 — port structure proven, drift
+   pinned to the quantized kernels.
 4. ✅ (CUDA half, 2026-08-27) `maxusai/ollama:sync-0.33.0` built (bigdisk;
    the MLX-stage cache miss cost ~3 h as forecast) and full preflight
    **VERDICT PASS 19/19** — poison_probe on the natively-gated binary,
@@ -93,8 +103,14 @@ branch on top.
    with no workaround env vars; runner env shows gate-injected f32,
    checkerboard decodes healthily. Re-stamped `0.33.0-dynres-0-g5171887`
    after the v0.33.0-dynres tag (ADR 0032, PR #218).
-   ☐ (Metal half) `mlx-metal` preflight + the criterion-3 native tests and
-   goldens on the Apple host.
+   ✅ (Metal half, 2026-08-27) native `0.33.0-maxusai-21cfe88e` built with
+   CLEAN_DEPS (b10488 + MLX 27fec909), archived per BINARIES.md, and
+   validated on the build-under-test port: new `mlx-metal-0-33-0` profile
+   (ADR 0011 — the #208 payload move requires a new profile, not a widened
+   pattern) measured fresh with `measure_ladder.py`; **preflight VERDICT
+   PASS** (`runs/preflight-mlx-metal-0330-first.json`), all four arches
+   reproducing their 0-32-14 ladders exactly — the payload move is inert
+   for token accounting, as PR #166 found for the llama.cpp half.
 5. ✅ Merge-commit body notes SPEC H11 `server_version` as the comparability
    boundary for benchmark cells measured on builds from this merge, and
    that vsuite's interim global-f32 workaround retires when this deploys.

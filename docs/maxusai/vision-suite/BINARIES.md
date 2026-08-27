@@ -15,13 +15,17 @@ A host can be rebuilt from it; a binary sitting only in `/tmp` cannot.
 | version | git sha | payload | MLX | sha256 | notes |
 |---|---|---|---|---|---|
 | `0.32.5-maxusai-a5d65906` | [`a5d65906`](https://github.com/MaxusAI/ollama/commit/a5d65906) | llama.cpp **b10353** | pre-v0.32.14 pin | `d807360e94e0e17a…` | provenance for the 2026-08-16/17 vision work |
-| `0.32.14-maxusai-9594f81e` | [`9594f81e`](https://github.com/MaxusAI/ollama/commit/9594f81e) | llama.cpp **b10434** | v0.32.14 pin | `711d4ad126773ddf…` | current; the `mlx-metal-0-32-14` preflight baseline |
+| `0.32.14-maxusai-9594f81e` | [`9594f81e`](https://github.com/MaxusAI/ollama/commit/9594f81e) | llama.cpp **b10434** | v0.32.14 pin | `711d4ad126773ddf…` | the `mlx-metal-0-32-14` preflight baseline |
+| `0.32.14-maxusai-c82b0464` | [`c82b0464`](https://github.com/MaxusAI/ollama/commit/c82b0464) | llama.cpp **b10434** | v0.32.14 pin | `03f9f9289dbaba1b…` | last pre-0.33.0 deploy on :11435 (2026-08-22 → 27); preflight PASS 2026-08-22; rollback target for the 0.33.0 swap |
+| `0.33.0-maxusai-21cfe88e` | [`21cfe88e`](https://github.com/MaxusAI/ollama/commit/21cfe88e) | llama.cpp **b10488** | 27fec909 pin | `6ab35025981be587…` | current; provenance for the `mlx-metal-0-33-0` profile measurement and the 27fec909 golden recalibration |
 
 Full checksums:
 
 ```
 d807360e94e0e17ac346df9bef198b6a182ef2f47bff78a0e772f6d1d67bad72  ~/.ollama/binaries/ollama-0.32.5-maxusai-a5d65906
 711d4ad126773ddfadeac01c7fea1dc924c60bcfdaf071f9212909aa24ee7a61  ~/.ollama/binaries/ollama-0.32.14-maxusai-9594f81e
+03f9f9289dbaba1bba2a5826a22e1aa85525e96c7e78942bf41828ff90908a71  ~/.ollama/binaries/ollama-0.32.14-maxusai-c82b0464
+6ab35025981be587ff0a73f0b7ae007b608300defb46f176065c8f3f52d78139  ~/.ollama/binaries/ollama-0.33.0-maxusai-21cfe88e
 ```
 
 ## What b10353 is the provenance for
