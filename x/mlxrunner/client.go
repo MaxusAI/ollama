@@ -442,6 +442,8 @@ func (c *Client) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.DeviceInfo
 		}
 	}
 
+	mlxRunnerEnvDefaults(cmd)
+
 	c.cmd = cmd
 
 	status := llm.NewStatusWriter(os.Stderr)
@@ -561,6 +563,33 @@ func (c *Client) VRAMByGPU(id ml.DeviceID) uint64 {
 }
 
 var _ llm.LlamaServer = (*Client)(nil)
+
+// CacheThrashingCheckEnv is MLX's own switch for the CUDA graph-cache
+// "thrashing check" (ml-explore/mlx #2600). The fork turns it off for the
+// runner unless the operator sets it; see mlxRunnerEnvDefaults.
+const CacheThrashingCheckEnv = "MLX_ENABLE_CACHE_THRASHING_CHECK"
+
+// mlxRunnerEnvDefaults applies the fork's defaults for MLX's own knobs to the
+// runner environment. A non-empty value the operator set on the server is left
+// alone, so the advisory below can be re-enabled by exporting the variable.
+//
+// WHY THE THRASHING CHECK IS OFF. MLX's CUDA backend keys a graph cache by
+// shape, and the check is a LIFETIME miss counter that throws once misses pass
+// 2 x MLX_CUDA_GRAPH_CACHE_SIZE (default 400). A throw out of graph commit is
+// not something this runner can catch and continue from: the request dies,
+// the deferred prefix-cache close then fails on the encoder the first throw
+// left behind, and the log blames cudaGraphAddDependencies. A think-on decode
+// reaches the threshold in ~700 distinct prefill lengths, on every image we
+// ship; with the check off the LRU still evicts and nothing measurable
+// changes (120/120 and 400/400 clean under the conditions that failed
+// 120/120). It is a performance advisory, and an advisory that kills the
+// request is the wrong default for a server. Measurements and mechanism:
+// docs/maxusai/mlx-thrash-check-masks-as-cudagraph.md.
+func mlxRunnerEnvDefaults(cmd *exec.Cmd) {
+	if os.Getenv(CacheThrashingCheckEnv) == "" {
+		setEnv(cmd, CacheThrashingCheckEnv, "0")
+	}
+}
 
 // setEnv sets or replaces an environment variable in cmd.Env.
 func setEnv(cmd *exec.Cmd, key, value string) {

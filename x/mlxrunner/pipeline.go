@@ -113,7 +113,10 @@ const pipelineSlot = 0
 func (r *Runner) TextGenerationPipeline(ctx context.Context, request Request) error {
 	mlx.ResetPeakMemory()
 
-	defer func() {
+	// Every cleanup below goes through guardClose: if the request is already
+	// unwinding a panic, a cleanup that fails on the state MLX abandoned must
+	// not replace the cause (see unwind.go).
+	defer guardClose("pipeline teardown", func() {
 		r.Sampler.Remove(pipelineSlot)
 		mlx.Sweep()
 		mlx.ClearCache()
@@ -123,21 +126,21 @@ func (r *Runner) TextGenerationPipeline(ctx context.Context, request Request) er
 			r.cache.dumpTree()
 		}
 		slog.Info("peak memory", "size", mlx.PrettyBytes(mlx.PeakMemory()))
-	}()
+	})
 
 	inputs := request.Tokens
 
 	session := r.cache.begin(inputs, request.MediaItems)
-	defer session.close()
+	defer guardClose("prefix-cache session", session.close)
 	caches := session.caches
 
 	media := r.openMedia(request)
-	defer media.close()
+	defer guardClose("request media", media.close)
 
 	// Built before prefill so a drafter with draft caches follows the prompt
 	// through prefill alongside the target.
 	spec := r.spec.open(request, media.rowLayout())
-	defer spec.close()
+	defer guardClose("speculation session", spec.close)
 
 	seed, position, promptEval, err := r.prefill(ctx, session, spec, media)
 	if err != nil {
@@ -167,7 +170,7 @@ func (r *Runner) TextGenerationPipeline(ctx context.Context, request Request) er
 	default:
 		d = r.pipelinedDecoder(nil, caches, seed.ExpandDims(-1), position, media.rowLayout())
 	}
-	defer d.close()
+	defer guardClose("decoder", d.close)
 	return r.decode(ctx, request, session, d, promptEval)
 }
 
@@ -217,6 +220,10 @@ func (r *Runner) prefill(ctx context.Context, session *cacheSession, spec *specu
 	media.release(position)
 	for total-processed > 1 {
 		if err := ctx.Err(); err != nil {
+			// Settle the drafter with the next prompt token so the caches
+			// rest level with the recorded keys and a retry resumes exactly
+			// where this prefill stopped.
+			spec.settle(mlx.FromValues(tokens[processed:processed+1], 1))
 			return nil, 0, 0, err
 		}
 

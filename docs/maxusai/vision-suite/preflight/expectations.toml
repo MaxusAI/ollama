@@ -69,7 +69,14 @@ platform = "cuda"
 # `-<n>-g<sha>`, and a digit where the tag writes `-rc0`. Before the tag existed
 # git describe returned NOTHING on main and every build depended on someone
 # passing VERSION= by hand -- one release build shipped reporting 0.0.0.
-version_pattern = '^0\.32\.\d+(-rc\d+)?-dynres(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
+#
+# Widened 0.32 -> 0.3[23] on 2026-08-27: the v0.33.0-dynres tag (at 51718870,
+# the #217 fold of upstream v0.33.0) makes describe yield 0.33.0-dynres-0-g...
+# The payload did NOT move (llama.cpp pin stays 9d77fa172, patchset identical),
+# so the 0.32.x and 0.33.x version families deliberately share this profile and
+# these measured values; the payload_pin below is what actually identifies the
+# numbers' provenance.
+version_pattern = '^0\.3[23]\.\d+(-rc\d+)?-dynres(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
 patchset = ["001", "002", "004", "005", "903"]
 arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # The real payload identity. Was b10434 = 7e4c0a96880d (upstream v0.32.14-rc0's
@@ -1195,3 +1202,26 @@ require_nonempty_thinking = true
 # because a think budget that fits today is not evidence about a longer
 # prompt. The token count itself is indicative only: think-on is stochastic
 # and a preflight re-run of this cell measured a different figure.
+
+# --------------------------------------------------------------------------
+# Poison probes — defect-class canaries, keyed by PROFILE, not per-arch.
+# The qwen25vl entry asserts the fp16-accumulate overflow class (#214) stays
+# closed: the launcher injects GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32 into qwen25vl
+# runners (docs/maxusai/qwen25vl-cublas-f32-env.md), so the synthetic
+# 1.06x-fp16-ceiling checkerboard must decode healthily and leave no slot
+# residue. Profiles without an entry SKIP the probe. CPU always accumulates
+# fp32 (healthy by construction); metal/mlx are separate numerics domains with
+# no measured trigger — add an entry only with a measurement behind it.
+# --------------------------------------------------------------------------
+
+[poison.cuda-dynres-903]
+model = "qwen2.5vl:3b-q4_K_M"
+# Measured 2026-08-26 on maxusai/ollama:pr215-gate-rc0
+# (0.32.14-dynres-111-gda676e30, payload 9d77fa172): the trigger decodes
+# healthily with f32 verified in the runner env, and the same image under
+# GGML_CUDA_CUBLAS_COMPUTE_TYPE=f16 returns '?'x31 with done_reason null and
+# poisons the slot — PR #215 comments 5422486826 / 5423584659. Trigger
+# provenance: PR #214 comment 5423370949 (blocks.31.mlp max |activation|
+# 69,120 = 1.06x fp16's 65,504); generator docs/maxusai/
+# make_poison_repro_image.py; probes.poison_image_b64() renders the
+# pixel-identical pattern with the stdlib PNG writer.
