@@ -1,6 +1,6 @@
 # Upstream PR draft: llm: force fp32 cuBLAS accumulation for qwen2.5-vl runners
 
-**Prepared 2026-08-27, release-range claims corrected same day.** Branch `qwen25vl-cublas-f32-accum` (on this fork, commit 5a739d53) carries the 90-line adaptation of PR #215's gate onto upstream `ollama/ollama` main (13f2fb8c): `go test ./llm/` green, gofumpt clean. Measured-claims inventory: checkerboard verified on stock 0.32.9; corpus triggers on stock 0.30.0/0.32.9/0.32.15/0.33.0; pre-0.30 Go engine has a disjoint trigger set (no release is clean — the triggers move). File with:
+**Prepared 2026-08-27; claims tightened twice same day** (release ranges, then the 768-image fold results and the knob-absence grep from the release-fold session). Branch `qwen25vl-cublas-f32-accum` (this fork, commit 833e4a1f) carries the 90-line adaptation of PR #215's gate onto upstream `ollama/ollama` main (13f2fb8c): `go test ./llm/` green, gofumpt clean. Measured-claims inventory: checkerboard verified on stock 0.32.9; corpus triggers on stock 0.30.0/0.32.9/0.32.15/0.33.0; 768-image fold fails 0.7.1 at row 8 and 0.24.0 at row ~172 (disjoint per-engine trigger sets — no engine clean); GGML_CUDA_CUBLAS_COMPUTE_TYPE absent from pre-0.30 binaries (grep with GGML_CUDA_FORCE_MMQ positive control), so only the llama-server era is runtime-fixable. File with:
 
 ```bash
 gh pr create --repo ollama/ollama --head MaxusAI:qwen25vl-cublas-f32-accum --base main --title "llm: force fp32 cuBLAS accumulation for qwen2.5-vl runners" --body-file docs/maxusai/upstream-qwen25vl-f32-accum-pr.md
@@ -32,7 +32,9 @@ Send `trigger.png` to stock `qwen2.5vl:3b-q4_K_M` (`/api/chat` or `/api/generate
 
 Ordinary photos trigger it too — a corpus of insurance photos surfaced the class, and those corpus triggers reproduce on stock **0.30.0, 0.32.9, 0.32.15 and 0.33.0**. Large high-contrast images are the worst case, so 1800–2048 px OCR-style pipelines are maximally exposed. On 0.32.10–0.32.15 the first poisoned request additionally leaves the runner slot returning garbage for **every subsequent request** until reload (other releases recover on the next request).
 
-Releases before 0.30 served this family through the since-removed Go vision engine. That implementation is **not** clean either — it has its own *disjoint* trigger set (a different corpus image garbles 0.7.1 on request #1 and poisons its slot), because fp16 overflow depends on GEMM summation order, so each implementation picks different victims. This checkerboard targets the clip path; the fix direction applies to any fp16-accumulate implementation of this tower.
+Releases before 0.30 served this family through the since-removed Go vision engine. That implementation is **not** clean either — it carries the same fp16-accumulate defect with its own *disjoint* trigger set, because fp16 overflow depends on GEMM summation order, so each implementation picks different victims. Measured on a 768-image production fold: 0.7.1 fails at row 8 (a different corpus image garbles it on request #1 and poisons its slot) and 0.24.0 — which passes both spot-probe images — fails at row ~172 on a member of its own set. Passing a spot check is not passing a corpus; no engine is clean.
+
+The 0.30 boundary is about *fixability*, not the defect: `GGML_CUDA_CUBLAS_COMPUTE_TYPE` does not exist in the pre-0.30 engines' ggml (binary grep: 0 matches in 0.7.1/0.24.0 with `GGML_CUDA_FORCE_MMQ` as a positive control; 2 matches in current builds), so llama-server-era releases are runtime-fixable and the removed engines never were. This checkerboard targets the clip path those releases share; the fix direction — ≥fp32 accumulation for this tower's matmuls — applies to any fp16-accumulate implementation of it.
 
 ## Mechanism (measured, not inferred)
 
