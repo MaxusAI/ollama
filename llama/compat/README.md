@@ -42,6 +42,26 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   floor just under min instead. The budget is a hard ceiling; measured
   overshoots: nemotron pinned 3328 delivered 3388, gemma4 pinned 1120
   delivered 1170 (pre-004). Affects only the infeasible pinned case.
+- `801-clip-node-stats-meter.patch` - **not a compatibility shim; a diagnostic**
+  (see "Number bands" below). Adds an env-gated per-node meter to the clip
+  graph: with `OLLAMA_CLIP_NODE_STATS=<name substring>` (or `*`) every matching
+  node's output is scanned after evaluation and its max |value|, counts above
+  32k/49k/60k, and non-finite counts are logged. **Inert unless the variable is
+  set** - the eval callback is not even registered otherwise, so a normal build
+  and a normal run are unchanged.
+
+  It exists because the qwen2.5-vl fp16-accumulate fault
+  (`docs/maxusai/qwen25vl-3b-poison-image-garbage-decode.md`, upstream
+  ollama/ollama#18070) is invisible from the product surface: the observable is
+  garbled text, the cause is a handful of elements out of millions overflowing
+  at `v.blk.31.ffn_down`. Diagnosing it without an instrument degenerates into
+  sampling, which cannot distinguish "no fault" from "not found yet". Run it
+  under `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` to read magnitudes without
+  overflowing; `max_abs / 65504` is the fp16 headroom. Calibrate against a known
+  trigger before trusting any run - an uncalibrated meter fails silently rather
+  than loudly. Usage and the trigger corpus:
+  `docs/maxusai/vision-suite/synthetic-triggers/README.md`.
+
 - `903-fix-mmq-ids-padding.patch` - **not a compatibility shim** (see "Number
   bands" below). Sizes the MMQ ids-path tail padding in
   `ggml/src/ggml-cuda/mmq.cu` from the flattened row count
@@ -71,22 +91,30 @@ fetched llama.cpp targets. The patch file only adds call sites.
 ### Number bands
 
 `apply-patch.cmake` globs `*.patch` recursively and applies them in sorted
-filename order, so the numeric prefix is the apply order. Two bands share that
-sequence and they mean different things:
+filename order, so the numeric prefix is the apply order. Three bands share
+that sequence and they mean different things:
 
 - **0xx — the compatibility layer.** Translating existing published Ollama
   GGUFs onto what llama.cpp already expects, plus the `models/` patches that
   register architectures llama.cpp does not have yet. These leave when the
   published models do.
+- **8xx — diagnostics and instrumentation.** Env-gated observation code that
+  is inert in a normal build and run: nothing is registered and no behaviour
+  changes unless the operator sets the variable. They exist because some faults
+  are not observable from the product surface, and they stay as long as the
+  subsystem is worth being able to inspect. Unlike 0xx and 9xx they are not
+  waiting on anything, so they are **not** expected to leave.
 - **9xx — fork-carried fixes for defects in stock llama.cpp/ggml.** Not
   compatibility work: upstream-reportable bugs we are carrying until upstream
   takes the fix. They sort last so they apply on top of the compat layer, and
   they leave when the pinned `LLAMA_CPP_VERSION` moves past the fix.
 
 The distinction matters when a patch fails to apply after a llama.cpp bump. A
-0xx failure means the insertion point moved and the patch needs regenerating. A
-9xx failure often means upstream fixed the defect, and the right response is to
-**delete the patch**, not re-cut it — check before regenerating.
+0xx failure means the insertion point moved and the patch needs regenerating. An
+8xx failure means the same — regenerate against the new anchor; the diagnostic
+is not tracking an upstream fix. A 9xx failure often means upstream fixed the
+defect, and the right response is to **delete the patch**, not re-cut it —
+check before regenerating.
 
 ## Load-Time Hooks
 
