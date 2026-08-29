@@ -1,8 +1,9 @@
 # TASK: merge upstream v0.33.2 into main
 
-**Opened:** 2026-08-28. **Status:** assessed, not merged — blocked on one
-architectural decision (below). Merge was attempted and aborted cleanly; `main`
-is untouched.
+**Opened:** 2026-08-28. **Status:** MERGED on `task/upstream-sync-0.33.2` (2026-08-28). The
+architectural decision below was taken — adopt upstream's grammar engine —
+and recorded as [ADR 0033](../adr/0033-mlx-constrained-sampling-adopts-upstreams-engine.md).
+Remaining: 903 functional revalidation, build, and preflight re-measurement.
 
 ## Scope
 
@@ -83,11 +84,11 @@ Glenn's call, not the merger's.
 
 ## Acceptance criteria
 
-1. ☐ Decision above recorded, superseding ADR written if (1).
-2. ☐ Merge with the resolutions in the table; zero remaining conflicts.
-3. ☐ `go test ./server/ ./model/... ./llm/` green in `golang:1.26`
+1. ☑ Decision above recorded, superseding ADR written if (1).
+2. ☑ Merge with the resolutions in the table; zero remaining conflicts.
+3. ☑ `go test ./server/ ./model/... ./llm/` green in `golang:1.26`
    (`-u 1000:1000`, `-buildvcs=false`).
-4. ☐ `go test ./x/mlxrunner/` green — the semantic gate on the three
+4. ☑ `go test ./x/mlxrunner/` green — the semantic gate on the three
    mlxrunner conflicts.
 5. ☐ 903 functionally revalidated at b10630, not just apply-clean.
 6. ☐ Build, then **full preflight re-measurement** (the pin moved), and update

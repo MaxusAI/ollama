@@ -1,6 +1,11 @@
 # ADR 0009: Constrain MLX generation with a pure-Go JSON grammar, reject what it cannot constrain
 
-- **Status:** accepted (2026-08-07). Scope of schema support amended
+- **Status:** **superseded as an implementation** (2026-08-28) by
+  [ADR 0033](0033-mlx-constrained-sampling-adopts-upstreams-engine.md), which
+  adopts upstream's MLX grammar engine. The *guarantee* below — a format the
+  runner cannot honour is an error, never a silently dropped constraint —
+  is retained and re-tested against `parseGrammar`.
+  Originally accepted (2026-08-07). Scope of schema support amended
   2026-08-10 by
   [ADR 0013](0013-grammar-repetition-bounded-at-llama-cpp-parity.md)
   (repetition bounds over llama.cpp's threshold, and grammars that consume

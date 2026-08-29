@@ -3,7 +3,6 @@ package mlxrunner
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -42,23 +41,14 @@ func TestCompletionForwardsFormat(t *testing.T) {
 	}
 }
 
-func TestCompletionRejectsRawGrammar(t *testing.T) {
-	c := &Client{client: http.DefaultClient, status: llm.NewStatusWriter(io.Discard)}
-	err := c.Completion(context.Background(), llm.CompletionRequest{
-		Prompt:  "p",
-		Grammar: `root ::= "x"`,
-		Options: &api.Options{},
-	}, func(llm.CompletionResponse) {})
-	var se api.StatusError
-	if !errors.As(err, &se) {
-		t.Fatalf("Completion with Grammar: err = %v, want api.StatusError", err)
-	}
-	if se.StatusCode != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", se.StatusCode)
-	}
-}
+func TestParseGrammarNeverSilentlyDropsAConstraint(t *testing.T) {
+	// ADR 0009's guarantee, re-asserted against upstream's grammar engine
+	// after v0.33.2 replaced the fork's compileFormat/Constraint layer: a
+	// format the runner cannot honour must be an ERROR, never a silently
+	// dropped constraint. The raw-GBNF rejection this file used to assert is
+	// now structural -- upstream deleted CompletionRequest.Grammar in
+	// 7027546c, so a caller can no longer express one.
 
-func TestRequestCompileFormat(t *testing.T) {
 	// Wire values, not Go strings: an absent format decodes to a zero-length
 	// RawMessage, while "format":"" decodes to the two bytes `""`.
 	for _, c := range []struct {
@@ -69,25 +59,27 @@ func TestRequestCompileFormat(t *testing.T) {
 		{name: "null", format: json.RawMessage(`null`)},
 		{name: "empty string", format: json.RawMessage(`""`)},
 	} {
-		req := &Request{CompletionRequest: CompletionRequest{Format: c.format}}
-		if err := req.compileFormat(); err != nil {
-			t.Errorf("compileFormat(%s): %v", c.name, err)
+		spec, err := parseGrammar(c.format)
+		if err != nil {
+			t.Errorf("parseGrammar(%s): %v", c.name, err)
 		}
-		if req.Constraint != nil {
-			t.Errorf("compileFormat(%s): unexpected constraint", c.name)
+		if spec != nil {
+			t.Errorf("parseGrammar(%s): unexpected constraint", c.name)
 		}
 	}
 
-	req := &Request{CompletionRequest: CompletionRequest{Format: json.RawMessage(`"json"`)}}
-	if err := req.compileFormat(); err != nil {
-		t.Fatalf("compileFormat(json): %v", err)
+	spec, err := parseGrammar(json.RawMessage(`"json"`))
+	if err != nil {
+		t.Fatalf("parseGrammar(json): %v", err)
 	}
-	if req.Constraint == nil {
-		t.Fatal("compileFormat(json): no constraint")
+	if spec == nil {
+		t.Fatal("parseGrammar(json): no constraint")
 	}
 
-	req = &Request{CompletionRequest: CompletionRequest{Format: json.RawMessage(`"yaml"`)}}
-	if err := req.compileFormat(); err == nil {
-		t.Fatal("compileFormat(yaml): expected error")
+	if _, err := parseGrammar(json.RawMessage(`"yaml"`)); err == nil {
+		t.Fatal("parseGrammar(yaml): expected an error, not a dropped constraint")
+	}
+	if _, err := parseGrammar(json.RawMessage(`{"type":`)); err == nil {
+		t.Fatal("parseGrammar(malformed schema): expected an error")
 	}
 }
