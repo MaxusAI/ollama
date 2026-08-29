@@ -1,0 +1,53 @@
+diff --git a/tools/mtmd/clip.cpp b/tools/mtmd/clip.cpp
+index b9dd5e845..a24583e85 100644
+--- a/tools/mtmd/clip.cpp
++++ b/tools/mtmd/clip.cpp
+@@ -222,7 +224,47 @@ struct clip_ctx {
+             ggml_backend_sched_new(backend_ptrs.data(), backend_buft.data(), backend_ptrs.size(), 8192, false, true)
+         );
+ 
+-        if (ctx_params.cb_eval != nullptr) {
++        if (const char * flt = std::getenv("OLLAMA_CLIP_NODE_STATS")) {
++            // MAXUSAI (diagnostic, not for shipping): continuous per-node meter.
++            // Reports max|x| and how much of the tensor sits near the fp16 cliff
++            // for every node whose name contains the filter, with no early stop,
++            // so a run under GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32 measures how much
++            // headroom an image leaves before fp16 accumulation would overflow.
++            static std::string filter = flt;
++            ggml_backend_sched_set_eval_callback(sched.get(),
++                [](struct ggml_tensor * t, bool ask, void * /*ud*/) -> bool {
++                    if (ask) {
++                        return t->type == GGML_TYPE_F32 || t->type == GGML_TYPE_F16;
++                    }
++                    const char * nm_c = ggml_get_name(t);
++                    const std::string nm = nm_c ? nm_c : "";
++                    if (filter != "*" && nm.find(filter) == std::string::npos) {
++                        return true;
++                    }
++                    const size_t n = ggml_nelements(t);
++                    std::vector<char> raw(ggml_nbytes(t));
++                    ggml_backend_tensor_get(t, raw.data(), 0, raw.size());
++                    float mx = 0.0f;
++                    size_t n_inf = 0, n_nan = 0, n32 = 0, n49 = 0, n60 = 0;
++                    for (size_t i = 0; i < n; i++) {
++                        const float x = (t->type == GGML_TYPE_F32)
++                            ? ((const float *) raw.data())[i]
++                            : ggml_fp16_to_fp32(((const ggml_fp16_t *) raw.data())[i]);
++                        if (std::isnan(x)) { n_nan++; continue; }
++                        if (std::isinf(x)) { n_inf++; continue; }
++                        const float a = std::fabs(x);
++                        if (a > mx) mx = a;
++                        if (a > 32752.0f) n32++;
++                        if (a > 49128.0f) n49++;
++                        if (a > 60000.0f) n60++;
++                    }
++                    LOG_ERR("CLIP_NODE_STATS name=%s op=%s type=%s n=%zu max_abs=%.1f "
++                            "hr=%.4f n_gt32k=%zu n_gt49k=%zu n_gt60k=%zu n_inf=%zu n_nan=%zu\n",
++                            nm.c_str(), ggml_op_name(t->op), ggml_type_name(t->type),
++                            n, mx, mx / 65504.0f, n32, n49, n60, n_inf, n_nan);
++                    return true;
++                }, nullptr);
++        } else if (ctx_params.cb_eval != nullptr) {
+             ggml_backend_sched_set_eval_callback(sched.get(), ctx_params.cb_eval, ctx_params.cb_eval_user_data);
+         }
+ 
