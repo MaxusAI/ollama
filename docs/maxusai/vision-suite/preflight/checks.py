@@ -163,7 +163,8 @@ def is_degenerate_decode(response, done_reason):
     return len(text) > 5 and len(set(text)) == 1
 
 
-def check_poison_probe(client, expect, profile_id):
+def check_poison_probe(client, expect, profile_id,
+                       container=None, log_cmd=None):
     """Send the synthetic 1.06x-fp16-ceiling checkerboard to the recorded
     model on a fresh slot and require a healthy decode, then a text-only
     follow-up on the same slot to require no poisoning residue.
@@ -182,6 +183,7 @@ def check_poison_probe(client, expect, profile_id):
         return result("poison_probe", FAIL, f"{model} is not on this server",
                       expected=model)
     client.unload(model)
+    since = time.time() - 5
     try:
         trig = client.generate(model, "Describe this image in one sentence.",
                                images=[poison_image_b64()], num_predict=48,
@@ -208,12 +210,63 @@ def check_poison_probe(client, expect, profile_id):
                       "overridden to f16 in the container environment. See "
                       "docs/maxusai/qwen25vl-cublas-f32-env.md and "
                       "docs/maxusai/qwen25vl-3b-poison-image-garbage-decode.md.")
+    # Node-level corroboration, when the operator has enabled the meter
+    # (llama/compat/801) and the harness can read this container's logs. The
+    # decode verdict is downstream of the fault by the whole language model;
+    # n_inf at ffn_down is the fault itself. Overflow that happens not to
+    # produce a degenerate decode is invisible to the text check and caught
+    # here, so this can only ever turn a PASS into a FAIL.
+    node = _poison_node_evidence(container, since, log_cmd)
+    if node.get("bad"):
+        return result(
+            "poison_probe", FAIL,
+            f"decode looked healthy but {node['bad']} non-finite element(s) "
+            f"reached {node['name']}",
+            expected="no non-finite values at the vision tower's f16 matmuls",
+            actual=node["line"],
+            diagnosis="fp16 accumulation overflowed even though the text came "
+                      "back readable — the gate is absent or partial. The "
+                      "decode check alone would have passed this build. See "
+                      "docs/maxusai/qwen25vl-cublas-f32-env.md.")
     return result(
         "poison_probe", PASS,
         f"1.06x-ceiling trigger decodes healthily "
         f"({len((trig.get('response') or '').strip())} chars, "
-        f"done_reason={trig.get('done_reason')!r}); slot clean after",
+        f"done_reason={trig.get('done_reason')!r}); slot clean after"
+        + node.get("note", ""),
         actual=(trig.get("response") or "")[:60])
+
+
+def _poison_node_evidence(container, since, log_cmd=None):
+    """Read CLIP_NODE_STATS lines this probe emitted, if the meter is on.
+
+    Returns {} shaped as {"bad": int, "name": str, "line": str} on overflow,
+    or {"note": str} describing why there is no node-level evidence. Absence
+    of the meter is NOT a failure: it is off by default and most builds under
+    test will not have OLLAMA_CLIP_NODE_STATS set.
+    """
+    if not container:
+        return {"note": "; no node-level check (no container resolved)"}
+    try:
+        lines = [l for l in container_logs(container, since, log_cmd).splitlines()
+                 if "CLIP_NODE_STATS" in l]
+    except Exception as exc:                                  # noqa: BLE001
+        return {"note": f"; no node-level check (log read failed: {exc})"}
+    if not lines:
+        return {"note": "; no node-level check (meter off — set "
+                        "OLLAMA_CLIP_NODE_STATS=ffn_down to enable)"}
+    worst = None
+    for line in lines:
+        kv = dict(p.split("=", 1) for p in line.split() if "=" in p)
+        try:
+            bad = int(kv.get("n_inf", 0)) + int(kv.get("n_nan", 0))
+        except ValueError:
+            continue
+        if bad and (worst is None or bad > worst["bad"]):
+            worst = {"bad": bad, "name": kv.get("name", "?"), "line": line.strip()[:160]}
+    if worst:
+        return worst
+    return {"note": f"; node meter clean over {len(lines)} node(s)"}
 
 
 # --------------------------------------------------------------------------

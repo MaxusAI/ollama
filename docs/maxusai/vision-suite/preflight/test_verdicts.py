@@ -649,3 +649,63 @@ class TestPoisonProbe(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class PoisonNodeCorroboration(unittest.TestCase):
+    """The meter (llama/compat/801) is optional; absence must never fail, and
+    node-level overflow must fail even when the decode reads healthily."""
+
+    HEALTHY = {"response": "A black and white checkered pattern.", "done_reason": "stop"}
+    EXPECT = {"model": "qwen2.5vl:3b-q4_K_M"}
+
+    def _stub(self):
+        return _PoisonStub([self.HEALTHY, {"response": "OK", "done_reason": "stop"}])
+
+    def test_no_container_is_not_a_failure(self):
+        r = checks.check_poison_probe(self._stub(), self.EXPECT, "cuda-dynres-903",
+                                      container=None)
+        self.assertEqual(r["status"], checks.PASS)
+        self.assertIn("no container resolved", r["summary"])
+
+    def test_meter_off_is_not_a_failure(self):
+        with mock.patch.object(checks, "container_logs", return_value="no meter here"):
+            r = checks.check_poison_probe(self._stub(), self.EXPECT,
+                                          "cuda-dynres-903", container="c")
+        self.assertEqual(r["status"], checks.PASS)
+        self.assertIn("meter off", r["summary"])
+
+    def test_log_read_failure_is_not_a_failure(self):
+        with mock.patch.object(checks, "container_logs", side_effect=OSError("nope")):
+            r = checks.check_poison_probe(self._stub(), self.EXPECT,
+                                          "cuda-dynres-903", container="c")
+        self.assertEqual(r["status"], checks.PASS)
+        self.assertIn("log read failed", r["summary"])
+
+    def test_clean_meter_is_reported(self):
+        line = ("CLIP_NODE_STATS name=ffn_down-31 op=MUL_MAT type=f32 n=15728640 "
+                "max_abs=49031.0 hr=0.7485 n_gt32k=36 n_gt49k=0 n_gt60k=0 "
+                "n_inf=0 n_nan=0")
+        with mock.patch.object(checks, "container_logs", return_value=line):
+            r = checks.check_poison_probe(self._stub(), self.EXPECT,
+                                          "cuda-dynres-903", container="c")
+        self.assertEqual(r["status"], checks.PASS)
+        self.assertIn("node meter clean", r["summary"])
+
+    def test_overflow_fails_even_when_the_decode_looks_healthy(self):
+        """The case the text check cannot see: inf at the node, readable text."""
+        line = ("CLIP_NODE_STATS name=ffn_down-31 op=MUL_MAT type=f32 n=15728640 "
+                "max_abs=53471.0 hr=0.8163 n_gt32k=15 n_gt49k=2 n_gt60k=0 "
+                "n_inf=3 n_nan=0")
+        with mock.patch.object(checks, "container_logs", return_value=line):
+            r = checks.check_poison_probe(self._stub(), self.EXPECT,
+                                          "cuda-dynres-903", container="c")
+        self.assertEqual(r["status"], checks.FAIL)
+        self.assertIn("non-finite", r["summary"])
+        self.assertIn("ffn_down-31", r["summary"])
+
+    def test_nan_counts_too(self):
+        line = "CLIP_NODE_STATS name=ffn_down-31 n_inf=0 n_nan=2"
+        with mock.patch.object(checks, "container_logs", return_value=line):
+            r = checks.check_poison_probe(self._stub(), self.EXPECT,
+                                          "cuda-dynres-903", container="c")
+        self.assertEqual(r["status"], checks.FAIL)

@@ -1346,3 +1346,12 @@ model = "qwen2.5vl:3b-q4_K_M"
 # 69,120 = 1.06x fp16's 65,504); generator docs/maxusai/
 # make_poison_repro_image.py; probes.poison_image_b64() renders the
 # pixel-identical pattern with the stdlib PNG writer.
+#
+# Node-level corroboration (optional). Start the container under test with
+# OLLAMA_CLIP_NODE_STATS=ffn_down and the probe additionally asserts that no
+# non-finite value reached the vision tower's f16 matmuls, read from the
+# CLIP_NODE_STATS lines the meter emits (llama/compat/801). The decode verdict
+# is downstream of the fault by the whole language model; n_inf at ffn_down is
+# the fault itself, so overflow that happens not to garble the text is caught
+# only by this. The meter is off by default and its absence is never a
+# failure — it can turn a PASS into a FAIL, never the reverse.
