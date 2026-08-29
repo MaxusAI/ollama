@@ -27,7 +27,10 @@ SURFACES = ["cuda", "mlx-cuda", "mlx-metal", "apple-silicon-mlx", "rocm", "cpu"]
 GROUPS = [
     ("Build identity", {"version", "image_tag", "payload_pin", "go_patch_marker",
                         "payload_proof"}),
-    ("Image size ladder", {"token_ladder", "pinned_budget"}),
+    ("Image size ladder", {"token_ladder"}),
+    # Both names: runs recorded before the rename carry "pinned_budget", and a
+    # matrix that silently stopped seeing this check would read as green.
+    ("Pinned image budget", {"pinned_image_token_budget", "pinned_budget"}),
     ("thinking on/off", {"think_format"}),
     ("Output quality", {"text_baseline", "quality"}),
     ("fp16 overflow canary", {"poison_probe"}),
