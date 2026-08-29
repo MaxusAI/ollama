@@ -22,6 +22,10 @@
 >   converging with upstream's own MLX work, and expected to be superseded
 >   by it.
 >
+> **Current fold:** [`v0.33.2-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.33.2-dynres)
+> — upstream v0.33.2, llama.cpp `b10630`. `main` moves ahead of this between
+> folds; the tag is the fixed point to build and roll back to.
+>
 > Fork builds are stamped `<upstream-version>-dynres-<n>-g<sha>`; `dynres`
 > names the change that started the fork, not the company that runs it.
 > Fork-specific documentation, ADRs and measurements live in
