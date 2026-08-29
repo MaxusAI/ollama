@@ -853,16 +853,21 @@ def score_bbox_contract(resp_text):
     # the uniform factor rather than reporting a bare miss.
     # Equivalent to `order` under top-level scope; under per-object scope this
     # is the consensus order, or "xyxy" when the objects disagree.
-    #
-    # REAL-FRAME RESPONSES ONLY (blueprint P0-4). The ratio pv/tv compares
-    # RAW coordinates against pixel ground truth, so on a norm-dialect
-    # response it is just the normalisation constant: mlx0330nv rendered
-    # implied_scale 0.721 / iou_at_implied_scale 0.078 on a 6/6 norm-1000
-    # cell with iou_declared 0.956 — a fabricated 28% frame error on a
-    # perfect answer. Gate on the best-fit dialect, which is what the
-    # response actually is: a norm response has no frame question to ask.
-    if str(s.get("bestfit_dialect") or "").startswith("real"):
-        od = s["declared_order"] if s["declared_order"] in ("xyxy", "yxyx") else "xyxy"
+    # `od` is assigned OUTSIDE the gate below: the anchor tally (tally(at, od,
+    # aref)) and the degeneracy fallback both read it, and binding it inside
+    # the gate leaked the best-fit loop's leftover "yxyx" into both on every
+    # norm-dialect response — transposing hits_anchor/iou_anchor.
+    od = s["declared_order"] if s["declared_order"] in ("xyxy", "yxyx") else "xyxy"
+    # NOT FOR NORM-DIALECT RESPONSES (blueprint P0-4). The ratio pv/tv
+    # compares RAW coordinates against pixel ground truth, so on a
+    # norm-dialect response it is just the normalisation constant: mlx0330nv
+    # rendered implied_scale 0.721 / iou_at_implied_scale 0.078 on a 6/6
+    # norm-1000 cell with iou_declared 0.956 — a fabricated 28% frame error
+    # on a perfect answer. A response the best fit explains as norm has no
+    # frame question to ask; a real-frame response — and a TOTAL MISS, where
+    # bestfit_dialect stays None because nothing scored, which is exactly
+    # the wrong-frame case this diagnostic exists to recover — keeps it.
+    if not str(s.get("bestfit_dialect") or "").startswith("norm"):
         ratios = []
         for bb, gtb in matched:
             x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if od == "xyxy"
@@ -1634,18 +1639,13 @@ def arm_done(block):
     arm as "already scored", and cudafull1's think-on cells froze at
     (16384, 8192) while pre-idempotency g4full1 had climbed to 131072.
 
-    ONE exception: a block the driver marked NOT CONVERGED at the ladder
-    ceiling (ladder_not_converged_at, written by
-    summarize_engine_compare.mark_not_converged). That verdict used to live
-    only in stdout, so a ceiling cell re-climbed the whole ladder on every
-    resume. It counts as finished-for-now unless this run asks for a LARGER
-    window than the recorded ceiling — raising CTX_MAX is exactly how the
-    question gets reopened, and it must reopen it.
+    This is SPEC H4b verbatim, with NO exceptions — a ceiling-marked block
+    (ladder_not_converged_at) also re-runs here. Skipping a cell whose
+    ceiling verdict already stands is the DRIVER's decision, taken via
+    summarize_engine_compare.ceiling_standing where CTX_MAX is known; an
+    exception here briefly existed and made a capped block read as finished
+    at any window ≤ the marker, breaking H4b for direct invocations.
     """
-    if (block and "error" not in block
-            and block.get("ladder_not_converged_at")
-            and default_num_ctx() <= int(block["ladder_not_converged_at"])):
-        return True
     return bool(block) and "error" not in block and not was_capped(block)
 
 
@@ -1703,6 +1703,13 @@ def main():
             return
     results = dict(existing)
 
+    # cold_start is a per-INVOCATION fact: the driver's cold start happens
+    # once, immediately before this process — only the first arm actually
+    # ran against a cold server. Stamping the mechanism onto every arm made
+    # SPEC H10's load_duration comparability rule assert the wrong thing
+    # for arms 2..N. Consumed once, then downgraded to "warm".
+    cold_mech = os.environ.get("COLD_START_MECH")
+
     for entry in run_tests:
         # 5th element is optional per-probe gen overrides; the original 4-tuples
         # keep working unchanged.
@@ -1717,7 +1724,16 @@ def main():
             r = gen(prompt, [b64(i) for i in images], **gen_opts)
         except Exception as e:
             print(f"ERROR: {e}")
-            results[name] = {"error": str(e)}
+            # Identity stamps on the error block too: the record you most
+            # need attribution on is the one that failed, and a bare
+            # {"error": ...} block was the only stamp-free shape left.
+            err_block = {"error": str(e)}
+            err_block.update(client.capture_stamps(
+                {}, MODEL, TAG,
+                powermode=os.environ.get("POWERMODE"),
+                cold_start=cold_mech))
+            cold_mech = "warm" if cold_mech else None
+            results[name] = err_block
             continue
         text = r.get("response", "")
         # Answer AND reasoning to disk, via the shared helper so finetext_probe
@@ -1781,15 +1797,11 @@ def main():
             sc["image_max_tokens"] = os.environ.get("IMAGE_MAX_TOKENS")
         # Throughput. Ollama reports durations in nanoseconds. Recorded so a run
         # can be compared across backends (Metal vs CPU) as well as scored —
-        # additive only, no effect on any existing score field.
-        for k in ("total_duration", "load_duration",
-                  "prompt_eval_duration", "eval_duration"):
-            sc[k] = r.get(k)
-        if r.get("eval_duration") and r.get("eval_count"):
-            sc["gen_tps"] = round(r["eval_count"] / (r["eval_duration"] / 1e9), 2)
-        if r.get("prompt_eval_duration") and r.get("prompt_eval_count"):
-            sc["prefill_tps"] = round(
-                r["prompt_eval_count"] / (r["prompt_eval_duration"] / 1e9), 2)
+        # additive only, no effect on any existing score field. ONE derivation
+        # shared with finetext_probe (client.metrics_block): the probe's first
+        # hand copy diverged at birth (round 1 vs 2), so the two producers
+        # published different quantities for the same measurement.
+        sc.update(client.metrics_block(r))
         # The request window these numbers were achieved under. Without it a
         # score is not interpretable: an empty or short result may be the model
         # or may be the cap, and cells measured at different num_ctx are not
@@ -1856,7 +1868,11 @@ def main():
         # cold-start stamps when present. Shared with finetext_probe via the
         # one request path's helper so the two producers cannot fork the
         # schema (SPEC H14's failure mode, applied to fields).
-        sc.update(client.capture_stamps(r, MODEL, TAG))
+        sc.update(client.capture_stamps(
+            r, MODEL, TAG,
+            powermode=os.environ.get("POWERMODE"),
+            cold_start=cold_mech))
+        cold_mech = "warm" if cold_mech else None
         results[name] = sc
         print(json.dumps(sc, indent=1), flush=True)
     

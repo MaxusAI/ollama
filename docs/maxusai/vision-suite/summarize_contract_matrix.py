@@ -22,8 +22,10 @@ Without it a prefixed campaign renders every arm as "—" and reads as a model
 that answered nothing, when the scores are simply under another tag.
 
 --log adds the per-model power-mode table. run_engine_compare.sh stamps
-powermode into its run log per cell and the score files do not carry it, so
-provenance for a campaign has to come from the log (ADR 0012 rule 1).
+powermode into its run log per cell; blocks written since 2026-08-29 also
+carry it (client.capture_stamps), but historical campaigns predate the field,
+so provenance for an old campaign still has to come from the log (ADR 0012
+rule 1).
 """
 import os
 import re

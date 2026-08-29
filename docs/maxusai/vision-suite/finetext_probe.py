@@ -12,7 +12,7 @@ import re, os, sys, base64, random, urllib.request
 
 from sampling import sampling_for, provenance
 import client
-from summarize_engine_compare import was_capped  # SPEC H5: the ONE capped test
+from summarize_engine_compare import load, save, was_capped  # SPEC H5
 
 
 def ft_done(block):
@@ -30,8 +30,7 @@ def ft_block(r, model, tag, think, num_ctx, num_predict):
     (SPEC H12), every duration, gen_tps/prefill_tps and req_num_* — and
     summarize_engine_compare reads whichever file exists, preferring
     req_num_ctx that this shape never wrote."""
-    s = {"tag": tag,
-         "host": r.get("_host"),
+    s = {"host": r.get("_host"),
          "server_version": r.get("_server_version"),
          "prompt_sha": r.get("_prompt_sha"),
          "images_sha": r.get("_images_sha"),
@@ -39,20 +38,30 @@ def ft_block(r, model, tag, think, num_ctx, num_predict):
          "eval_count": r.get("eval_count")}
     if r.get("done_reason"):
         s["done_reason"] = r["done_reason"]
-    for k in ("total_duration", "load_duration",
-              "prompt_eval_duration", "eval_duration"):
-        if r.get(k) is not None:
-            s[k] = r[k]
-    if r.get("eval_count") and r.get("eval_duration"):
-        s["gen_tps"] = round(r["eval_count"] / (r["eval_duration"] / 1e9), 1)
-    if r.get("prompt_eval_count") and r.get("prompt_eval_duration"):
-        s["prefill_tps"] = round(
-            r["prompt_eval_count"] / (r["prompt_eval_duration"] / 1e9), 1)
+    # ONE metrics derivation, shared with vision_suite via client.metrics_block
+    # — this probe's first hand copy diverged at birth (round 1 vs 2,
+    # absent-key vs None), publishing a different quantity than the suite for
+    # the same measurement. `tag` is owned by capture_stamps below.
+    s.update(client.metrics_block(r))
     s["num_ctx"], s["num_predict"] = num_ctx, num_predict
     s["req_num_ctx"] = r.get("_num_ctx")
     s["req_num_predict"] = r.get("_num_predict")
+    # Vision-budget / MTP provenance, same contract as vision_suite: the
+    # probe APPLIES an exported IMAGE_*_TOKENS / DRAFT_NUM_PREDICT
+    # (use_env_opts defaults True) and recorded nothing — on the one probe
+    # whose subject IS the image budget, a budget-matched control was
+    # byte-indistinguishable from an unpinned run.
+    for env, key in (("IMAGE_MIN_TOKENS", "req_image_min_tokens"),
+                     ("IMAGE_MAX_TOKENS", "req_image_max_tokens")):
+        if os.environ.get(env):
+            s[key] = int(os.environ[env])
+    if os.environ.get("DRAFT_NUM_PREDICT") not in (None, ""):
+        s["req_draft_num_predict"] = int(os.environ["DRAFT_NUM_PREDICT"])
     s.update(provenance(model, think))
-    s.update(client.capture_stamps(r, model, tag))
+    s.update(client.capture_stamps(
+        r, model, tag,
+        powermode=os.environ.get("POWERMODE"),
+        cold_start=os.environ.get("COLD_START_MECH")))
     return s
 
 DIR = os.path.dirname(os.path.abspath(__file__))
@@ -156,24 +165,20 @@ def run(host, tag, model):
     # and no translation of the context-overflow 400. All of that now comes from
     # client.generate() for free, and a fix there reaches both callers.
     # Bound from the shared helper rather than re-reading THINK, so this file
-    # cannot disagree with the request that was actually sent. The rewire dropped
-    # this binding while leaving provenance(model, think) below, so every run
-    # raised NameError AFTER the inference completed -- the model was paid for and
-    # the result discarded, and under run_engine_compare.sh's `set -eu` that
-    # aborted the whole campaign.
+    # cannot disagree with the request that was actually sent. ft_block stamps
+    # provenance(model, think) from this value; an earlier rewire dropped the
+    # binding while leaving the provenance call, so every run raised NameError
+    # AFTER the inference completed — the model was paid for and the result
+    # discarded, and under run_engine_compare.sh's `set -eu` that aborted the
+    # whole campaign.
     think = client.think_on()
     # Resume (blueprint P0-5): a finished ft_ block is a finished measurement.
     ftp_path = os.path.join(DIR, f"ft_{tag}.json")
-    if os.path.exists(ftp_path):
-        try:
-            with open(ftp_path) as fh:
-                prev = json.load(fh)
-        except Exception:
-            prev = None
-        if ft_done(prev):
-            print(f"--- finetext [{tag}] --- SKIP already finished "
-                  f"(ADR 0012 conv 9: capped or errored re-runs)")
-            return
+    prev = load(ftp_path)
+    if ft_done(prev):
+        print(f"--- finetext [{tag}] --- SKIP already finished "
+              f"(ADR 0012 conv 9: capped or errored re-runs)")
+        return
     # Error guard (blueprint P0-5): one transport failure here used to abort
     # the whole multi-model campaign under the driver's `set -eu` — the same
     # failure mode the suite's own persist-before-score protects against.
@@ -181,10 +186,22 @@ def run(host, tag, model):
         r = client.generate(host, model, PROMPT, [img_b64],
                             num_predict=num_predict, num_ctx=num_ctx)
     except Exception as exc:
-        s = {"tag": tag, "error": str(exc)}
+        # The error must not DESTROY a prior real block: a capped rung-1
+        # measurement (recall tiers, durations, fingerprints) survived a
+        # rung-2 transport failure before this guard existed, and must
+        # still. It rides under "prior"; "error" first means every consumer
+        # (ft_done included) treats the block as failed and re-runs it.
+        s = {"error": str(exc)}
+        s.update(client.capture_stamps(
+            {}, model, tag,
+            powermode=os.environ.get("POWERMODE"),
+            cold_start=os.environ.get("COLD_START_MECH")))
+        if isinstance(prev, dict) and "prior" not in prev:
+            s["prior"] = prev
+        elif isinstance(prev, dict):
+            s["prior"] = prev.get("prior") or prev
         print(f"--- finetext [{tag}] --- ERROR {exc}")
-        with open(ftp_path, "w") as fh:
-            json.dump(s, fh, indent=1)
+        save(ftp_path, s)
         return
     body = r.get("response", "")
     # Persisted under the probe's OWN name. It used to share "finetext" with
@@ -207,8 +224,7 @@ def run(host, tag, model):
     s.update(chars)
     print(f"--- finetext [{tag}] ---")
     print(json.dumps(s, indent=1))
-    with open(ftp_path, "w") as fh:
-        json.dump(s, fh, indent=1)
+    save(ftp_path, s)
 
 
 if __name__ == "__main__":

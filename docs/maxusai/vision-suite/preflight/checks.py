@@ -615,21 +615,28 @@ def check_think_format(client, expect, arch, min_num_predict):
 # 7. Extraction quality — delegates scoring to the existing vision_suite.py
 # --------------------------------------------------------------------------
 
-def quality_eligible(scores):
+def quality_eligible(scores, tests=None):
     """Split suite scores into (eligible-for-quality, capped-arm-names).
 
     A capped arm scores json_valid: False as a side effect of truncation, so
     counting it in the quality denominator misattributes a harness setting to
-    the model (ADR 0012 conv 9). Delegates to the suite's own was_capped —
-    the ONE definition (SPEC H5); this file was the third consumer reading
-    raw score fields around it. The import lives here rather than at module
-    top because release lineages carry preflight/ without the suite — and on
-    those lineages check_quality has already SKIPped before scoring.
+    the model (ADR 0012 conv 9). `tests` scopes the split to THIS run's
+    requested arms: the scores file is shared per (platform, arch) tag and
+    vision_suite resumes into it, so without the scope a capped arm left by
+    another profile's test list fails a run that never asked for it.
+    Delegates to the suite's own was_capped — the ONE definition (SPEC H5);
+    this file was the third consumer reading raw score fields around it. The
+    import lives here rather than at module top because release lineages
+    carry preflight/ without the suite — and on those lineages check_quality
+    has already SKIPped before scoring.
     """
-    sys.path.insert(0, SUITE_DIR)
+    if SUITE_DIR not in sys.path:
+        sys.path.insert(0, SUITE_DIR)
     from summarize_engine_compare import was_capped
     eligible, capped = {}, []
     for name, blk in scores.items():
+        if tests is not None and name not in tests:
+            continue
         if not isinstance(blk, dict) or "error" in blk:
             continue
         if was_capped(blk):
@@ -696,10 +703,10 @@ def check_quality(host, quality, expect, arch, tag, timeout=5400):
         scores = json.load(fh)
 
     metrics, failures = {}, []
-    eligible, capped_arms_ = quality_eligible(scores)
+    eligible, capped_arms_ = quality_eligible(scores, tests=tests)
     valid = [bool(s.get("json_valid")) for s in eligible.values()]
     errored = [t for t, s in scores.items()
-               if isinstance(s, dict) and "error" in s]
+               if (t in tests) and isinstance(s, dict) and "error" in s]
     if errored:
         failures.append(f"tests errored: {', '.join(errored)}")
     if capped_arms_:

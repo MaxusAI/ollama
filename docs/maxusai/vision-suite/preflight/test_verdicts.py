@@ -707,10 +707,29 @@ class PoisonNodeCorroboration(unittest.TestCase):
         self.assertEqual(r["status"], checks.FAIL)
 
 
+@unittest.skipUnless(
+    os.path.exists(os.path.join(checks.SUITE_DIR, "summarize_engine_compare.py")),
+    "release lineages ship preflight/ without the suite; quality scoring "
+    "SKIPs there and so must its tests")
 class TestQualityCappedExcluded(unittest.TestCase):
     """A capped arm scores json_valid: False as a side effect of truncation;
     counting it as a QUALITY failure misattributes a harness setting to the
     model (ADR 0012 conv 9 — the same rule the summarizers enforce)."""
+
+    def test_scoped_to_this_runs_tests_not_the_shared_file(self):
+        # The scores file is shared per (platform, arch) tag across profiles;
+        # a capped arm left by ANOTHER profile's test list must not fail a
+        # run that never requested it.
+        scores = {"bbox_contract": {"json_valid": False, "eval_count": 2200,
+                                    "num_predict": 2200,
+                                    "done_reason": "length"},
+                  "scene_single": {"json_valid": True, "eval_count": 100,
+                                   "num_predict": 2200,
+                                   "done_reason": "stop"}}
+        eligible, capped = checks.quality_eligible(
+            scores, tests=["scene_single"])
+        self.assertEqual(list(eligible), ["scene_single"])
+        self.assertEqual(capped, [])
 
     def test_capped_blocks_leave_the_quality_denominator(self):
         scores = {"scene_single": {"json_valid": False, "eval_count": 2200,

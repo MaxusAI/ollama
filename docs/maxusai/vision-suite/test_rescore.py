@@ -15,7 +15,11 @@ This test makes it checkable. It loads the pre-change scorer straight out of
 git, runs both versions over a committed corpus, and asserts that every field
 the old scorer produced is unchanged. The change is purely additive — 16 fields
 before, 25 after, none removed — so identity on the old 16 is exactly the
-guarantee, and the 9 new fields are free to appear.
+guarantee, and the new fields are free to appear. One deliberate removal
+stands against that: implied_scale / iou_at_implied_scale left OLD_FIELDS on
+2026-08-29 (blueprint P0-4) because the baseline computes them dialect-blind
+— see the OLD_FIELDS comment for the evidence and the gate tests that
+replaced the guarantee.
 
     python3 test_rescore.py
 

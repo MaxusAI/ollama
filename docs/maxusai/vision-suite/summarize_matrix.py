@@ -70,20 +70,12 @@ def factors_of(arm):
     return {"pin": p == "pin", "anchor": a == "anc", "coords": c}
 
 
-def capped(blk):
-    """True when generation stopped at the cap rather than finishing.
-    Such a cell's score is a harness setting, not a model result.
-
-    Delegates to the ONE definition (SPEC H5): the server's done_reason wins,
-    with the arithmetic fallback for pre-2026-08-20 blocks. This module's own
-    req_num_predict arithmetic predated done_reason and misread the
-    synthetic-length class (a window-bound continuation reports "length"
-    below the cap), letting exactly the cells ADR 0012 conv 9 forbids into
-    the pooled marginals. Blocks here carry req_num_predict rather than
-    num_predict, which the fallback reads — hence the aliasing."""
-    if not blk.get("num_predict") and blk.get("req_num_predict"):
-        blk = dict(blk, num_predict=blk["req_num_predict"])
-    return was_capped(blk)
+# The ONE capped definition (SPEC H5): done_reason wins, arithmetic fallback
+# reads num_predict/req_num_predict itself. This module's own arithmetic
+# predated done_reason and misread the synthetic-length class; a local
+# aliasing shim briefly stood here and disagreed with capped_arms' — folding
+# the req_ fallback into was_capped deleted both.
+capped = was_capped
 
 
 def load(rundir, prefix):

@@ -203,6 +203,18 @@ for m in $MODELS; do
     else
       tag="${base}_think${think}"
     fi
+    # CELL-LEVEL ceiling skip. arm_done stays SPEC H4b verbatim (a capped
+    # block always re-runs); whether a NOT-CONVERGED verdict still stands is
+    # THIS loop's decision, because only it knows CTX_MAX. Standing means
+    # zero restarts and zero probe runs for the cell; raising CTX_MAX above
+    # the recorded ceiling makes the check false and the ladder re-opens the
+    # question — which it must.
+    if python3 "$DIR/summarize_engine_compare.py" ceiling-standing \
+         "$DIR/scores_${tag}.json" "$CTX_MAX" "$ONLY_TESTS"; then
+      echo "##### NOT CONVERGED (standing) $m think=$think ceiling=${CTX_MAX} — cell skipped; raise CTX_MAX to reopen"
+      rep=$((rep + 1))
+      continue
+    fi
     # Reasoning models think before answering; too small a cap yields an empty
     # response, not a short one. See the header note.
     if [ "$think" = "on" ]; then
@@ -261,12 +273,12 @@ for m in $MODELS; do
       # not be compared was unenforceable with the mechanism unrecorded.
       ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
         ONLY_TESTS="$ONLY_TESTS" GEOMETRY="$GEOMETRY" \
-        POWERMODE="${pmode:-}" COLD_START_MECH="${csmech:-warm}" \
+        POWERMODE="${pmode:-n/a}" COLD_START_MECH="${csmech:-warm}" \
         python3 "$DIR/vision_suite.py" "$HOST" "$tag" "$m"
       case ",$ONLY_TESTS," in
         ,,|*,finetext,*)
           ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
-            POWERMODE="${pmode:-}" COLD_START_MECH="${csmech:-warm}" \
+            POWERMODE="${pmode:-n/a}" COLD_START_MECH="warm" \
             python3 "$DIR/finetext_probe.py" "$HOST" "$tag" "$m" ;;
         *) echo "##### SKIP finetext_probe (ONLY_TESTS=$ONLY_TESTS)" ;;
       esac
@@ -285,10 +297,11 @@ for m in $MODELS; do
       # measured in cudafull1) and could never see a synthetic "length"
       # below the cap — the fork's window-bound continuation — which
       # therefore ended a cell with no NOT-CONVERGED verdict at all.
+      # Values travel as argv (a quote in TAG_PREFIX or the checkout path
+      # inside python -c SOURCE was a campaign-killing SyntaxError).
       # capped_arms is done_reason-first and tested in test_summarizers.py.
-      capped=$(python3 -c "import sys; sys.path.insert(0, '$DIR')
-from summarize_engine_compare import capped_arms
-print(' '.join(capped_arms('$DIR/scores_${tag}.json', $np)))")
+      capped=$(python3 "$DIR/summarize_engine_compare.py" capped-arms \
+                 "$DIR/scores_${tag}.json" "$CTX_MAX" "$ONLY_TESTS")
       [ -z "$capped" ] && break
 
       next=$(printf '%s\n' $CTX_LADDER | awk -v c="$nc" '$1>c{print $1; exit}')
@@ -296,11 +309,11 @@ print(' '.join(capped_arms('$DIR/scores_${tag}.json', $np)))")
         echo "##### NOT CONVERGED $m think=$think at num_ctx=$nc (ceiling ${CTX_MAX}); capped: $capped"
         # Machine-readable ceiling verdict (blueprint P0-2): stdout-only NOT
         # CONVERGED left a ceiling cell byte-identical to a not-yet-escalated
-        # one, so every resume re-climbed the whole ladder. arm_done honours
-        # the marker until a run asks for a window above the recorded ceiling.
-        python3 -c "import sys; sys.path.insert(0, '$DIR')
-from summarize_engine_compare import mark_not_converged
-mark_not_converged('$DIR/scores_${tag}.json', '''$capped'''.split(), $nc)"
+        # one, so every resume re-climbed the whole ladder. The cell-level
+        # ceiling-standing check above consumes it on the next invocation.
+        # shellcheck disable=SC2086 -- $capped is a space-separated arm list
+        python3 "$DIR/summarize_engine_compare.py" mark-not-converged \
+          "$DIR/scores_${tag}.json" "$nc" $capped
         break
       fi
       echo "##### CAPPED $m think=$think at num_ctx=$nc ($capped) -> escalating to $next"
