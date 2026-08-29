@@ -102,4 +102,8 @@ Glenn's call, not the merger's.
 6. ◐ Build **running** (2026-08-28, `maxusai/ollama:sync-0.33.2`, bigdisk
    builder, stamped `0.33.2-dynres-0-geaaf951`), then **full preflight re-measurement** (the pin moved), and update
    `expectations.toml` `payload_pin`.
-7. ☐ Metal half on the Apple host — deferred by Glenn, not a blocker here.
+7. ☑ Cut the GitHub Release for the fold tag and update the README's
+   **Current fold** pointer. Both are part of the fold, not follow-up: a
+   stale pointer is worse than none, because it claims a fixed point that
+   no longer matches what `main` builds.
+8. ☐ Metal half on the Apple host — deferred by Glenn, not a blocker here.
