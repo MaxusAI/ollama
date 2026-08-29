@@ -1,3 +1,32 @@
+> ## This is a fork of [ollama/ollama](https://github.com/ollama/ollama)
+>
+> **Everything below this banner is upstream's README, describing upstream's
+> work.** Ollama is theirs; this fork only adds to it, and tries to add as
+> little as possible.
+>
+> It tracks upstream releases and carries a narrow set of changes:
+>
+> - **Vision-model correctness.** Image token budgets and native-aspect
+>   dynamic resolution for gemma4 and nemotron, and an fp32-accumulation gate
+>   for qwen2.5-vl that closes an fp16 overflow in the vision tower — a few
+>   elements in millions reach `inf` on CUDA and the caption collapses into a
+>   repeated glyph. Offered upstream as
+>   [ollama#18070](https://github.com/ollama/ollama/pull/18070).
+> - **A vision regression suite.** A preflight harness with recorded
+>   per-model expectations, generated (public, no-download) trigger images,
+>   and env-gated node-level instrumentation, run against every build before
+>   it deploys.
+> - **Fixes carried until upstream takes them**, each tracked against an
+>   upstream issue or PR, and deleted from here when it lands there.
+> - An experimental MLX runtime for Apple Silicon and CUDA — increasingly
+>   converging with upstream's own MLX work, and expected to be superseded
+>   by it.
+>
+> Fork builds are stamped `<upstream-version>-dynres-<n>-g<sha>`; `dynres`
+> names the change that started the fork, not the company that runs it.
+> Fork-specific documentation, ADRs and measurements live in
+> [`docs/maxusai/`](docs/maxusai/).
+
 <p align="center">
   <a href="https://ollama.com">
     <img src="https://github.com/ollama/ollama/assets/3325447/0d0b44e2-8f4a-4e99-9b52-a5c1c741c8f7" alt="ollama" width="200"/>
