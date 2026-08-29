@@ -339,3 +339,67 @@ build + model + arms; not a refutation of the sampling finding.
 - **Cost** — ~9.5 h wall clock (22:08 → 07:40) and four cold ladder rungs
   for one cell that produced 7 scores; the other nine campaign cells waited
   behind it all night.
+
+### 2026-08-30 — The anchor no longer bounds qwen3.6 think-on runaway
+[2026-08-19](#2026-08-19--qwen36-think-on-does-not-terminate-the-anchor-bounds-it)
+measured `multi_3img` failing to terminate while `multi_3img_anchored`
+finished in 10,910 tokens, on two platforms and two builds — the anchor was
+the bound. On `0.33.0-maxusai-21cfe88e` (Metal, nvfp4) **both members of that
+pair now fail to terminate**, so the mitigation is build- or quant-dependent
+and cannot be relied on as a property of the model.
+
+- **Evidence** — campaign `mlx0330nv`, cell
+  `mlx0330nv1_qwen3_6_35b-a3b-nvfp4_thinkon`: 9 of 27 arms capped at 65536 and
+  again at the 131072 ceiling, each producing **122,880 tokens** and **0
+  answer characters** at ~70 tok/s. The nine include both halves of two pairs
+  whose anchored member previously converged — `multi_3img` +
+  `multi_3img_anchored`, `scene_single` + `scene_single_anchored` — plus
+  `bboxm_pin_anc_pos`, `bboxm_free_anc_named`, `bboxm_free_noanc_named`,
+  `bbox_contract_reasoning`, `bbox_contract_real_1img`. The remaining 18 arms
+  converged (rungs 16384/32768, max `eval_count` 22,823), so this is arm-
+  specific non-termination, not a dead cell.
+- **The ceiling rung resolved exactly zero arms** — capped counts by rung were
+  18 → 17 → **9 → 9**. Escalation genuinely works up to 65536 (nine arms
+  converted from capped to scored), and then stops working completely: the
+  65536 → 131072 doubling bought 4.5 h of inference and not one measurement.
+  That flat step is the cleanest signal available that an arm is
+  non-terminating rather than under-budgeted, and it is worth reading off the
+  `##### CAPPED` lines *during* a run instead of after.
+- **Not a refutation of the anchor's value generally** — five `bboxm_*` arms
+  including anchored ones did converge here, and 2026-08-19's measurement
+  stands for its own build/quant. What is refuted is treating "add the anchor"
+  as a *reliable* runaway bound across builds.
+- **Enforced by** — `ladder_not_converged_at: 131072` stamped into all nine
+  blocks; `ceiling-standing` now exits 0 for this cell, so future campaigns
+  skip it outright unless `CTX_MAX` is raised.
+- **Cost** — ~8 h wall (16:29 → 00:34) for nine unscored arms. Because
+  `scene_single*` and `multi_3img*` are among them, this build has **no**
+  think-on scene-grounding or multi-image reading for qwen3.6 at all.
+
+### 2026-08-30 — The ladder earns its cost, and the arm-level resume is why
+`gemma4:26b-nvfp4` think-on is the case that justifies the whole escalation
+mechanism: **8 arms capped at the 16384 start rung, and 7 of them converged on
+the way up** — capped counts by rung 8 → 4 → 2 → **1**. Without the ladder the
+cell would have reported 8 unscored arms; with it, 26/27 are real
+measurements (max `eval_count` 6,869) and exactly one arm,
+`multi_3img_anchored`, is a genuine non-terminator standing at the ceiling
+with 122,880 tokens and 0 answer characters.
+
+- **The cost is bounded by the arm-level resume, not by the cell.** Each rung
+  re-ran only the still-capped arms and printed what it skipped — `SKIP 19` /
+  `SKIP 23` / `SKIP 25` already-scored arms against `RE-RUN 8` / `4` / `2`. So
+  a four-rung climb cost 8+4+2+1 = 15 arm-runs, not 4×27 = 108. This is the
+  concrete answer to
+  [2026-08-19's "the ladder multiplies cost across ALL arms"](#2026-08-19--the-context-ladder-multiplies-cost-across-all-arms-not-just-the-capped-one):
+  it no longer does, and the `SKIP`/`RE-RUN` lines are the evidence to check
+  when a climb looks too expensive.
+- **The anchor inverts here, again.** For 26b the *unanchored* `multi_3img`
+  converged at the ceiling while `multi_3img_anchored` did not — the opposite
+  ordering to [2026-08-19's qwen3.6 pair](#2026-08-19--qwen36-think-on-does-not-terminate-the-anchor-bounds-it),
+  and consistent with [the anchor's value being per-model](#2026-08-19--the-anchors-value-is-per-model-and-inverts).
+  Three images plus an anchored coordinate contract is the most
+  reasoning-expensive shape the suite asks for, and it is the one arm that
+  fails on both non-converging gemma4/qwen cells.
+- **Worth testing** — whether `ONLY_TESTS` isolation of a known-runaway arm is
+  cheaper than letting it pull a cell up the ladder; at 26b's numbers the
+  climb cost ~4.5 h to convert 7 arms, which was worth it.
