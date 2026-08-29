@@ -27,6 +27,7 @@ d807360e94e0e17ac346df9bef198b6a182ef2f47bff78a0e772f6d1d67bad72  ~/.ollama/bina
 711d4ad126773ddfadeac01c7fea1dc924c60bcfdaf071f9212909aa24ee7a61  ~/.ollama/binaries/ollama-0.32.14-maxusai-9594f81e
 03f9f9289dbaba1bba2a5826a22e1aa85525e96c7e78942bf41828ff90908a71  ~/.ollama/binaries/ollama-0.32.14-maxusai-c82b0464
 6ab35025981be587ff0a73f0b7ae007b608300defb46f176065c8f3f52d78139  ~/.ollama/binaries/ollama-0.33.0-maxusai-21cfe88e
+cd6033d6e72a430e0b96170adb3d7408c908edfdae392654faeaae46f31e9ee2  ~/.ollama/binaries/ollama-0.33.2-maxusai-2b95b4a5
 ```
 
 ## What b10353 is the provenance for
