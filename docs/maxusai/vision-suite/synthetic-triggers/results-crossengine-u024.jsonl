@@ -1,0 +1,4 @@
+{"image": "checker_p14_1350x1800", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "prompt_eval_count": null, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "checker_p28_2560x2560", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "prompt_eval_count": null, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "checker_p56_3584x3584", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "prompt_eval_count": null, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "stripes_v_p56_1350x1800", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "prompt_eval_count": null, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}

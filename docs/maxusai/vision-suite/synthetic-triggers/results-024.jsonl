@@ -1,0 +1,54 @@
+{"image": "checker_p112_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 114, "eval_count": 11}}
+{"image": "checker_p112_1350x1800", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 441, "eval_count": 12}}
+{"image": "checker_p112_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 271, "eval_count": 12}}
+{"image": "checker_p14_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 114, "eval_count": 12}}
+{"image": "checker_p14_1350x1800", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "checker_p14_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 231, "eval_count": 12}}
+{"image": "checker_p28_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 98, "eval_count": 12}}
+{"image": "checker_p28_1350x1800", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "checker_p28_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 232, "eval_count": 12}}
+{"image": "checker_p28_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 350, "eval_count": 12}}
+{"image": "checker_p28_2560x2560", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "checker_p28_3584x3584", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 378, "eval_count": 12}}
+{"image": "checker_p56_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 114, "eval_count": 12}}
+{"image": "checker_p56_1350x1800", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 368, "eval_count": 12}}
+{"image": "checker_p56_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 277, "eval_count": 12}}
+{"image": "checker_p56_2048x2048", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "checker_p56_2560x2560", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 370, "eval_count": 12}}
+{"image": "checker_p56_3584x3584", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "checker_p56_inv_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 126, "eval_count": 12}}
+{"image": "checker_p56_inv_1350x1800", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 536, "eval_count": 12}}
+{"image": "checker_p56_inv_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 290, "eval_count": 12}}
+{"image": "diag_p56_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 100, "eval_count": 12}}
+{"image": "diag_p56_1350x1800", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 529, "eval_count": 14}}
+{"image": "diag_p56_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 498, "eval_count": 14}}
+{"image": "dots_p56_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 113, "eval_count": 12}}
+{"image": "dots_p56_1350x1800", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 333, "eval_count": 19}}
+{"image": "dots_p56_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 217, "eval_count": 19}}
+{"image": "rings_p14_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 112, "eval_count": 15}}
+{"image": "rings_p14_1350x1800", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 359, "eval_count": 15}}
+{"image": "rings_p14_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 349, "eval_count": 15}}
+{"image": "rings_p5_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 128, "eval_count": 25}}
+{"image": "rings_p5_1350x1800", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 325, "eval_count": 15}}
+{"image": "rings_p5_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 212, "eval_count": 15}}
+{"image": "rings_p5_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 364, "eval_count": 15}}
+{"image": "rings_p5_2560x2560", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 372, "eval_count": 19}}
+{"image": "rings_p5_3584x3584", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 461, "eval_count": 21}}
+{"image": "stripes_h_p14_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 146, "eval_count": 20}}
+{"image": "stripes_h_p14_1350x1800", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 328, "eval_count": 14}}
+{"image": "stripes_h_p14_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 199, "eval_count": 15}}
+{"image": "stripes_h_p56_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 95, "eval_count": 19}}
+{"image": "stripes_h_p56_1350x1800", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 362, "eval_count": 18}}
+{"image": "stripes_h_p56_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 245, "eval_count": 18}}
+{"image": "stripes_v_p14_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 216, "eval_count": 12}}
+{"image": "stripes_v_p14_1350x1800", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 324, "eval_count": 12}}
+{"image": "stripes_v_p14_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 292, "eval_count": 12}}
+{"image": "stripes_v_p14_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 403, "eval_count": 13}}
+{"image": "stripes_v_p14_2560x2560", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 533, "eval_count": 13}}
+{"image": "stripes_v_p14_3584x3584", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "stripes_v_p56_1288x616", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 105, "eval_count": 12}}
+{"image": "stripes_v_p56_1350x1800", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "stripes_v_p56_1800x860", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 226, "eval_count": 18}}
+{"image": "stripes_v_p56_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 338, "eval_count": 11}}
+{"image": "stripes_v_p56_2560x2560", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 335, "eval_count": 18}}
+{"image": "stripes_v_p56_3584x3584", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 324, "eval_count": 18}}

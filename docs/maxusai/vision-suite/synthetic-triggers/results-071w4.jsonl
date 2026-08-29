@@ -1,0 +1,12 @@
+{"image": "cables_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 1585, "prompt_eval_count": 1260, "eval_count": 15}}
+{"image": "cables_hicontrast_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 1521, "prompt_eval_count": 1260, "eval_count": 14}}
+{"image": "checker_p28_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 1500, "prompt_eval_count": 1260, "eval_count": 12}}
+{"image": "checker_p56_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 1441, "prompt_eval_count": 1260, "eval_count": 12}}
+{"image": "colorblobs_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 1465, "prompt_eval_count": 1260, "eval_count": 28}}
+{"image": "edgecluster_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 1407, "prompt_eval_count": 1260, "eval_count": 20}}
+{"image": "gradtex_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 1513, "prompt_eval_count": 1260, "eval_count": 21}}
+{"image": "pink1_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 1722, "prompt_eval_count": 1260, "eval_count": 20}}
+{"image": "pink2_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 1506, "prompt_eval_count": 1260, "eval_count": 28}}
+{"image": "specular_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 1487, "prompt_eval_count": 1260, "eval_count": 25}}
+{"image": "stripes_v_p56_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 1523, "prompt_eval_count": 1260, "eval_count": 11}}
+{"image": "voids_2048x2048", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 1506, "prompt_eval_count": 1260, "eval_count": 25}}

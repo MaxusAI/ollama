@@ -1,0 +1,7 @@
+{"image": "T_02c9d7e1", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 90, "prompt_eval_count": 1000, "eval_count": 25}}
+{"image": "T_04431b0d", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 86, "prompt_eval_count": 1040, "eval_count": 16}}
+{"image": "T_39823be1", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "prompt_eval_count": null, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "T_74cee2fe", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "prompt_eval_count": null, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "T_d55ff004", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "prompt_eval_count": null, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "T_ead2a6c7", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "prompt_eval_count": null, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "T_synthetic_checker56", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 309, "prompt_eval_count": 2624, "eval_count": 12}}
