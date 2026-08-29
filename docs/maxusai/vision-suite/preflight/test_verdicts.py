@@ -647,10 +647,6 @@ class TestPoisonProbe(unittest.TestCase):
 
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
 class PoisonNodeCorroboration(unittest.TestCase):
     """The meter (llama/compat/801) is optional; absence must never fail, and
     node-level overflow must fail even when the decode reads healthily."""
@@ -709,3 +705,34 @@ class PoisonNodeCorroboration(unittest.TestCase):
             r = checks.check_poison_probe(self._stub(), self.EXPECT,
                                           "cuda-dynres-903", container="c")
         self.assertEqual(r["status"], checks.FAIL)
+
+
+class TestQualityCappedExcluded(unittest.TestCase):
+    """A capped arm scores json_valid: False as a side effect of truncation;
+    counting it as a QUALITY failure misattributes a harness setting to the
+    model (ADR 0012 conv 9 — the same rule the summarizers enforce)."""
+
+    def test_capped_blocks_leave_the_quality_denominator(self):
+        scores = {"scene_single": {"json_valid": False, "eval_count": 2200,
+                                   "num_predict": 2200,
+                                   "done_reason": "length"},
+                  "document_single": {"json_valid": True, "eval_count": 100,
+                                      "num_predict": 2200,
+                                      "done_reason": "stop"}}
+        eligible, capped = checks.quality_eligible(scores)
+        self.assertEqual(list(eligible), ["document_single"])
+        self.assertEqual(capped, ["scene_single"])
+
+    def test_errored_blocks_are_neither_eligible_nor_capped(self):
+        scores = {"scene_single": {"error": "boom"}}
+        eligible, capped = checks.quality_eligible(scores)
+        self.assertEqual(eligible, {})
+        self.assertEqual(capped, [])
+
+
+# The main block must stay at the END of the file: unittest.main() runs the
+# classes defined ABOVE it, so a class appended after it silently never runs
+# as a script — which is exactly what happened to PoisonNodeCorroboration's
+# six tests between #230 and this line (58 defined, 52 collected).
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

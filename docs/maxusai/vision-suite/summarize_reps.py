@@ -21,6 +21,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from summarize_engine_compare import was_capped  # noqa: E402  (SPEC H5)
+
 DIR = os.path.dirname(os.path.abspath(__file__))
 
 # (section, key, label, kind). "bool" is scored as a pass count, not a mean.
@@ -176,8 +179,15 @@ def npred(runs):
 
 
 def cell(runs, section, key, kind):
-    vals = [r[section][key] for r in runs
+    # A capped rep is an unfinished measurement (ADR 0012 conv 9) and must
+    # not enter a pooled mean — this file pooled them for its whole life
+    # because it never imported the one capped definition (SPEC H5, and the
+    # conformance table's claim that it did was false at HEAD).
+    secs = [r[section] for r in runs
             if section in r and key in r.get(section, {})]
+    vals = [s[key] for s in secs if not was_capped(s)]
+    if secs and not vals:
+        return "capped", None
     if not vals:
         return "—", None
     if kind == "bool":

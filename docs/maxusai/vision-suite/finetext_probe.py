@@ -12,6 +12,48 @@ import re, os, sys, base64, random, urllib.request
 
 from sampling import sampling_for, provenance
 import client
+from summarize_engine_compare import was_capped  # SPEC H5: the ONE capped test
+
+
+def ft_done(block):
+    """Finished per the suite's own resume rule (vision_suite.arm_done):
+    present, no error, not capped. This probe previously had NO resume at
+    all, so every ladder escalation re-ran it from scratch — and its output
+    is invisible to the escalation decision, so the re-runs bought nothing.
+    """
+    return bool(block) and "error" not in block and not was_capped(block)
+
+
+def ft_block(r, model, tag, think, num_ctx, num_predict):
+    """The capture half of the ft_ block, at schema parity with the suite's
+    blocks (blueprint P0-5). The ft_ shape used to lack prompt_sha/images_sha
+    (SPEC H12), every duration, gen_tps/prefill_tps and req_num_* — and
+    summarize_engine_compare reads whichever file exists, preferring
+    req_num_ctx that this shape never wrote."""
+    s = {"tag": tag,
+         "host": r.get("_host"),
+         "server_version": r.get("_server_version"),
+         "prompt_sha": r.get("_prompt_sha"),
+         "images_sha": r.get("_images_sha"),
+         "prompt_eval_count": r.get("prompt_eval_count"),
+         "eval_count": r.get("eval_count")}
+    if r.get("done_reason"):
+        s["done_reason"] = r["done_reason"]
+    for k in ("total_duration", "load_duration",
+              "prompt_eval_duration", "eval_duration"):
+        if r.get(k) is not None:
+            s[k] = r[k]
+    if r.get("eval_count") and r.get("eval_duration"):
+        s["gen_tps"] = round(r["eval_count"] / (r["eval_duration"] / 1e9), 1)
+    if r.get("prompt_eval_count") and r.get("prompt_eval_duration"):
+        s["prefill_tps"] = round(
+            r["prompt_eval_count"] / (r["prompt_eval_duration"] / 1e9), 1)
+    s["num_ctx"], s["num_predict"] = num_ctx, num_predict
+    s["req_num_ctx"] = r.get("_num_ctx")
+    s["req_num_predict"] = r.get("_num_predict")
+    s.update(provenance(model, think))
+    s.update(client.capture_stamps(r, model, tag))
+    return s
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 IMG = os.path.join(DIR, "visimgs", "finetext.png")
@@ -120,8 +162,30 @@ def run(host, tag, model):
     # the result discarded, and under run_engine_compare.sh's `set -eu` that
     # aborted the whole campaign.
     think = client.think_on()
-    r = client.generate(host, model, PROMPT, [img_b64],
-                        num_predict=num_predict, num_ctx=num_ctx)
+    # Resume (blueprint P0-5): a finished ft_ block is a finished measurement.
+    ftp_path = os.path.join(DIR, f"ft_{tag}.json")
+    if os.path.exists(ftp_path):
+        try:
+            with open(ftp_path) as fh:
+                prev = json.load(fh)
+        except Exception:
+            prev = None
+        if ft_done(prev):
+            print(f"--- finetext [{tag}] --- SKIP already finished "
+                  f"(ADR 0012 conv 9: capped or errored re-runs)")
+            return
+    # Error guard (blueprint P0-5): one transport failure here used to abort
+    # the whole multi-model campaign under the driver's `set -eu` — the same
+    # failure mode the suite's own persist-before-score protects against.
+    try:
+        r = client.generate(host, model, PROMPT, [img_b64],
+                            num_predict=num_predict, num_ctx=num_ctx)
+    except Exception as exc:
+        s = {"tag": tag, "error": str(exc)}
+        print(f"--- finetext [{tag}] --- ERROR {exc}")
+        with open(ftp_path, "w") as fh:
+            json.dump(s, fh, indent=1)
+        return
     body = r.get("response", "")
     # Persisted under the probe's OWN name. It used to share "finetext" with
     # vision_suite's folded test, so whichever ran second overwrote the other's
@@ -131,34 +195,20 @@ def run(host, tag, model):
     # control_tokens -114 (gemma4:26b-a4b) and +444 (qwen3.8) on exactly the
     # think-on finetext cells, with every other cell clean.
     chars = client.persist(tag, "finetext_probe", r)
-    s = {"tag": tag}
+    # Capture at schema parity with the suite (ft_block), scoring on top.
+    # The window note stands: this probe defaults higher than vision_suite.py
+    # (32768/4000 vs 16384/2200), so a run that does not set both explicitly
+    # measures the two harnesses at different windows — run_engine_compare.sh
+    # sets them.
+    s = ft_block(r, model, tag, think, num_ctx, num_predict)
     s.update(score_codes(body))
-    s["host"] = r.get("_host")
-    s["server_version"] = r.get("_server_version")
-    s["prompt_eval_count"] = r.get("prompt_eval_count")
-    s["eval_count"] = r.get("eval_count")
-    # Server's stop verdict, same contract as vision_suite (SPEC H4b):
-    # recorded only when present, so old blocks and connection-closed finals
-    # stay distinguishable by absence and fall back to the arithmetic.
-    if r.get("done_reason"):
-        s["done_reason"] = r["done_reason"]
     # Free, tokenizer-free halves of the split; token_split.py turns these into
     # exact thinking/answer/control token counts afterwards.
     s.update(chars)
-    # The request window these numbers were achieved under. Recall that comes in
-    # low may be the model or may be a capped generation; without num_ctx and
-    # num_predict the two are indistinguishable after the fact. Note this probe
-    # defaults higher than vision_suite.py (32768/4000 vs 16384/2200), so a run
-    # that does not set both explicitly measures the two harnesses at different
-    # windows — run_engine_compare.sh sets them.
-    s["num_ctx"] = num_ctx
-    s["num_predict"] = num_predict
-    # ADR 0005 asks runs to record their runtime configuration. Without this a
-    # capped cell cannot be attributed to a sampling mode after the fact.
-    s.update(provenance(model, think))
     print(f"--- finetext [{tag}] ---")
     print(json.dumps(s, indent=1))
-    json.dump(s, open(os.path.join(DIR, f"ft_{tag}.json"), "w"), indent=1)
+    with open(ftp_path, "w") as fh:
+        json.dump(s, fh, indent=1)
 
 
 if __name__ == "__main__":

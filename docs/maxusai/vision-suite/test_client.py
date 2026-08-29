@@ -272,5 +272,98 @@ class TestTransportRetry(unittest.TestCase):
         self.assertEqual(client.generate("http://h", "M", "p", ["IMG"])["response"], "ok")
 
 
+class TestTimeoutPolicy(unittest.TestCase):
+    """A timeout is the one transport-shaped failure that is deterministic for
+    the request (blueprint P0-6): budget scales with num_predict, operator env
+    wins verbatim, and a blown timeout is never retried."""
+
+    def test_timeout_scales_with_num_predict(self):
+        import os
+        os.environ.pop("HTTP_TIMEOUT", None)
+        cap = call(num_predict=122880)
+        self.assertGreaterEqual(cap.timeout, 122880 / 20)
+
+    def test_operator_http_timeout_wins_verbatim(self):
+        import os
+        os.environ["HTTP_TIMEOUT"] = "900"
+        try:
+            cap = call(num_predict=122880)
+            self.assertEqual(cap.timeout, 900)
+        finally:
+            del os.environ["HTTP_TIMEOUT"]
+
+    def test_socket_timeout_is_terminal_not_retried(self):
+        import socket
+        calls = {"n": 0}
+        orig, origsleep = urllib.request.urlopen, client.time.sleep
+
+        def fake(req, timeout=None):
+            calls["n"] += 1
+            raise socket.timeout("timed out")
+
+        urllib.request.urlopen = fake
+        client.time.sleep = (lambda s:
+                             (_ for _ in ()).throw(AssertionError("slept")))
+        try:
+            with self.assertRaises(RuntimeError) as cm:
+                client.generate("http://h", "M", "p", [])
+            self.assertIn("timeout", str(cm.exception).lower())
+            self.assertEqual(calls["n"], 1)
+        finally:
+            urllib.request.urlopen, client.time.sleep = orig, origsleep
+
+
+class TestCaptureStamps(unittest.TestCase):
+    """Identity must live in the record, not the filename (blueprint P0-2):
+    the request path stamps endpoint and think-as-sent, and capture_stamps
+    turns them plus env provenance into block fields."""
+
+    def test_endpoint_and_think_stamped_on_response(self):
+        with Capture() as cap:
+            r = client.generate("http://h", "M", "p", ["IMG"])
+        self.assertEqual(r["_endpoint"], "chat")
+        # send_think defaults to "auto", which with think OFF sends
+        # "think": false — the stamp is the wire truth, so it is False here,
+        # and None only when the field was genuinely omitted.
+        self.assertIs(r["_think_sent"], False)
+
+    def test_think_omitted_stamps_none(self):
+        with Capture():
+            r = client.generate("http://h", "M", "p", ["IMG"], send_think=False)
+        self.assertIsNone(r["_think_sent"])
+
+    def test_generate_override_and_think_true(self):
+        with Capture():
+            r = client.generate("http://h", "M", "p", ["IMG"],
+                                endpoint_override="generate",
+                                think=True, send_think=True)
+        self.assertEqual(r["_endpoint"], "generate")
+        self.assertIs(r["_think_sent"], True)
+
+    def test_capture_stamps_block_fields(self):
+        import os
+        with Capture():
+            r = client.generate("http://h", "M", "p", ["IMG"])
+        os.environ["POWERMODE"] = "2"
+        try:
+            st = client.capture_stamps(r, model="M", tag="T1")
+        finally:
+            del os.environ["POWERMODE"]
+        self.assertEqual(st["capture_schema"], 1)
+        self.assertEqual(st["model"], "M")
+        self.assertEqual(st["tag"], "T1")
+        self.assertEqual(st["endpoint"], "chat")
+        self.assertIs(st["think_sent"], False)
+        self.assertEqual(st["retries"], 0)
+        self.assertEqual(st["powermode"], "2")
+
+    def test_retried_cell_records_count(self):
+        with Capture():
+            r = client.generate("http://h", "M", "p", ["IMG"])
+        r["_retries"] = [{"attempt": 1, "waited_s": 5, "error": "x"}]
+        st = client.capture_stamps(r, model="M", tag="T1")
+        self.assertEqual(st["retries"], 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -50,6 +50,9 @@ import re
 import statistics
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from summarize_engine_compare import was_capped  # noqa: E402  (SPEC H5)
+
 FACTORS = ("pin", "anchor", "coords")
 ARM_RE = re.compile(r"^bboxm_(pin|free)_(anc|noanc)_(named|pos)$")
 ARMS = [f"bboxm_{p}_{a}_{c}"
@@ -68,10 +71,19 @@ def factors_of(arm):
 
 
 def capped(blk):
-    """True when generation stopped at req_num_predict rather than finishing.
-    Such a cell's score is a harness setting, not a model result."""
-    cap, ev = blk.get("req_num_predict"), blk.get("eval_count")
-    return bool(cap and ev and ev >= cap)
+    """True when generation stopped at the cap rather than finishing.
+    Such a cell's score is a harness setting, not a model result.
+
+    Delegates to the ONE definition (SPEC H5): the server's done_reason wins,
+    with the arithmetic fallback for pre-2026-08-20 blocks. This module's own
+    req_num_predict arithmetic predated done_reason and misread the
+    synthetic-length class (a window-bound continuation reports "length"
+    below the cap), letting exactly the cells ADR 0012 conv 9 forbids into
+    the pooled marginals. Blocks here carry req_num_predict rather than
+    num_predict, which the fallback reads — hence the aliasing."""
+    if not blk.get("num_predict") and blk.get("req_num_predict"):
+        blk = dict(blk, num_predict=blk["req_num_predict"])
+    return was_capped(blk)
 
 
 def load(rundir, prefix):

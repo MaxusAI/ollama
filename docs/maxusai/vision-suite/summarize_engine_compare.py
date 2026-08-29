@@ -93,6 +93,58 @@ def was_capped(sec):
     return bool(cap and ev and ev >= cap)
 
 
+def capped_arms(path, cap):
+    """Arms in a scores file that must ESCALATE: capped per was_capped, or
+    rejected outright because the window could not hold the prompt.
+
+    The campaign driver imports this instead of re-deriving "capped" (SPEC
+    H5). The shell heredoc it replaces compared eval_count alone, and both
+    misread classes are on record: a stop-overshoot (eval 8290 against 8192,
+    done_reason "stop") escalated a finished cudafull1 cell, and a synthetic
+    "length" below the cap — the fork's window-bound continuation — ended a
+    cell with no NOT-CONVERGED verdict at all. Non-overflow errors are NOT
+    escalation candidates: the request itself failed, and resume re-runs it
+    at the same rung.
+    """
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+    except Exception:
+        return []
+    out = []
+    for name, blk in data.items():
+        if not isinstance(blk, dict):
+            continue
+        err = blk.get("error")
+        if err is not None:
+            if isinstance(err, str) and ("num_ctx too small" in err
+                                         or "context overflow" in err):
+                out.append(name)
+            continue
+        b = blk if blk.get("num_predict") else dict(blk, num_predict=cap)
+        if was_capped(b):
+            out.append(name)
+    return out
+
+
+def mark_not_converged(path, arms, num_ctx):
+    """Stamp the ceiling verdict into still-capped blocks (blueprint P0-2).
+
+    NOT CONVERGED used to exist only as a stdout line, so a ceiling cell was
+    byte-identical to a not-yet-escalated one and re-climbed the whole ladder
+    on every resume. The marker records the window that failed to converge;
+    vision_suite.arm_done treats the block as finished unless the current run
+    asks for a larger window than the recorded ceiling.
+    """
+    with open(path) as fh:
+        data = json.load(fh)
+    for a in arms:
+        if a in data and isinstance(data[a], dict):
+            data[a]["ladder_not_converged_at"] = num_ctx
+    with open(path, "w") as fh:
+        json.dump(data, fh, indent=1)
+
+
 def ctx_for(*sections):
     """The num_ctx a row's results were measured at.
 

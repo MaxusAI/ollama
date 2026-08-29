@@ -756,5 +756,152 @@ class TestT1AnchoredMultiColumn(unittest.TestCase):
         self.assertIn("✅ q1 + q2 + q4-bbox | — |", row)
 
 
+class TestCappedDiscipline(unittest.TestCase):
+    """ADR 0012 conv 9: a capped cell is an unfinished measurement, and
+    sec.was_capped must be the only reachable path to pooling (SPEC H5)."""
+
+    CLEAN = {"bbox_mean_iou": 0.5, "eval_count": 400, "num_predict": 2200,
+             "done_reason": "stop"}
+    CAPPED = {"bbox_mean_iou": 0.9, "eval_count": 2200, "num_predict": 2200,
+              "done_reason": "length"}
+
+    def test_reps_cell_excludes_capped_from_pooled_mean(self):
+        runs = [{"scene_single": dict(self.CLEAN)},
+                {"scene_single": dict(self.CAPPED)}]
+        s, _ = reps.cell(runs, "scene_single", "bbox_mean_iou", "float")
+        self.assertTrue(s.startswith("0.500"), s)
+
+    def test_reps_cell_all_capped_renders_capped(self):
+        runs = [{"scene_single": dict(self.CAPPED)}]
+        s, _ = reps.cell(runs, "scene_single", "bbox_mean_iou", "float")
+        self.assertEqual(s, "capped")
+
+    def test_matrix_capped_defers_to_done_reason(self):
+        import summarize_matrix as smx
+        self.assertTrue(smx.capped({"req_num_predict": 8192, "eval_count": 500,
+                                    "done_reason": "length"}))
+        self.assertFalse(smx.capped({"req_num_predict": 8192, "eval_count": 8290,
+                                     "done_reason": "stop"}))
+
+    def test_geometry_pooled_excludes_capped(self):
+        import summarize_geometry as sg
+        got = [dict(self.CLEAN, gen_tps=40.0), dict(self.CAPPED, gen_tps=90.0)]
+        kept = sg.pooled(got)
+        self.assertEqual([s["gen_tps"] for s in kept], [40.0])
+
+
+class TestCappedArms(unittest.TestCase):
+    """The driver's escalation decision as an importable, tested function —
+    the shell heredoc it replaces ignored done_reason (blueprint P0-1)."""
+
+    def _scores(self, blocks):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "scores_x.json")
+        json.dump(blocks, open(p, "w"))
+        return p
+
+    def test_stop_overshoot_does_not_escalate(self):
+        p = self._scores({"a": {"eval_count": 8290, "num_predict": 8192,
+                                "req_num_predict": 8192, "done_reason": "stop"}})
+        self.assertEqual(sec.capped_arms(p, 8192), [])
+
+    def test_synthetic_length_below_cap_escalates(self):
+        p = self._scores({"a": {"eval_count": 500, "num_predict": 8192,
+                                "req_num_predict": 8192, "done_reason": "length"}})
+        self.assertEqual(sec.capped_arms(p, 8192), ["a"])
+
+    def test_context_overflow_error_escalates(self):
+        p = self._scores({"a": {"error": "num_ctx too small: prompt 9000"}})
+        self.assertEqual(sec.capped_arms(p, 8192), ["a"])
+
+    def test_missing_file_is_no_arms(self):
+        self.assertEqual(sec.capped_arms("/nonexistent/scores_x.json", 8192), [])
+
+
+class TestLadderCeilingMarker(unittest.TestCase):
+    """NOT CONVERGED must be machine-readable so ceiling cells stop
+    re-climbing the whole ladder on every resume (blueprint P0-2)."""
+
+    def test_mark_not_converged_stamps_named_blocks(self):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "scores_x.json")
+        json.dump({"a": {"eval_count": 1}, "b": {"eval_count": 2}}, open(p, "w"))
+        sec.mark_not_converged(p, ["a"], 131072)
+        data = json.load(open(p))
+        self.assertEqual(data["a"]["ladder_not_converged_at"], 131072)
+        self.assertNotIn("ladder_not_converged_at", data["b"])
+
+    def test_arm_done_honours_ceiling_marker_at_same_window(self):
+        blk = {"eval_count": 8192, "num_predict": 8192, "done_reason": "length",
+               "ladder_not_converged_at": 131072}
+        os.environ["NUM_CTX"] = "131072"
+        try:
+            self.assertTrue(vs.arm_done(blk))
+        finally:
+            del os.environ["NUM_CTX"]
+
+    def test_arm_done_reruns_when_window_exceeds_recorded_ceiling(self):
+        blk = {"eval_count": 8192, "num_predict": 8192, "done_reason": "length",
+               "ladder_not_converged_at": 131072}
+        os.environ["NUM_CTX"] = "262144"
+        try:
+            self.assertFalse(vs.arm_done(blk))
+        finally:
+            del os.environ["NUM_CTX"]
+
+
+class TestImpliedScaleDialectGate(unittest.TestCase):
+    """implied_scale is a real-frame diagnostic; on a norm-dialect response it
+    fabricates a frame error on a perfect cell (blueprint P0-4, observed in
+    mlx0330nv: 0.721 / IoU 0.078 against iou_declared 0.956)."""
+
+    FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "fixtures", "bbox_contract", "preexisting")
+
+    def test_norm_dialect_response_carries_no_implied_scale(self):
+        # The scorer seeds every field, so "not applicable" is the value None
+        # (its existing idiom — cf. anchor_implied_type), never a number.
+        with open(os.path.join(self.FIX, "norm1000_clean.txt")) as fh:
+            s = vs.score_bbox_contract(fh.read())
+        self.assertIsNone(s["implied_scale"])
+        self.assertIsNone(s["iou_at_implied_scale"])
+
+    def test_real_dialect_wrong_frame_still_measured(self):
+        with open(os.path.join(self.FIX, "uniform_scale_130x.txt")) as fh:
+            s = vs.score_bbox_contract(fh.read())
+        self.assertIsNotNone(s["implied_scale"])
+
+
+class TestFinetextParity(unittest.TestCase):
+    """ft_ blocks must carry the same capture schema as suite blocks
+    (blueprint P0-5): fingerprints, durations, throughput, req_* window."""
+
+    def test_ft_block_carries_fingerprints_and_throughput(self):
+        import finetext_probe as ftp
+        r = {"_prompt_sha": "aa", "_images_sha": "bb", "_host": "h",
+             "_server_version": "v", "_num_predict": 4000, "_num_ctx": 32768,
+             "prompt_eval_count": 100, "eval_count": 50, "done_reason": "stop",
+             "total_duration": 2_000_000_000, "load_duration": 1,
+             "prompt_eval_duration": 1_000_000_000,
+             "eval_duration": 1_000_000_000,
+             "response": "x", "thinking": ""}
+        blk = ftp.ft_block(r, model="M", tag="T", think=False,
+                           num_ctx=32768, num_predict=4000)
+        self.assertEqual(blk["prompt_sha"], "aa")
+        self.assertEqual(blk["images_sha"], "bb")
+        self.assertEqual(blk["req_num_ctx"], 32768)
+        self.assertEqual(blk["gen_tps"], 50.0)
+        self.assertEqual(blk["prefill_tps"], 100.0)
+
+    def test_ft_done_skips_finished_and_reruns_capped_or_error(self):
+        import finetext_probe as ftp
+        self.assertTrue(ftp.ft_done({"eval_count": 10, "num_predict": 4000,
+                                     "done_reason": "stop"}))
+        self.assertFalse(ftp.ft_done({"eval_count": 4000, "num_predict": 4000,
+                                      "done_reason": "length"}))
+        self.assertFalse(ftp.ft_done({"error": "boom"}))
+        self.assertFalse(ftp.ft_done(None))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

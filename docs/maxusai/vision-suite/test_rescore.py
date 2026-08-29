@@ -42,11 +42,19 @@ BASELINE = "c52bc00a"
 REL = "docs/maxusai/vision-suite/vision_suite.py"
 
 # Fields the baseline scorer emitted. Identity on these IS the guarantee.
+#
+# implied_scale / iou_at_implied_scale were removed from this list on
+# 2026-08-29 as a DELIBERATE behaviour change (blueprint P0-4): the baseline
+# computes them dialect-blind, fabricating a frame error on every
+# norm-dialect response (0.724 / IoU 0.075 on the norm1000_clean fixture,
+# whose iou_declared is 0.995). The current scorer gates them on a
+# real-frame best fit; TestImpliedScaleDialectGate in test_summarizers.py
+# pins both sides of the gate.
 OLD_FIELDS = [
     "json_valid", "declared_type", "declared_order", "declared_ref",
     "field_name", "labels_found", "labels_total", "hits_declared",
-    "iou_declared", "hits_bestfit", "bestfit_dialect", "implied_scale",
-    "iou_at_implied_scale", "declaration_valid", "declaration_matches_boxes",
+    "iou_declared", "hits_bestfit", "bestfit_dialect",
+    "declaration_valid", "declaration_matches_boxes",
     "contract_followed",
 ]
 

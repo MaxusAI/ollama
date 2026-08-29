@@ -26,6 +26,17 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from summarize_engine_compare import was_capped  # noqa: E402  (SPEC H5)
+
+
+def pooled(got):
+    """Blocks eligible for a pooled mean. A capped cell is an unfinished
+    measurement (ADR 0012 conv 9): its eval_count is the harness cap and any
+    req/h or IoU derived from it is a setting, not a result. This file
+    published '**N req/h** mean serial' with no capped guard at all."""
+    return [s for s in got if s and not was_capped(s)]
+
 GEOMS = ["hd", "hd_al32", "hd_al48", "sq320", "vga", "portrait", "uhd", "uhd4k",
          "paste1", "paste2", "paste3", "paste4", "paste5", "paste6"]
 
@@ -100,7 +111,7 @@ def perf_table(rows, models):
     print()
     for k in models:
         got = [rows.get((g, k)) for g in GEOMS]
-        got = [s for s in got if s]
+        got = pooled(got)
         pe = [s["prompt_eval_count"] for s in got if s.get("prompt_eval_count")]
         ious = [s["iou_anchor"] for s in got if s.get("iou_anchor") is not None]
         gts = [s["gen_tps"] for s in got if s.get("gen_tps")]

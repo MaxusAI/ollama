@@ -853,24 +853,33 @@ def score_bbox_contract(resp_text):
     # the uniform factor rather than reporting a bare miss.
     # Equivalent to `order` under top-level scope; under per-object scope this
     # is the consensus order, or "xyxy" when the objects disagree.
-    od = s["declared_order"] if s["declared_order"] in ("xyxy", "yxyx") else "xyxy"
-    ratios = []
-    for bb, gtb in matched:
-        x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if od == "xyxy"
-                          else (bb[1], bb[0], bb[3], bb[2]))
-        for pv, tv in zip((x1, y1, x2, y2), gtb):
-            if tv:
-                ratios.append(pv / tv)
-    if ratios:
-        k = sum(ratios) / len(ratios)
-        if k > 0:
-            s["implied_scale"] = round(k, 3)
-            ious = []
-            for bb, gtb in matched:
-                x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if od == "xyxy"
-                                  else (bb[1], bb[0], bb[3], bb[2]))
-                ious.append(iou([x1 / k, y1 / k, x2 / k, y2 / k], gtb))
-            s["iou_at_implied_scale"] = round(sum(ious) / len(ious), 3)
+    #
+    # REAL-FRAME RESPONSES ONLY (blueprint P0-4). The ratio pv/tv compares
+    # RAW coordinates against pixel ground truth, so on a norm-dialect
+    # response it is just the normalisation constant: mlx0330nv rendered
+    # implied_scale 0.721 / iou_at_implied_scale 0.078 on a 6/6 norm-1000
+    # cell with iou_declared 0.956 — a fabricated 28% frame error on a
+    # perfect answer. Gate on the best-fit dialect, which is what the
+    # response actually is: a norm response has no frame question to ask.
+    if str(s.get("bestfit_dialect") or "").startswith("real"):
+        od = s["declared_order"] if s["declared_order"] in ("xyxy", "yxyx") else "xyxy"
+        ratios = []
+        for bb, gtb in matched:
+            x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if od == "xyxy"
+                              else (bb[1], bb[0], bb[3], bb[2]))
+            for pv, tv in zip((x1, y1, x2, y2), gtb):
+                if tv:
+                    ratios.append(pv / tv)
+        if ratios:
+            k = sum(ratios) / len(ratios)
+            if k > 0:
+                s["implied_scale"] = round(k, 3)
+                ious = []
+                for bb, gtb in matched:
+                    x1, y1, x2, y2 = ((bb[0], bb[1], bb[2], bb[3]) if od == "xyxy"
+                                      else (bb[1], bb[0], bb[3], bb[2]))
+                    ious.append(iou([x1 / k, y1 / k, x2 / k, y2 / k], gtb))
+                s["iou_at_implied_scale"] = round(sum(ious) / len(ious), 3)
 
     # --- per-box well-formedness (SPEC C12) --------------------------------
     #
@@ -1624,7 +1633,19 @@ def arm_done(block):
     ladder on 2026-08-20: the runner escalated the rung, resume skipped every
     arm as "already scored", and cudafull1's think-on cells froze at
     (16384, 8192) while pre-idempotency g4full1 had climbed to 131072.
+
+    ONE exception: a block the driver marked NOT CONVERGED at the ladder
+    ceiling (ladder_not_converged_at, written by
+    summarize_engine_compare.mark_not_converged). That verdict used to live
+    only in stdout, so a ceiling cell re-climbed the whole ladder on every
+    resume. It counts as finished-for-now unless this run asks for a LARGER
+    window than the recorded ceiling — raising CTX_MAX is exactly how the
+    question gets reopened, and it must reopen it.
     """
+    if (block and "error" not in block
+            and block.get("ladder_not_converged_at")
+            and default_num_ctx() <= int(block["ladder_not_converged_at"])):
+        return True
     return bool(block) and "error" not in block and not was_capped(block)
 
 
@@ -1830,6 +1851,12 @@ def main():
         # re-label every historical scores file.
         sc["req_num_predict"] = r.get("_num_predict")
         sc["req_num_ctx"] = r.get("_num_ctx")
+        # Identity + transport provenance (blueprint P0-2): model, endpoint,
+        # think-as-sent, tag, retry count, and the driver's powermode /
+        # cold-start stamps when present. Shared with finetext_probe via the
+        # one request path's helper so the two producers cannot fork the
+        # schema (SPEC H14's failure mode, applied to fields).
+        sc.update(client.capture_stamps(r, MODEL, TAG))
         results[name] = sc
         print(json.dumps(sc, indent=1), flush=True)
     
