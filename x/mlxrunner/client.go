@@ -157,15 +157,6 @@ func (c *Client) Close() error {
 
 // Completion implements llm.LlamaServer.
 func (c *Client) Completion(ctx context.Context, req llm.CompletionRequest, fn func(llm.CompletionResponse)) error {
-	if req.Grammar != "" {
-		// Raw GBNF grammars are a llama-server feature; dropping one
-		// silently would change what the caller was promised.
-		return api.StatusError{
-			StatusCode:   http.StatusBadRequest,
-			ErrorMessage: "raw grammar constraints are not supported by the MLX runner",
-		}
-	}
-
 	creq := CompletionRequest{
 		Prompt:      req.Prompt,
 		Format:      req.Format,

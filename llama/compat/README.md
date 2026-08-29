@@ -78,6 +78,11 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   `docs/maxusai/upstream-mmq-ids-padding-issue.md` for the upstream report.
 - `compat.cmake`, `apply-patch.cmake` - CMake glue and an idempotent applier
   (used by `llama/server/CMakeLists.txt`) that applies every `*.patch` under
+- `002-llama-cpp-ui-empty-assets.patch` - lets the llama.cpp UI embed helper
+  generate an empty asset table when no UI assets are present.
+- `compat.cmake` - CMake glue that invokes the shared
+  `cmake/apply-git-patches.cmake` idempotent applier (used by
+  `llama/server/CMakeLists.txt`) for every `*.patch` under
   this directory by numeric filename order — the hooks patch plus each
   `models/` architecture patch.
 - `models/` - the sibling **new-architecture** layer: implementations of

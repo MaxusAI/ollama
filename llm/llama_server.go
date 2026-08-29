@@ -2005,8 +2005,6 @@ func applyCompletionFormat(req CompletionRequest, lsReq *llamaServerCompletionRe
 				return fmt.Errorf("invalid format: %q; expected \"json\" or a valid JSON Schema object", req.Format)
 			}
 		}
-	} else if req.Grammar != "" {
-		lsReq.Grammar = req.Grammar
 	}
 	return nil
 }

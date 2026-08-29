@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/envconfig"
 	"github.com/ollama/ollama/logutil"
 	"github.com/ollama/ollama/x/internal/mlxthread"
@@ -69,6 +71,7 @@ func Execute(args []string) error {
 	}); err != nil {
 		return err
 	}
+	defer runner.Close()
 
 	readMemory := func() (uint64, error) {
 		return uint64(mlx.ActiveMemory() + mlx.CacheMemory()), nil
@@ -144,7 +147,12 @@ func Execute(args []string) error {
 		}
 
 		if err := runner.Prepare(&request); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			var statusErr api.StatusError
+			if errors.As(err, &statusErr) {
+				http.Error(w, statusErr.ErrorMessage, statusErr.StatusCode)
+			} else {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			}
 			return
 		}
 
@@ -154,6 +162,8 @@ func Execute(args []string) error {
 
 		select {
 		case <-r.Context().Done():
+			// Never queued, so the runner will not close the grammar.
+			request.Grammar.close()
 			return
 		case runner.Requests <- request:
 		}
