@@ -974,7 +974,7 @@ require_nonempty_thinking = true
 # because a think budget that fits today is not evidence about a longer prompt.
 
 # No [.pinned] block: the 005 defect was found on nemotron and this arch's
-# pinned-budget probe has not been measured. check_pinned_budget skips with that
+# pinned-budget probe has not been measured. check_pinned_image_token_budget skips with that
 # reason rather than inventing a pass, exactly as gemma4 does above.
 
 [quality.cuda-dynres-005.nemotron_h_omni]

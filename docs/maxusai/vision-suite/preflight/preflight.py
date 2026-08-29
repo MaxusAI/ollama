@@ -232,11 +232,11 @@ def run_arch(client, exp, profile_id, arch, args, container, results, flush):
 
     # ---- budget group 2: pinned budget (each arm costs a full reload) ----
     if args.skip_pinned:
-        results.append(checks.result("pinned_budget", SKIP, "--skip-pinned", arch=arch))
+        results.append(checks.result("pinned_image_token_budget", SKIP, "--skip-pinned", arch=arch))
     else:
         if expect.get("pinned"):
             print("    pinned-budget probe (forces a model reload, may take minutes)...")
-        results.append(checks.check_pinned_budget(
+        results.append(checks.check_pinned_image_token_budget(
             client, expect, arch, baseline, exp.get("marker_allowance", 2)))
     flush()
 
