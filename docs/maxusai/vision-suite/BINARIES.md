@@ -17,7 +17,8 @@ A host can be rebuilt from it; a binary sitting only in `/tmp` cannot.
 | `0.32.5-maxusai-a5d65906` | [`a5d65906`](https://github.com/MaxusAI/ollama/commit/a5d65906) | llama.cpp **b10353** | pre-v0.32.14 pin | `d807360e94e0e17a…` | provenance for the 2026-08-16/17 vision work |
 | `0.32.14-maxusai-9594f81e` | [`9594f81e`](https://github.com/MaxusAI/ollama/commit/9594f81e) | llama.cpp **b10434** | v0.32.14 pin | `711d4ad126773ddf…` | the `mlx-metal-0-32-14` preflight baseline |
 | `0.32.14-maxusai-c82b0464` | [`c82b0464`](https://github.com/MaxusAI/ollama/commit/c82b0464) | llama.cpp **b10434** | v0.32.14 pin | `03f9f9289dbaba1b…` | last pre-0.33.0 deploy on :11435 (2026-08-22 → 27); preflight PASS 2026-08-22; rollback target for the 0.33.0 swap |
-| `0.33.0-maxusai-21cfe88e` | [`21cfe88e`](https://github.com/MaxusAI/ollama/commit/21cfe88e) | llama.cpp **b10488** | 27fec909 pin | `6ab35025981be587…` | current; provenance for the `mlx-metal-0-33-0` profile measurement and the 27fec909 golden recalibration |
+| `0.33.0-maxusai-21cfe88e` | [`21cfe88e`](https://github.com/MaxusAI/ollama/commit/21cfe88e) | llama.cpp **b10488** | 27fec909 pin | `6ab35025981be587…` | provenance for the `mlx-metal-0-33-0` profile measurement and the 27fec909 golden recalibration; rollback target for the 0.33.2 swap |
+| `0.33.2-maxusai-2b95b4a5` | [`2b95b4a5`](https://github.com/MaxusAI/ollama/commit/2b95b4a5) | llama.cpp **b10630** | c793734e pin | `cd6033d6e72a430e…` | current; the v0.33.2 fold (#232, ADR 0033 xgrammar). Provenance for the `mlx-metal-0-33-2` profile measurement; preflight PASS 2026-08-30, goldens NOT recalibrated at this MLX pin |
 
 Full checksums:
 
