@@ -908,6 +908,33 @@ scaling = "flat"                 # 004 budget-fills; flat is correct, not a faul
 ladder_tolerance = 2
 ladder = [1102, 1102, 1102, 1102, 1102]
 
+[expect.cuda-dynres-903.gemma4.pinned]
+# Pinned BELOW the ceiling deliberately, for the reason the ROCm row records:
+# 004 budget-fills every image to the budget max, so pinning gemma4 at its own
+# 1120 ceiling delivers 1102 -- exactly what the unpinned control delivers.
+# That assertion would pass even if pinning were completely broken, which is
+# worse than no assertion at all. Measured here rather than assumed:
+#
+#   unpinned control            1102
+#   pinned  280  ->  266
+#   pinned  560  ->  529        far from the control; discriminates
+#   pinned 1120  -> 1102        equals the control; would NOT discriminate
+#
+# Measured 2026-08-29 on 0.33.2-dynres-5-g2b95b4a (CUDA, b10630 = d222767c7,
+# patchset 001/002/004/005/903 + the 801 diagnostic). The pin floors just UNDER
+# the request at every rung -- never over -- which is 005's guarantee: when the
+# min_pixels ceil would overshoot max_pixels, floor just under instead. Pre-005
+# the same class delivered 1170 against a 1120 pin.
+#
+# 529 is byte-identical to the ROCm row measured on b9888, so this sizing is
+# stable across both payloads and both backends -- but it was measured here, not
+# copied. Note --image-min-tokens is a no-op for this arch under 004; the max is
+# what drives the fill, so a "pin" here is really the max doing the work.
+size = "2048x1152"
+pin_tokens = 560
+expect_tokens = 529
+tolerance = 4
+
 [expect.cuda-dynres-903.gemma4.think_format]
 num_predict = 4000
 require_nonempty_response = true
@@ -915,6 +942,15 @@ require_valid_json = true
 require_nonempty_thinking = false
 
 [expect.cuda-dynres-903.qwen35]
+# Structurally unable to pin, not merely unmeasured. visionServerArgs is
+# arch-gated: the qwen family branch returns a FIXED --image-min-tokens and
+# never reads opts, so image_min_tokens/image_max_tokens are inert here.
+# Re-verified against llm/llama_server.go at 0.33.2-dynres-5-g2b95b4a
+# (2026-08-29). ROCm has carried this declaration since its baseline; CUDA
+# reported "not yet measured" instead, which is the one thing checks.py warns
+# against -- it sends someone to measure something that cannot move.
+pinned_not_applicable = """image_min_tokens/image_max_tokens are arch-gated to \
+gemma4 and nemotron_h_omni; qwen35's visionServerArgs branch ignores them."""
 status = "measured"
 measured_on = "2026-08-16"
 model = "qwen3.8:27b-q4_K_M"   # the GGUF, which routes to llama-server. The
@@ -996,7 +1032,7 @@ require_nonempty_thinking = true
 # because a think budget that fits today is not evidence about a longer prompt.
 
 # No [.pinned] block: the 005 defect was found on nemotron and this arch's
-# pinned-budget probe has not been measured. check_pinned_budget skips with that
+# pinned-budget probe has not been measured. check_pinned_image_token_budget skips with that
 # reason rather than inventing a pass, exactly as gemma4 does above.
 
 [quality.cuda-dynres-005.nemotron_h_omni]

@@ -89,7 +89,7 @@ payload and behaves as measured.
 | `poison_probe` | the synthetic 1.06×-fp16-ceiling checkerboard (#214) decodes healthily on a fresh slot and leaves no residue — asserts the qwen25vl `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` runner gate is live | FAIL means the fp16-accumulate path is back; SKIP when the profile records no `[poison.<profile>]` entry |
 | `payload_proof` | `load_hparams: image_{min,max}_pixels: N (custom value)` where `N == tokens * S²`, on the bounds `custom_bounds` declares | FAIL, with the derivation printed |
 | `token_ladder` | same image at five 16:9 geometries vs a text-only baseline | FAIL, **per-arch** verdict |
-| `pinned_budget` | `image_min_tokens == image_max_tokens` never exceeds the ceiling | FAIL, the 005 defect class |
+| `pinned_image_token_budget` | pinning the **image** token budget (`image_min_tokens == image_max_tokens`) never delivers more than the ceiling — pre-005 nemotron pinned to 3328 delivered 3390. Input-side sizing; unrelated to `was_capped`, which is about generation stopping at `num_predict` | FAIL, the 005 defect class |
 | `think_format` | `think:true` + `format:"json"` returns a non-empty valid JSON body | FAIL, distinguishes the fork fix from the `num_predict` trap |
 | `extraction_quality` | `vision_suite.py` scores clear their floors (`--quality`) | FAIL |
 | `endpoint_exclusive` | no other client was competing for the slot | CONTENTION, exit 3 |

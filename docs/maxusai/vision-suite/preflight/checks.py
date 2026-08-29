@@ -447,7 +447,7 @@ def check_ladder(client, expect, arch, sizes, baseline, tol_default=2):
 # 5. Pinned-budget probe — the 005 defect class
 # --------------------------------------------------------------------------
 
-def check_pinned_budget(client, expect, arch, baseline, marker_allowance=2):
+def check_pinned_image_token_budget(client, expect, arch, baseline, marker_allowance=2):
     """image_min_tokens == image_max_tokens. Pre-005, nemotron pinned to 3328
     delivered 3390 — 60 grid tokens over its own ceiling.
 
@@ -457,7 +457,7 @@ def check_pinned_budget(client, expect, arch, baseline, marker_allowance=2):
          NEW overshoot at a number nobody has measured yet.
     """
     pin = expect.get("pinned")
-    name = "pinned_budget"
+    name = "pinned_image_token_budget"
     # An arch can be structurally unable to pin, which is not the same as nobody
     # having measured it yet. visionServerArgs is arch-gated: gemma4 and
     # nemotron_h_omni build their flags from the request options, while the qwen
