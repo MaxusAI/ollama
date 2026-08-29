@@ -99,13 +99,13 @@ class TestPinnedBudget(unittest.TestCase):
         "control_expect_tokens": 2306, "control_tolerance": 4})
 
     def test_post_005_values_pass(self):
-        r = checks.check_pinned_budget(StubClient([3270, 2306]), self.EXPECT,
+        r = checks.check_pinned_image_token_budget(StubClient([3270, 2306]), self.EXPECT,
                                        "nemotron_h_omni", 0)
         self.assertEqual(r["status"], PASS)
 
     def test_pre_005_overshoot_fails_the_ceiling_invariant(self):
         """3390 delivered against a 3328 ceiling — the 005 defect class."""
-        r = checks.check_pinned_budget(StubClient([3390, 2306]), self.EXPECT,
+        r = checks.check_pinned_image_token_budget(StubClient([3390, 2306]), self.EXPECT,
                                        "nemotron_h_omni", 0)
         self.assertEqual(r["status"], FAIL)
         self.assertIn("OVERSHOOT", r["diagnosis"])
@@ -114,19 +114,19 @@ class TestPinnedBudget(unittest.TestCase):
 
     def test_unmeasured_overshoot_still_caught_by_the_invariant(self):
         """A value nobody has recorded must still fail if it breaks the ceiling."""
-        r = checks.check_pinned_budget(StubClient([4001, 2306]), self.EXPECT,
+        r = checks.check_pinned_image_token_budget(StubClient([4001, 2306]), self.EXPECT,
                                        "nemotron_h_omni", 0)
         self.assertEqual(r["status"], FAIL)
         self.assertIn("OVERSHOOT", r["diagnosis"])
 
     def test_control_drift_is_reported_separately(self):
-        r = checks.check_pinned_budget(StubClient([3270, 2500]), self.EXPECT,
+        r = checks.check_pinned_image_token_budget(StubClient([3270, 2500]), self.EXPECT,
                                        "nemotron_h_omni", 0)
         self.assertEqual(r["status"], FAIL)
         self.assertIn("control", r["diagnosis"])
 
     def test_missing_pinned_block_skips_rather_than_passing_silently(self):
-        r = checks.check_pinned_budget(StubClient([]), DYNAMIC, "gemma4", 0)
+        r = checks.check_pinned_image_token_budget(StubClient([]), DYNAMIC, "gemma4", 0)
         self.assertEqual(r["status"], SKIP)
 
 
@@ -172,6 +172,24 @@ class TestThinkFormat(unittest.TestCase):
         self.assertIn("floor", r["summary"])
 
 
+# The quality arm delegates capped-arm detection to the vision suite's
+# summarize_engine_compare, which is NOT on every lineage: release/0.32.1-dynres
+# carries preflight/ without the suite, and CI asserts these tests still pass
+# there. checks.check_quality already skips gracefully in that case, but these
+# tests stub the vision_suite.py existence check to True precisely so they can
+# exercise the scoring path -- so they, and only they, need the sibling module.
+# Skip rather than fail: the harness is fine standalone, the test simply has
+# nothing to assert about a scorer that cannot run.
+try:
+    import summarize_engine_compare as _sec  # noqa: F401
+    _HAVE_SUITE = True
+except ImportError:
+    _HAVE_SUITE = False
+
+
+@unittest.skipUnless(_HAVE_SUITE,
+                     "summarize_engine_compare is not on this tree; the quality "
+                     "arm cannot be scored here and check_quality skips it")
 class TestQualityThresholds(unittest.TestCase):
     """check_quality turns vision_suite.py's scores into a verdict. The score
     field names below are the real ones vision_suite.py writes — if it ever
@@ -647,10 +665,6 @@ class TestPoisonProbe(unittest.TestCase):
 
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
 class PoisonNodeCorroboration(unittest.TestCase):
     """The meter (llama/compat/801) is optional; absence must never fail, and
     node-level overflow must fail even when the decode reads healthily."""
@@ -709,3 +723,53 @@ class PoisonNodeCorroboration(unittest.TestCase):
             r = checks.check_poison_probe(self._stub(), self.EXPECT,
                                           "cuda-dynres-903", container="c")
         self.assertEqual(r["status"], checks.FAIL)
+
+
+@unittest.skipUnless(
+    os.path.exists(os.path.join(checks.SUITE_DIR, "summarize_engine_compare.py")),
+    "release lineages ship preflight/ without the suite; quality scoring "
+    "SKIPs there and so must its tests")
+class TestQualityCappedExcluded(unittest.TestCase):
+    """A capped arm scores json_valid: False as a side effect of truncation;
+    counting it as a QUALITY failure misattributes a harness setting to the
+    model (ADR 0012 conv 9 — the same rule the summarizers enforce)."""
+
+    def test_scoped_to_this_runs_tests_not_the_shared_file(self):
+        # The scores file is shared per (platform, arch) tag across profiles;
+        # a capped arm left by ANOTHER profile's test list must not fail a
+        # run that never requested it.
+        scores = {"bbox_contract": {"json_valid": False, "eval_count": 2200,
+                                    "num_predict": 2200,
+                                    "done_reason": "length"},
+                  "scene_single": {"json_valid": True, "eval_count": 100,
+                                   "num_predict": 2200,
+                                   "done_reason": "stop"}}
+        eligible, capped = checks.quality_eligible(
+            scores, tests=["scene_single"])
+        self.assertEqual(list(eligible), ["scene_single"])
+        self.assertEqual(capped, [])
+
+    def test_capped_blocks_leave_the_quality_denominator(self):
+        scores = {"scene_single": {"json_valid": False, "eval_count": 2200,
+                                   "num_predict": 2200,
+                                   "done_reason": "length"},
+                  "document_single": {"json_valid": True, "eval_count": 100,
+                                      "num_predict": 2200,
+                                      "done_reason": "stop"}}
+        eligible, capped = checks.quality_eligible(scores)
+        self.assertEqual(list(eligible), ["document_single"])
+        self.assertEqual(capped, ["scene_single"])
+
+    def test_errored_blocks_are_neither_eligible_nor_capped(self):
+        scores = {"scene_single": {"error": "boom"}}
+        eligible, capped = checks.quality_eligible(scores)
+        self.assertEqual(eligible, {})
+        self.assertEqual(capped, [])
+
+
+# The main block must stay at the END of the file: unittest.main() runs the
+# classes defined ABOVE it, so a class appended after it silently never runs
+# as a script — which is exactly what happened to PoisonNodeCorroboration's
+# six tests between #230 and this line (58 defined, 52 collected).
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

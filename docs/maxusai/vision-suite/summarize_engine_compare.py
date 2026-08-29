@@ -88,9 +88,123 @@ def was_capped(sec):
         return True
     if dr == "stop":
         return False
-    cap = sec.get("num_predict")
+    # req_num_predict is the fallback cap spelling: legacy finetext blocks
+    # recorded the suite default in num_predict while req_num_predict held
+    # the real request. Reading both HERE keeps this the one definition —
+    # two call sites had grown disagreeing aliasing shims around it.
+    cap = sec.get("num_predict") or sec.get("req_num_predict")
     ev = sec.get("eval_count")
     return bool(cap and ev and ev >= cap)
+
+
+def save(path, data):
+    """Atomic JSON write: tmp + os.replace, the probes.py idiom. The scores
+    file is the campaign's most expensive artifact; a truncate-then-dump
+    writer that dies mid-dump destroys it."""
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(data, fh, indent=1)
+    os.replace(tmp, path)
+
+
+def capped_arms(path, ctx_max=None, only=None):
+    """Arms in a scores file that must ESCALATE: capped per was_capped, an
+    escalatable error (window overflow, or a blown generation budget — both
+    are cured by a bigger rung, since num_predict and the derived timeout
+    scale with it), minus arms already marked NOT CONVERGED at a ceiling
+    >= ctx_max, which have nothing left to learn below that ceiling.
+
+    The campaign driver imports this instead of re-deriving "capped" (SPEC
+    H5). The shell heredoc it replaces compared eval_count alone, and both
+    misread classes are on record: a stop-overshoot (eval 8290 against 8192,
+    done_reason "stop") escalated a finished cudafull1 cell, and a synthetic
+    "length" below the cap — the fork's window-bound continuation — ended a
+    cell with no NOT-CONVERGED verdict at all. Other errors are NOT
+    escalation candidates: the request itself failed, and resume re-runs it
+    at the same rung. Raising CTX_MAX above a recorded marker reopens the
+    arm here AND at the driver's cell-level ceiling_standing skip.
+    """
+    data = load(path)
+    if not data:
+        return []
+    out = []
+    for name, blk in data.items():
+        if only and name not in only:
+            # ONLY_TESTS scopes the run: a stale capped block left by an
+            # earlier, wider invocation of the same tag must not drive this
+            # run's ladder nor collect a fabricated ceiling verdict for an
+            # arm this campaign never attempted.
+            continue
+        if not isinstance(blk, dict):
+            continue
+        marker = blk.get("ladder_not_converged_at")
+        if marker and ctx_max and int(marker) >= int(ctx_max):
+            continue
+        err = blk.get("error")
+        if err is not None:
+            if isinstance(err, str) and ("num_ctx too small" in err
+                                         or "context overflow" in err
+                                         or "blown generation budget" in err):
+                out.append(name)
+            continue
+        if was_capped(blk):
+            out.append(name)
+    return out
+
+
+def ceiling_standing(path, ctx_max, only=None):
+    """True when this cell's ladder verdict already stands: at least one arm
+    is marked NOT CONVERGED at a ceiling >= ctx_max and no arm still has
+    work below it. The DRIVER consults this before starting a cell's ladder,
+    so a resumed ceiling cell costs zero restarts and zero probe runs —
+    while arm_done stays exactly SPEC H4b (capped always re-runs): reopening
+    is the driver's decision, taken where CTX_MAX is known, not a resume
+    exception inside the suite.
+    """
+    data = load(path)
+    if not data:
+        return False
+    has_marked = False
+    for name, blk in data.items():
+        if only and name not in only:
+            continue
+        if not isinstance(blk, dict):
+            continue
+        if "error" in blk:
+            return False        # a failed request always has work to do
+        marker = blk.get("ladder_not_converged_at")
+        if marker and int(marker) >= int(ctx_max):
+            has_marked = True
+            continue
+        if was_capped(blk):
+            return False        # capped without a sufficient ceiling verdict
+    return has_marked
+
+
+def mark_not_converged(path, arms, num_ctx):
+    """Stamp the ceiling verdict into still-capped blocks (blueprint P0-2).
+
+    NOT CONVERGED used to exist only as a stdout line, so a ceiling cell was
+    byte-identical to a not-yet-escalated one and every resume re-climbed
+    the whole ladder. The marker records the HIGHEST window that failed to
+    converge (only ever raised — a later low-CTX_MAX run must not erase a
+    proven ceiling), skips error blocks (a failed request is not a ladder
+    verdict), and never raises: this runs under the driver's `set -eu` at
+    the one point where the most inference has already been paid for, so an
+    I/O failure logs and returns rather than killing the campaign.
+    """
+    try:
+        data = load(path)
+        if not data:
+            return
+        for a in arms:
+            blk = data.get(a)
+            if isinstance(blk, dict) and "error" not in blk:
+                blk["ladder_not_converged_at"] = max(
+                    int(blk.get("ladder_not_converged_at") or 0), int(num_ctx))
+        save(path, data)
+    except Exception as exc:
+        print(f"mark_not_converged: {exc}", file=sys.stderr)
 
 
 def ctx_for(*sections):
@@ -128,7 +242,10 @@ def load(path):
     try:
         with open(path) as f:
             return json.load(f)
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError covers a truncated/corrupt file (json.JSONDecodeError
+        # subclasses it): the ladder helpers run under the driver's set -eu,
+        # and "unreadable" must degrade to "no data", never kill a campaign.
         return None
 
 
@@ -162,6 +279,21 @@ def token_column(think):
 
 def main():
     args = sys.argv[1:]
+    # Ladder subcommands for run_engine_compare.sh: values travel as argv,
+    # never spliced into python -c source (a quote in TAG_PREFIX or the
+    # checkout path was a SyntaxError that killed campaigns under set -eu).
+    if args and args[0] == "capped-arms":
+        only = (set(args[3].split(",")) if len(args) > 3 and args[3] else None)
+        print(" ".join(capped_arms(
+            args[1], int(args[2]) if len(args) > 2 and args[2] else None,
+            only)))
+        return 0
+    if args and args[0] == "mark-not-converged":
+        mark_not_converged(args[1], args[3:], int(args[2]))
+        return 0
+    if args and args[0] == "ceiling-standing":
+        only = (set(args[3].split(",")) if len(args) > 3 and args[3] else None)
+        return 0 if ceiling_standing(args[1], int(args[2]), only) else 1
     rundir = os.path.dirname(os.path.abspath(__file__))
     if args and args[0] == "--dir":
         rundir = args[1]
@@ -326,4 +458,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # sys.exit propagates main()'s return: ceiling-standing answers via exit
+    # code, and a discarded return read as "standing" at EVERY ctx_max —
+    # caught by the CLI smoke, invisible to function-level tests.
+    sys.exit(main())

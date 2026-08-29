@@ -756,5 +756,247 @@ class TestT1AnchoredMultiColumn(unittest.TestCase):
         self.assertIn("✅ q1 + q2 + q4-bbox | — |", row)
 
 
+class TestCappedDiscipline(unittest.TestCase):
+    """ADR 0012 conv 9: a capped cell is an unfinished measurement, and
+    sec.was_capped must be the only reachable path to pooling (SPEC H5)."""
+
+    CLEAN = {"bbox_mean_iou": 0.5, "eval_count": 400, "num_predict": 2200,
+             "done_reason": "stop"}
+    CAPPED = {"bbox_mean_iou": 0.9, "eval_count": 2200, "num_predict": 2200,
+              "done_reason": "length"}
+
+    def test_reps_cell_excludes_capped_from_pooled_mean(self):
+        runs = [{"scene_single": dict(self.CLEAN)},
+                {"scene_single": dict(self.CAPPED)}]
+        s, _ = reps.cell(runs, "scene_single", "bbox_mean_iou", "float")
+        self.assertTrue(s.startswith("0.500"), s)
+
+    def test_reps_cell_all_capped_renders_capped(self):
+        runs = [{"scene_single": dict(self.CAPPED)}]
+        s, _ = reps.cell(runs, "scene_single", "bbox_mean_iou", "float")
+        self.assertEqual(s, "capped")
+
+    def test_matrix_capped_defers_to_done_reason(self):
+        import summarize_matrix as smx
+        self.assertTrue(smx.capped({"req_num_predict": 8192, "eval_count": 500,
+                                    "done_reason": "length"}))
+        self.assertFalse(smx.capped({"req_num_predict": 8192, "eval_count": 8290,
+                                     "done_reason": "stop"}))
+
+    def test_geometry_pooled_excludes_capped(self):
+        import summarize_geometry as sg
+        got = [dict(self.CLEAN, gen_tps=40.0), dict(self.CAPPED, gen_tps=90.0)]
+        kept = sg.pooled(got)
+        self.assertEqual([s["gen_tps"] for s in kept], [40.0])
+
+
+class TestCappedArms(unittest.TestCase):
+    """The driver's escalation decision as an importable, tested function —
+    the shell heredoc it replaces ignored done_reason (blueprint P0-1)."""
+
+    def _scores(self, blocks):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "scores_x.json")
+        json.dump(blocks, open(p, "w"))
+        return p
+
+    def test_stop_overshoot_does_not_escalate(self):
+        p = self._scores({"a": {"eval_count": 8290, "num_predict": 8192,
+                                "req_num_predict": 8192, "done_reason": "stop"}})
+        self.assertEqual(sec.capped_arms(p), [])
+
+    def test_synthetic_length_below_cap_escalates(self):
+        p = self._scores({"a": {"eval_count": 500, "num_predict": 8192,
+                                "req_num_predict": 8192, "done_reason": "length"}})
+        self.assertEqual(sec.capped_arms(p), ["a"])
+
+    def test_context_overflow_error_escalates(self):
+        p = self._scores({"a": {"error": "num_ctx too small: prompt 9000"}})
+        self.assertEqual(sec.capped_arms(p), ["a"])
+
+    def test_blown_budget_error_escalates(self):
+        # A bigger rung raises num_predict AND the derived timeout, so a
+        # blown budget is cured by escalation — ending the ladder silently
+        # left the cell re-timing-out at the same rung on every resume.
+        p = self._scores({"a": {"error": "blown generation budget: timeout "
+                                         "after 6444s (num_predict=122880)"}})
+        self.assertEqual(sec.capped_arms(p), ["a"])
+
+    def test_other_errors_do_not_escalate(self):
+        p = self._scores({"a": {"error": "HTTP 500: boom"}})
+        self.assertEqual(sec.capped_arms(p), [])
+
+    def test_legacy_block_without_any_cap_abstains(self):
+        # No num_predict, no req_num_predict, no done_reason: was_capped
+        # abstains. The first version injected the driver's CURRENT $np here,
+        # judging old-campaign blocks against a rung they never ran at.
+        p = self._scores({"a": {"eval_count": 7370}})
+        self.assertEqual(sec.capped_arms(p), [])
+
+    def test_ceiling_marked_arm_does_not_drive_escalation(self):
+        p = self._scores({"a": {"eval_count": 8192, "num_predict": 8192,
+                                "done_reason": "length",
+                                "ladder_not_converged_at": 131072}})
+        self.assertEqual(sec.capped_arms(p, 131072), [])
+        # Raising CTX_MAX above the recorded ceiling reopens the arm.
+        self.assertEqual(sec.capped_arms(p, 262144), ["a"])
+
+    def test_missing_file_is_no_arms(self):
+        self.assertEqual(sec.capped_arms("/nonexistent/scores_x.json"), [])
+
+
+class TestLadderCeilingMarker(unittest.TestCase):
+    """NOT CONVERGED must be machine-readable so ceiling cells stop
+    re-climbing the whole ladder on every resume (blueprint P0-2). The skip
+    is the DRIVER's decision (ceiling_standing, which knows CTX_MAX) —
+    arm_done stays SPEC H4b verbatim: a capped block ALWAYS re-runs, marker
+    or not."""
+
+    def _scores(self, blocks):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "scores_x.json")
+        with open(p, "w") as fh:
+            json.dump(blocks, fh)
+        return p
+
+    CAPPED = {"eval_count": 8192, "num_predict": 8192, "done_reason": "length"}
+
+    def test_mark_not_converged_stamps_named_blocks(self):
+        p = self._scores({"a": {"eval_count": 1}, "b": {"eval_count": 2}})
+        sec.mark_not_converged(p, ["a"], 131072)
+        with open(p) as fh:
+            data = json.load(fh)
+        self.assertEqual(data["a"]["ladder_not_converged_at"], 131072)
+        self.assertNotIn("ladder_not_converged_at", data["b"])
+
+    def test_mark_only_ever_raises_the_ceiling(self):
+        p = self._scores({"a": dict(self.CAPPED,
+                                    ladder_not_converged_at=131072)})
+        sec.mark_not_converged(p, ["a"], 65536)
+        with open(p) as fh:
+            self.assertEqual(json.load(fh)["a"]["ladder_not_converged_at"],
+                             131072)
+
+    def test_mark_skips_error_blocks(self):
+        p = self._scores({"a": {"error": "num_ctx too small"}})
+        sec.mark_not_converged(p, ["a"], 131072)
+        with open(p) as fh:
+            self.assertNotIn("ladder_not_converged_at", json.load(fh)["a"])
+
+    def test_mark_never_raises_on_missing_file(self):
+        sec.mark_not_converged("/nonexistent/scores_x.json", ["a"], 131072)
+
+    def test_arm_done_is_h4b_verbatim_marker_or_not(self):
+        # SPEC H4b: a capped block always re-runs — the ceiling marker is
+        # NOT a resume exception (one briefly existed and made a capped
+        # block read as finished at any window <= the marker).
+        self.assertFalse(vs.arm_done(dict(self.CAPPED,
+                                          ladder_not_converged_at=131072)))
+        self.assertFalse(vs.arm_done(dict(self.CAPPED)))
+
+    def test_ceiling_standing_true_only_when_verdict_covers_ctx_max(self):
+        p = self._scores({
+            "a": dict(self.CAPPED, ladder_not_converged_at=131072),
+            "b": {"eval_count": 400, "num_predict": 8192,
+                  "done_reason": "stop"},           # finished arm
+        })
+        self.assertTrue(sec.ceiling_standing(p, 131072))
+        # Raising CTX_MAX past the recorded ceiling reopens the cell.
+        self.assertFalse(sec.ceiling_standing(p, 262144))
+
+    def test_ceiling_standing_false_with_unfinished_unmarked_arm(self):
+        p = self._scores({
+            "a": dict(self.CAPPED, ladder_not_converged_at=131072),
+            "b": dict(self.CAPPED),                  # capped, no verdict
+        })
+        self.assertFalse(sec.ceiling_standing(p, 131072))
+
+    def test_ceiling_standing_false_on_error_blocks_and_missing_file(self):
+        p = self._scores({"a": dict(self.CAPPED, ladder_not_converged_at=131072),
+                          "b": {"error": "boom"}})
+        self.assertFalse(sec.ceiling_standing(p, 131072))
+        self.assertFalse(sec.ceiling_standing("/nonexistent/x.json", 131072))
+
+
+class TestImpliedScaleDialectGate(unittest.TestCase):
+    """implied_scale is a real-frame diagnostic; on a norm-dialect response it
+    fabricates a frame error on a perfect cell (blueprint P0-4, observed in
+    mlx0330nv: 0.721 / IoU 0.078 against iou_declared 0.956)."""
+
+    FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "fixtures", "bbox_contract", "preexisting")
+
+    def test_norm_dialect_response_carries_no_implied_scale(self):
+        # The scorer seeds every field, so "not applicable" is the value None
+        # (its existing idiom — cf. anchor_implied_type), never a number.
+        with open(os.path.join(self.FIX, "norm1000_clean.txt")) as fh:
+            s = vs.score_bbox_contract(fh.read())
+        self.assertIsNone(s["implied_scale"])
+        self.assertIsNone(s["iou_at_implied_scale"])
+
+    def test_real_dialect_wrong_frame_still_measured(self):
+        with open(os.path.join(self.FIX, "uniform_scale_130x.txt")) as fh:
+            s = vs.score_bbox_contract(fh.read())
+        self.assertIsNotNone(s["implied_scale"])
+
+    def test_total_miss_keeps_the_diagnostic(self):
+        # A frame error so large that NOTHING scores leaves bestfit_dialect
+        # None — exactly the "right shape, wrong frame" case the diagnostic
+        # exists to recover, and exactly what a real-only gate suppressed.
+        with open(os.path.join(self.FIX, "norm1000_clean.txt")) as fh:
+            resp = json.loads(fh.read())
+        resp["bbox_type"] = "real"
+        for o in resp["objects"]:
+            o["box_2d"] = [v * 100 for v in o["box_2d"]]
+        s = vs.score_bbox_contract(json.dumps(resp))
+        self.assertIsNone(s["bestfit_dialect"])
+        self.assertIsNotNone(s["implied_scale"])
+
+    def test_anchor_tally_uses_declared_order_on_norm_responses(self):
+        # Regression for the od leak: binding od inside the gate left the
+        # best-fit loop's trailing "yxyx" driving the anchor tally on every
+        # norm-dialect response, transposing hits_anchor/iou_anchor.
+        with open(os.path.join(self.FIX, "norm1000_clean.txt")) as fh:
+            resp = json.loads(fh.read())
+        resp["objects"].insert(0, {"label": "__IMAGE__",
+                                   "box_2d": [0, 0, 1000, 1000]})
+        s = vs.score_bbox_contract(json.dumps(resp))
+        self.assertTrue(s["anchor_present"])
+        self.assertEqual(s["anchor_implied_type"], "norm1000")
+        self.assertEqual(s["hits_anchor"], s["hits_declared"])
+        self.assertEqual(s["hits_anchor"], 6)
+
+
+class TestFinetextParity(unittest.TestCase):
+    """ft_ blocks must carry the same capture schema as suite blocks
+    (blueprint P0-5): fingerprints, durations, throughput, req_* window."""
+
+    def test_ft_block_carries_fingerprints_and_throughput(self):
+        import finetext_probe as ftp
+        r = {"_prompt_sha": "aa", "_images_sha": "bb", "_host": "h",
+             "_server_version": "v", "_num_predict": 4000, "_num_ctx": 32768,
+             "prompt_eval_count": 100, "eval_count": 50, "done_reason": "stop",
+             "total_duration": 2_000_000_000, "load_duration": 1,
+             "prompt_eval_duration": 1_000_000_000,
+             "eval_duration": 1_000_000_000,
+             "response": "x", "thinking": ""}
+        blk = ftp.ft_block(r, model="M", tag="T", think=False,
+                           num_ctx=32768, num_predict=4000)
+        self.assertEqual(blk["prompt_sha"], "aa")
+        self.assertEqual(blk["images_sha"], "bb")
+        self.assertEqual(blk["req_num_ctx"], 32768)
+        self.assertEqual(blk["gen_tps"], 50.0)
+        self.assertEqual(blk["prefill_tps"], 100.0)
+
+    def test_ft_done_skips_finished_and_reruns_capped_or_error(self):
+        import finetext_probe as ftp
+        self.assertTrue(ftp.ft_done({"eval_count": 10, "num_predict": 4000,
+                                     "done_reason": "stop"}))
+        self.assertFalse(ftp.ft_done({"eval_count": 4000, "num_predict": 4000,
+                                      "done_reason": "length"}))
+        self.assertFalse(ftp.ft_done({"error": "boom"}))
+        self.assertFalse(ftp.ft_done(None))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 
 from probes import (ProbeError, container_logs, grep_binary_marker,
@@ -446,7 +447,7 @@ def check_ladder(client, expect, arch, sizes, baseline, tol_default=2):
 # 5. Pinned-budget probe — the 005 defect class
 # --------------------------------------------------------------------------
 
-def check_pinned_budget(client, expect, arch, baseline, marker_allowance=2):
+def check_pinned_image_token_budget(client, expect, arch, baseline, marker_allowance=2):
     """image_min_tokens == image_max_tokens. Pre-005, nemotron pinned to 3328
     delivered 3390 — 60 grid tokens over its own ceiling.
 
@@ -456,7 +457,7 @@ def check_pinned_budget(client, expect, arch, baseline, marker_allowance=2):
          NEW overshoot at a number nobody has measured yet.
     """
     pin = expect.get("pinned")
-    name = "pinned_budget"
+    name = "pinned_image_token_budget"
     # An arch can be structurally unable to pin, which is not the same as nobody
     # having measured it yet. visionServerArgs is arch-gated: gemma4 and
     # nemotron_h_omni build their flags from the request options, while the qwen
@@ -614,6 +615,37 @@ def check_think_format(client, expect, arch, min_num_predict):
 # 7. Extraction quality — delegates scoring to the existing vision_suite.py
 # --------------------------------------------------------------------------
 
+def quality_eligible(scores, tests=None):
+    """Split suite scores into (eligible-for-quality, capped-arm-names).
+
+    A capped arm scores json_valid: False as a side effect of truncation, so
+    counting it in the quality denominator misattributes a harness setting to
+    the model (ADR 0012 conv 9). `tests` scopes the split to THIS run's
+    requested arms: the scores file is shared per (platform, arch) tag and
+    vision_suite resumes into it, so without the scope a capped arm left by
+    another profile's test list fails a run that never asked for it.
+    Delegates to the suite's own was_capped — the ONE definition (SPEC H5);
+    this file was the third consumer reading raw score fields around it. The
+    import lives here rather than at module top because release lineages
+    carry preflight/ without the suite — and on those lineages check_quality
+    has already SKIPped before scoring.
+    """
+    if SUITE_DIR not in sys.path:
+        sys.path.insert(0, SUITE_DIR)
+    from summarize_engine_compare import was_capped
+    eligible, capped = {}, []
+    for name, blk in scores.items():
+        if tests is not None and name not in tests:
+            continue
+        if not isinstance(blk, dict) or "error" in blk:
+            continue
+        if was_capped(blk):
+            capped.append(name)
+        else:
+            eligible[name] = blk
+    return eligible, capped
+
+
 def check_quality(host, quality, expect, arch, tag, timeout=5400):
     """Runs vision_suite.py and applies thresholds to the scores it already
     computes. The suite reports; this turns the report into a verdict."""
@@ -671,22 +703,29 @@ def check_quality(host, quality, expect, arch, tag, timeout=5400):
         scores = json.load(fh)
 
     metrics, failures = {}, []
-    valid = [bool(s.get("json_valid")) for s in scores.values() if "error" not in s]
-    errored = [t for t, s in scores.items() if "error" in s]
+    eligible, capped_arms_ = quality_eligible(scores, tests=tests)
+    valid = [bool(s.get("json_valid")) for s in eligible.values()]
+    errored = [t for t, s in scores.items()
+               if (t in tests) and isinstance(s, dict) and "error" in s]
     if errored:
         failures.append(f"tests errored: {', '.join(errored)}")
+    if capped_arms_:
+        # Capped is not a quality verdict — it is an unfinished measurement.
+        # Surfaced so a run with capped arms cannot read as fully assessed.
+        failures.append(f"arms capped, not scored: {', '.join(capped_arms_)} "
+                        f"(raise NUM_PREDICT / the ladder)")
     if valid:
         metrics["json_valid"] = sum(valid) / len(valid)
         if metrics["json_valid"] < quality.get("min_json_valid", 1.0):
             failures.append(f"json_valid {metrics['json_valid']:.2f} "
                             f"< {quality['min_json_valid']}")
-    scene = scores.get("scene_single", {})
+    scene = eligible.get("scene_single", {})
     if scene.get("labels_total"):
         metrics["label_recall"] = scene["labels_found"] / scene["labels_total"]
         floor = quality.get("min_label_recall")
         if floor is not None and metrics["label_recall"] < floor:
             failures.append(f"label_recall {metrics['label_recall']:.2f} < {floor}")
-    doc = scores.get("document_single", {})
+    doc = eligible.get("document_single", {})
     if doc.get("items_total"):
         metrics["qty_price_exact"] = doc["qty_price_right"] / doc["items_total"]
         floor = quality.get("min_qty_price_exact")

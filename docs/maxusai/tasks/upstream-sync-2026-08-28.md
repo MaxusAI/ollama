@@ -99,7 +99,7 @@ Glenn's call, not the merger's.
    correct there because its body is sized with `ne11` too. `ne11_flat =
    ne12*n_expert_used` still exists directly below, confirming the intended
    quantity is unchanged.
-6. ◐ Build **running** (2026-08-28, `maxusai/ollama:sync-0.33.2`, bigdisk
+6. ☑ Built and preflighted (2026-08-28, `maxusai/ollama:sync-0.33.2`, bigdisk
    builder, stamped `0.33.2-dynres-0-geaaf951`), then **full preflight re-measurement** (the pin moved), and update
    `expectations.toml` `payload_pin`.
 7. ☑ Cut the GitHub Release for the fold tag and update the README's

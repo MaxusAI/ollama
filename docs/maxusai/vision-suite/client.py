@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import re
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -38,6 +39,12 @@ DIR = os.path.dirname(os.path.abspath(__file__))
 # genuinely down should fail in under a minute rather than hang a campaign.
 RETRY_BACKOFF = [int(x) for x in
                  os.environ.get("RETRY_BACKOFF", "5,15,30").split(",") if x]
+
+# Floor decode rate used to size the per-request timeout from num_predict.
+# 20 tok/s is below every backend measured here (GGUF dense ~30, MLX 25-137),
+# so the derived budget errs long — a timeout should mean "genuinely stuck",
+# never "the cap was big". See the timeout note in generate().
+TIMEOUT_FLOOR_TPS = 20
 
 
 def default_num_ctx():
@@ -240,7 +247,16 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
         url = host + "/api/generate"
 
     body = json.dumps(payload).encode()
-    tmo = timeout or int(os.environ.get("HTTP_TIMEOUT", "1800"))
+    # With stream:false the server writes nothing until generation completes,
+    # so this is a wall-clock budget for the WHOLE generation. A fixed 1800s
+    # cannot hold a top-rung think-on cell (122,880 tokens at GGUF dense
+    # ~30 tok/s is >4,000s), and a blown budget used to be retried three
+    # times — two hours spent proving a deterministic fact. The budget now
+    # scales with the cap at a TIMEOUT_FLOOR_TPS floor; an explicit timeout=
+    # or HTTP_TIMEOUT wins verbatim, unchanged.
+    env_tmo = int(os.environ.get("HTTP_TIMEOUT") or 0)
+    tmo = timeout or (env_tmo if env_tmo > 0 else
+                      max(1800, int(num_predict / TIMEOUT_FLOOR_TPS) + 300))
     # RETRY TRANSPORT FAILURES, NEVER A DETERMINISTIC REJECTION.
     #
     # A server restart, a dropped connection or a 502/503/504 is a fact about the
@@ -271,6 +287,23 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
             else:
                 raise context_error(e, num_predict, num_ctx) from None
         except Exception as e:                      # URLError, RemoteDisconnected, socket
+            # A blown READ budget is a fact about the REQUEST — the budget
+            # scales with the cap, so it reproduces on retry; retrying was
+            # the 4 x 1800s failure mode. But only the BARE TimeoutError is
+            # that case: with stream:false the read blocks in getresponse(),
+            # which urllib does NOT wrap. A CONNECT timeout arrives wrapped
+            # as URLError(reason=TimeoutError) — the server-restart window
+            # the backoff exists for — and socket.timeout IS TimeoutError on
+            # py3.10+, so testing the wrapped reason here would make the
+            # restart window terminal too. The message carries the stable
+            # phrase capped_arms escalates on: a bigger rung raises both
+            # num_predict and this budget, which is the cure.
+            if isinstance(e, TimeoutError):
+                raise RuntimeError(
+                    f"blown generation budget: timeout after {tmo}s "
+                    f"(num_predict={num_predict}) — deterministic at this "
+                    f"window; escalation raises it, or raise HTTP_TIMEOUT; "
+                    f"not retried") from None
             if attempt >= len(RETRY_BACKOFF):
                 raise RuntimeError(
                     f"{type(e).__name__}: {e} (after {attempt} retries at "
@@ -311,12 +344,75 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
     r["_server_version"] = server_version(host)
     r["_num_predict"] = num_predict
     r["_num_ctx"] = None if omit_ctx else num_ctx
+    # Identity stamps (blueprint P0-2). The endpoint is load-bearing —
+    # /api/generate drops reasoning for native-routed models — and the think
+    # field AS SENT is tri-state; neither was recorded anywhere, so a block's
+    # identity lived in a filename whose tag mangling SPEC H6 forbids
+    # un-mangling. _think_sent is the wire truth: the value placed in the
+    # payload, or None when the field was omitted.
+    r["_endpoint"] = ep
+    r["_think_sent"] = payload.get("think")
+    # The RESOLVED think mode, separate from the wire field: under
+    # send_think="auto" a think-ON request omits the field, so _think_sent
+    # is None for exactly the half of every campaign the ladder and capping
+    # rules exist for — indistinguishable from a calibrated no-field probe.
+    r["_think"] = think
     # Stamped for the same reason as the two above (ADR 0012 rule 1): a score
     # measured with MTP on and one measured with it off are otherwise
     # indistinguishable in the file, and the arm would live only in the tag.
     if "draft_num_predict" in opts:
         r["_draft_num_predict"] = opts["draft_num_predict"]
     return r
+
+
+def capture_stamps(r, model, tag, powermode=None, cold_start=None):
+    """Identity + provenance fields for a score block (blueprint P0-2).
+
+    Blocks used to carry neither model, endpoint, think mode nor tag, and the
+    one signal that a cell's timings crossed a server restart (_retries) was
+    captured here and then dropped by every writer. Both producers
+    (vision_suite.py, finetext_probe.py) call this so the schema cannot fork.
+    powermode / cold_start are DRIVER facts passed in by the producers (the
+    campaign adapter reads POWERMODE / COLD_START_MECH from the environment
+    there, not here — this module takes data, not ambient env, per the
+    blueprint's config rule); cold_start names the mechanism the driver
+    ATTEMPTED, not a verified state. Absent means "not driver-driven".
+    """
+    st = {
+        "capture_schema": 1,
+        "model": model,
+        "tag": tag,
+        "endpoint": r.get("_endpoint"),
+        "think": r.get("_think"),
+        "think_sent": r.get("_think_sent"),
+        "retries": len(r.get("_retries") or []),
+    }
+    if powermode:
+        st["powermode"] = powermode
+    if cold_start:
+        st["cold_start"] = cold_start
+    return st
+
+
+def metrics_block(r):
+    """Timing + throughput capture, identical for every producer.
+
+    finetext_probe's first copy of this diverged from vision_suite's at
+    birth — round(...,1) vs round(...,2), absent-key vs present-with-None —
+    and both feed downstream s/req derivations, so the two producers were
+    publishing different quantities for the same measurement. Durations are
+    always present (None when the server omitted them, matching the suite's
+    historical shape); tok/s are None when underivable.
+    """
+    m = {k: r.get(k) for k in ("total_duration", "load_duration",
+                               "prompt_eval_duration", "eval_duration")}
+    m["gen_tps"] = (round(r["eval_count"] / (r["eval_duration"] / 1e9), 2)
+                    if r.get("eval_count") and r.get("eval_duration") else None)
+    m["prefill_tps"] = (round(r["prompt_eval_count"]
+                              / (r["prompt_eval_duration"] / 1e9), 2)
+                        if r.get("prompt_eval_count")
+                        and r.get("prompt_eval_duration") else None)
+    return m
 
 
 def persist(tag, name, r):
