@@ -340,6 +340,10 @@ def main():
               "attributable to this build.")
         return 2
 
+    # Window for log-derived payload identity. Opened before any model loads
+    # so every engine-init line it later reads belongs to THIS run.
+    run_start = time.time() - 5
+
     port = args.host.rsplit(":", 1)[-1].split("/")[0]
     container = find_container(port, args.container)
     meta["container"] = container
@@ -383,6 +387,16 @@ def main():
 
     for arch in arches:
         run_arch(client, exp, profile_id, arch, args, container, results, flush)
+
+    # ---- MLX payload identity ----
+    # Deliberately AFTER the arch loop, unlike payload_pin. The MLX build is
+    # reported by x/mlxrunner's engine-init log line, which is only emitted when
+    # a model loads; running this before the arches would read whatever line the
+    # PREVIOUS server process left in the file and call it this run's payload.
+    # Windowed to run_start so only this run's loads can satisfy it.
+    results.append(checks.check_mlx_payload_pin(
+        profile, container, run_start, args.log_cmd))
+    flush()
 
     # ---- contention verdict, from every queue wait observed during the run ----
     results.append(checks.check_exclusivity(client, args.contention_threshold))

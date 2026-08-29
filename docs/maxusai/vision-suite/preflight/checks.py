@@ -271,6 +271,100 @@ def _poison_node_evidence(container, since, log_cmd=None):
 
 
 # --------------------------------------------------------------------------
+
+MLX_VERSION_RE = re.compile(r'"MLX version"=(\S+)')
+# `git describe` tail: 0.32.1-37-gc793734 -> c793734. MLX_VERSION pins the full
+# 40-char commit, so the reported short sha must prefix it.
+MLX_DESCRIBE_RE = re.compile(r"-g([0-9a-f]{7,40})$")
+
+
+def check_mlx_payload_pin(profile, container, since, log_cmd=None):
+    """Assert the running MLX payload is the one this profile was measured on.
+
+    payload_pin does this for llama.cpp, but on mlx-metal that is the WRONG
+    payload: those profiles set `patchset = []` because the compat patches do
+    not apply, and every one of them exists precisely because the MLX pin moved
+    — mlx-metal-0-33-0 states the rule about itself ("the MLX bump alone
+    requires this new profile"). Until this check existed nothing asserted it,
+    so a second MLX bump under an unchanged base version would match
+    `version_pattern`, resolve the profile, and silently inherit ladders and
+    budgets measured on different MLX. That is the b10091/b10353 accident
+    payload_pin was written for, reproduced on the other axis.
+
+    The value needs no new plumbing: x/mlxrunner/server.go already logs
+    `"MLX version"` at engine init as a `git describe` string whose g-suffix is
+    the MLX_VERSION commit. Reading it needs log access — a container, or a
+    --log-cmd, which is how the native macOS path (no container) supplies it.
+
+    IT ALSO CATCHES BINARY/PAYLOAD SKEW, which no version string can express.
+    The MLX library is dlopen'd at runtime from libOllamaRoots(), which falls
+    back to the repo's build/lib/ollama — so an ollama binary does NOT carry its
+    MLX with it. Measured 2026-08-30: the archived 0.33.0-maxusai-21cfe88e
+    binary, run after the repo was rebuilt at MLX c793734, reported
+    0.32.1-37-gc793734 and this check FAILED it against 27fec909 — old Go, new
+    MLX, a pairing nothing was ever measured on. That is a true positive, and it
+    is why "roll back by running the archived binary" does not roll back the
+    payload.
+    """
+    name = "mlx_payload_pin"
+    expected = profile.get("mlx_build")
+    if not expected:
+        return result(name, SKIP,
+                      "profile records no mlx_build to assert against",
+                      diagnosis="Add mlx_build (the MLX_VERSION commit this "
+                                "profile was measured on) so an MLX bump fails "
+                                "loudly instead of inheriting stale "
+                                "expectations. Platforms with no MLX payload "
+                                "leave it unset and keep this skip.")
+    if not container and not log_cmd:
+        return result(name, SKIP,
+                      "no container and no --log-cmd; cannot read the engine "
+                      "init line",
+                      expected=expected,
+                      diagnosis="Pass --log-cmd 'cat <serve log>' on a native "
+                                "host so the MLX pin is asserted rather than "
+                                "assumed.")
+    try:
+        logs = container_logs(container, since, log_cmd)
+    except Exception as exc:
+        return result(name, ERROR, f"could not read logs: {exc}",
+                      expected=expected)
+
+    reported = MLX_VERSION_RE.findall(logs)
+    if not reported:
+        return result(
+            name, SKIP, "no MLX engine-init line in the log window",
+            expected=expected,
+            diagnosis='The runner logs "MLX engine initialized" only when a '
+                      "model loads on the MLX path. Force a load inside the "
+                      "window, or widen it. Nothing was verified here — this "
+                      "is not a pass.")
+    actual = reported[-1]
+    m = MLX_DESCRIBE_RE.search(actual)
+    if not m:
+        return result(
+            name, SKIP,
+            f"MLX reports {actual}, which carries no commit to check "
+            f"against the pin",
+            expected=expected, actual=actual,
+            diagnosis="An MLX built at an exact tag describes without a "
+                      "g-suffix, so the commit cannot be recovered from the "
+                      "runtime string. Cannot confirm is not confirmed.")
+    short = m.group(1)
+    if not expected.startswith(short) and not short.startswith(expected):
+        return result(
+            name, FAIL, "MLX payload is not the one measured",
+            expected=expected, actual=actual,
+            diagnosis="The MLX payload changed. Every ladder and budget in this "
+                      "profile was measured on a different MLX. Re-measure "
+                      "deliberately and add a new profile with provenance (ADR "
+                      "0011) — do NOT edit values to go green.")
+    return result(name, PASS,
+                  f"MLX build {short} matches the measured payload ({actual})",
+                  expected=expected, actual=actual)
+
+
+# --------------------------------------------------------------------------
 # 3. Payload patch proof — from the MODEL-LOAD LOG, never the binary
 # --------------------------------------------------------------------------
 
