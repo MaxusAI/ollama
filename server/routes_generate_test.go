@@ -2941,6 +2941,127 @@ func TestChatFormatWithThinkFalse(t *testing.T) {
 	}
 }
 
+func TestChatNullFormatIsNotConstraining(t *testing.T) {
+	// GenerateHandler gates its structured-outputs machinery on
+	// formatConstrains, which treats JSON null and "" as non-constraining.
+	// ChatHandler tested req.Format != nil — and json.RawMessage("null") is
+	// non-nil — so a client encoding "no format" as an explicit null
+	// triggered the full two-pass flow for a format that constrains
+	// nothing: pass one deferred (Format stripped from the runner request),
+	// then a second generation to apply nothing. Blueprint P0-7.
+	gin.SetMode(gin.TestMode)
+
+	mock := &mockRunner{
+		CompletionResponse: llm.CompletionResponse{
+			Done:               true,
+			DoneReason:         llm.DoneReasonStop,
+			PromptEvalCount:    1,
+			PromptEvalDuration: 1,
+			EvalCount:          1,
+			EvalDuration:       1,
+		},
+	}
+
+	s := &Server{
+		sched: &Scheduler{
+			pendingReqCh:    make(chan *LlmRequest, 1),
+			finishedReqCh:   make(chan *LlmRequest, 1),
+			expiredCh:       make(chan *runnerRef, 1),
+			unloadedCh:      make(chan any, 1),
+			loaded:          make(map[string]*runnerRef),
+			newServerFn:     newMockServer(mock),
+			getGpuFn:        getGpuFn,
+			getSystemInfoFn: getSystemInfoFn,
+			waitForRecovery: 250 * time.Millisecond,
+			loadFn: func(req *LlmRequest, _ ml.SystemInfo, _ []ml.DeviceInfo, _ bool) bool {
+				time.Sleep(time.Millisecond)
+				req.successCh <- &runnerRef{llama: mock}
+				return false
+			},
+		},
+	}
+
+	go s.sched.Run(t.Context())
+
+	_, digest := createBinFile(t, ggml.KV{
+		"general.architecture":          "llama",
+		"llama.block_count":             uint32(1),
+		"llama.context_length":          uint32(8192),
+		"llama.embedding_length":        uint32(4096),
+		"llama.attention.head_count":    uint32(32),
+		"llama.attention.head_count_kv": uint32(8),
+		"tokenizer.ggml.tokens":         []string{""},
+		"tokenizer.ggml.scores":         []float32{0},
+		"tokenizer.ggml.token_type":     []int32{0},
+	}, []*ggml.Tensor{
+		{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.ffn_gate.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.ffn_up.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.ffn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.attn_k.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.attn_output.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.attn_q.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.attn_v.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "output.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+	})
+
+	w := createRequest(t, s.CreateHandler, api.CreateRequest{
+		Model:    "test-nullformat",
+		Files:    map[string]string{"file.gguf": digest},
+		Parser:   "gemma4",
+		Template: `{{- range .Messages }}{{ .Role }}: {{ .Content }}{{ end }}`,
+		Stream:   &stream,
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("create: expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var (
+		requestsMu sync.Mutex
+		requests   []llm.CompletionRequest
+	)
+	mock.CompletionFn = func(ctx context.Context, r llm.CompletionRequest, fn func(r llm.CompletionResponse)) error {
+		requestsMu.Lock()
+		requests = append(requests, r)
+		requestsMu.Unlock()
+
+		fn(llm.CompletionResponse{
+			Content:            `{"answer":"42"}`,
+			Done:               true,
+			DoneReason:         llm.DoneReasonStop,
+			PromptEvalCount:    1,
+			PromptEvalDuration: 1,
+			EvalCount:          1,
+			EvalDuration:       1,
+		})
+		return nil
+	}
+
+	format := json.RawMessage(`null`)
+	streamRequest := false
+	think := true
+	w = createRequest(t, s.ChatHandler, api.ChatRequest{
+		Model:    "test-nullformat",
+		Messages: []api.Message{{Role: "user", Content: "Hello."}},
+		Think:    &api.ThinkValue{Value: think},
+		Stream:   &streamRequest,
+		Format:   format,
+	})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("chat: expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if len(requests) != 1 {
+		t.Fatalf("expected a single completion call for a non-constraining format, got %d", len(requests))
+	}
+	if !bytes.Equal([]byte(format), []byte(requests[0].Format)) {
+		t.Errorf("expected format passed through undeferred, got %q", string(requests[0].Format))
+	}
+}
+
 func TestGenerateUnload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
