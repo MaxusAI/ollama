@@ -305,3 +305,37 @@ numbers that 57 tests and my own re-reading had missed.
 
 **The cheapest guard found so far** is re-deriving a number from disk immediately
 before writing it down. It caught the frame-range error in this very document.
+
+---
+
+## 2026-08-28 — model behaviour
+
+### 2026-08-28 — gemma4:12b-nvfp4 think-on runs away on bbox arms under ON-policy sampling
+On-policy sampling does not terminate this model's bbox reasoning on the
+0.33.0 build. The 2026-08-13 runaway finding blamed off-policy sampling and
+was measured on `0.32.5-maxusai-31a7f1ef`/b10353 for other models
+([runaway-reasoning-under-think.md](runaway-reasoning-under-think.md)); this
+observation is the sanctioned config (`card:gemma4+temp0`: temperature 0,
+top_p 0.95, top_k 64) failing to save gemma4:12b-nvfp4 on
+`0.33.0-maxusai-21cfe88e` (b10488, MLX 27fec909, Metal). Scoped to this
+build + model + arms; not a refutation of the sampling finding.
+
+- **Evidence** — campaign `mlx0330nv`, cell `mlx0330nv1_gemma4_12b-nvfp4_thinkon`:
+  25 of 27 arms capped at 8,192 (rung 16384); after climbing to 65536
+  (num_predict 57,344), **20 of 27 still capped** — every `bboxm_*` and
+  nearly every `bbox_contract_*` arm. Only 7 arms ever finished:
+  `scene_single_pinned`, `document_single`, `multi_3img`,
+  `multi_3img_anchored`, `bboxm_pin_noanc_named`, `bbox_contract_anchored`,
+  `finetext`. The 131072 ceiling attempt was abandoned mid-rung by operator
+  descope on 2026-08-28 — the cell had consumed ~9.5 h wall without
+  converging. Scores file kept as-is: 7 finished rows plus 20 capped rows
+  whose highest recorded rung is 65536 (ADR 0012 conv 9 — capped rows are
+  unfinished measurements; the file must not be summarized as results).
+- **Enforced by** — the `mlx0330nv` campaign descope: think-on runs
+  `gemma4:31b-nvfp4` only; the 12b think-on cell stays open with this entry
+  as the record. Any future 12b-nvfp4 think-on attempt starts at the 131072
+  ceiling and budgets a full day, or measures termination on the finishing
+  arms only.
+- **Cost** — ~9.5 h wall clock (22:08 → 07:40) and four cold ladder rungs
+  for one cell that produced 7 scores; the other nine campaign cells waited
+  behind it all night.
