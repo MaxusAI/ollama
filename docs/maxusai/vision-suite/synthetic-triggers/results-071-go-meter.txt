@@ -1,0 +1,15 @@
+# 0.7.1 Go-engine meter at block 31 ffn_down, CPU backend (f32 accumulation).
+# hr = max_abs / 65504. Measured with go-engine-node-meter-071.patch.
+# ~155 s per image; qwen2.5vl:3b-q4_K_M.
+corpus_trigger_PRIVATE_not_shipped  hr=1.0320 max=67,602   verdict=X
+k1176x644_c70_p0.png                hr=0.7824 max=51,250   verdict=H
+k1176x644_c70_hp.png                hr=0.7303 max=47,835   verdict=H
+k1176x644_c14_hp.png                hr=0.6847 max=44,850   verdict=H
+k1176x644_c112_hp.png               hr=0.6452 max=42,262   verdict=H
+k1176x644_c56_p0.png                hr=0.6436 max=42,161   verdict=H
+plain_certificate                   hr=0.6333 max=41,486   verdict=H
+k1176x644_c42_hp.png                hr=0.6288 max=41,191   verdict=H
+k1176x644_c84_hp.png                hr=0.5764 max=37,759   verdict=H
+k1176x644_c56_hp.png                hr=0.5420 max=35,502   verdict=H
+k1176x644_c28_p0.png                hr=0.5242 max=34,337   verdict=H
+k1176x644_c28_hp.png                hr=0.4177 max=27,359   verdict=H

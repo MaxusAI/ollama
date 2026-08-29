@@ -1,0 +1,9 @@
+{"image": "ctrl_go_decode", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "prompt_eval_count": null, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "R1_shuffle_global", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 869, "prompt_eval_count": 1047, "eval_count": 17}}
+{"image": "R2_shuffle_patches28", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 822, "prompt_eval_count": 1047, "eval_count": 16}}
+{"image": "R3_shuffle_within_patch", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 819, "prompt_eval_count": 1047, "eval_count": 15}}
+{"image": "R4_noise_pm1", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 915, "prompt_eval_count": 1047, "eval_count": 26}}
+{"image": "R4_noise_pm2", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 873, "prompt_eval_count": 1047, "eval_count": 26}}
+{"image": "R4_noise_pm4", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 810, "prompt_eval_count": 1047, "eval_count": 26}}
+{"image": "R5_fliplr", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 824, "prompt_eval_count": 1047, "eval_count": 28}}
+{"image": "R6_flipud", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 868, "prompt_eval_count": 1047, "eval_count": 30}}

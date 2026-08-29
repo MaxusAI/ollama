@@ -1,0 +1,126 @@
+diff --git a/model/models/qwen25vl/model.go b/model/models/qwen25vl/model.go
+index ee38cad..825e680 100644
+--- a/model/models/qwen25vl/model.go
++++ b/model/models/qwen25vl/model.go
+@@ -4,6 +4,8 @@ import (
+ 	"bytes"
+ 	"fmt"
+ 	"image"
++	"math"
++	"os"
+ 	"slices"
+ 
+ 	"github.com/ollama/ollama/fs"
+@@ -85,6 +87,7 @@ func (m *Model) EncodeMultimodal(ctx ml.Context, multimodalData []byte) ([]input
+ 	}
+ 
+ 	visionOutputs := m.VisionModel.Forward(ctx, pixels, grid)
++	reportVisionMeter(ctx)
+ 	return []input.Multimodal{{Tensor: visionOutputs}}, nil
+ }
+ 
+@@ -148,3 +151,44 @@ func (m *Model) Forward(ctx ml.Context, batch input.Batch) (ml.Tensor, error) {
+ func init() {
+ 	model.Register("qwen25vl", New)
+ }
++
++// reportVisionMeter computes the captured ffn_down output on its own and
++// prints magnitude statistics. fp16 max is 65504, so hr >= 1 means an fp16
++// accumulator cannot represent the result.
++func reportVisionMeter(ctx ml.Context) {
++	if meterTensor == nil {
++		return
++	}
++	t := meterTensor
++	meterTensor = nil
++	// Compute() calls ggml_backend_sched_reset() straight after dispatch, which
++	// releases the graph allocator's intermediate buffers. On CPU the host
++	// allocation still holds the values, but on CUDA the binding is dead and the
++	// readback returns zeros. Copy into an Input()-allocated tensor first: that
++	// lives in a persistent buffer, so it survives the reset and is readable on
++	// both backends. Same idiom as ml.Backend's own f32 conversion path.
++	dst := ctx.Input().Empty(ml.DTypeF32, t.Shape()...)
++	dst = t.Copy(ctx, dst)
++	ctx.Forward(dst).Compute(dst)
++	f := dst.Floats()
++	var mx float32
++	var nInf, n60, n49 int
++	for _, x := range f {
++		a := float32(math.Abs(float64(x)))
++		if math.IsInf(float64(x), 0) || math.IsNaN(float64(x)) {
++			nInf++
++			continue
++		}
++		if a > mx {
++			mx = a
++		}
++		if a > 60000 {
++			n60++
++		}
++		if a > 49128 {
++			n49++
++		}
++	}
++	fmt.Fprintf(os.Stderr, "GO_NODE_STATS layer=%d n=%d max_abs=%.1f hr=%.4f n_gt49k=%d n_gt60k=%d n_bad=%d\n",
++		meterLayer, len(f), mx, mx/65504.0, n49, n60, nInf)
++}
+diff --git a/model/models/qwen25vl/model_vision.go b/model/models/qwen25vl/model_vision.go
+index 4d7afaa..d259efb 100644
+--- a/model/models/qwen25vl/model_vision.go
++++ b/model/models/qwen25vl/model_vision.go
+@@ -2,7 +2,9 @@ package qwen25vl
+ 
+ import (
+ 	"math"
++	"os"
+ 	"slices"
++	"strconv"
+ 
+ 	"github.com/ollama/ollama/fs"
+ 	"github.com/ollama/ollama/ml"
+@@ -103,7 +105,11 @@ func (mlp *VisionMLP) Forward(ctx ml.Context, hiddenStates ml.Tensor, opts *Visi
+ 	upOutput := mlp.Up.Forward(ctx, hiddenStates)
+ 	hiddenStates = gateOutput.SILU(ctx).Mul(ctx, upOutput)
+ 
+-	return mlp.Down.Forward(ctx, hiddenStates)
++	out := mlp.Down.Forward(ctx, hiddenStates)
++	if meterLayer >= 0 && meterCurrent == meterLayer {
++		meterTensor = out
++	}
++	return out
+ }
+ 
+ type VisionEncoderLayer struct {
+@@ -232,6 +238,7 @@ func (m *VisionModel) Forward(ctx ml.Context, pixelValues ml.Tensor, grid *Grid)
+ 	mask := blockDiagonalMask(ctx, hiddenStates.Dim(1), bounds, m.VisionModelOptions.numHeads)
+ 	// Apply encoder layers
+ 	for i, layer := range m.Layers {
++		meterCurrent = i
+ 		if slices.Contains(m.fullAttnBlocks, int32(i)) {
+ 			hiddenStates = layer.Forward(ctx, hiddenStates, cos, sin, nil, m.VisionModelOptions)
+ 		} else {
+@@ -377,3 +384,24 @@ func newVisionModel(c fs.Config) *VisionModel {
+ 
+ 	return model
+ }
++
++// MAXUSAI (diagnostic, not for shipping): continuous meter on one vision
++// block's ffn_down output. 0.7.1 runs the Go engine -- no clip graph, no
++// libmtmd -- so the libmtmd node meter cannot be loaded here; this is its
++// equivalent. Its vendored ggml has no GGML_CUDA_CUBLAS_COMPUTE_TYPE knob
++// (cu_compute_type is hardcoded CUBLAS_COMPUTE_16F), so run this on the CPU
++// backend, which accumulates in f32, to read magnitude without overflowing.
++// Enable with OLLAMA_VISION_METER_LAYER=<block index>.
++var (
++	meterLayer   = -1
++	meterCurrent int
++	meterTensor  ml.Tensor
++)
++
++func init() {
++	if v := os.Getenv("OLLAMA_VISION_METER_LAYER"); v != "" {
++		if n, err := strconv.Atoi(v); err == nil {
++			meterLayer = n
++		}
++	}
++}

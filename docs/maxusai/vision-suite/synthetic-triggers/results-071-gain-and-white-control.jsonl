@@ -1,0 +1,14 @@
+{"image": "ctrl_go_decode", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "prompt_eval_count": null, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "ctrl_pil_decode", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 849, "prompt_eval_count": 1047, "eval_count": 28}}
+{"image": "gain_A_pil_times_256over255", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 803, "prompt_eval_count": 1047, "eval_count": 18}}
+{"image": "gain_B_go_times_255over256", "verdict": "X", "detail": {"done_reason": null, "prompt_eval_ms": 0, "prompt_eval_count": null, "eval_count": null, "head": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}}
+{"image": "gain_C_pil_plus1", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 898, "prompt_eval_count": 1047, "eval_count": 18}}
+{"image": "white248_grille", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 760, "prompt_eval_count": 1047, "eval_count": 12}}
+{"image": "white248_grille_rings", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 791, "prompt_eval_count": 1047, "eval_count": 17}}
+{"image": "white_flat_230", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 765, "prompt_eval_count": 1047, "eval_count": 11}}
+{"image": "white_flat_235", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 835, "prompt_eval_count": 1047, "eval_count": 13}}
+{"image": "white_flat_240", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 885, "prompt_eval_count": 1047, "eval_count": 13}}
+{"image": "white_flat_245", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 767, "prompt_eval_count": 1047, "eval_count": 13}}
+{"image": "white_flat_250", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 831, "prompt_eval_count": 1047, "eval_count": 13}}
+{"image": "white_flat_255", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 778, "prompt_eval_count": 1047, "eval_count": 13}}
+{"image": "white_gradient_230_255", "verdict": "H", "detail": {"done_reason": "stop", "prompt_eval_ms": 760, "prompt_eval_count": 1047, "eval_count": 13}}
