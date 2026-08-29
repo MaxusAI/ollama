@@ -18,9 +18,8 @@
 >   it deploys.
 > - **Fixes carried until upstream takes them**, each tracked against an
 >   upstream issue or PR, and deleted from here when it lands there.
-> - An experimental MLX runtime for Apple Silicon and CUDA — increasingly
->   converging with upstream's own MLX work, and expected to be superseded
->   by it.
+> - An experimental MLX runtime for Apple Silicon and CUDA — see the caveats
+>   below before using it for anything that matters.
 >
 > **Current fold:** [`v0.33.2-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.33.2-dynres)
 > — upstream v0.33.2, llama.cpp `b10630`. `main` moves ahead of this between
@@ -30,6 +29,52 @@
 > names the change that started the fork, not the company that runs it.
 > Fork-specific documentation, ADRs and measurements live in
 > [`docs/maxusai/`](docs/maxusai/).
+
+
+### What differs from upstream, concretely
+
+Measured against upstream ollama at llama.cpp `b10630`, the pin this fork
+currently builds.
+
+| | upstream ollama | this fork |
+|---|---|---|
+| **nemotron-3 vision** | fixed 512×512 canvas — **256 tokens per image**, whatever the aspect ratio | native-aspect dynamic resolution, **256–3328 tokens**, position embeddings interpolated to the patch grid in-graph (`002`) |
+| **gemma4 image sizing** | **caps at 280 tokens**; an under-budget image keeps its natural rounded grid and is letterbox-padded | every image scaled to *fill* the budget and snapped to gemma4's supported ladder (70/140/280/560/1120), never padded (`004`). Off-ladder grids measurably break `box_2d` vertical grounding |
+| **qwen2.5-vl on CUDA** | f16 vision matmuls accumulate in fp16; on some ordinary images a few elements of millions reach `inf` at `v.blk.31.ffn_down` and the caption collapses into one repeated glyph | fp32 accumulation forced for `qwen25vl` runners. Offered upstream as [ollama#18070](https://github.com/ollama/ollama/pull/18070) |
+| **MoE + MMQ on CUDA** | ids-path tail padding sized from `ne11`; under broadcast `ne11 == 1`, so the buffer gets no padding and the kernel overruns by up to a 512-row tile | padding sized from the flattened row count (`903`). Reported as [llama.cpp#27044](https://github.com/ggml-org/llama.cpp/issues/27044) |
+| **Bounding boxes** | no coordinate contract — a caller must trust whatever frame the model declares, which is what fails: pinned to `real` pixels, qwen3.6 converts **1 of 14** geometries | requests pin **norm-1000** and the space is derived from the response, never from a declared `ref_size`, so the model's internal resize cannot contaminate coordinates. **111 of 112** cells convert cleanly across 14 geometries × 4 models × 2 think modes (ADR 0027/0030, SPEC C13–C18). A protocol and its conformance measurements, not a runtime change |
+| **Vision regression testing** | none in-tree | preflight harness with recorded per-model expectations, generated (public) trigger images, and an env-gated node meter (`801`), run before every deploy |
+
+### MLX runtime — experimental, and slower on CUDA
+
+It works. Models load, stay resident and generate correct output on both
+Metal and CUDA (`gemma4:31b-nvfp4` decodes at 41.5 tok/s in 22 GiB on CUDA,
+measured on an idle host). But it is not the path to reach for by default:
+
+- **On CUDA it is roughly half the throughput of the GGML path.** That figure
+  is an operational observation, not a benchmark — we have no matched
+  same-host, same-model GGML-vs-MLX CUDA pair recorded, and the ratio will
+  move with model and GPU.
+- **On Metal it is the other way round.** A matched campaign measured MLX
+  ~2.4× faster than llama-server (gemma4 12b: 121 vs 50 tok/s decode). So the
+  CUDA gap is CUDA-specific, not an MLX property — do not generalise either
+  number to the other platform.
+- **MLX-vs-GGUF output quality is not a controlled comparison.** Engine and
+  quantization move together — nvfp4 on MLX against q4_K_M on GGUF — so a
+  quality difference between the two cannot be attributed to the engine. We
+  have not separated them, and until someone does, treat "which is better"
+  as open.
+- It is **converging with upstream's own MLX work** and is expected to be
+  superseded by it; the fork has already retired its constrained-sampling
+  layer in favour of upstream's engine (ADR 0033).
+
+Use GGML/llama-server for anything where throughput or comparability matters.
+
+Every row above is a delta we would rather not have. Each is offered upstream where
+it is upstream's to take, and deleted from here once it lands there — the
+`qwen25vl` gate and the MMQ padding fix are both filed and pending.
+
+---
 
 <p align="center">
   <a href="https://ollama.com">
