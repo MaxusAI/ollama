@@ -31,6 +31,26 @@
 > Fork-specific documentation, ADRs and measurements live in
 > [`docs/maxusai/`](docs/maxusai/).
 
+
+### What differs from upstream, concretely
+
+Measured against upstream ollama at llama.cpp `b10630`, the pin this fork
+currently builds.
+
+| | upstream ollama | this fork |
+|---|---|---|
+| **nemotron-3 vision** | fixed 512×512 canvas — **256 tokens per image**, whatever the aspect ratio | native-aspect dynamic resolution, **256–3328 tokens**, position embeddings interpolated to the patch grid in-graph (`002`) |
+| **gemma4 image sizing** | **caps at 280 tokens**; an under-budget image keeps its natural rounded grid and is letterbox-padded | every image scaled to *fill* the budget and snapped to gemma4's supported ladder (70/140/280/560/1120), never padded (`004`). Off-ladder grids measurably break `box_2d` vertical grounding |
+| **qwen2.5-vl on CUDA** | f16 vision matmuls accumulate in fp16; on some ordinary images a few elements of millions reach `inf` at `v.blk.31.ffn_down` and the caption collapses into one repeated glyph | fp32 accumulation forced for `qwen25vl` runners. Offered upstream as [ollama#18070](https://github.com/ollama/ollama/pull/18070) |
+| **MoE + MMQ on CUDA** | ids-path tail padding sized from `ne11`; under broadcast `ne11 == 1`, so the buffer gets no padding and the kernel overruns by up to a 512-row tile | padding sized from the flattened row count (`903`). Reported as [llama.cpp#27044](https://github.com/ggml-org/llama.cpp/issues/27044) |
+| **Vision regression testing** | none in-tree | preflight harness with recorded per-model expectations, generated (public) trigger images, and an env-gated node meter (`801`), run before every deploy |
+
+Every row is a delta we would rather not have. Each is offered upstream where
+it is upstream's to take, and deleted from here once it lands there — the
+`qwen25vl` gate and the MMQ padding fix are both filed and pending.
+
+---
+
 <p align="center">
   <a href="https://ollama.com">
     <img src="https://github.com/ollama/ollama/assets/3325447/0d0b44e2-8f4a-4e99-9b52-a5c1c741c8f7" alt="ollama" width="200"/>
