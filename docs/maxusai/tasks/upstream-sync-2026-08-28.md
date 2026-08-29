@@ -103,7 +103,9 @@ Glenn's call, not the merger's.
    builder, stamped `0.33.2-dynres-0-geaaf951`), then **full preflight re-measurement** (the pin moved), and update
    `expectations.toml` `payload_pin`.
 7. ☑ Cut the GitHub Release for the fold tag and update the README's
-   **Current fold** pointer. Both are part of the fold, not follow-up: a
+   **Current fold** pointer, and attach the generated green matrix
+   (`preflight/release_matrix.py --version <tag>`) to the release notes —
+   regenerated after each surface is preflighted, never hand-edited. Both are part of the fold, not follow-up: a
    stale pointer is worse than none, because it claims a fixed point that
    no longer matches what `main` builds.
 8. ☐ Metal half on the Apple host — deferred by Glenn, not a blocker here.
