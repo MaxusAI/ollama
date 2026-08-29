@@ -241,9 +241,10 @@ is a no-op there; the MLX runner did not enforce format until x/structured
   > own. That does not generalize — `gemma4:12b` still loops at F16 upstream — so fix
   > the sampling, which works on both.
   >
-  > **Do not escalate `num_ctx` to chase this** — no context size fixes it, and above
-  > ~90 K `num_predict` the 1800 s `HTTP_TIMEOUT` expires first, turning a cap into an
-  > error with no data. Fix the sampling instead.
+  > **Do not escalate `num_ctx` to chase this** — no context size fixes it. (The
+  > old aggravation — above ~90 K `num_predict` the fixed 1800 s `HTTP_TIMEOUT`
+  > expired first, turning a cap into an error with no data — is gone: the budget
+  > now scales with `num_predict` at a 20 tok/s floor.) Fix the sampling instead.
   >
   > Two further consequences for anyone reading think-on numbers: the failure is
   > **stochastic even at `temperature: 0`** (the same `gemma4:12b-nvfp4` finetext cell
@@ -336,8 +337,9 @@ Always check `prompt_eval_count` before attributing such a delta to a patch.
   `final-matrix-2026-08-02.json` is the merged, Q4-corrected dataset behind
   the published matrix.
 - `ONLY_TESTS=scene_single[,document_single,...]` runs a subset of the suite —
-  used by the bisect harness. `HTTP_TIMEOUT` (seconds, default 1800) bounds a
-  single request — raise it for uncapped think-mode probes. `KV_CACHE_TYPE`
+  used by the bisect harness. `HTTP_TIMEOUT` (seconds) bounds a single request;
+  unset (or 0) it derives as max(1800, num_predict/20 + 300) so think-mode rungs
+  fit, and a blown budget is terminal, never retried — a set value wins verbatim. `KV_CACHE_TYPE`
   passes a per-request `options.kv_cache_type` (fork feature, ADR 0005) —
   single type or K/V pair like `q8_0/f16`.
 - Multi-image Q4 is scored dialect-aware like scene boxes (`q4_bbox_space`

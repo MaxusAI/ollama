@@ -2812,19 +2812,38 @@ func TestChatWithPromptEndingInThinkTag(t *testing.T) {
 	})
 }
 
-// TestChatFormatWithThinkFalse verifies that when a model uses a builtin
-// parser that supports thinking and the request explicitly disables thinking
-// (think=false), the format constraint is passed to the first and only
-// completion call. Previously, format was deferred for all thinking-capable
+// TestChatFormatPassthrough verifies the cases where a format must reach
+// the first and only completion call verbatim: think=false on a builtin
+// thinking parser (previously format was deferred for all thinking-capable
 // parsers and only re-applied after an end-of-thinking transition -- a
-// transition that never fires when thinking is off. See
+// transition that never fires when thinking is off), and a JSON null
+// format with think=true (null is not a format and must not trigger the
+// two-pass deferral at all). See
 // https://github.com/ollama/ollama/issues/15260 and
 // https://github.com/ollama/ollama/issues/14645.
-func TestChatFormatWithThinkFalse(t *testing.T) {
+func TestChatFormatPassthrough(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	for _, parserName := range []string{"gemma4", "qwen3.5", "qwen3-thinking"} {
-		t.Run(parserName, func(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`)
+	cases := []struct {
+		name   string
+		parser string
+		format json.RawMessage
+		think  bool
+	}{
+		// The original think-false rows: format applies from pass one
+		// (forceImmediate) and must reach the runner verbatim.
+		{"gemma4-schema-thinkfalse", "gemma4", schema, false},
+		{"qwen3.5-schema-thinkfalse", "qwen3.5", schema, false},
+		{"qwen3-thinking-schema-thinkfalse", "qwen3-thinking", schema, false},
+		// JSON null is NOT a format (structured-output SPEC §1): with think
+		// true it must not trigger the two-pass deferral. ChatHandler used
+		// to test req.Format != nil — and RawMessage("null") is non-nil —
+		// so an explicit null ran the whole flow to apply nothing (P0-7).
+		{"gemma4-null-thinktrue", "gemma4", json.RawMessage(`null`), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			mock := &mockRunner{
 				CompletionResponse: llm.CompletionResponse{
 					Done:               true,
@@ -2881,19 +2900,17 @@ func TestChatFormatWithThinkFalse(t *testing.T) {
 				{Name: "output.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 			})
 
-			modelName := "test-" + parserName + "-parser"
+			modelName := "test-" + tc.name
 			w := createRequest(t, s.CreateHandler, api.CreateRequest{
 				Model:    modelName,
 				Files:    map[string]string{"file.gguf": digest},
-				Parser:   parserName,
+				Parser:   tc.parser,
 				Template: `{{- range .Messages }}{{ .Role }}: {{ .Content }}{{ end }}`,
 				Stream:   &stream,
 			})
 			if w.Code != http.StatusOK {
 				t.Fatalf("create: expected status 200, got %d: %s", w.Code, w.Body.String())
 			}
-
-			format := json.RawMessage(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`)
 
 			var (
 				requestsMu sync.Mutex
@@ -2917,13 +2934,12 @@ func TestChatFormatWithThinkFalse(t *testing.T) {
 			}
 
 			streamRequest := false
-			think := false
 			w = createRequest(t, s.ChatHandler, api.ChatRequest{
 				Model:    modelName,
 				Messages: []api.Message{{Role: "user", Content: "Respond in JSON."}},
-				Think:    &api.ThinkValue{Value: think},
+				Think:    &api.ThinkValue{Value: tc.think},
 				Stream:   &streamRequest,
-				Format:   format,
+				Format:   tc.format,
 			})
 
 			if w.Code != http.StatusOK {
@@ -2934,7 +2950,7 @@ func TestChatFormatWithThinkFalse(t *testing.T) {
 				t.Fatalf("expected a single completion call, got %d", len(requests))
 			}
 
-			if !bytes.Equal([]byte(format), []byte(requests[0].Format)) {
+			if !bytes.Equal([]byte(tc.format), []byte(requests[0].Format)) {
 				t.Errorf("expected first completion format to match the request format, got %q", string(requests[0].Format))
 			}
 		})

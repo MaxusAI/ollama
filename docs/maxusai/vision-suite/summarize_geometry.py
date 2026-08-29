@@ -26,6 +26,17 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from summarize_engine_compare import was_capped  # noqa: E402  (SPEC H5)
+
+
+def pooled(got):
+    """Blocks eligible for a pooled mean. A capped cell is an unfinished
+    measurement (ADR 0012 conv 9): its eval_count is the harness cap and any
+    req/h or IoU derived from it is a setting, not a result. This file
+    published '**N req/h** mean serial' with no capped guard at all."""
+    return [s for s in got if s and not was_capped(s)]
+
 GEOMS = ["hd", "hd_al32", "hd_al48", "sq320", "vga", "portrait", "uhd", "uhd4k",
          "paste1", "paste2", "paste3", "paste4", "paste5", "paste6"]
 
@@ -51,6 +62,10 @@ def load(prefix, arm, rundir):
 def cell(s):
     if not s:
         return " — | — | — "
+    # SPEC H13: a capped cell renders `capped` in every template — its
+    # anchor/bestfit counts describe a truncated generation, not the model.
+    if was_capped(s):
+        return "capped | capped | capped"
     sz, ref = s.get("image_size"), s.get("anchor_implied_ref")
     typ = s.get("anchor_implied_type")
     if ref and sz and ref[0]:
@@ -91,6 +106,14 @@ def perf_table(rows, models):
             if not s:
                 line += " — | — | — | — |"
                 continue
+            # SPEC H13: capped renders `capped` in EVERY cell, tables
+            # included — guarding only the pooled bullet below reproduced
+            # the named T1 defect (a capped cell published as a score while
+            # the mean beneath it silently excluded the same row).
+            if was_capped(s):
+                line += (f" {s.get('prompt_eval_count','—')} | "
+                         f"{s.get('eval_count','—')} | capped | capped |")
+                continue
             iou = s.get("iou_anchor")
             line += (f" {s.get('prompt_eval_count','—')} | {s.get('eval_count','—')} | "
                      f"{iou:.3f} | {s.get('gen_tps','—')} |" if iou is not None else
@@ -99,8 +122,16 @@ def perf_table(rows, models):
         print(line)
     print()
     for k in models:
-        got = [rows.get((g, k)) for g in GEOMS]
-        got = [s for s in got if s]
+        raw = [rows.get((g, k)) for g in GEOMS]
+        raw = [s for s in raw if s]
+        got = pooled(raw)
+        n_capped = len(raw) - len(got)
+        if raw and not got:
+            # ADR 0012 conv 3: a vanished summary line is indistinguishable
+            # from "not run". All-capped is a finding; say it.
+            print(f"- **{k}** — all {len(raw)} geometries capped; no pooled "
+                  f"throughput (ADR 0012 conv 9)")
+            continue
         pe = [s["prompt_eval_count"] for s in got if s.get("prompt_eval_count")]
         ious = [s["iou_anchor"] for s in got if s.get("iou_anchor") is not None]
         gts = [s["gen_tps"] for s in got if s.get("gen_tps")]
@@ -110,11 +141,25 @@ def perf_table(rows, models):
                 and s.get("eval_count") and s.get("prompt_eval_count")]
         if not pe:
             continue
-        print(f"- **{k}** — prompt tokens {min(pe)}–{max(pe)} "
-              f"(spread {max(pe)-min(pe)}), IoU {min(ious):.3f}–{max(ious):.3f} "
-              f"(mean {sum(ious)/len(ious):.3f}), gen {min(gts):.0f}–{max(gts):.0f} tok/s, "
-              f"prefill {min(pts):.0f}–{max(pts):.0f} tok/s, "
-              f"s/req {min(sreq):.1f}–{max(sreq):.1f} → **{3600/(sum(sreq)/len(sreq)):.0f} req/h** mean serial")
+        # Every min()/max() guarded independently: pooling can leave pe
+        # non-empty while gts is empty (a cell with counts but no duration),
+        # and an unguarded min() aborted the whole summary.
+        seg = [f"prompt tokens {min(pe)}–{max(pe)} (spread {max(pe)-min(pe)})"]
+        if ious:
+            seg.append(f"IoU {min(ious):.3f}–{max(ious):.3f} "
+                       f"(mean {sum(ious)/len(ious):.3f})")
+        if gts:
+            seg.append(f"gen {min(gts):.0f}–{max(gts):.0f} tok/s")
+        if pts:
+            seg.append(f"prefill {min(pts):.0f}–{max(pts):.0f} tok/s")
+        if sreq:
+            seg.append(f"s/req {min(sreq):.1f}–{max(sreq):.1f} → "
+                       f"**{3600/(sum(sreq)/len(sreq)):.0f} req/h** mean serial")
+        # ADR 0012 conv 9: the count of exclusions is a first-class
+        # diagnostic — a 14-geometry mean over 8 must say so.
+        if n_capped:
+            seg.append(f"{n_capped} of {len(raw)} geometries capped, excluded")
+        print(f"- **{k}** ({len(got)} geometries) — " + ", ".join(seg))
 
 
 def main():
@@ -151,8 +196,12 @@ def main():
             print(line)
         print()
         for k in models:
-            got = [rows.get((g, k)) for g in GEOMS]
-            got = [s for s in got if s]
+            raw = [rows.get((g, k)) for g in GEOMS]
+            raw = [s for s in raw if s]
+            got = pooled(raw)
+            if len(raw) != len(got):
+                print(f"- **{k}** — {len(raw) - len(got)} capped geometries "
+                      f"excluded from the counts below (ADR 0012 conv 9)")
             silent = sum(1 for s in got
                          if s.get("self_check") and isinstance(s.get("hits_anchor"), int)
                          and s["hits_anchor"] < 6)

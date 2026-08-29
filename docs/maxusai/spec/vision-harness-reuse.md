@@ -134,8 +134,11 @@ which is exactly what the fallback handles.
 ## 2. Reporting
 
 **H5 — Shared helpers are imported, never redefined.** `engine_for`,
-`was_capped`, `ctx_for`, `tag_for`, `resolve_tag`, `load` and `fmt_bool` live in
-`summarize_engine_compare.py`. A summarizer needing any of them imports it.
+`was_capped`, `ctx_for`, `tag_for`, `resolve_tag`, `load`, `save`, `fmt_bool`,
+and the ladder decisions `capped_arms` / `ceiling_standing` /
+`mark_not_converged` live in `summarize_engine_compare.py`. A summarizer —
+or the driver, via its argv subcommands — needing any of them imports or
+invokes it.
 
 > Not hypothetical: the first draft of `summarize_reps.py` redefined the
 > capped test as `eval_count == num_predict` where `was_capped` uses `>=`, so it
@@ -376,12 +379,12 @@ something previously hidden:
 | H3, H4 | `REPEATS` / `TAG_PREFIX` / `ONLY_TESTS` are inert when unset — verified with `sh -x` on both paths |
 | H4a | `run_engine_compare.sh` exits 2 when `CTX_MAX` leaves no CONTEXT-ladder rung above the think-on start; think-off is unaffected and `ALLOW_NO_LADDER=1` overrides |
 | H4b | `arm_done` in `vision_suite.py` importing `was_capped` (H5); `test_summarizers.py::TestResumeNeverSkipsCapped` asserts capped, error, and missing blocks all re-run; `::TestWasCappedPrefersDoneReason` asserts the `done_reason` verdict outranks the arithmetic and absence falls back to it |
-| H5, H6 | `summarize_reps.py` imports `ctx_for`, `engine_for`, `load`, `tag_for`, `was_capped` and inverts `tag_for` for display |
+| H5, H6 | `summarize_reps.py`, `summarize_geometry.py`, `summarize_matrix.py` and `preflight/checks.py` all import `was_capped` (`test_summarizers.py::TestCappedDiscipline`, `test_verdicts.py::TestQualityCappedExcluded`); the ladder decisions are `capped_arms` / `ceiling_standing` / `mark_not_converged` in the same module, driven by `run_engine_compare.sh` via argv subcommands (`::TestCappedArms`, `::TestLadderCeilingMarker`) |
 | H7 | ADR 0012 rules 1 and 8; request examples via `emit_request.py` (payload captured from `client.py`, never re-derived) |
 | H13 (footers) | `test_summarizers.py::TestProvenanceFooter` — clean / all-pre-H11 / mixed-recording / two-host cases against the rendered footer |
 | H13 (capped rendering) | `cap_or` in `summarize_head_to_head.py` importing `was_capped` (H5); `test_summarizers.py::TestT2CappedCells` asserts a capped scene hides score and latency but keeps tok/s; `q()`/`multi_cell` in `summarize_engine_compare.py` guard every T1 quality cell — `::TestT1CappedQualityCells` |
 | H14 | `token_split.py`'s acceptance gate (`--write` refuses without it, and skips-by-name irreconcilable cells); `test_summarizers.py::TestT1ThinkTokColumn` asserts stamped-count-or-dash, never an estimate; `finetext_probe.py` persists as `finetext_probe` (one producer per persist name) |
-| H9 | `client.py` is the only module that builds a payload; `test_client.py` (20 tests) asserts the wire format, including the tri-state `send_think` and the `num_ctx=False` sentinel that a naive `== False` would have collapsed |
+| H9 | `client.py` is the only module that builds a payload; `test_client.py` asserts the wire format (the test count grows with the contract — trust the suite, not this row), including the tri-state `send_think` and the `num_ctx=False` sentinel that a naive `== False` would have collapsed |
 | H12 | `prompt_sha` / `images_sha` / `prompt_parts` on every score block, written by `client.generate()`; absence marks a pre-2026-08-20 cell |
 | H11 | `host` / `server_version` on every score block, written unconditionally by `client.generate()`; absence marks a pre-2026-08-20 cell |
 | H10 | `client.RETRY_BACKOFF` = 5/15/30s with `_retries` recorded per cell; `test_client.py::TestTransportRetry` asserts a 400 calls `urlopen` exactly once while a 503 retries. `client.evict_others()` polls `/api/ps` until the eviction is observable and returns what it could not evict; `run_engine_compare.sh` calls it before each model when `RESTART_CMD` is absent, `COLD_START=0` opts out |

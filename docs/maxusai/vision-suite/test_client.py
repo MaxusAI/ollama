@@ -21,7 +21,9 @@ No network. urlopen is patched and the payload captured.
 import json
 import os
 import unittest
+import urllib.error
 import urllib.request
+from unittest import mock
 
 import client
 
@@ -270,6 +272,143 @@ class TestTransportRetry(unittest.TestCase):
             return type("R", (), {"read": lambda s: b'{"response":"ok","eval_count":1}'})()
         urllib.request.urlopen = fake
         self.assertEqual(client.generate("http://h", "M", "p", ["IMG"])["response"], "ok")
+
+
+class TestTimeoutPolicy(unittest.TestCase):
+    """A timeout is the one transport-shaped failure that is deterministic for
+    the request (blueprint P0-6): budget scales with num_predict, operator env
+    wins verbatim, and a blown timeout is never retried."""
+
+    def test_timeout_scales_with_num_predict(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("HTTP_TIMEOUT", None)
+            cap = call(num_predict=122880)
+        self.assertGreaterEqual(cap.timeout, 122880 / 20)
+
+    def test_operator_http_timeout_wins_verbatim(self):
+        with mock.patch.dict(os.environ, {"HTTP_TIMEOUT": "900"}):
+            cap = call(num_predict=122880)
+        self.assertEqual(cap.timeout, 900)
+
+    def test_http_timeout_zero_means_unset(self):
+        # HTTP_TIMEOUT="0" would otherwise reach urlopen(timeout=0) and fail
+        # every request instantly — and terminally, per the branch below.
+        with mock.patch.dict(os.environ, {"HTTP_TIMEOUT": "0"}):
+            cap = call(num_predict=122880)
+        self.assertGreaterEqual(cap.timeout, 122880 / 20)
+
+    def test_read_timeout_is_terminal_not_retried(self):
+        # A blown READ budget surfaces as a BARE TimeoutError (urllib does
+        # not wrap getresponse) and is deterministic: escalation or a larger
+        # HTTP_TIMEOUT is the cure, not a retry.
+        calls = {"n": 0}
+        orig, origsleep = urllib.request.urlopen, client.time.sleep
+
+        def fake(req, timeout=None):
+            calls["n"] += 1
+            raise TimeoutError("timed out")
+
+        urllib.request.urlopen = fake
+        client.time.sleep = (lambda s:
+                             (_ for _ in ()).throw(AssertionError("slept")))
+        try:
+            with self.assertRaises(RuntimeError) as cm:
+                client.generate("http://h", "M", "p", [])
+            self.assertIn("blown generation budget", str(cm.exception))
+            self.assertEqual(calls["n"], 1)
+        finally:
+            urllib.request.urlopen, client.time.sleep = orig, origsleep
+
+    def test_connect_timeout_is_retried(self):
+        # A CONNECT timeout arrives wrapped as URLError(reason=TimeoutError)
+        # — the server-restart window the backoff exists for. socket.timeout
+        # IS TimeoutError on py3.10+, so a naive reason check made this
+        # terminal and the documented retry-on-restart path unreachable.
+        calls = {"n": 0}
+        orig, origsleep = urllib.request.urlopen, client.time.sleep
+        canned = json.dumps({"response": "ok", "eval_count": 1}).encode()
+
+        def fake(req, timeout=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise urllib.error.URLError(TimeoutError("connect timed out"))
+            return type("R", (), {"read": lambda s: canned})()
+
+        urllib.request.urlopen = fake
+        client.time.sleep = lambda s: None
+        try:
+            r = client.generate("http://h", "M", "p", [])
+            self.assertEqual(r["response"], "ok")
+            self.assertEqual(calls["n"], 2)
+            self.assertEqual(len(r["_retries"]), 1)
+        finally:
+            urllib.request.urlopen, client.time.sleep = orig, origsleep
+
+
+class TestCaptureStamps(unittest.TestCase):
+    """Identity must live in the record, not the filename (blueprint P0-2):
+    the request path stamps endpoint and think-as-sent, and capture_stamps
+    turns them plus env provenance into block fields."""
+
+    def test_endpoint_and_think_stamped_on_response(self):
+        # Pinned against ambient campaign env: THINK/ENDPOINT are documented
+        # driver exports and must not steer these assertions.
+        with mock.patch.dict(os.environ):
+            os.environ.pop("THINK", None)
+            os.environ.pop("ENDPOINT", None)
+            with Capture() as cap:
+                r = client.generate("http://h", "M", "p", ["IMG"])
+        self.assertEqual(r["_endpoint"], "chat")
+        # send_think defaults to "auto", which with think OFF sends
+        # "think": false — _think_sent is the wire truth (False here, None
+        # only when the field was omitted) while _think records the RESOLVED
+        # mode, which under auto+on is otherwise invisible in the payload.
+        self.assertIs(r["_think_sent"], False)
+        self.assertIs(r["_think"], False)
+
+    def test_think_on_auto_resolved_mode_still_recorded(self):
+        with Capture():
+            r = client.generate("http://h", "M", "p", ["IMG"], think=True)
+        self.assertIsNone(r["_think_sent"])   # auto omits the field when on
+        self.assertIs(r["_think"], True)      # but the mode is not lost
+
+    def test_think_omitted_stamps_none(self):
+        with Capture():
+            r = client.generate("http://h", "M", "p", ["IMG"], send_think=False)
+        self.assertIsNone(r["_think_sent"])
+
+    def test_generate_override_and_think_true(self):
+        with Capture():
+            r = client.generate("http://h", "M", "p", ["IMG"],
+                                endpoint_override="generate",
+                                think=True, send_think=True)
+        self.assertEqual(r["_endpoint"], "generate")
+        self.assertIs(r["_think_sent"], True)
+
+    def test_capture_stamps_block_fields(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("THINK", None)
+            os.environ.pop("ENDPOINT", None)
+            with Capture():
+                r = client.generate("http://h", "M", "p", ["IMG"])
+        # Driver facts arrive as PARAMETERS: the producers read POWERMODE /
+        # COLD_START_MECH from the env at the campaign layer; client takes
+        # data, not ambient env (blueprint rule 2).
+        st = client.capture_stamps(r, model="M", tag="T1", powermode="2")
+        self.assertEqual(st["capture_schema"], 1)
+        self.assertEqual(st["model"], "M")
+        self.assertEqual(st["tag"], "T1")
+        self.assertEqual(st["endpoint"], "chat")
+        self.assertIs(st["think_sent"], False)
+        self.assertEqual(st["retries"], 0)
+        self.assertEqual(st["powermode"], "2")
+
+    def test_retried_cell_records_count(self):
+        with Capture():
+            r = client.generate("http://h", "M", "p", ["IMG"])
+        r["_retries"] = [{"attempt": 1, "waited_s": 5, "error": "x"}]
+        st = client.capture_stamps(r, model="M", tag="T1")
+        self.assertEqual(st["retries"], 1)
 
 
 if __name__ == "__main__":

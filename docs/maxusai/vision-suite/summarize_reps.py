@@ -21,6 +21,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from summarize_engine_compare import was_capped  # noqa: E402  (SPEC H5)
+
 DIR = os.path.dirname(os.path.abspath(__file__))
 
 # (section, key, label, kind). "bool" is scored as a pass count, not a mean.
@@ -176,14 +179,32 @@ def npred(runs):
 
 
 def cell(runs, section, key, kind):
-    vals = [r[section][key] for r in runs
+    # A capped rep is an unfinished measurement (ADR 0012 conv 9) and must
+    # not enter a pooled mean — this file pooled them for its whole life
+    # because it never imported the one capped definition (SPEC H5, and the
+    # conformance table's claim that it did was false at HEAD). The DROP is
+    # reported per cell ("(k capped)") because the column header still says
+    # n=len(runs): a silently shrunken denominator rendered a one-rep mean
+    # as a three-rep agreement, ADR 0012 conv 9's "report the count per
+    # pooling level" clause exactly. A partial cell returns spread=None so
+    # the within-arm spread section cannot claim reproducibility over reps
+    # that contributed nothing.
+    secs = [r[section] for r in runs
             if section in r and key in r.get(section, {})]
+    kept = [s for s in secs if not was_capped(s)]
+    dropped = len(secs) - len(kept)
+    vals = [s[key] for s in kept]
+    if secs and not vals:
+        return "capped", None
     if not vals:
         return "—", None
+    suffix = f" ({dropped} capped)" if dropped else ""
     if kind == "bool":
         hits = sum(1 for v in vals if v)
-        return (f"{hits}/{len(vals)} ✅" if hits == len(vals)
-                else f"{hits}/{len(vals)} ❌"), 0 if hits in (0, len(vals)) else 1
+        s = (f"{hits}/{len(vals)} ✅" if hits == len(vals)
+             else f"{hits}/{len(vals)} ❌") + suffix
+        return s, (None if dropped
+                   else (0 if hits in (0, len(vals)) else 1))
     lo, hi = min(vals), max(vals)
     mean = sum(vals) / len(vals)
     spread = hi - lo
@@ -203,7 +224,7 @@ def cell(runs, section, key, kind):
         s = f"{mean:.3f}" + (f" [{lo:.3f}–{hi:.3f}]" if spread else "")
     else:
         s = f"{mean:.1f}".rstrip("0").rstrip(".") + (f" [{lo}–{hi}]" if spread else "")
-    return s, spread
+    return s + suffix, (None if dropped else spread)
 
 
 def main():
@@ -256,10 +277,12 @@ def main():
         # the IoU spread then reaches for it by hand, which is how the wrong
         # 0.103 reached the campaign record's prose.
         worst = {"float": [], "int": []}
+        any_capped = False
         for section, key, label, kind in METRICS:
             if kind == "bool":
                 continue
-            _, sp = cell(runs, section, key, kind)
+            cs, sp = cell(runs, section, key, kind)
+            any_capped = any_capped or "capped" in cs
             if sp:
                 worst[kind].append((sp, label))
         parts = []
@@ -271,6 +294,12 @@ def main():
                          + ", ".join(f"{l} {s:g}" for s, l in worst[kind][:4]))
         if parts:
             print(f"  {tag}: " + "; ".join(parts))
+        elif any_capped:
+            # "identical across all N runs" over survivors was a fabricated
+            # reproducibility claim — the exact class the ± comment above
+            # documents. Capped reps contributed nothing; say so instead.
+            print(f"  {tag}: no spread measurable — capped reps excluded "
+                  f"(see '(k capped)' cells)")
         else:
             print(f"  {tag}: identical across all {len(runs)} runs")
     return 0

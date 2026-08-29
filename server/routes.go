@@ -3136,7 +3136,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 
 			forceImmediate := builtinParser != nil && builtinParser.HasThinkingSupport() && req.Think != nil && !req.Think.Bool()
 			deferring := false
-			if req.Format != nil && structuredOutputsState == structuredOutputsState_None && !forceImmediate && ((builtinParser != nil || thinkingState != nil) && slices.Contains(m.Capabilities(), model.CapabilityThinking)) {
+			if formatConstrains(req.Format) && structuredOutputsState == structuredOutputsState_None && !forceImmediate && ((builtinParser != nil || thinkingState != nil) && slices.Contains(m.Capabilities(), model.CapabilityThinking)) {
 				currentFormat = nil
 				deferring = true
 				if thinkCloseTag != "" {
@@ -3267,7 +3267,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 
 					tb.WriteString(thinking)
 					// we are now receiving content from the model - we should start applying structured outputs
-					if structuredOutputsState == structuredOutputsState_None && req.Format != nil && tb.String() != "" && res.Message.Content != "" {
+					if structuredOutputsState == structuredOutputsState_None && formatConstrains(req.Format) && tb.String() != "" && res.Message.Content != "" {
 						structuredOutputsState = structuredOutputsState_ReadyToApply
 						cancel()
 						return
@@ -3295,7 +3295,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 					}
 					// emit the collected thinking text before restarting with structured outputs and clear unstructured content
 					// to avoid leaking mixed tokens like "</think>Hello"
-					if structuredOutputsState == structuredOutputsState_None && req.Format != nil && tb.String() != "" && remainingContent != "" {
+					if structuredOutputsState == structuredOutputsState_None && formatConstrains(req.Format) && tb.String() != "" && remainingContent != "" {
 						structuredOutputsState = structuredOutputsState_ReadyToApply
 						res.Message.Content = ""
 						ch <- res

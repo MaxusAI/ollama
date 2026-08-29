@@ -50,6 +50,9 @@ import re
 import statistics
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from summarize_engine_compare import was_capped  # noqa: E402  (SPEC H5)
+
 FACTORS = ("pin", "anchor", "coords")
 ARM_RE = re.compile(r"^bboxm_(pin|free)_(anc|noanc)_(named|pos)$")
 ARMS = [f"bboxm_{p}_{a}_{c}"
@@ -67,11 +70,12 @@ def factors_of(arm):
     return {"pin": p == "pin", "anchor": a == "anc", "coords": c}
 
 
-def capped(blk):
-    """True when generation stopped at req_num_predict rather than finishing.
-    Such a cell's score is a harness setting, not a model result."""
-    cap, ev = blk.get("req_num_predict"), blk.get("eval_count")
-    return bool(cap and ev and ev >= cap)
+# The ONE capped definition (SPEC H5): done_reason wins, arithmetic fallback
+# reads num_predict/req_num_predict itself. This module's own arithmetic
+# predated done_reason and misread the synthetic-length class; a local
+# aliasing shim briefly stood here and disagreed with capped_arms' — folding
+# the req_ fallback into was_capped deleted both.
+capped = was_capped
 
 
 def load(rundir, prefix):

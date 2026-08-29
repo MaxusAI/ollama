@@ -12,6 +12,57 @@ import re, os, sys, base64, random, urllib.request
 
 from sampling import sampling_for, provenance
 import client
+from summarize_engine_compare import load, save, was_capped  # SPEC H5
+
+
+def ft_done(block):
+    """Finished per the suite's own resume rule (vision_suite.arm_done):
+    present, no error, not capped. This probe previously had NO resume at
+    all, so every ladder escalation re-ran it from scratch — and its output
+    is invisible to the escalation decision, so the re-runs bought nothing.
+    """
+    return bool(block) and "error" not in block and not was_capped(block)
+
+
+def ft_block(r, model, tag, think, num_ctx, num_predict):
+    """The capture half of the ft_ block, at schema parity with the suite's
+    blocks (blueprint P0-5). The ft_ shape used to lack prompt_sha/images_sha
+    (SPEC H12), every duration, gen_tps/prefill_tps and req_num_* — and
+    summarize_engine_compare reads whichever file exists, preferring
+    req_num_ctx that this shape never wrote."""
+    s = {"host": r.get("_host"),
+         "server_version": r.get("_server_version"),
+         "prompt_sha": r.get("_prompt_sha"),
+         "images_sha": r.get("_images_sha"),
+         "prompt_eval_count": r.get("prompt_eval_count"),
+         "eval_count": r.get("eval_count")}
+    if r.get("done_reason"):
+        s["done_reason"] = r["done_reason"]
+    # ONE metrics derivation, shared with vision_suite via client.metrics_block
+    # — this probe's first hand copy diverged at birth (round 1 vs 2,
+    # absent-key vs None), publishing a different quantity than the suite for
+    # the same measurement. `tag` is owned by capture_stamps below.
+    s.update(client.metrics_block(r))
+    s["num_ctx"], s["num_predict"] = num_ctx, num_predict
+    s["req_num_ctx"] = r.get("_num_ctx")
+    s["req_num_predict"] = r.get("_num_predict")
+    # Vision-budget / MTP provenance, same contract as vision_suite: the
+    # probe APPLIES an exported IMAGE_*_TOKENS / DRAFT_NUM_PREDICT
+    # (use_env_opts defaults True) and recorded nothing — on the one probe
+    # whose subject IS the image budget, a budget-matched control was
+    # byte-indistinguishable from an unpinned run.
+    for env, key in (("IMAGE_MIN_TOKENS", "req_image_min_tokens"),
+                     ("IMAGE_MAX_TOKENS", "req_image_max_tokens")):
+        if os.environ.get(env):
+            s[key] = int(os.environ[env])
+    if os.environ.get("DRAFT_NUM_PREDICT") not in (None, ""):
+        s["req_draft_num_predict"] = int(os.environ["DRAFT_NUM_PREDICT"])
+    s.update(provenance(model, think))
+    s.update(client.capture_stamps(
+        r, model, tag,
+        powermode=os.environ.get("POWERMODE"),
+        cold_start=os.environ.get("COLD_START_MECH")))
+    return s
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 IMG = os.path.join(DIR, "visimgs", "finetext.png")
@@ -114,14 +165,44 @@ def run(host, tag, model):
     # and no translation of the context-overflow 400. All of that now comes from
     # client.generate() for free, and a fix there reaches both callers.
     # Bound from the shared helper rather than re-reading THINK, so this file
-    # cannot disagree with the request that was actually sent. The rewire dropped
-    # this binding while leaving provenance(model, think) below, so every run
-    # raised NameError AFTER the inference completed -- the model was paid for and
-    # the result discarded, and under run_engine_compare.sh's `set -eu` that
-    # aborted the whole campaign.
+    # cannot disagree with the request that was actually sent. ft_block stamps
+    # provenance(model, think) from this value; an earlier rewire dropped the
+    # binding while leaving the provenance call, so every run raised NameError
+    # AFTER the inference completed — the model was paid for and the result
+    # discarded, and under run_engine_compare.sh's `set -eu` that aborted the
+    # whole campaign.
     think = client.think_on()
-    r = client.generate(host, model, PROMPT, [img_b64],
-                        num_predict=num_predict, num_ctx=num_ctx)
+    # Resume (blueprint P0-5): a finished ft_ block is a finished measurement.
+    ftp_path = os.path.join(DIR, f"ft_{tag}.json")
+    prev = load(ftp_path)
+    if ft_done(prev):
+        print(f"--- finetext [{tag}] --- SKIP already finished "
+              f"(ADR 0012 conv 9: capped or errored re-runs)")
+        return
+    # Error guard (blueprint P0-5): one transport failure here used to abort
+    # the whole multi-model campaign under the driver's `set -eu` — the same
+    # failure mode the suite's own persist-before-score protects against.
+    try:
+        r = client.generate(host, model, PROMPT, [img_b64],
+                            num_predict=num_predict, num_ctx=num_ctx)
+    except Exception as exc:
+        # The error must not DESTROY a prior real block: a capped rung-1
+        # measurement (recall tiers, durations, fingerprints) survived a
+        # rung-2 transport failure before this guard existed, and must
+        # still. It rides under "prior"; "error" first means every consumer
+        # (ft_done included) treats the block as failed and re-runs it.
+        s = {"error": str(exc)}
+        s.update(client.capture_stamps(
+            {}, model, tag,
+            powermode=os.environ.get("POWERMODE"),
+            cold_start=os.environ.get("COLD_START_MECH")))
+        if isinstance(prev, dict) and "prior" not in prev:
+            s["prior"] = prev
+        elif isinstance(prev, dict):
+            s["prior"] = prev.get("prior") or prev
+        print(f"--- finetext [{tag}] --- ERROR {exc}")
+        save(ftp_path, s)
+        return
     body = r.get("response", "")
     # Persisted under the probe's OWN name. It used to share "finetext" with
     # vision_suite's folded test, so whichever ran second overwrote the other's
@@ -131,34 +212,19 @@ def run(host, tag, model):
     # control_tokens -114 (gemma4:26b-a4b) and +444 (qwen3.8) on exactly the
     # think-on finetext cells, with every other cell clean.
     chars = client.persist(tag, "finetext_probe", r)
-    s = {"tag": tag}
+    # Capture at schema parity with the suite (ft_block), scoring on top.
+    # The window note stands: this probe defaults higher than vision_suite.py
+    # (32768/4000 vs 16384/2200), so a run that does not set both explicitly
+    # measures the two harnesses at different windows — run_engine_compare.sh
+    # sets them.
+    s = ft_block(r, model, tag, think, num_ctx, num_predict)
     s.update(score_codes(body))
-    s["host"] = r.get("_host")
-    s["server_version"] = r.get("_server_version")
-    s["prompt_eval_count"] = r.get("prompt_eval_count")
-    s["eval_count"] = r.get("eval_count")
-    # Server's stop verdict, same contract as vision_suite (SPEC H4b):
-    # recorded only when present, so old blocks and connection-closed finals
-    # stay distinguishable by absence and fall back to the arithmetic.
-    if r.get("done_reason"):
-        s["done_reason"] = r["done_reason"]
     # Free, tokenizer-free halves of the split; token_split.py turns these into
     # exact thinking/answer/control token counts afterwards.
     s.update(chars)
-    # The request window these numbers were achieved under. Recall that comes in
-    # low may be the model or may be a capped generation; without num_ctx and
-    # num_predict the two are indistinguishable after the fact. Note this probe
-    # defaults higher than vision_suite.py (32768/4000 vs 16384/2200), so a run
-    # that does not set both explicitly measures the two harnesses at different
-    # windows — run_engine_compare.sh sets them.
-    s["num_ctx"] = num_ctx
-    s["num_predict"] = num_predict
-    # ADR 0005 asks runs to record their runtime configuration. Without this a
-    # capped cell cannot be attributed to a sampling mode after the fact.
-    s.update(provenance(model, think))
     print(f"--- finetext [{tag}] ---")
     print(json.dumps(s, indent=1))
-    json.dump(s, open(os.path.join(DIR, f"ft_{tag}.json"), "w"), indent=1)
+    save(ftp_path, s)
 
 
 if __name__ == "__main__":

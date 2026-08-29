@@ -174,7 +174,11 @@ GEOMETRY="${GEOMETRY:-}"
 # an arm that could not measure the rung is not a reason to also not measure it.
 case " $THINK_MODES " in
   *" on "*)
-    _start="${NUM_CTX:-${NUM_CTX_THINKON:-16384}}"
+    # Resolve the SAME way the loop below does (blueprint P0-3): this gate
+    # used to hardcode 16384 where the loop reads CTX_START_THINKON, so
+    # raising the start rung — the documented way to skip cheap rungs on a
+    # big model — silently defeated the guard it exists to provide.
+    _start="${NUM_CTX:-${NUM_CTX_THINKON:-$CTX_START_THINKON}}"
     _higher=$(printf '%s\n' $CTX_LADDER \
       | awk -v s="$_start" -v m="$CTX_MAX" '$1>s && $1<=m {print; exit}')
     if [ -z "$_higher" ] && [ -z "${ALLOW_NO_LADDER:-}" ]; then
@@ -198,6 +202,18 @@ for m in $MODELS; do
       tag="${TAG_PREFIX}${rep}_${base}_think${think}"
     else
       tag="${base}_think${think}"
+    fi
+    # CELL-LEVEL ceiling skip. arm_done stays SPEC H4b verbatim (a capped
+    # block always re-runs); whether a NOT-CONVERGED verdict still stands is
+    # THIS loop's decision, because only it knows CTX_MAX. Standing means
+    # zero restarts and zero probe runs for the cell; raising CTX_MAX above
+    # the recorded ceiling makes the check false and the ladder re-opens the
+    # question — which it must.
+    if python3 "$DIR/summarize_engine_compare.py" ceiling-standing \
+         "$DIR/scores_${tag}.json" "$CTX_MAX" "$ONLY_TESTS"; then
+      echo "##### NOT CONVERGED (standing) $m think=$think ceiling=${CTX_MAX} — cell skipped; raise CTX_MAX to reopen"
+      rep=$((rep + 1))
+      continue
     fi
     # Reasoning models think before answering; too small a cap yields an empty
     # response, not a short one. See the header note.
@@ -239,8 +255,10 @@ for m in $MODELS; do
         # rather than "the harness never freed the last one".
         python3 "$DIR/client.py" evict "$HOST" || true
         python3 "$DIR/client.py" unload "$HOST" "$m" || true
+        csmech=evict
       fi
       if [ -n "${RESTART_CMD:-}" ]; then
+        csmech=restart_cmd
         sh -c "$RESTART_CMD"
         i=0
         until curl -sf "$HOST/api/version" >/dev/null 2>&1; do
@@ -249,12 +267,18 @@ for m in $MODELS; do
           sleep 1
         done
       fi
+      # POWERMODE / COLD_START_MECH reach the block via client.capture_stamps
+      # (blueprint P0-2): powermode lived only in the ##### stdout line, and
+      # SPEC H10's rule that evict- and restart-measured load_durations must
+      # not be compared was unenforceable with the mechanism unrecorded.
       ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
         ONLY_TESTS="$ONLY_TESTS" GEOMETRY="$GEOMETRY" \
+        POWERMODE="${pmode:-n/a}" COLD_START_MECH="${csmech:-warm}" \
         python3 "$DIR/vision_suite.py" "$HOST" "$tag" "$m"
       case ",$ONLY_TESTS," in
         ,,|*,finetext,*)
           ENDPOINT="${ENDPOINT:-chat}" THINK="$think" NUM_PREDICT="$np" NUM_CTX="$nc" \
+            POWERMODE="${pmode:-n/a}" COLD_START_MECH="warm" \
             python3 "$DIR/finetext_probe.py" "$HOST" "$tag" "$m" ;;
         *) echo "##### SKIP finetext_probe (ONLY_TESTS=$ONLY_TESTS)" ;;
       esac
@@ -267,31 +291,29 @@ for m in $MODELS; do
       # such a cell recorded as a failure at the low rung and never retried --
       # which reads as "the model cannot do this test" when the truth is
       # "the harness asked for it in too small a window".
-      capped=$(python3 - "$DIR/scores_${tag}.json" "$np" <<'PYEOF'
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-except Exception:
-    print(""); raise SystemExit
-cap = int(sys.argv[2])
-hit, over = [], []
-for k, v in d.items():
-    if not isinstance(v, dict):
-        continue
-    if (v.get("eval_count") or 0) >= cap:
-        hit.append(k)
-        continue
-    err = v.get("error")
-    if isinstance(err, str) and ("num_ctx too small" in err or "context overflow" in err):
-        over.append(k)
-print(" ".join(hit + over))
-PYEOF
-)
+      # The ONE capped definition decides escalation (SPEC H5, blueprint
+      # P0-1). The heredoc this replaces compared eval_count alone: it
+      # escalated a finished stop-overshoot cell (eval 8290 against 8192,
+      # measured in cudafull1) and could never see a synthetic "length"
+      # below the cap — the fork's window-bound continuation — which
+      # therefore ended a cell with no NOT-CONVERGED verdict at all.
+      # Values travel as argv (a quote in TAG_PREFIX or the checkout path
+      # inside python -c SOURCE was a campaign-killing SyntaxError).
+      # capped_arms is done_reason-first and tested in test_summarizers.py.
+      capped=$(python3 "$DIR/summarize_engine_compare.py" capped-arms \
+                 "$DIR/scores_${tag}.json" "$CTX_MAX" "$ONLY_TESTS")
       [ -z "$capped" ] && break
 
       next=$(printf '%s\n' $CTX_LADDER | awk -v c="$nc" '$1>c{print $1; exit}')
       if [ -z "$next" ] || [ "$next" -gt "$CTX_MAX" ]; then
         echo "##### NOT CONVERGED $m think=$think at num_ctx=$nc (ceiling ${CTX_MAX}); capped: $capped"
+        # Machine-readable ceiling verdict (blueprint P0-2): stdout-only NOT
+        # CONVERGED left a ceiling cell byte-identical to a not-yet-escalated
+        # one, so every resume re-climbed the whole ladder. The cell-level
+        # ceiling-standing check above consumes it on the next invocation.
+        # shellcheck disable=SC2086 -- $capped is a space-separated arm list
+        python3 "$DIR/summarize_engine_compare.py" mark-not-converged \
+          "$DIR/scores_${tag}.json" "$nc" $capped
         break
       fi
       echo "##### CAPPED $m think=$think at num_ctx=$nc ($capped) -> escalating to $next"
