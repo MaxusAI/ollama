@@ -37,16 +37,42 @@ GROUPS = [
     ("Runner isolation", {"endpoint_exclusive"}),
 ]
 RANK = {"FAIL": 0, "ERROR": 0, "CONTENTION": 1, "NEEDS_BASELINE": 1,
-        "SKIP": 2, "PASS": 3}
+        "SKIP": 2, "N/A": 3, "PASS": 4}
 MARK = {"FAIL": "**FAIL**", "ERROR": "**ERROR**", "CONTENTION": "contended",
-        "NEEDS_BASELINE": "no baseline", "SKIP": "skipped", "PASS": "green"}
+        "NEEDS_BASELINE": "no baseline", "SKIP": "skipped", "N/A": "n/a",
+        "PASS": "green"}
+
+
+def effective(r):
+    """A skip that says "does not apply" is NOT a coverage gap.
+
+    The harness deliberately separates the two (checks.py: saying "not yet
+    measured" about something structurally unable to move sends someone off to
+    measure it). Both arrive here as SKIP, so the distinction only survives in
+    the summary text. Collapsing them would make an architecture that CANNOT
+    have the probe drag a column down as if nobody had run it -- understating
+    coverage, which is its own kind of dishonesty.
+    """
+    if r.get("status") == "SKIP" and "does not apply" in (r.get("summary") or ""):
+        return "N/A"
+    return r.get("status")
 
 
 def worst(statuses):
-    """A group is only as good as its weakest check — never average them."""
+    """A group is only as good as its weakest check — never average them.
+
+    N/A is NEUTRAL, not weak: an architecture structurally unable to run a
+    probe should not drag down the ones that ran it and passed. It is dropped
+    from the comparison, and only reported when every cell is N/A. Ranking it
+    as weak would report "n/a" for a column two arches actually passed;
+    ranking it as strong would hide a real gap behind it.
+    """
     if not statuses:
         return None
-    return min(statuses, key=lambda s: RANK.get(s, 1))
+    scored = [s for s in statuses if s != "N/A"]
+    if not scored:
+        return "N/A"
+    return min(scored, key=lambda s: RANK.get(s, 1))
 
 
 def main(paths, version=None):
@@ -84,7 +110,7 @@ def main(paths, version=None):
         results = run.get("results", [])
         cells = []
         for _, names in GROUPS:
-            got = [r["status"] for r in results if r.get("check") in names]
+            got = [effective(r) for r in results if r.get("check") in names]
             w = worst(got)
             cells.append(MARK.get(w, "not run") if w else "not run")
         meta = run.get("meta", {})
