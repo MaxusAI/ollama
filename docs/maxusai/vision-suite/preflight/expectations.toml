@@ -231,6 +231,46 @@ control measures <=0.06 per element while fused-nvfp4 drift reaches <=0.19
 — quantisation and runner regressions must not be conflated.
 """
 
+[profiles.mlx-metal-0-33-2]
+platform = "mlx-metal"
+# The v0.33.2 fold (#232) moved BOTH payload pins again — llama.cpp b10488 ->
+# b10630, MLX 27fec909 -> c793734e — and replaced the MLX runner's constrained
+# sampling with upstream's grammar engine (ADR 0033, superseding ADR 0009's
+# implementation). The MLX runner is the payload under test here, so by the same
+# ADR 0011 rule that created mlx-metal-0-33-0, the MLX bump alone requires a new
+# profile rather than a widened pattern. Narrow to the 0.33.2 base per ADR 0032.
+version_pattern = '^0\.33\.2-maxusai-[0-9a-f]{7,40}$'
+patchset = []                     # llama.cpp compat patches do not apply to MLX
+reference_image = "native macOS build — no container"
+expect_patch_marker = 1
+arches = ["gemma4", "gemma4_unified", "qwen35moe", "qwen35"]
+notes = """
+Successor to mlx-metal-0-33-0 after the v0.33.2 fold. Every ladder below was
+re-measured on 0.33.2-maxusai-2b95b4a5 against the build-under-test on :11437
+with measure_ladder.py, one freshly restarted server per arch, and came back
+BYTE-IDENTICAL to the 0.33.0 rows: gemma4/gemma4_unified [1102 x 5] at prefix
+19, qwen35moe/qwen35 [68, 146, 578, 2306, 5186] at prefix 13. That is the same
+result #239 recorded for CUDA at b10630 — the payload move is inert for token
+accounting on both halves of the matrix.
+
+BUDGET/PIXEL FIELDS ARE CARRIED, AND THIS IS WHY. The native MLX path emits no
+load_hparams pixel lines (that is a llama.cpp-path log line), so measure_ladder
+leaves those four fields as TODO here — mlx-metal-0-33-0 filled them by operator
+-asserted stride arithmetic. This profile can do better: `git diff
+21cfe88e..2b95b4a5 -- llm/llama_server.go` touches only applyCompletionFormat
+(the ADR 0033 grammar passthrough), leaving gemma4Ladder {70,140,280,560,1120},
+BudgetFillSize and the alignment/stride arithmetic byte-identical between the
+two builds, and `go test ./llm/ -run TestImageTokensForSize` passes on this one.
+So the budgets are unchanged by SOURCE IDENTITY, not by assertion, and the flat
+gemma4 ladder demonstrates them live: 1102 + 19 prefix fills to the 1120 ceiling.
+
+Vision golden parity re-checked at MLX c793734e and NOT recalibrated —
+TestVisionGoldenParity passes for 12b, 26b and 31b (31b norm_mean 96.941 ->
+96.749, inside bounds). The 0.33.0 note stands: the bf16 control measures
+<=0.06 per element while fused-nvfp4 drift reaches <=0.19, so quantisation and
+runner regressions must not be conflated.
+"""
+
 [profiles.metal-0-32-14]
 platform = "metal"
 # The GGUF/Metal half of Apple Silicon on the v0.32.14 payload (b10434).
@@ -1181,6 +1221,62 @@ ladder = [68, 146, 578, 2306, 5186]   # prefix == text_only == 13
 # ADR 0011 — never by copying the mlx-metal rows, which describe a different
 # backend.
 
+
+[expect.mlx-metal-0-33-2.gemma4]
+status = "measured"
+measured_on = "2026-08-30"
+model = "gemma4:31b-mlx-bf16"
+patch_stride = 48
+budget_min_tokens = 70   # carried: Go sizing model byte-identical, see notes
+budget_max_tokens = 1120   # carried: Go sizing model byte-identical, see notes
+image_min_pixels = 161280   # carried: Go sizing model byte-identical, see notes
+image_max_pixels = 2580480   # carried: Go sizing model byte-identical, see notes
+scaling = "flat"
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.mlx-metal-0-33-2.gemma4_unified]
+status = "measured"
+measured_on = "2026-08-30"
+model = "gemma4:12b-nvfp4"
+patch_stride = 48
+budget_min_tokens = 70   # carried: Go sizing model byte-identical, see notes
+budget_max_tokens = 1120   # carried: Go sizing model byte-identical, see notes
+image_min_pixels = 161280   # carried: Go sizing model byte-identical, see notes
+image_max_pixels = 2580480   # carried: Go sizing model byte-identical, see notes
+scaling = "flat"
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.mlx-metal-0-33-2.qwen35moe]
+status = "measured"
+measured_on = "2026-08-30"
+model = "qwen3.6:35b-a3b-nvfp4"
+patch_stride = 32
+budget_min_tokens = 64   # carried: Go sizing model byte-identical, see notes
+budget_max_tokens = 16384   # carried: Go sizing model byte-identical, see notes
+image_min_pixels = 65536   # carried: Go sizing model byte-identical, see notes
+image_max_pixels = 16777216   # carried: Go sizing model byte-identical, see notes
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
+
+[expect.mlx-metal-0-33-2.qwen35]
+status = "measured"
+measured_on = "2026-08-30"
+model = "qwen3.8:27b-nvfp4"
+patch_stride = 32
+budget_min_tokens = 64   # carried: Go sizing model byte-identical, see notes
+budget_max_tokens = 16384   # carried: Go sizing model byte-identical, see notes
+image_min_pixels = 65536   # carried: Go sizing model byte-identical, see notes
+image_max_pixels = 16777216   # carried: Go sizing model byte-identical, see notes
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
 [expect.mlx-cuda.gemma4]
 status = "measured"
 measured_on = "2026-08-17"
@@ -1392,6 +1488,46 @@ require_nonempty_thinking = true
 # fp32 (healthy by construction); metal/mlx are separate numerics domains with
 # no measured trigger — add an entry only with a measurement behind it.
 # --------------------------------------------------------------------------
+
+
+[expect.mlx-metal-0-33-2.gemma4.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured on this build (runs/rc-0332.json): eval_count 116 of 4000, valid JSON after thinking.
+
+[expect.mlx-metal-0-33-2.gemma4_unified.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured on this build (runs/rc-0332.json): eval_count 729 of 4000, valid JSON after thinking.
+
+[expect.mlx-metal-0-33-2.qwen35moe.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured on this build (runs/rc-0332.json): eval_count 508 of 4000, valid JSON after thinking.
+
+[expect.mlx-metal-0-33-2.qwen35.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+# --------------------------------------------------------------------------
+# Poison probes — defect-class canaries, keyed by PROFILE, not per-arch.
+# The qwen25vl entry asserts the fp16-accumulate overflow class (#214) stays
+# closed: the launcher injects GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32 into qwen25vl
+# runners (docs/maxusai/qwen25vl-cublas-f32-env.md), so the synthetic
+# 1.06x-fp16-ceiling checkerboard must decode healthily and leave no slot
+# residue. Profiles without an entry SKIP the probe. CPU always accumulates
+# fp32 (healthy by construction); metal/mlx are separate numerics domains with
+# no measured trigger — add an entry only with a measurement behind it.
+# --------------------------------------------------------------------------
+# Measured on this build (runs/rc-0332.json): eval_count 296 of 4000, valid JSON after thinking.
 
 [poison.cuda-dynres-903]
 model = "qwen2.5vl:3b-q4_K_M"
