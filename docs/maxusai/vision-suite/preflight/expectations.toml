@@ -95,7 +95,29 @@ arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # 903 fixes the MMQ ids-path tail-padding under-allocation and is still required
 # here: ggml-org/llama.cpp#27044 was re-checked on 2026-08-21 and is still open,
 # so b10488 carries the defect exactly as b10434 did.
-llama_cpp_build = "9d77fa172"
+#
+# RE-BASELINED 2026-08-29 for b10630 = d222767c7, the v0.33.2 fold (#232).
+# Same discipline as the b10488 re-baseline above: the numbers were re-measured
+# on the new payload FIRST and no expected value below was edited -- only this
+# identity moved. Full preflight on maxusai/ollama:sync-0.33.2
+# (0.33.2-dynres-5-g2b95b4a) returned PASS=18 / FAIL=1 with payload_pin as the
+# sole failure, which is this pin doing its job before the update. The ladders
+# came back byte-identical to the b10488 rows -- nemotron_h_omni
+# [266, 266, 578, 2306, 3270], gemma4 [1102 x 5], qwen35
+# [1034, 1034, 1034, 2306, 4082] -- with the same budgets and payload proofs,
+# and nemotron's pinned budget still lands 3328 -> 3270.
+#
+# 903 re-checked at b10630 on 2026-08-29 by source inspection: the defect is
+# intact (the ids path still sizes its body from ne12*n_expert_used but its tail
+# padding from ne11, mmq.cu:205-206 pre-patch) and #27044 is still open, so the
+# patch stays. Note it must keep hitting ONLY that call site -- the non-ids path
+# at mmq.cu:137 correctly uses ne11 because its body does too.
+#
+# First CUDA run to exercise poison_probe, and the first anywhere with node-level
+# corroboration: the meter (llama/compat/801) was enabled on the container and
+# reported clean over 33 nodes, so the fp16-accumulate class is now asserted at
+# v.blk.31.ffn_down itself rather than inferred from the decoded text.
+llama_cpp_build = "d222767c7"
 
 [profiles.rocm-0-32-1-dynres]
 platform = "rocm"
