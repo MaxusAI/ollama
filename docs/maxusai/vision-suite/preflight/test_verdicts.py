@@ -172,6 +172,24 @@ class TestThinkFormat(unittest.TestCase):
         self.assertIn("floor", r["summary"])
 
 
+# The quality arm delegates capped-arm detection to the vision suite's
+# summarize_engine_compare, which is NOT on every lineage: release/0.32.1-dynres
+# carries preflight/ without the suite, and CI asserts these tests still pass
+# there. checks.check_quality already skips gracefully in that case, but these
+# tests stub the vision_suite.py existence check to True precisely so they can
+# exercise the scoring path -- so they, and only they, need the sibling module.
+# Skip rather than fail: the harness is fine standalone, the test simply has
+# nothing to assert about a scorer that cannot run.
+try:
+    import summarize_engine_compare as _sec  # noqa: F401
+    _HAVE_SUITE = True
+except ImportError:
+    _HAVE_SUITE = False
+
+
+@unittest.skipUnless(_HAVE_SUITE,
+                     "summarize_engine_compare is not on this tree; the quality "
+                     "arm cannot be scored here and check_quality skips it")
 class TestQualityThresholds(unittest.TestCase):
     """check_quality turns vision_suite.py's scores into a verdict. The score
     field names below are the real ones vision_suite.py writes — if it ever
