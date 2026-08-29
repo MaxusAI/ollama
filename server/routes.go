@@ -3266,8 +3266,17 @@ func (s *Server) ChatHandler(c *gin.Context) {
 					}
 
 					tb.WriteString(thinking)
-					// we are now receiving content from the model - we should start applying structured outputs
-					if structuredOutputsState == structuredOutputsState_None && formatConstrains(req.Format) && tb.String() != "" && res.Message.Content != "" {
+					// we are now receiving content from the model - we should start applying structured outputs.
+					// Only when pass one was actually DEFERRED: under forceImmediate the
+					// format was applied from the first token, and a second pass would
+					// re-bill the request to apply nothing (GenerateHandler has always
+					// gated its twin on deferring). Unlike Generate's !deferViaMarker,
+					// marker models are NOT excluded here: the injected-stop resume above
+					// is their primary path, but this transition is the pinned fallback
+					// when the close marker streams through without tripping the stop
+					// (TestChatWithPromptEndingInThinkTag) — both consume state None, so
+					// whichever fires first owns pass two.
+					if structuredOutputsState == structuredOutputsState_None && deferring && tb.String() != "" && res.Message.Content != "" {
 						structuredOutputsState = structuredOutputsState_ReadyToApply
 						cancel()
 						return
@@ -3295,7 +3304,8 @@ func (s *Server) ChatHandler(c *gin.Context) {
 					}
 					// emit the collected thinking text before restarting with structured outputs and clear unstructured content
 					// to avoid leaking mixed tokens like "</think>Hello"
-					if structuredOutputsState == structuredOutputsState_None && formatConstrains(req.Format) && tb.String() != "" && remainingContent != "" {
+					// Same deferred-pass guard as the parser path above.
+					if structuredOutputsState == structuredOutputsState_None && deferring && tb.String() != "" && remainingContent != "" {
 						structuredOutputsState = structuredOutputsState_ReadyToApply
 						res.Message.Content = ""
 						ch <- res

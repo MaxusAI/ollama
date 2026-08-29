@@ -22,6 +22,7 @@ import (
 	"github.com/ollama/ollama/llm"
 	"github.com/ollama/ollama/manifest"
 	"github.com/ollama/ollama/ml"
+	"github.com/ollama/ollama/model/parsers"
 	ollamatemplate "github.com/ollama/ollama/template"
 	"github.com/ollama/ollama/types/model"
 )
@@ -2826,21 +2827,34 @@ func TestChatFormatPassthrough(t *testing.T) {
 
 	schema := json.RawMessage(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`)
 	cases := []struct {
-		name   string
-		parser string
-		format json.RawMessage
-		think  bool
+		name    string
+		parser  string
+		format  json.RawMessage
+		think   bool
+		content string
 	}{
 		// The original think-false rows: format applies from pass one
 		// (forceImmediate) and must reach the runner verbatim.
-		{"gemma4-schema-thinkfalse", "gemma4", schema, false},
-		{"qwen3.5-schema-thinkfalse", "qwen3.5", schema, false},
-		{"qwen3-thinking-schema-thinkfalse", "qwen3-thinking", schema, false},
+		{"gemma4-schema-thinkfalse", "gemma4", schema, false,
+			`{"answer":"42"}`},
+		{"qwen3.5-schema-thinkfalse", "qwen3.5", schema, false,
+			`{"answer":"42"}`},
+		{"qwen3-thinking-schema-thinkfalse", "qwen3-thinking", schema, false,
+			`{"answer":"42"}`},
 		// JSON null is NOT a format (structured-output SPEC §1): with think
 		// true it must not trigger the two-pass deferral. ChatHandler used
 		// to test req.Format != nil — and RawMessage("null") is non-nil —
 		// so an explicit null ran the whole flow to apply nothing (P0-7).
-		{"gemma4-null-thinktrue", "gemma4", json.RawMessage(`null`), true},
+		{"gemma4-null-thinktrue", "gemma4", json.RawMessage(`null`), true,
+			`{"answer":"42"}`},
+		// think:false + marker-wrapped thinking in the output: the FIRST
+		// line of defense is the parser itself — Init(think:false) makes
+		// gemma4 discard channel events, so no thinking surfaces and the
+		// transition stays quiet. The handler-side guard (deferring) is
+		// pinned separately by TestChatTransitionRequiresDeferring with a
+		// parser that does NOT honor that contract.
+		{"gemma4-schema-thinkfalse-thinking-leak", "gemma4", schema, false,
+			"<|channel>pondering the shape<channel|>" + `{"answer":"42"}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2922,7 +2936,7 @@ func TestChatFormatPassthrough(t *testing.T) {
 				requestsMu.Unlock()
 
 				fn(llm.CompletionResponse{
-					Content:            `{"answer":"42"}`,
+					Content:            tc.content,
 					Done:               true,
 					DoneReason:         llm.DoneReasonStop,
 					PromptEvalCount:    1,
@@ -2954,6 +2968,150 @@ func TestChatFormatPassthrough(t *testing.T) {
 				t.Errorf("expected first completion format to match the request format, got %q", string(requests[0].Format))
 			}
 		})
+	}
+}
+
+// leakyThinkParser claims thinking support but ignores Init's think value —
+// the contract in-tree parsers honor (gemma4 discards channel events under
+// think:false) but nothing forces on a registry-loaded parser. It surfaces
+// thinking alongside content on every chunk.
+type leakyThinkParser struct{}
+
+func (p *leakyThinkParser) Init(tools []api.Tool, _ *api.Message, _ *api.ThinkValue) []api.Tool {
+	return tools
+}
+
+func (p *leakyThinkParser) Add(s string, done bool) (string, string, []api.ToolCall, error) {
+	return s, "pondering anyway", nil, nil
+}
+
+func (p *leakyThinkParser) PreservedTokens() []string { return nil }
+func (p *leakyThinkParser) HasToolSupport() bool      { return false }
+func (p *leakyThinkParser) HasThinkingSupport() bool  { return true }
+
+func TestChatTransitionRequiresDeferring(t *testing.T) {
+	// With think:false on a thinking-capable parser, the format was applied
+	// from pass ONE (forceImmediate — deferring is false). Even if the parser
+	// then surfaces thinking before content, the thinking→content transition
+	// must NOT cancel and run a second constrained pass: pass one was never
+	// deferred, so there is nothing left to apply, and the second pass would
+	// double the token cost with reconstructed metrics (pass1 is nil).
+	// GenerateHandler's twin has always gated on deferring && !deferViaMarker;
+	// the chat sites gated on formatConstrains alone.
+	gin.SetMode(gin.TestMode)
+
+	parsers.Register("leaky-think-test", func() parsers.Parser {
+		return &leakyThinkParser{}
+	})
+
+	mock := &mockRunner{
+		CompletionResponse: llm.CompletionResponse{
+			Done:               true,
+			DoneReason:         llm.DoneReasonStop,
+			PromptEvalCount:    1,
+			PromptEvalDuration: 1,
+			EvalCount:          1,
+			EvalDuration:       1,
+		},
+	}
+
+	s := &Server{
+		sched: &Scheduler{
+			pendingReqCh:    make(chan *LlmRequest, 1),
+			finishedReqCh:   make(chan *LlmRequest, 1),
+			expiredCh:       make(chan *runnerRef, 1),
+			unloadedCh:      make(chan any, 1),
+			loaded:          make(map[string]*runnerRef),
+			newServerFn:     newMockServer(mock),
+			getGpuFn:        getGpuFn,
+			getSystemInfoFn: getSystemInfoFn,
+			waitForRecovery: 250 * time.Millisecond,
+			loadFn: func(req *LlmRequest, _ ml.SystemInfo, _ []ml.DeviceInfo, _ bool) bool {
+				time.Sleep(time.Millisecond)
+				req.successCh <- &runnerRef{llama: mock}
+				return false
+			},
+		},
+	}
+
+	go s.sched.Run(t.Context())
+
+	_, digest := createBinFile(t, ggml.KV{
+		"general.architecture":          "llama",
+		"llama.block_count":             uint32(1),
+		"llama.context_length":          uint32(8192),
+		"llama.embedding_length":        uint32(4096),
+		"llama.attention.head_count":    uint32(32),
+		"llama.attention.head_count_kv": uint32(8),
+		"tokenizer.ggml.tokens":         []string{""},
+		"tokenizer.ggml.scores":         []float32{0},
+		"tokenizer.ggml.token_type":     []int32{0},
+	}, []*ggml.Tensor{
+		{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.ffn_gate.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.ffn_up.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.ffn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.attn_k.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.attn_output.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.attn_q.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "blk.0.attn_v.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+		{Name: "output.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
+	})
+
+	w := createRequest(t, s.CreateHandler, api.CreateRequest{
+		Model:    "test-leaky-think",
+		Files:    map[string]string{"file.gguf": digest},
+		Parser:   "leaky-think-test",
+		Template: `{{- range .Messages }}{{ .Role }}: {{ .Content }}{{ end }}`,
+		Stream:   &stream,
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("create: expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var (
+		requestsMu sync.Mutex
+		requests   []llm.CompletionRequest
+	)
+	mock.CompletionFn = func(ctx context.Context, r llm.CompletionRequest, fn func(r llm.CompletionResponse)) error {
+		requestsMu.Lock()
+		requests = append(requests, r)
+		requestsMu.Unlock()
+
+		fn(llm.CompletionResponse{
+			Content:            `{"answer":"42"}`,
+			Done:               true,
+			DoneReason:         llm.DoneReasonStop,
+			PromptEvalCount:    1,
+			PromptEvalDuration: 1,
+			EvalCount:          1,
+			EvalDuration:       1,
+		})
+		return nil
+	}
+
+	format := json.RawMessage(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`)
+	streamRequest := false
+	think := false
+	w = createRequest(t, s.ChatHandler, api.ChatRequest{
+		Model:    "test-leaky-think",
+		Messages: []api.Message{{Role: "user", Content: "Respond in JSON."}},
+		Think:    &api.ThinkValue{Value: think},
+		Stream:   &streamRequest,
+		Format:   format,
+	})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("chat: expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if len(requests) != 1 {
+		t.Fatalf("expected a single completion call (format was applied from pass one), got %d", len(requests))
+	}
+	if !bytes.Equal([]byte(format), []byte(requests[0].Format)) {
+		t.Errorf("expected the format applied on the first and only pass, got %q", string(requests[0].Format))
 	}
 }
 
