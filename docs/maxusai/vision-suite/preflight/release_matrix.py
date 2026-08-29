@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""Render "what tested green" for a release, from preflight run artifacts.
+
+    python3 release_matrix.py runs/*.json > matrix.md
+
+The point is that this is *generated*. A hand-written green badge is worse
+than none: it claims a surface was validated when nobody ran it, and nothing
+ever goes back to correct it. Every cell here comes from a recorded run, and
+a surface with no run for the release reads "not run" rather than blank.
+
+Rows are surfaces (the preflight platform: cuda, mlx-cuda, mlx-metal, rocm,
+cpu). Columns are what an operator actually wants to know held.
+"""
+import argparse
+import glob
+import json
+import sys
+from collections import defaultdict
+
+# Every surface the fork claims to support. Listed explicitly so one with no
+# run still appears as a "not run" row instead of silently vanishing from the
+# table -- a missing row reads as "not applicable", which is not the same
+# thing and is the more dangerous of the two.
+SURFACES = ["cuda", "mlx-cuda", "mlx-metal", "apple-silicon-mlx", "rocm", "cpu"]
+
+# check name -> the column an operator thinks in
+GROUPS = [
+    ("Build identity", {"version", "image_tag", "payload_pin", "go_patch_marker",
+                        "payload_proof"}),
+    ("Image size ladder", {"token_ladder"}),
+    # Both names: runs recorded before the rename carry "pinned_budget", and a
+    # matrix that silently stopped seeing this check would read as green.
+    ("Pinned image budget", {"pinned_image_token_budget", "pinned_budget"}),
+    ("thinking on/off", {"think_format"}),
+    ("Output quality", {"text_baseline", "quality"}),
+    ("fp16 overflow canary", {"poison_probe"}),
+    ("Runner isolation", {"endpoint_exclusive"}),
+]
+RANK = {"FAIL": 0, "ERROR": 0, "CONTENTION": 1, "NEEDS_BASELINE": 1,
+        "SKIP": 2, "N/A": 3, "PASS": 4}
+MARK = {"FAIL": "**FAIL**", "ERROR": "**ERROR**", "CONTENTION": "contended",
+        "NEEDS_BASELINE": "no baseline", "SKIP": "skipped", "N/A": "n/a",
+        "PASS": "green"}
+
+
+def effective(r):
+    """A skip that says "does not apply" is NOT a coverage gap.
+
+    The harness deliberately separates the two (checks.py: saying "not yet
+    measured" about something structurally unable to move sends someone off to
+    measure it). Both arrive here as SKIP, so the distinction only survives in
+    the summary text. Collapsing them would make an architecture that CANNOT
+    have the probe drag a column down as if nobody had run it -- understating
+    coverage, which is its own kind of dishonesty.
+    """
+    if r.get("status") == "SKIP" and "does not apply" in (r.get("summary") or ""):
+        return "N/A"
+    return r.get("status")
+
+
+def worst(statuses):
+    """A group is only as good as its weakest check — never average them.
+
+    N/A is NEUTRAL, not weak: an architecture structurally unable to run a
+    probe should not drag down the ones that ran it and passed. It is dropped
+    from the comparison, and only reported when every cell is N/A. Ranking it
+    as weak would report "n/a" for a column two arches actually passed;
+    ranking it as strong would hide a real gap behind it.
+    """
+    if not statuses:
+        return None
+    scored = [s for s in statuses if s != "N/A"]
+    if not scored:
+        return "N/A"
+    return min(scored, key=lambda s: RANK.get(s, 1))
+
+
+def main(paths, version=None):
+    runs = []
+    for p in paths:
+        try:
+            runs.append(json.load(open(p)))
+        except Exception as exc:                                  # noqa: BLE001
+            print(f"skipping {p}: {exc}", file=sys.stderr)
+    if not runs:
+        sys.exit("no readable run artifacts")
+
+    if version:
+        # A release matrix must not borrow a green cell from a different
+        # build. Runs that do not match the release are dropped, and their
+        # surfaces then correctly report "not run".
+        runs = [r for r in runs
+                if r.get("meta", {}).get("version", "").startswith(version)]
+
+    by_surface = defaultdict(list)
+    for r in runs:
+        by_surface[r.get("meta", {}).get("platform") or "unknown"].append(r)
+    surfaces = SURFACES + [s for s in sorted(by_surface) if s not in SURFACES]
+
+    print("| surface | " + " | ".join(g for g, _ in GROUPS) + " | measured on |")
+    print("|---" * (len(GROUPS) + 2) + "|")
+    for surface in surfaces:
+        if not by_surface.get(surface):
+            print(f"| **{surface}** | " + " | ".join(["not run"] * len(GROUPS))
+                  + " | — |")
+            continue
+        # newest run wins for a surface
+        run = max(by_surface[surface],
+                  key=lambda r: r.get("meta", {}).get("started_utc", ""))
+        results = run.get("results", [])
+        cells = []
+        for _, names in GROUPS:
+            got = [effective(r) for r in results if r.get("check") in names]
+            w = worst(got)
+            cells.append(MARK.get(w, "not run") if w else "not run")
+        meta = run.get("meta", {})
+        cells.append(f"`{meta.get('version', '?')}`")
+        print(f"| **{surface}** | " + " | ".join(cells) + " |")
+
+    print()
+    print("Generated by `release_matrix.py` from recorded preflight runs. "
+          "A surface with no run for this release reads *not run* — absence is "
+          "shown, never assumed green. A group is reported at its weakest "
+          "check, so one skipped probe does not read as a pass.")
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("runs", nargs="*", help="preflight run JSONs")
+    ap.add_argument("--version", help="only count runs whose version starts "
+                                      "with this, e.g. 0.33.2-dynres")
+    a = ap.parse_args()
+    main(a.runs or sorted(glob.glob("runs/*.json")), a.version)
