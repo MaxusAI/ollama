@@ -90,7 +90,16 @@ Glenn's call, not the merger's.
    (`-u 1000:1000`, `-buildvcs=false`).
 4. ☑ `go test ./x/mlxrunner/` green — the semantic gate on the three
    mlxrunner conflicts.
-5. ☐ 903 functionally revalidated at b10630, not just apply-clean.
-6. ☐ Build, then **full preflight re-measurement** (the pin moved), and update
+5. ☑ 903 functionally revalidated at b10630 (2026-08-28), by source
+   inspection rather than by provoking the fault. **Still required and still
+   correct.** The defect is intact: the ids path sizes the buffer body from
+   `ne12*n_expert_used` but the padding term from `ne11` —
+   `mmq.cu:205-206` pre-patch. The patch lands on that call site only
+   (post-patch line 210); the non-ids path at line 137 keeps `ne11`, which is
+   correct there because its body is sized with `ne11` too. `ne11_flat =
+   ne12*n_expert_used` still exists directly below, confirming the intended
+   quantity is unchanged.
+6. ◐ Build **running** (2026-08-28, `maxusai/ollama:sync-0.33.2`, bigdisk
+   builder, stamped `0.33.2-dynres-0-geaaf951`), then **full preflight re-measurement** (the pin moved), and update
    `expectations.toml` `payload_pin`.
 7. ☐ Metal half on the Apple host — deferred by Glenn, not a blocker here.
