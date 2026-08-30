@@ -132,6 +132,30 @@ These are encoded in the harness, not left to the operator to remember:
   allowance spent inside an unclosed thinking block. That reads as a vision
   failure and is not one, so `thinking` is judged alongside `response` and the
   diagnosis names the trap when it sees it.
+- **`--log-cmd` is required on a container-less host**, and on `mlx-metal` it is
+  what makes `mlx_payload_pin` able to run at all. The MLX build is reported by
+  the runner's `"MLX engine initialized"` log line, so the check needs a way to
+  read the server's log; with a container it uses `docker logs`, and natively it
+  uses whatever this template names:
+
+  ```sh
+  python3 preflight.py --host http://127.0.0.1:11437 --platform mlx-metal \
+      --log-cmd "cat $HOME/Library/Logs/maxusai-ollama/serve.err.log"
+  ```
+
+  Note `serve.err.log`, not `serve.log`: slog writes to stderr, and on this host
+  the launchd agent splits the two streams — the engine-init line appears only
+  in the `.err` file (verified 2026-08-30: 41 occurrences there, 0 in the other).
+  Naming the wrong one costs nothing loudly; the check just SKIPs for want of a
+  line.
+
+  `{container}` and `{since}` are substituted if present. **A template that omits
+  `{since}` — `cat` of a file cannot use it — returns the whole log, so the
+  window is not applied by the command.** That is safe now because the pin check
+  filters each line on its own slog timestamp, but it was not always: before
+  that fix a month-old line satisfied a five-second window and the check
+  returned PASS on a run that loaded no model. Without any log access the check
+  SKIPs and says so; it never passes on absent evidence.
 - **Probes are grouped by budget.** Changing `image_{min,max}_tokens` is a Runner
   option and forces a full model reload, tens of seconds to minutes. Every
   default-budget probe runs first; the pinned arms run last. Use `--skip-pinned`
