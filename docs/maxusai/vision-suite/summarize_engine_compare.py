@@ -3,7 +3,13 @@
 
 Usage:
     python3 summarize_engine_compare.py [--dir RUNDIR] [--think false|on] \
-        [--prefix TAG_PREFIX] <model> [model ...]
+        [--prefix TAG_PREFIX] [--expect ARM,ARM] <model> [model ...]
+
+A cell missing arms renders as ⚠ INCOMPLETE (ADR 0012 rule 8), because since
+the suite began persisting after every arm, a scores file on disk is routinely
+well-formed AND mid-run — and an unfinished arm is otherwise indistinguishable
+from a measured em-dash. --expect narrows the expectation for a run scoped with
+ONLY_TESTS.
 
 --think selects which think cell to render (default "false"). Both cells are
 produced by run_engine_compare.sh and are separate results — render them as two
@@ -25,6 +31,26 @@ breaks that naming convention.
 import json
 import os
 import sys
+
+# The arms whose PRESENCE this report treats as evidence the campaign finished.
+# Not the same thing as the columns: the table renders "Multi anchored" either
+# way, from the block if it is there and an em-dash if it is not.
+#
+# `finetext` is the sentinel that matters — it is the LAST arm vision_suite
+# runs (27 of 27), so any run cut short is missing it, whatever else survived.
+# `multi_3img_anchored` (arm 14) was in this tuple and bought nothing on top of
+# that: every truncation it can catch, finetext catches too. What it did buy was
+# a large false-positive class — 47 historical cells on the benchmark host are
+# missing that arm and nothing else, including cells whose tables are published
+# verbatim in docs/maxusai/vision-campaign-*.md. Re-rendering one printed
+# "Do not publish" over a campaign that was complete for its era, which is
+# exactly the cry-wolf dynamic that gets a guard trained away.
+#
+# ONLY_TESTS scopes a run to a subset, and such a run declares its scope with
+# --expect so the check does not cry wolf on a campaign never meant to fill the
+# table. test_summarizers pins that finetext is still last; if the suite is
+# reordered so it is not, this sentinel has to be reconsidered.
+RENDERED_ARMS = ("scene_single", "document_single", "multi_3img", "finetext")
 
 
 def tag_for(model, think=None):
@@ -321,6 +347,13 @@ def main():
     if args and args[0] == "--prefix":
         prefix = args[1]
         args = args[2:]
+    # Which arms this render should expect, for the completeness check. Give
+    # the campaign's ONLY_TESTS value here when it ran scoped; unset, every
+    # column the table has is expected to be filled.
+    expect = list(RENDERED_ARMS)
+    if args and args[0] == "--expect":
+        expect = [a for a in args[1].split(",") if a]
+        args = args[2:]
     if not args:
         sys.exit(__doc__)
     engine_map = {}
@@ -334,6 +367,12 @@ def main():
     # older runs render "pre-H11". Mixed values are flagged, not averaged: a
     # table whose rows ran on two hosts is two campaigns wearing one header.
     prov_hosts, prov_vers = set(), set()
+    # Which expected arms actually have a block, per model. Since the scores
+    # file is written after EVERY arm rather than once per rung, a file on disk
+    # is routinely well-formed AND mid-run; without this the report renders
+    # such a cell as a complete two-table result whose unfinished arms are
+    # indistinguishable from measured em-dashes.
+    missing_by_model = {}
 
     t1 = ["| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial "
           "| Invoice (items · qty+price · total) | name_bbox in-band |",
@@ -359,6 +398,16 @@ def main():
         # anchored row; measured 2026-08-20, qwen3.8 AND nemotron3 think-on
         # both flip ❌→✅ under the calibration entry, for different reasons).
         ma = scores.get("multi_3img_anchored", {})
+
+        # Absent, not merely empty: an arm that ran and errored HAS a block and
+        # is a finished state for this file (it re-runs on resume, and the
+        # tables mark it); an arm with no block at all has not run yet. Only
+        # the second is an incomplete render. finetext is read from either the
+        # suite block or the pre-fold ft_ file, so presence follows `ft`.
+        have = {a for a in expect
+                if (ft if a == "finetext" else scores.get(a))}
+        if set(expect) - have:
+            missing_by_model[model] = sorted(set(expect) - have)
 
         # The window these numbers were achieved under. A cell measured at a
         # different num_ctx is not comparable on throughput (KV size affects
@@ -454,6 +503,26 @@ def main():
         t2.append(f"| {model} | {eng_cell} | {ctx_cell} | " + " | ".join(tiers) +
                   f" | {multi} | {anchored} | {think_cell} | {tok_cell} | {round(gen) if gen else '—'} | {round(pre) if pre else '—'}"
                   f" | {s_cell} | {rh_cell} |")
+
+    # ---- completeness: a partial campaign must say so (ADR 0012 rule 8) -----
+    # Printed BEFORE the tables: "do not publish" has to reach the reader
+    # ahead of the thing not to publish. Same wording as summarize_matrix.py,
+    # so the two summarizers cannot disagree about what incomplete looks like.
+    if missing_by_model:
+        n_exp = len(expect) * len(args)
+        n_have = n_exp - sum(len(v) for v in missing_by_model.values())
+        print(f"⚠ **INCOMPLETE** — {n_have}/{n_exp} arms. "
+              "Do not publish; re-render when the campaign completes. Missing:")
+        for model in args:
+            if model in missing_by_model:
+                print(f"- `{model}`: {', '.join(missing_by_model[model])}")
+        # Two innocent explanations, named here so a true statement about a
+        # complete campaign does not read as an alarm. A marker that cries
+        # wolf gets ignored, and then it is not a guard at all.
+        print("\nInnocent if the campaign ran scoped (ONLY_TESTS) or predates "
+              "an arm's introduction — `multi_3img_anchored` arrived in #200. "
+              "Declare the real scope with `--expect <arms>` and re-render; a "
+              "still-running campaign is the case this marker is for.\n")
 
     print("## Scene grounding (six objects, norm-1000 boxes) + document extraction\n")
     print("\n".join(t1))

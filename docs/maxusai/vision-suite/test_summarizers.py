@@ -999,6 +999,98 @@ class TestFinetextParity(unittest.TestCase):
         self.assertFalse(ftp.ft_done(None))
 
 
+class TestIncompleteRenderSaysSo(unittest.TestCase):
+    """A mid-run scores file must not render as a finished report.
+
+    Before the suite persisted after every arm, a scores file only ever
+    reached disk COMPLETE, so the renderer never had to ask. It does now: a
+    file is routinely well-formed and mid-run for the whole duration of a
+    rung, and an arm that has not run yet is otherwise indistinguishable from
+    a measured em-dash. summarize_matrix.py has had this guard since ADR 0012
+    rule 8; this is the same rule for the other summarizer.
+    """
+
+    MODEL = "gemma4:12b-it-q4_K_M"
+    ALL = list(sec.RENDERED_ARMS)
+
+    def test_a_cell_missing_only_multi_3img_anchored_is_not_flagged(self):
+        """47 historical cells on the benchmark host are missing that arm and
+        nothing else, several of them published verbatim. Flagging those reads
+        as "Do not publish" over a finished campaign, and a guard that cries
+        wolf on the archive gets trained away."""
+        r = self._render_with(["scene_single", "document_single", "multi_3img",
+                               "multi_3img_anchored", "finetext"])
+        self.assertNotIn("INCOMPLETE", r)
+        r2 = self._render_with(["scene_single", "document_single", "multi_3img",
+                                "finetext"])
+        self.assertNotIn("INCOMPLETE", r2)
+
+    def test_the_sentinel_is_still_the_last_arm_the_suite_runs(self):
+        """The narrowed expectation rests on finetext running LAST: any run cut
+        short is missing it. If the suite is reordered so something follows it,
+        that reasoning breaks and this tuple has to be reconsidered."""
+        names = [t[0] for t in vs.tests]
+        self.assertEqual(names[-1], "finetext",
+                         "finetext is no longer the last arm; RENDERED_ARMS "
+                         "relies on it as the truncation sentinel")
+        for arm in sec.RENDERED_ARMS:
+            self.assertIn(arm, names)
+
+    def _render_with(self, arms, extra=()):
+        d = tempfile.mkdtemp()
+        scores = {a: json.loads(json.dumps(THINKOFF.get(a, {"num_ctx": 16384})))
+                  for a in arms}
+        write(d, self.MODEL, "false", scores)
+        argv = ["summarize_engine_compare.py", "--dir", d, "--think", "false",
+                *extra, self.MODEL]
+        out = io.StringIO()
+        with mock_argv(argv), contextlib.redirect_stdout(out):
+            sec.main()
+        return out.getvalue()
+
+    def test_a_mid_run_file_is_marked_incomplete(self):
+        r = self._render_with(self.ALL[:2])
+        self.assertIn("⚠ **INCOMPLETE**", r)
+        self.assertIn("Do not publish", r)
+        for absent in self.ALL[2:]:
+            self.assertIn(absent, r, f"{absent} missing but not named")
+
+    def test_the_marker_precedes_the_tables(self):
+        """"Do not publish" has to reach the reader before the thing not to
+        publish; a warning under the tables is one a skimmer never sees."""
+        r = self._render_with(self.ALL[:2])
+        self.assertLess(r.index("INCOMPLETE"), r.index("## Scene grounding"),
+                        "the marker renders after the tables")
+
+    def test_a_complete_cell_is_not_marked(self):
+        self.assertNotIn("INCOMPLETE", self._render_with(self.ALL))
+
+    def test_a_scoped_run_can_declare_its_scope(self):
+        """ONLY_TESTS campaigns are complete for what they ran. A guard that
+        cried wolf on every scoped render would be trained away within a week.
+        """
+        arms = self.ALL[:2]
+        self.assertNotIn("INCOMPLETE",
+                         self._render_with(arms, ("--expect", ",".join(arms))))
+
+    def test_an_error_block_counts_as_run(self):
+        """An arm that ran and failed HAS a result: it re-runs on resume and
+        the tables mark it. Only an arm with no block at all is unrendered
+        work, and conflating the two would flag every campaign with a failure.
+        """
+        d = tempfile.mkdtemp()
+        scores = {a: json.loads(json.dumps(THINKOFF.get(a, {"num_ctx": 16384})))
+                  for a in self.ALL}
+        scores["multi_3img"] = {"error": "boom"}
+        write(d, self.MODEL, "false", scores)
+        argv = ["summarize_engine_compare.py", "--dir", d, "--think", "false",
+                self.MODEL]
+        out = io.StringIO()
+        with mock_argv(argv), contextlib.redirect_stdout(out):
+            sec.main()
+        self.assertNotIn("INCOMPLETE", out.getvalue())
+
+
 class TestIncrementalPersist(unittest.TestCase):
     """A killed rung must keep the arms it already paid for.
 
@@ -1012,14 +1104,44 @@ class TestIncrementalPersist(unittest.TestCase):
 
     ARMS = ["scene_single", "document_single", "multi_3img"]
 
-    def _run_suite(self, tmpdir, order=None, fail_on=None):
+    def _arm_by_prompt(self):
+        """Map each arm-under-test to its own prompt, from `vision_suite.tests`
+        — the same table the loop iterates. Identity, not call order."""
+        by = {}
+        for entry in vs.tests:
+            if entry[0] not in self.ARMS:
+                continue
+            prompt = entry[1]() if callable(entry[1]) else entry[1]
+            self.assertNotIn(prompt, by, f"{by.get(prompt)} and {entry[0]} "
+                                         "share a prompt; the stub cannot tell "
+                                         "them apart")
+            by[prompt] = entry[0]
+        self.assertEqual(sorted(by.values()), sorted(self.ARMS),
+                         "an arm under test is not in vision_suite.tests")
+        return by
+
+    def _run_suite(self, tmpdir, fail_on=None):
         """Drive the real arm loop with a stubbed generator.
 
-        `order` is the arm sequence this invocation is expected to run — the
-        full set on a first run, only the unfinished ones on a resume. The stub
-        names arms positionally against it and refuses to run past its end, so
-        an invocation that runs MORE arms than it should fails loudly instead of
-        silently mislabelling them.
+        The stub names each arm from ITS OWN PROMPT, and RECORDS every call
+        rather than refusing to run past an expected count. Both matter, and
+        the previous positional version made this harness blind to the exact
+        regression it exists to catch:
+
+        with `arm_done` mutated to return False — the severest possible
+        resume-skip regression — a resume re-runs all three arms. Naming them
+        positionally against a one-element `order` mislabelled the first call
+        and raised AssertionError on the second; the loop's own
+        `except Exception` swallowed that and wrote it as an error block over
+        a previously-good result. `calls` therefore still read
+        ["multi_3img"], and the key-only completeness assertion still passed,
+        because an error block has a key too. The test stayed green while the
+        contract it names was destroyed, and the good arm was overwritten in
+        the process.
+
+        So: never raise from the stub (the loop eats it), and let an overrun
+        show up as extra entries in the returned list where the caller's
+        assertion can see it.
 
         KeyboardInterrupt (not Exception) is the fault injected: it is what a
         Ctrl-C or an OOM kill actually raises, and it deliberately bypasses the
@@ -1027,14 +1149,13 @@ class TestIncrementalPersist(unittest.TestCase):
         a real kill does. An Exception would be caught and turned into an error
         block, which tests a different path.
         """
-        order = list(self.ARMS if order is None else order)
+        by_prompt = self._arm_by_prompt()
         calls = []
 
         def fake_gen(prompt, images, **kw):
-            if len(calls) >= len(order):
-                raise AssertionError(
-                    f"ran more arms than expected; already ran {calls}")
-            name = order[len(calls)]
+            # Unknown prompt means the loop ran something outside ONLY_TESTS.
+            # Record it; do not raise, or the guard hides it.
+            name = by_prompt.get(prompt, f"<unknown arm {prompt[:40]!r}>")
             calls.append(name)
             if name == fail_on:
                 raise KeyboardInterrupt("simulated kill mid-rung")
@@ -1109,12 +1230,23 @@ class TestIncrementalPersist(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             first = self._run_suite(tmp, fail_on="multi_3img")
             self.assertEqual(first, self.ARMS)
-            second = self._run_suite(tmp, order=["multi_3img"])
+            second = self._run_suite(tmp)
             self.assertEqual(second, ["multi_3img"],
                              "resume re-ran arms that were already finished")
             data = sec.load(os.path.join(tmp, "scores_persisttag.json"))
             self.assertEqual(sorted(data), sorted(self.ARMS),
                              "resume did not complete the cell")
+            # CONTENT, not just keys. An arm re-run and then failed leaves an
+            # {"error": ...} block behind — same key, destroyed result — which
+            # is exactly what the key-only assertion above cannot see, and
+            # exactly what a broken resume produces.
+            for arm in self.ARMS:
+                self.assertNotIn("error", data[arm],
+                                 f"{arm} came back as an error block; a resume "
+                                 "overwrote a finished arm")
+                self.assertIn("req_num_ctx", data[arm],
+                              f"{arm} carries no generation stamp; it is not a "
+                              "real result")
 
 
 class TestPersistRegressions(unittest.TestCase):
