@@ -760,6 +760,13 @@ measured_on = "2026-08-08"
 model = "gemma4:31b-mlx-bf16"    # bf16 anchors the baseline (quantisation and
                                  # runner regressions must not be conflated)
 patch_stride = 48                # patch_size 16 * n_merge 3
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 70           # ADR 0008 floor
 budget_max_tokens = 1120         # vendor maximum
 image_min_pixels = 161280        # 70 * 48^2
@@ -785,6 +792,13 @@ status = "measured"
 measured_on = "2026-08-08"
 model = "gemma4:12b-nvfp4"
 patch_stride = 48                # unified: patch_size folded to 48, n_merge 1
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 70
 budget_max_tokens = 1120
 image_min_pixels = 161280
@@ -806,6 +820,13 @@ model = "qwen3.6:35b-a3b-nvfp4"   # the MLX export anchors this arch; the siblin
                                   # q4_K_M tag is a GGUF and routes to
                                   # llama-server, so it CANNOT anchor an MLX row
 patch_stride = 32                 # patch_size 16 * spatial_merge_size 2
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 64            # shortest_edge 65536 / 32^2
 budget_max_tokens = 16384         # longest_edge 16777216 / 32^2
 image_min_pixels = 65536          # qwen35moe.vision.shortest_edge
@@ -842,6 +863,13 @@ model = "qwen3.8:27b-nvfp4"       # the MLX export; the sibling q4_K_M tag is a
                                   # GGUF and routes to llama-server, so it
                                   # CANNOT anchor an MLX row
 patch_stride = 32                 # patch_size 16 * spatial_merge_size 2
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 64            # shortest_edge 65536 / 32^2
 budget_max_tokens = 16384         # longest_edge 16777216 / 32^2
 image_min_pixels = 65536          # preprocessor_config shortest_edge
@@ -1153,6 +1181,13 @@ status = "measured"
 measured_on = "2026-08-17"
 model = "gemma4:31b-mlx-bf16"
 patch_stride = 48
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 70
 budget_max_tokens = 1120
 image_min_pixels = 161280
@@ -1166,6 +1201,13 @@ status = "measured"
 measured_on = "2026-08-17"
 model = "gemma4:12b-nvfp4"
 patch_stride = 48
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 70
 budget_max_tokens = 1120
 image_min_pixels = 161280
@@ -1179,6 +1221,13 @@ status = "measured"
 measured_on = "2026-08-17"
 model = "qwen3.6:35b-a3b-nvfp4"
 patch_stride = 32
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 64
 budget_max_tokens = 16384
 image_min_pixels = 65536
@@ -1192,6 +1241,13 @@ status = "measured"
 measured_on = "2026-08-17"
 model = "qwen3.8:27b-nvfp4"
 patch_stride = 32
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 64
 budget_max_tokens = 16384
 image_min_pixels = 65536
@@ -1216,6 +1272,13 @@ status = "measured"
 measured_on = "2026-08-27"
 model = "gemma4:31b-mlx-bf16"
 patch_stride = 48
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 70
 budget_max_tokens = 1120
 image_min_pixels = 161280
@@ -1229,6 +1292,13 @@ status = "measured"
 measured_on = "2026-08-27"
 model = "gemma4:12b-nvfp4"
 patch_stride = 48
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 70
 budget_max_tokens = 1120
 image_min_pixels = 161280
@@ -1242,6 +1312,13 @@ status = "measured"
 measured_on = "2026-08-27"
 model = "qwen3.6:35b-a3b-nvfp4"
 patch_stride = 32
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 64
 budget_max_tokens = 16384
 image_min_pixels = 65536
@@ -1255,6 +1332,13 @@ status = "measured"
 measured_on = "2026-08-27"
 model = "qwen3.8:27b-nvfp4"
 patch_stride = 32
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 64
 budget_max_tokens = 16384
 image_min_pixels = 65536
@@ -1275,6 +1359,13 @@ status = "measured"
 measured_on = "2026-08-30"
 model = "gemma4:31b-mlx-bf16"
 patch_stride = 48
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 70   # carried: Go sizing model byte-identical, see notes
 budget_max_tokens = 1120   # carried: Go sizing model byte-identical, see notes
 image_min_pixels = 161280   # carried: Go sizing model byte-identical, see notes
@@ -1289,6 +1380,13 @@ status = "measured"
 measured_on = "2026-08-30"
 model = "gemma4:12b-nvfp4"
 patch_stride = 48
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 70   # carried: Go sizing model byte-identical, see notes
 budget_max_tokens = 1120   # carried: Go sizing model byte-identical, see notes
 image_min_pixels = 161280   # carried: Go sizing model byte-identical, see notes
@@ -1303,6 +1401,13 @@ status = "measured"
 measured_on = "2026-08-30"
 model = "qwen3.6:35b-a3b-nvfp4"
 patch_stride = 32
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 64   # carried: Go sizing model byte-identical, see notes
 budget_max_tokens = 16384   # carried: Go sizing model byte-identical, see notes
 image_min_pixels = 65536   # carried: Go sizing model byte-identical, see notes
@@ -1317,6 +1422,13 @@ status = "measured"
 measured_on = "2026-08-30"
 model = "qwen3.8:27b-nvfp4"
 patch_stride = 32
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
 budget_min_tokens = 64   # carried: Go sizing model byte-identical, see notes
 budget_max_tokens = 16384   # carried: Go sizing model byte-identical, see notes
 image_min_pixels = 65536   # carried: Go sizing model byte-identical, see notes

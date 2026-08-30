@@ -401,6 +401,21 @@ def check_payload_proof(expect, arch, container, since, log_cmd=None):
     """
     name = "payload_proof"
     if not container:
+        # Two different skips wore the same message. "No container resolved" is
+        # a fact about THIS run — bring one and the check runs. On a platform
+        # whose runner emits no load_hparams line at all, no run will ever read
+        # these budgets, and reporting that as a missing container invites the
+        # next operator to go looking for one. The block says which it is.
+        if expect.get("budgets_observed") is False:
+            return result(
+                name, SKIP,
+                "budget/pixel values are not observable on this platform",
+                arch=arch,
+                diagnosis="This block's budgets were established without a load "
+                          "log (the native MLX path emits none) and are recorded "
+                          "as budgets_observed = false. Nothing here is waiting "
+                          "on a container; see the profile notes for how the "
+                          "values were established.")
         return result(name, SKIP, "no container resolved; cannot read the load log",
                       arch=arch)
 

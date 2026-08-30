@@ -1006,6 +1006,65 @@ class TestSchemaConstrainedFormat(unittest.TestCase):
         self.assertEqual(r["status"], PASS, r["summary"])
 
 
+class TestBudgetProvenance(unittest.TestCase):
+    """`status = "measured"` covered two kinds of value, and only one was.
+
+    In an mlx-metal block the LADDER is measured on the build under test, but
+    budget_min/max_tokens and image_min/max_pixels are not: the native MLX path
+    emits no load_hparams line, so check_payload_proof — the only consumer that
+    could observe them — SKIPs, and check_pinned_image_token_budget SKIPs too
+    for want of a `pinned` block. Sixteen values across four profiles were
+    declared measured while nothing on the platform could see them.
+
+    They are not deleted: they are true, they document the budget, and the
+    arithmetic test still catches a later hand-edit typo. What changes is that
+    the file now says which half was observed.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_unobservable_budgets_say_so(self):
+        for pid, arches in self.exp["expect"].items():
+            prof = self.exp["profiles"].get(pid, {})
+            if prof.get("platform") != "mlx-metal":
+                continue
+            for arch, e in arches.items():
+                if not isinstance(e, dict) or "budget_max_tokens" not in e:
+                    continue
+                self.assertIs(e.get("budgets_observed"), False,
+                              f"{pid}/{arch} declares budgets that nothing on "
+                              f"this platform can observe, without saying so")
+
+    def test_the_flag_cannot_dodge_a_check_that_could_have_run(self):
+        """The abuse guard. `budgets_observed = false` is a statement about the
+        PLATFORM, not a way to excuse a block on one that has a load log."""
+        for pid, arches in self.exp["expect"].items():
+            for arch, e in arches.items():
+                if not isinstance(e, dict) or e.get("budgets_observed") is not False:
+                    continue
+                ref = self.exp["profiles"].get(pid, {}).get("reference_image", "")
+                self.assertIn("no container", ref,
+                              f"{pid}/{arch} claims budgets are unobservable, but "
+                              f"its profile has a container and payload_proof "
+                              f"could read them")
+
+    def test_payload_proof_says_which_kind_of_skip_it_is(self):
+        r = checks.check_payload_proof(
+            {"budgets_observed": False, "image_min_pixels": 1, "patch_stride": 1,
+             "budget_min_tokens": 1, "image_max_pixels": 1,
+             "budget_max_tokens": 1}, "arch", None, 0)
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("not observable", r["summary"])
+
+    def test_a_normal_block_keeps_the_old_skip(self):
+        r = checks.check_payload_proof({"image_min_pixels": 1}, "arch", None, 0)
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("no container resolved", r["summary"])
+
+
 # The main block must stay at the END of the file: unittest.main() runs the
 # classes defined ABOVE it, so a class appended after it silently never runs
 # as a script — which is exactly what happened to PoisonNodeCorroboration's
