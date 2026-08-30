@@ -363,6 +363,11 @@ def main():
     results.append(checks.check_payload_pin(profile, container, args.exec_cmd))
     flush()
 
+    # On mlx-metal, MLX is the payload and llama_cpp_build above is the
+    # irrelevant one, so the run artefact must name it too — same argument the
+    # llama_cpp_build stamp already makes. Filled after the arch loop, where the
+    # engine-init line exists; see the mlx_payload_pin call below.
+
     results.append(checks.check_image_tag(client, profile, args.image_tag, container))
     results.append(checks.check_patch_marker(profile, container, args.exec_cmd))
     flush()
@@ -394,8 +399,11 @@ def main():
     # a model loads; running this before the arches would read whatever line the
     # PREVIOUS server process left in the file and call it this run's payload.
     # Windowed to run_start so only this run's loads can satisfy it.
-    results.append(checks.check_mlx_payload_pin(
-        profile, container, run_start, args.log_cmd))
+    mlx_pin = checks.check_mlx_payload_pin(
+        profile, container, run_start, args.log_cmd)
+    if mlx_pin.get("actual"):
+        meta["mlx_build"] = mlx_pin["actual"]
+    results.append(mlx_pin)
     flush()
 
     # ---- contention verdict, from every queue wait observed during the run ----
