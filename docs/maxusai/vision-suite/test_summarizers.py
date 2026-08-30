@@ -1564,5 +1564,44 @@ class TestDescopedCells(unittest.TestCase):
         self.assertIn(f"| {self.MODEL} |", r)
 
 
+class TestThinkOnBudgetGate(unittest.TestCase):
+    """A think-on start rung at or below CTX_PROMPT_RESERVE must be refused.
+
+    num_predict is derived as (num_ctx - CTX_PROMPT_RESERVE), so such a rung
+    yields <= 0. run_engine_compare.sh has always SAID that "cannot run at all"
+    in the comment above CTX_START_THINKON, and nothing enforced it — and it
+    does not fail loudly, because ollama reads a negative num_predict as
+    UNLIMITED. Measured 2026-08-30 with NUM_CTX=4096: the driver announced
+    `num_predict=-4096` and the arm generated unbounded. It happened to stop;
+    a runaway arm would not have, and bounding those is the ladder's whole job.
+
+    The gate runs before any model loop, so this needs no server.
+    """
+
+    def run_driver(self, num_ctx):
+        import subprocess
+        d = os.path.dirname(os.path.abspath(__file__))
+        env = dict(os.environ, THINK_MODES="on", NUM_CTX=str(num_ctx),
+                   MODELS="gemma4:26b-nvfp4", ONLY_TESTS="scene_single",
+                   DRY_RUN="1")
+        return subprocess.run(["sh", "./run_engine_compare.sh",
+                               "http://127.0.0.1:1"],
+                              cwd=d, env=env, capture_output=True, text=True,
+                              timeout=120)
+
+    def test_a_rung_at_or_below_the_reserve_is_refused(self):
+        for nc in (4096, 8192):          # below, and exactly at, the reserve
+            r = self.run_driver(nc)
+            self.assertEqual(r.returncode, 2, f"num_ctx={nc} was not refused")
+            self.assertIn("REFUSING", r.stderr)
+            self.assertIn("unlimited generation", r.stderr)
+
+    def test_the_message_names_the_negative_budget(self):
+        """The number is the point: -4096 reads as a smaller cap until you know
+        the sign flips the meaning."""
+        r = self.run_driver(4096)
+        self.assertIn("-4096", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

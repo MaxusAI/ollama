@@ -179,6 +179,23 @@ case " $THINK_MODES " in
     # raising the start rung — the documented way to skip cheap rungs on a
     # big model — silently defeated the guard it exists to provide.
     _start="${NUM_CTX:-${NUM_CTX_THINKON:-$CTX_START_THINKON}}"
+    # num_predict = nc - CTX_PROMPT_RESERVE, so a start rung at or below the
+    # reserve yields <= 0. The comment above CTX_START_THINKON has always said
+    # such a rung "cannot run at all"; nothing enforced it, and it does not fail
+    # loudly — ollama reads a NEGATIVE num_predict as UNLIMITED, so the cell runs
+    # with no generation cap whatsoever. Measured 2026-08-30 with NUM_CTX=4096:
+    # the driver announced `num_predict=-4096` and the arm generated 3689 tokens
+    # unbounded. It happened to stop; a runaway arm would not have, and the
+    # ladder exists precisely to bound those.
+    if [ "$_start" -le "$CTX_PROMPT_RESERVE" ]; then
+      echo "REFUSING: think-on starts at num_ctx=$_start, at or below" >&2
+      echo "  CTX_PROMPT_RESERVE=$CTX_PROMPT_RESERVE, so num_predict would be" >&2
+      echo "  $((_start - CTX_PROMPT_RESERVE)) — not a smaller budget but NO budget:" >&2
+      echo "  a negative num_predict means unlimited generation, which is the" >&2
+      echo "  opposite of what the ladder is for. Raise the start rung above the" >&2
+      echo "  reserve, or lower CTX_PROMPT_RESERVE if the prompts genuinely fit." >&2
+      exit 2
+    fi
     _higher=$(printf '%s\n' $CTX_LADDER \
       | awk -v s="$_start" -v m="$CTX_MAX" '$1>s && $1<=m {print; exit}')
     if [ -z "$_higher" ] && [ -z "${ALLOW_NO_LADDER:-}" ]; then
