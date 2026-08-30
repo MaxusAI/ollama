@@ -48,22 +48,32 @@ currently builds.
 ### MLX runtime — experimental, and slower on CUDA
 
 It works. Models load, stay resident and generate correct output on both
-Metal and CUDA (`gemma4:31b-nvfp4` decodes at 41.5 tok/s in 22 GiB on CUDA,
-measured on an idle host). But it is not the path to reach for by default:
+Metal and CUDA. But it is not the path to reach for by default:
 
-- **On CUDA it is roughly half the throughput of the GGML path.** That figure
-  is an operational observation, not a benchmark — we have no matched
-  same-host, same-model GGML-vs-MLX CUDA pair recorded, and the ratio will
-  move with model and GPU.
+- **On CUDA it runs at 34–75% of the `cuda` path's decode throughput, median
+  46%.** Measured across four matched model pairs on one host, one server
+  process — [full report](docs/maxusai/vision-benchmark-mlx-cuda-vs-cuda-2026-08-30.md).
+  "Roughly half" is a fair central estimate and a poor description of any
+  single case: the spread is 2.2× and it is not architectural (the two dense
+  pairs sit at 75% and 53%, the two MoE at 34% and 39%). Two of the four
+  `mlx-cuda` arms had no stable throughput to quote at all.
+- **Its bigger cost is variance, not speed.** `mlx-cuda`'s per-request spread
+  is ~5× the `cuda` path's and reaches 46% within a single arm — same host,
+  same prompt, back to back — while every `cuda` arm held inside ±1.5% first
+  time. For anything that sets a timeout or compares two builds, that matters
+  more than the ratio. It is per-model: `gemma4:31b-nvfp4` reproduced to 1.1%
+  across four independent measurements.
 - **On Metal it is the other way round.** A matched campaign measured MLX
   ~2.4× faster than llama-server (gemma4 12b: 121 vs 50 tok/s decode). So the
   CUDA gap is CUDA-specific, not an MLX property — do not generalise either
   number to the other platform.
-- **MLX-vs-GGUF output quality is not a controlled comparison.** Engine and
-  quantization move together — nvfp4 on MLX against q4_K_M on GGUF — so a
-  quality difference between the two cannot be attributed to the engine. We
-  have not separated them, and until someone does, treat "which is better"
-  as open.
+- **Engine and quantization move together in every figure above** — nvfp4 on
+  MLX against q4_K_M on GGUF, because those are the artefacts that exist. So
+  the throughput numbers describe the two stacks **as shipped**, not the
+  engine in isolation, and the same confound makes MLX-vs-GGUF *quality* an
+  uncontrolled comparison: a quality difference cannot be attributed to the
+  engine either. Nobody has separated them; until someone does, treat "which
+  is better" as open.
 - It is **converging with upstream's own MLX work** and is expected to be
   superseded by it; the fork has already retired its constrained-sampling
   layer in favour of upstream's engine (ADR 0033).
