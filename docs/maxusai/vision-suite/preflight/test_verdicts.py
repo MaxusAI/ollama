@@ -529,6 +529,37 @@ class TestExpectationsFile(unittest.TestCase):
                               f"profile {pid} lists arch {arch} with no "
                               f"[expect.{pid}.{arch}] block")
 
+    def test_every_mlx_profile_pins_its_mlx_build(self):
+        """The gap this check closes, asserted at the data level so it cannot
+        reopen.
+
+        Every mlx-metal profile exists BECAUSE the MLX pin moved, so a new one
+        added without `mlx_build` would resolve for a future MLX bump and
+        inherit ladders measured on different MLX — silently, which is the whole
+        failure payload_pin was written to prevent. mlx-metal-0-33-2 was added
+        that way (2026-08-30) and nothing complained; this test is what would
+        have complained.
+        """
+        for pid, prof in self.exp["profiles"].items():
+            if prof.get("platform") != "mlx-metal":
+                continue
+            sha = prof.get("mlx_build")
+            self.assertTrue(sha, f"profile {pid} serves the MLX payload but "
+                                 f"records no mlx_build; mlx_payload_pin would "
+                                 f"skip and the pin would go unasserted")
+            self.assertRegex(sha, r"^[0-9a-f]{40}$",
+                             f"{pid}: mlx_build should be the full MLX_VERSION "
+                             f"commit")
+
+    def test_a_profile_that_is_not_mlx_is_not_required_to_pin_one(self):
+        """The check must stay silent where there is no MLX payload, rather
+        than pushing operators to invent a value to quiet it."""
+        non_mlx = [p for p in self.exp["profiles"].values()
+                   if p.get("platform") not in ("mlx-metal", "mlx-cuda")]
+        self.assertTrue(non_mlx, "expected some non-MLX profiles")
+        for prof in non_mlx:
+            self.assertNotIn("mlx_build", prof)
+
     def test_pixel_budgets_equal_tokens_times_stride_squared(self):
         for pid, arches in self.exp["expect"].items():
             for arch, e in arches.items():
@@ -765,6 +796,71 @@ class TestQualityCappedExcluded(unittest.TestCase):
         eligible, capped = checks.quality_eligible(scores)
         self.assertEqual(eligible, {})
         self.assertEqual(capped, [])
+
+
+
+
+class TestMlxPayloadPin(unittest.TestCase):
+    """The mlx-metal profiles exist BECAUSE the MLX pin moved, and nothing
+    asserted the pin.
+
+    mlx-metal-0-33-0 says so about itself: "The MLX runner is the payload under
+    test here, so the MLX bump alone requires this new profile". But
+    `llama_cpp_build` is the only payload identity the harness checked, and it
+    describes the wrong payload on this platform (these profiles correctly set
+    `patchset = []`). So another MLX bump under the same base version would
+    match `version_pattern`, resolve the profile, and inherit its measured
+    ladders and budgets with nothing failing loudly — the exact failure
+    payload_pin exists to prevent, on the platform whose payload IS MLX.
+
+    The runner already reports the value: x/mlxrunner/server.go logs
+    "MLX engine initialized" with a `git describe` string whose g-suffix is the
+    MLX_VERSION commit, e.g. 0.32.1-37-gc793734 for c793734eb715…
+    """
+
+    PIN = "c793734eb715dbcfdb1ced58e348ec53c2d7ed85"
+    LINE = ('time=2026-08-30T09:20:01.893+10:00 level=INFO source=server.go:47 '
+            'msg="MLX engine initialized" "MLX version"=%s device=gpu\n')
+
+    def pin(self, profile, log, container="native", log_cmd="cat x"):
+        with mock.patch.object(checks, "container_logs", return_value=log):
+            return checks.check_mlx_payload_pin(profile, container, 0,
+                                                log_cmd=log_cmd)
+
+    def test_matching_pin_passes(self):
+        r = self.pin({"mlx_build": self.PIN}, self.LINE % "0.32.1-37-gc793734")
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertIn("c793734", r["summary"])
+
+    def test_a_different_mlx_build_fails(self):
+        """The whole point: the previous pin under the same base version."""
+        r = self.pin({"mlx_build": self.PIN}, self.LINE % "0.32.0-12-g27fec90")
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("27fec90", r.get("actual", ""))
+
+    def test_no_declared_pin_skips_loudly(self):
+        """Platforms with no MLX payload must not be failed, and must not be
+        silently passed either."""
+        r = self.pin({}, self.LINE % "0.32.1-37-gc793734")
+        self.assertEqual(r["status"], SKIP)
+        self.assertTrue(r.get("diagnosis"), "a skip must say how to close it")
+
+    def test_no_log_access_skips_rather_than_passing(self):
+        r = checks.check_mlx_payload_pin({"mlx_build": self.PIN}, None, 0,
+                                         log_cmd=None)
+        self.assertEqual(r["status"], SKIP)
+
+    def test_an_unparseable_version_never_passes(self):
+        """An exact-tag build reports no g-suffix. We cannot confirm the pin
+        from that, and 'cannot confirm' must not read as 'confirmed'."""
+        r = self.pin({"mlx_build": self.PIN}, self.LINE % "0.32.1")
+        self.assertNotEqual(r["status"], PASS)
+        self.assertIn("0.32.1", r["summary"] + str(r.get("actual", "")))
+
+    def test_absent_line_never_passes(self):
+        """No engine-init line in the window means nothing was verified."""
+        r = self.pin({"mlx_build": self.PIN}, "some unrelated log\n")
+        self.assertNotEqual(r["status"], PASS)
 
 
 # The main block must stay at the END of the file: unittest.main() runs the

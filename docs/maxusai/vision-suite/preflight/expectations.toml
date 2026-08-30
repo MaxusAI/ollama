@@ -175,6 +175,10 @@ platform = "mlx-metal"
 # baseline is taken; a wider pattern is safe only while every expectation below
 # is unmeasured (NEEDS_BASELINE cannot false-pass).
 version_pattern = '^0\.32\.5-maxusai-[0-9a-f]{7,40}$'  # tightened at first baseline (2026-08-08)
+# MLX payload identity, read from MLX_VERSION at a5d65906, the build
+# this profile was measured on (BINARIES.md). mlx_payload_pin asserts it
+# against the runner's engine-init line.
+mlx_build = "adf21deabd32c4fe3726ab2d373ff2165c3f27d6"
 patchset = []                     # llama.cpp compat patches do not apply to MLX
 reference_image = "native macOS build — no container"
 # The fork Go binary carries the --image-max-tokens flag either way; without a
@@ -196,6 +200,10 @@ platform = "mlx-metal"
 # test here, so the MLX bump alone requires a new profile — ADR 0011 rule: a
 # different payload is a different profile, never a widened pattern over two.
 version_pattern = '^0\.32\.14-maxusai-[0-9a-f]{7,40}$'
+# MLX payload identity, read from MLX_VERSION at c82b0464, the build
+# this profile was measured on (BINARIES.md). mlx_payload_pin asserts it
+# against the runner's engine-init line.
+mlx_build = "adf21deabd32c4fe3726ab2d373ff2165c3f27d6"
 patchset = []                     # llama.cpp compat patches do not apply to MLX
 reference_image = "native macOS build — no container"
 expect_patch_marker = 1
@@ -218,6 +226,10 @@ platform = "mlx-metal"
 # the 0.33.0 base per ADR 0032: a new base fails the gate until its fold
 # reviews the pins.
 version_pattern = '^0\.33\.0-maxusai-[0-9a-f]{7,40}$'
+# MLX payload identity, read from MLX_VERSION at 21cfe88e, the build
+# this profile was measured on (BINARIES.md). mlx_payload_pin asserts it
+# against the runner's engine-init line.
+mlx_build = "27fec909a3df9e572f5195607a453e273e7d80d0"
 patchset = []                     # llama.cpp compat patches do not apply to MLX
 reference_image = "native macOS build — no container"
 expect_patch_marker = 1
