@@ -240,6 +240,10 @@ platform = "mlx-metal"
 # ADR 0011 rule that created mlx-metal-0-33-0, the MLX bump alone requires a new
 # profile rather than a widened pattern. Narrow to the 0.33.2 base per ADR 0032.
 version_pattern = '^0\.33\.2-maxusai-[0-9a-f]{7,40}$'
+# MLX payload identity, read from MLX_VERSION at 2b95b4a5, the build this
+# profile was measured on (BINARIES.md). mlx_payload_pin (#244) asserts it
+# against the runner's engine-init line; inert until that check lands.
+mlx_build = "c793734eb715dbcfdb1ced58e348ec53c2d7ed85"
 patchset = []                     # llama.cpp compat patches do not apply to MLX
 reference_image = "native macOS build — no container"
 expect_patch_marker = 1
