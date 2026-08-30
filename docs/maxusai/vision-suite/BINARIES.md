@@ -16,8 +16,9 @@ A host can be rebuilt from it; a binary sitting only in `/tmp` cannot.
 |---|---|---|---|---|---|
 | `0.32.5-maxusai-a5d65906` | [`a5d65906`](https://github.com/MaxusAI/ollama/commit/a5d65906) | llama.cpp **b10353** | pre-v0.32.14 pin | `d807360e94e0e17a…` | provenance for the 2026-08-16/17 vision work |
 | `0.32.14-maxusai-9594f81e` | [`9594f81e`](https://github.com/MaxusAI/ollama/commit/9594f81e) | llama.cpp **b10434** | v0.32.14 pin | `711d4ad126773ddf…` | the `mlx-metal-0-32-14` preflight baseline |
-| `0.32.14-maxusai-c82b0464` | [`c82b0464`](https://github.com/MaxusAI/ollama/commit/c82b0464) | llama.cpp **b10434** | v0.32.14 pin | `03f9f9289dbaba1b…` | last pre-0.33.0 deploy on :11435 (2026-08-22 → 27); preflight PASS 2026-08-22; rollback target for the 0.33.0 swap |
-| `0.33.0-maxusai-21cfe88e` | [`21cfe88e`](https://github.com/MaxusAI/ollama/commit/21cfe88e) | llama.cpp **b10488** | 27fec909 pin | `6ab35025981be587…` | current; provenance for the `mlx-metal-0-33-0` profile measurement and the 27fec909 golden recalibration |
+| `0.32.14-maxusai-c82b0464` | [`c82b0464`](https://github.com/MaxusAI/ollama/commit/c82b0464) | llama.cpp **b10434** | v0.32.14 pin | `03f9f9289dbaba1b…` | last pre-0.33.0 deploy on :11435 (2026-08-22 → 27); preflight PASS 2026-08-22; rollback target (Go half) for the 0.33.0 swap |
+| `0.33.0-maxusai-21cfe88e` | [`21cfe88e`](https://github.com/MaxusAI/ollama/commit/21cfe88e) | llama.cpp **b10488** | 27fec909 pin | `6ab35025981be587…` | provenance for the `mlx-metal-0-33-0` profile measurement and the 27fec909 golden recalibration; rollback target (Go half) for the 0.33.2 swap |
+| `0.33.2-maxusai-2b95b4a5` | [`2b95b4a5`](https://github.com/MaxusAI/ollama/commit/2b95b4a5) | llama.cpp **b10630** | c793734e pin | `cd6033d6e72a430e…` | current; the v0.33.2 fold (#232, ADR 0033 xgrammar). Provenance for the `mlx-metal-0-33-2` profile measurement; preflight PASS 2026-08-30, goldens NOT recalibrated at this MLX pin |
 
 Full checksums:
 
@@ -26,6 +27,7 @@ d807360e94e0e17ac346df9bef198b6a182ef2f47bff78a0e772f6d1d67bad72  ~/.ollama/bina
 711d4ad126773ddfadeac01c7fea1dc924c60bcfdaf071f9212909aa24ee7a61  ~/.ollama/binaries/ollama-0.32.14-maxusai-9594f81e
 03f9f9289dbaba1bba2a5826a22e1aa85525e96c7e78942bf41828ff90908a71  ~/.ollama/binaries/ollama-0.32.14-maxusai-c82b0464
 6ab35025981be587ff0a73f0b7ae007b608300defb46f176065c8f3f52d78139  ~/.ollama/binaries/ollama-0.33.0-maxusai-21cfe88e
+cd6033d6e72a430e0b96170adb3d7408c908edfdae392654faeaae46f31e9ee2  ~/.ollama/binaries/ollama-0.33.2-maxusai-2b95b4a5
 ```
 
 ## What b10353 is the provenance for
@@ -44,6 +46,23 @@ preflight ladders reproduce exactly across the bump
 ([PR #166](https://github.com/MaxusAI/ollama/pull/166)), which is evidence the
 payload move is inert for *token accounting* — it says nothing about generative
 quality, which is what those documents measure.
+
+## A binary is not a rollback on its own
+
+**The archived binary does not carry its MLX payload.** The MLX library is
+`dlopen`'d at runtime by `libOllamaRoots()` (`x/mlxrunner/mlx/dynamic.go`), whose
+search path falls back to the repo's `build/lib/ollama` — and the launchd server
+resolves it the same way, because the repo root has no sibling `lib/ollama`.
+
+Measured 2026-08-30: `ollama-0.33.0-maxusai-21cfe88e`, started after the repo had
+been rebuilt at MLX `c793734`, reported `MLX version=0.32.1-37-gc793734` — old
+Go, new MLX, a pairing nothing was ever measured on. `mlx_payload_pin` failed it
+against the profile's `27fec909`, which is what that check is for.
+
+So "rollback target" below means **the Go half**. A true rollback restores the
+payload too: check out the commit and rebuild (`CLEAN_DEPS=1`, below) so
+`build/lib/ollama` holds that pin's MLX again, or verify what you actually got by
+reading the engine-init line before trusting the restored server.
 
 ## Rebuilding one
 
