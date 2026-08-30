@@ -127,7 +127,16 @@ def save(path, data):
     """Atomic JSON write: tmp + os.replace, the probes.py idiom. The scores
     file is the campaign's most expensive artifact; a truncate-then-dump
     writer that dies mid-dump destroys it."""
-    tmp = path + ".tmp"
+    # PID-UNIQUE, not a shared "<path>.tmp". Two writers on the same tag — two
+    # drivers, or an operator running vision_suite.py by hand against a tag a
+    # driver is working — opened the SAME temp inode, and the loser's json.dump
+    # landed inside the live scores file after the winner's os.replace. That
+    # corruption is not loud: load() returns None, capped_arms() returns [], and
+    # the driver reads an empty capped list as a CONVERGED cell and writes no
+    # NOT-CONVERGED marker. Per-arm persistence multiplied the racy windows from
+    # one per invocation to one per arm, so the collision got likelier as the
+    # write got safer.
+    tmp = f"{path}.{os.getpid()}.tmp"
     with open(tmp, "w") as fh:
         json.dump(data, fh, indent=1)
     os.replace(tmp, path)
