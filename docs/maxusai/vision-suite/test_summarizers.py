@@ -1144,10 +1144,15 @@ class TestIncrementalPersist(unittest.TestCase):
         assertion can see it.
 
         KeyboardInterrupt (not Exception) is the fault injected: it is what a
-        Ctrl-C or an OOM kill actually raises, and it deliberately bypasses the
-        loop's `except Exception` guard, so it reaches disk-state the same way
-        a real kill does. An Exception would be caught and turned into an error
-        block, which tests a different path.
+        Ctrl-C raises, and it deliberately bypasses the loop's `except Exception`
+        guard, so it reaches disk-state the same way an uncaught kill does. An
+        Exception would be caught and turned into an error block, which tests a
+        different path.
+
+        It is NOT what an OOM kill raises — the OOM killer sends SIGKILL, which
+        raises nothing at all and can land in the middle of a write. That case
+        is covered by TestPersistDurability's atomicity test, which interrupts
+        save() itself; this one only ever fails BETWEEN arms.
         """
         by_prompt = self._arm_by_prompt()
         calls = []
@@ -1204,9 +1209,14 @@ class TestIncrementalPersist(unittest.TestCase):
                                 f"{arm} persisted but does not read as done")
                 self.assertFalse(sec.was_capped(data[arm]))
 
-    def test_file_is_never_truncated_by_a_kill(self):
-        """Every write is atomic (tmp + os.replace), so no reader can observe a
-        half-written scores file — the artefact a campaign cannot rebuild."""
+    def test_the_persisted_file_parses_and_leaves_no_litter(self):
+        """What this actually checks: after a kill BETWEEN arms the file on disk
+        is well-formed and no temp file is left behind.
+
+        It was named for atomicity and did not test it — the fault fires inside
+        the generator, so no write is ever interrupted, and it would pass
+        against a naive open(path,"w").write(). Atomicity is tested where it can
+        be: TestPersistDurability.test_save_survives_a_kill_mid_write."""
         with tempfile.TemporaryDirectory() as tmp:
             self._run_suite(tmp, fail_on="multi_3img")
             path = os.path.join(tmp, "scores_persisttag.json")
@@ -1398,6 +1408,34 @@ class TestPersistDurability(unittest.TestCase):
                 vs.main()
             self.assertEqual(open(p + ".corrupt").read(), text,
                              "the unreadable file was destroyed, not set aside")
+
+    def test_save_survives_a_kill_mid_write(self):
+        """Atomicity, tested by actually interrupting a write.
+
+        This is the case a SIGKILL produces — the OOM killer raises nothing and
+        can land anywhere, including halfway through json.dump. The property
+        that matters is that the LIVE file is never the half-written one: the
+        bytes go to a temp and os.replace swaps it in whole, so a death before
+        that swap leaves the previous measurement untouched.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "scores_atomic.json")
+            sec.save(path, {"good_arm": {"eval_count": 8192}})
+
+            def half_written(data, fh, **kw):
+                fh.write('{"new_arm": {"eval_c')      # truncated on purpose
+                raise OSError("ENOSPC mid-dump")
+
+            with mock.patch.object(sec.json, "dump", half_written):
+                with self.assertRaises(OSError):
+                    sec.save(path, {"new_arm": {"eval_count": 1}})
+
+            self.assertEqual(sec.load(path), {"good_arm": {"eval_count": 8192}},
+                             "the half-written dump reached the live file")
+            leftover = [n for n in os.listdir(tmp) if n.endswith(".tmp")]
+            self.assertTrue(leftover, "expected the partial write to remain in "
+                                      "its temp, proving os.replace never ran")
+            self.assertNotIn(os.path.basename(path), leftover)
 
     def test_the_temp_file_is_unique_per_process(self):
         """save() wrote to one shared `<path>.tmp`. Two writers on the same tag
