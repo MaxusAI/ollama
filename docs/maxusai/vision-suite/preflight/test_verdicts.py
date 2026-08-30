@@ -798,8 +798,13 @@ class TestQualityCappedExcluded(unittest.TestCase):
 
 
 class TestMlxPayloadPin(unittest.TestCase):
-    """The mlx-metal profiles exist BECAUSE the MLX pin moved, and nothing
-    asserted the pin.
+    """No mlx-metal profile asserted which MLX it was actually running.
+
+    (The original wording here said these profiles "exist BECAUSE the MLX pin
+    moved". That is false for two of them — a5d65906 and c82b0464 both carry
+    adf21dea, so 0-32-14 was cut for the llama.cpp move — and the pins landed by
+    this same change are what refute it. The rule stands on its own: a profile
+    serving the MLX payload must record which MLX it was measured on.)
 
     mlx-metal-0-33-0 says so about itself: "The MLX runner is the payload under
     test here, so the MLX bump alone requires this new profile". But
@@ -929,6 +934,76 @@ class TestMlxPayloadPinWindow(unittest.TestCase):
             r = checks.check_mlx_payload_pin({"mlx_build": "c79"}, "native", 0,
                                              log_cmd="cat serve.log")
         self.assertNotEqual(r["status"], PASS)
+
+
+class TestSchemaConstrainedFormat(unittest.TestCase):
+    """ADR 0033 replaced the MLX runner's constrained sampling with upstream's
+    grammar engine, and the harness gated it with `json.loads()` succeeding.
+
+    fmt="json" was the only format usage anywhere in preflight, so a regression
+    that emits syntactically valid but SCHEMA-VIOLATING JSON passed clean —
+    which is precisely what constrained decoding exists to prevent. These pin a
+    schema the response must actually conform to.
+    """
+
+    SCHEMA = {"type": "object",
+              "properties": {"count": {"type": "integer"},
+                             "colors": {"type": "array",
+                                        "items": {"type": "string"}}},
+              "required": ["count", "colors"]}
+
+    def run_check(self, body):
+        expect = {"model": "m",
+                  "think_format": {"num_predict": 4000, "schema": self.SCHEMA,
+                                   "require_nonempty_thinking": False}}
+        client = StubClient([], think={"response": body, "thinking": "hm",
+                                       "eval_count": 40})
+        return checks.check_think_format(client, expect, "arch", 600)
+
+    def test_a_conforming_response_passes(self):
+        r = self.run_check('{"count": 3, "colors": ["red", "blue"]}')
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_valid_json_that_violates_the_schema_fails(self):
+        """The exact regression the old gate could not see: parses fine, wrong
+        shape entirely."""
+        r = self.run_check('{"facts": ["a", "b", "c"]}')
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("count", r["summary"])
+
+    def test_a_wrong_scalar_type_fails(self):
+        """Constrained decoding is supposed to make this unreachable; if it
+        stops doing so the harness must say it, not shrug at valid JSON."""
+        r = self.run_check('{"count": "three", "colors": ["red"]}')
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("integer", r["summary"])
+
+    def test_a_wrong_array_item_type_fails(self):
+        r = self.run_check('{"count": 1, "colors": [7]}')
+        self.assertEqual(r["status"], FAIL)
+
+    def test_the_schema_is_sent_as_the_format(self):
+        """A schema that is not actually transmitted gates nothing."""
+        sent = {}
+
+        class Recorder(StubClient):
+            def generate(self, model, prompt, **kw):
+                sent.update(kw)
+                return dict(self.think, _queue_wait_s=0.0)
+
+        expect = {"model": "m",
+                  "think_format": {"num_predict": 4000, "schema": self.SCHEMA}}
+        client = Recorder([], think={"response": '{"count": 1, "colors": []}',
+                                     "thinking": "hm", "eval_count": 40})
+        checks.check_think_format(client, expect, "arch", 600)
+        self.assertEqual(sent.get("fmt"), self.SCHEMA)
+
+    def test_no_schema_keeps_the_old_json_only_behaviour(self):
+        expect = {"model": "m", "think_format": {"num_predict": 4000}}
+        client = StubClient([], think={"response": '{"facts": []}',
+                                       "thinking": "hm", "eval_count": 40})
+        r = checks.check_think_format(client, expect, "arch", 600)
+        self.assertEqual(r["status"], PASS, r["summary"])
 
 
 # The main block must stay at the END of the file: unittest.main() runs the

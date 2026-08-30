@@ -196,8 +196,12 @@ probes are the evidence here.
 [profiles.mlx-metal-0-32-14]
 platform = "mlx-metal"
 # Upstream v0.32.14 merged 2026-08-17 (fork 9594f81e): LLAMA_CPP_VERSION
-# b10353 -> b10434 and MLX_VERSION bumped. The MLX runner is the payload under
-# test here, so the MLX bump alone requires a new profile — ADR 0011 rule: a
+# b10353 -> b10434. MLX_VERSION did NOT move — a5d65906 and c82b0464 both carry
+# adf21dea, which is why both profiles now pin the same mlx_build, and this
+# comment previously claimed an MLX bump that never happened. The llama.cpp move
+# is what separates this profile from its predecessor; the MLX runner is the
+# payload under test here, so a later MLX bump alone would also require a new
+# profile — ADR 0011 rule: a
 # different payload is a different profile, never a widened pattern over two.
 version_pattern = '^0\.32\.14-maxusai-[0-9a-f]{7,40}$'
 # MLX payload identity, read from MLX_VERSION at c82b0464, the build
@@ -297,6 +301,16 @@ is not part of the image budget — an earlier draft of this note claimed
 budget_min_tokens/image_min_pixels are NOT exercised by these geometries on
 gemma4 at all; qwen35's 68 rung is the one that does touch a floor
 (256x144 -> 352x192 = 67584 px, scaled up into visionMinPixels).
+
+THE think_format PROBE NOW SENDS A SCHEMA, not bare format:"json" (ADR 0033's
+grammar engine was otherwise gated by json.loads() succeeding, which cannot see
+a well-formed object of the wrong shape). The per-arch eval_count comments on
+those blocks were measured BEFORE that change; re-measured against this build on
+2026-08-30 with the schema applied, gemma4_unified 582 and qwen35 290, both
+still far under the 4000 budget. The schema deliberately describes the shape the
+existing prompt already asks for: changing the task instead sent gemma4:12b into
+runaway thinking (4000 tokens, empty response), i.e. the probe failed a healthy
+build.
 
 Vision golden parity re-checked at MLX c793734e and NOT recalibrated —
 TestVisionGoldenParity passes for 12b, 26b and 31b (31b norm_mean 96.941 ->
@@ -1525,6 +1539,16 @@ require_nonempty_thinking = true
 
 
 [expect.mlx-metal-0-33-2.gemma4.think_format]
+# ADR 0033 replaced the MLX runner's constrained sampling with upstream's
+# grammar engine, and this is the only probe that exercises it. A bare
+# format:"json" only proves the output parses; the schema below is what makes
+# it prove the SHAPE, which is the property constrained decoding exists to
+# provide. Keep it small — every key here is a claim the engine must honour on
+# every arch in this profile.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
 num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
@@ -1532,6 +1556,16 @@ require_nonempty_thinking = true
 # Measured on this build (runs/rc-0332.json): eval_count 116 of 4000, valid JSON after thinking.
 
 [expect.mlx-metal-0-33-2.gemma4_unified.think_format]
+# ADR 0033 replaced the MLX runner's constrained sampling with upstream's
+# grammar engine, and this is the only probe that exercises it. A bare
+# format:"json" only proves the output parses; the schema below is what makes
+# it prove the SHAPE, which is the property constrained decoding exists to
+# provide. Keep it small — every key here is a claim the engine must honour on
+# every arch in this profile.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
 num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
@@ -1539,6 +1573,16 @@ require_nonempty_thinking = true
 # Measured on this build (runs/rc-0332.json): eval_count 729 of 4000, valid JSON after thinking.
 
 [expect.mlx-metal-0-33-2.qwen35moe.think_format]
+# ADR 0033 replaced the MLX runner's constrained sampling with upstream's
+# grammar engine, and this is the only probe that exercises it. A bare
+# format:"json" only proves the output parses; the schema below is what makes
+# it prove the SHAPE, which is the property constrained decoding exists to
+# provide. Keep it small — every key here is a claim the engine must honour on
+# every arch in this profile.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
 num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
@@ -1546,6 +1590,16 @@ require_nonempty_thinking = true
 # Measured on this build (runs/rc-0332.json): eval_count 508 of 4000, valid JSON after thinking.
 
 [expect.mlx-metal-0-33-2.qwen35.think_format]
+# ADR 0033 replaced the MLX runner's constrained sampling with upstream's
+# grammar engine, and this is the only probe that exercises it. A bare
+# format:"json" only proves the output parses; the schema below is what makes
+# it prove the SHAPE, which is the property constrained decoding exists to
+# provide. Keep it small — every key here is a claim the engine must honour on
+# every arch in this profile.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
 num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
