@@ -1371,6 +1371,15 @@ budget_max_tokens = 1120   # carried: Go sizing model byte-identical, see notes
 image_min_pixels = 161280   # carried: Go sizing model byte-identical, see notes
 image_max_pixels = 2580480   # carried: Go sizing model byte-identical, see notes
 scaling = "flat"
+# Aspect axis. ladder_sizes is five 16:9 geometries, so it varies image SIZE
+# only, and a budget-fill arch scales every input to the same grid — which
+# makes gemma4's five rungs mathematically identical and its "5/5" one
+# degree of freedom reported as five. These three ratios (1:1, 4:3, 4:1)
+# move the axis the ladder cannot: gemma4 spans 1058-1102 across them,
+# while qwen tracks PIXEL COUNT rather than ratio (768x768, 1024x576 and
+# 576x1024 are all ~590k px, hence its identical 578). Measured on
+# 0.33.2-maxusai-2b95b4a5 against :11437, values emitted by the probe.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
 ladder_tolerance = 2
 # prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
 ladder = [1102, 1102, 1102, 1102, 1102]
@@ -1392,6 +1401,15 @@ budget_max_tokens = 1120   # carried: Go sizing model byte-identical, see notes
 image_min_pixels = 161280   # carried: Go sizing model byte-identical, see notes
 image_max_pixels = 2580480   # carried: Go sizing model byte-identical, see notes
 scaling = "flat"
+# Aspect axis. ladder_sizes is five 16:9 geometries, so it varies image SIZE
+# only, and a budget-fill arch scales every input to the same grid — which
+# makes gemma4's five rungs mathematically identical and its "5/5" one
+# degree of freedom reported as five. These three ratios (1:1, 4:3, 4:1)
+# move the axis the ladder cannot: gemma4 spans 1058-1102 across them,
+# while qwen tracks PIXEL COUNT rather than ratio (768x768, 1024x576 and
+# 576x1024 are all ~590k px, hence its identical 578). Measured on
+# 0.33.2-maxusai-2b95b4a5 against :11437, values emitted by the probe.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
 ladder_tolerance = 2
 # prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
 ladder = [1102, 1102, 1102, 1102, 1102]
@@ -1413,6 +1431,15 @@ budget_max_tokens = 16384   # carried: Go sizing model byte-identical, see notes
 image_min_pixels = 65536   # carried: Go sizing model byte-identical, see notes
 image_max_pixels = 16777216   # carried: Go sizing model byte-identical, see notes
 scaling = "dynamic"
+# Aspect axis. ladder_sizes is five 16:9 geometries, so it varies image SIZE
+# only, and a budget-fill arch scales every input to the same grid — which
+# makes gemma4's five rungs mathematically identical and its "5/5" one
+# degree of freedom reported as five. These three ratios (1:1, 4:3, 4:1)
+# move the axis the ladder cannot: gemma4 spans 1058-1102 across them,
+# while qwen tracks PIXEL COUNT rather than ratio (768x768, 1024x576 and
+# 576x1024 are all ~590k px, hence its identical 578). Measured on
+# 0.33.2-maxusai-2b95b4a5 against :11437, values emitted by the probe.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
 ladder_tolerance = 2
 # prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
 ladder = [68, 146, 578, 2306, 5186]
@@ -1434,6 +1461,15 @@ budget_max_tokens = 16384   # carried: Go sizing model byte-identical, see notes
 image_min_pixels = 65536   # carried: Go sizing model byte-identical, see notes
 image_max_pixels = 16777216   # carried: Go sizing model byte-identical, see notes
 scaling = "dynamic"
+# Aspect axis. ladder_sizes is five 16:9 geometries, so it varies image SIZE
+# only, and a budget-fill arch scales every input to the same grid — which
+# makes gemma4's five rungs mathematically identical and its "5/5" one
+# degree of freedom reported as five. These three ratios (1:1, 4:3, 4:1)
+# move the axis the ladder cannot: gemma4 spans 1058-1102 across them,
+# while qwen tracks PIXEL COUNT rather than ratio (768x768, 1024x576 and
+# 576x1024 are all ~590k px, hence its identical 578). Measured on
+# 0.33.2-maxusai-2b95b4a5 against :11437, values emitted by the probe.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
 ladder_tolerance = 2
 # prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
 ladder = [68, 146, 578, 2306, 5186]

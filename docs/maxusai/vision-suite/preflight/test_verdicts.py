@@ -1065,6 +1065,70 @@ class TestBudgetProvenance(unittest.TestCase):
         self.assertIn("no container resolved", r["summary"])
 
 
+class TestAspectLadder(unittest.TestCase):
+    """The token ladder varies image SIZE at a fixed 16:9, which is one axis.
+
+    ladder_sizes is 256x144 .. 3072x1728 — every rung 16:9. A budget-fill arch
+    scales any input to the same grid, so for gemma4 all five rungs are
+    mathematically forced to the same number and "5/5 geometries within +/-2"
+    reports one degree of freedom as five. Measured on the deployed build,
+    gemma4:12b spans 1058-1102 once the ASPECT RATIO moves (1:1 -> 1091,
+    4:3 -> 1066, 4:1 -> 1058), so the axis exists and the ladder never touched
+    it.
+
+    This runs as a separate expectation rather than by widening ladder_sizes:
+    that list is global, and every measured ladder in the file — CUDA, ROCm,
+    metal, mlx — was taken at those five geometries. Adding a rung would
+    invalidate ~29 blocks on hosts that cannot be re-measured from here, which
+    ADR 0011 forbids doing to make anything line up.
+    """
+
+    def stub(self, values):
+        return StubClient(list(values))
+
+    def test_matching_counts_pass(self):
+        e = {"model": "m", "ladder_tolerance": 2,
+             "aspect_ladder": {"768x768": 1091, "1024x768": 1066}}
+        r = checks.check_aspect_ladder(self.stub([1066, 1091]), e, "arch")
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_a_drifted_count_fails_and_names_the_geometry(self):
+        e = {"model": "m", "ladder_tolerance": 2,
+             "aspect_ladder": {"768x768": 1091, "1024x768": 1066}}
+        r = checks.check_aspect_ladder(self.stub([1200, 1091]), e, "arch")
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("1024x768", r["summary"])
+
+    def test_tolerance_is_honoured(self):
+        e = {"model": "m", "ladder_tolerance": 2,
+             "aspect_ladder": {"768x768": 1091}}
+        r = checks.check_aspect_ladder(self.stub([1093]), e, "arch")
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_no_expectation_skips(self):
+        r = checks.check_aspect_ladder(self.stub([]), {"model": "m"}, "arch")
+        self.assertEqual(r["status"], SKIP)
+
+    def test_a_declared_probe_must_add_a_degree_of_freedom(self):
+        """Its whole purpose is to move a value the 16:9 ladder cannot. A probe
+        whose geometries all predict the SAME number would pass while proving
+        nothing, which is the defect this check exists to fix."""
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            exp = tomllib.load(fh)
+        for pid, arches in exp["expect"].items():
+            for arch, e in arches.items():
+                if not isinstance(e, dict) or "aspect_ladder" not in e:
+                    continue
+                vals = list(e["aspect_ladder"].values())
+                self.assertGreater(len(vals), 1, f"{pid}/{arch}: one geometry")
+                flat = e.get("ladder", [None])[0]
+                distinct = set(vals) | ({flat} if flat is not None else set())
+                self.assertGreater(
+                    len(distinct), 1,
+                    f"{pid}/{arch}: every aspect geometry predicts the same "
+                    f"count as the 16:9 ladder, so it adds no coverage")
+
+
 # The main block must stay at the END of the file: unittest.main() runs the
 # classes defined ABOVE it, so a class appended after it silently never runs
 # as a script — which is exactly what happened to PoisonNodeCorroboration's
