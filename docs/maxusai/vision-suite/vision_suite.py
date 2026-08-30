@@ -16,7 +16,7 @@ import client
 # The ONE definition of "generation stopped at the harness cap" (SPEC H5:
 # import, never redefine). Resume needs it because a capped arm is an
 # unfinished measurement, not a result — see arm_done.
-from summarize_engine_compare import was_capped
+from summarize_engine_compare import save, was_capped
 
 HOST = TAG = MODEL = None  # set in main()
 DIR = os.path.dirname(os.path.abspath(__file__))
@@ -54,7 +54,11 @@ def img_path(name):
 
 
 def b64(name):
-    return base64.b64encode(open(img_path(name), "rb").read()).decode()
+    # Context-managed because the bare open() leaked a descriptor per image per
+    # arm; harmless under refcounting, but it made every test that drives the
+    # arm loop emit a ResourceWarning.
+    with open(img_path(name), "rb") as fh:
+        return base64.b64encode(fh.read()).decode()
 
 # Single source of truth for the request window, so what gets recorded in the
 # scores cannot drift from what was actually sent. num_predict and the prompt
@@ -1683,7 +1687,8 @@ def main():
     _scores_path = f"{DIR}/scores_{TAG}.json"
     if os.path.exists(_scores_path) and os.environ.get("FORCE") != "1":
         try:
-            existing = json.load(open(_scores_path)) or {}
+            with open(_scores_path) as _fh:
+                existing = json.load(_fh) or {}
         except Exception:
             existing = {}
         done = [t[0] for t in run_tests if arm_done(existing.get(t[0]))]
@@ -1698,10 +1703,28 @@ def main():
                      {n for n in done}]
         if not run_tests:
             print(f"##### ALL ARMS ALREADY SCORED for {TAG}; nothing to do")
-            open(f"{DIR}/scores_{TAG}.json", "w").write(json.dumps(existing, indent=1))
+            save(_scores_path, existing)
             print(f"SUITE DONE {TAG}")
             return
     results = dict(existing)
+
+    # PERSIST AFTER EVERY ARM, not once at the end of the loop. The driver
+    # invokes this module once per CONTEXT-ladder rung, so a kill discarded a
+    # whole rung's work: at the 131072 ceiling a single qwen3.6:35b-a3b
+    # think-on arm runs ~30 minutes and the rung re-runs 9 of them, so a Ctrl-C
+    # or an OOM at minute 260 threw away nine finished measurements that
+    # nothing had yet written down (measured 2026-08-29). finetext_probe.py has
+    # always persisted its ft_ block per run; this is the same rule for the arm
+    # loop. save() is the atomic tmp+os.replace writer, so a kill DURING a
+    # write cannot truncate the file either — the file it would truncate is the
+    # campaign's most expensive artefact.
+    #
+    # The resume contract is unchanged: this only ever writes FINISHED blocks
+    # plus this invocation's own results, which is exactly what the end-of-run
+    # write contained. arm_done/was_capped still decide what re-runs (SPEC H4b:
+    # capped arms ALWAYS re-run), so a partial file is a valid resume input.
+    def persist_scores():
+        save(_scores_path, results)
 
     # cold_start is a per-INVOCATION fact: the driver's cold start happens
     # once, immediately before this process — only the first arm actually
@@ -1734,6 +1757,10 @@ def main():
                 cold_start=cold_mech))
             cold_mech = "warm" if cold_mech else None
             results[name] = err_block
+            # The error block is a result too: it is what makes the arm re-run,
+            # and it carries the failure for diagnosis. Losing it to a later
+            # kill would leave the log as the only record of what went wrong.
+            persist_scores()
             continue
         text = r.get("response", "")
         # Answer AND reasoning to disk, via the shared helper so finetext_probe
@@ -1874,9 +1901,12 @@ def main():
             cold_start=cold_mech))
         cold_mech = "warm" if cold_mech else None
         results[name] = sc
+        persist_scores()
         print(json.dumps(sc, indent=1), flush=True)
-    
-    open(f"{DIR}/scores_{TAG}.json", "w").write(json.dumps(results, indent=1))
+
+    # Kept: this is the write that runs when the loop body never did (every arm
+    # already scored, or run_tests emptied by a filter), and it costs nothing.
+    persist_scores()
     print("SUITE DONE", TAG)
 
 if __name__ == "__main__":

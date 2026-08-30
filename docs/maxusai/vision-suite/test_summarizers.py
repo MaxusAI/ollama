@@ -24,6 +24,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -996,6 +997,124 @@ class TestFinetextParity(unittest.TestCase):
                                       "done_reason": "length"}))
         self.assertFalse(ftp.ft_done({"error": "boom"}))
         self.assertFalse(ftp.ft_done(None))
+
+
+class TestIncrementalPersist(unittest.TestCase):
+    """A killed rung must keep the arms it already paid for.
+
+    vision_suite wrote scores_<tag>.json once, after the whole arm loop. The
+    driver invokes it per CONTEXT-ladder rung, so the blast radius is one rung
+    — but at the 131072 ceiling a single qwen3.6:35b-a3b think-on arm runs ~30
+    minutes and the rung re-runs 9 of them. A Ctrl-C or OOM at minute 260
+    discarded every completed arm, because nothing had reached disk.
+    finetext_probe.py has always persisted its ft_ block per run.
+    """
+
+    ARMS = ["scene_single", "document_single", "multi_3img"]
+
+    def _run_suite(self, tmpdir, order=None, fail_on=None):
+        """Drive the real arm loop with a stubbed generator.
+
+        `order` is the arm sequence this invocation is expected to run — the
+        full set on a first run, only the unfinished ones on a resume. The stub
+        names arms positionally against it and refuses to run past its end, so
+        an invocation that runs MORE arms than it should fails loudly instead of
+        silently mislabelling them.
+
+        KeyboardInterrupt (not Exception) is the fault injected: it is what a
+        Ctrl-C or an OOM kill actually raises, and it deliberately bypasses the
+        loop's `except Exception` guard, so it reaches disk-state the same way
+        a real kill does. An Exception would be caught and turned into an error
+        block, which tests a different path.
+        """
+        order = list(self.ARMS if order is None else order)
+        calls = []
+
+        def fake_gen(prompt, images, **kw):
+            if len(calls) >= len(order):
+                raise AssertionError(
+                    f"ran more arms than expected; already ran {calls}")
+            name = order[len(calls)]
+            calls.append(name)
+            if name == fail_on:
+                raise KeyboardInterrupt("simulated kill mid-rung")
+            return {"response": "{}", "_host": "http://h:1", "_server_version": "v",
+                    "_prompt_sha": "abc", "_images_sha": "def",
+                    "prompt_eval_count": 10, "eval_count": 20,
+                    "done_reason": "stop", "_num_ctx": 16384, "_num_predict": 2200,
+                    "total_duration": 1, "eval_duration": 1,
+                    "prompt_eval_duration": 1, "load_duration": 1}
+
+        env = {"ONLY_TESTS": ",".join(self.ARMS)}
+        argv = ["vision_suite.py", "http://h:1", "persisttag", "m:tag"]
+        with mock.patch.object(vs, "DIR", tmpdir), \
+                mock.patch.object(vs, "gen", fake_gen), \
+                mock.patch.object(vs.client, "persist", lambda *a, **k: {}), \
+                mock.patch.dict(os.environ, env, clear=False), \
+                mock.patch.object(sys, "argv", argv), \
+                contextlib.redirect_stdout(io.StringIO()):
+            try:
+                vs.main()
+            except KeyboardInterrupt:
+                pass
+        return calls
+
+    def test_completed_arms_survive_a_kill_mid_rung(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = self._run_suite(tmp, fail_on="multi_3img")
+            self.assertEqual(calls, self.ARMS, "all three arms should be attempted")
+            path = os.path.join(tmp, "scores_persisttag.json")
+            self.assertTrue(os.path.exists(path),
+                            "arms 1-2 completed; nothing was written to disk")
+            data = sec.load(path)
+            self.assertIn("scene_single", data)
+            self.assertIn("document_single", data)
+            self.assertNotIn("multi_3img", data,
+                             "the killed arm must not appear as a result")
+
+    def test_persisted_arms_are_valid_resume_input(self):
+        """SPEC H4b: what survives must be recognised as FINISHED, so a resume
+        skips it rather than paying for it twice."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run_suite(tmp, fail_on="multi_3img")
+            data = sec.load(os.path.join(tmp, "scores_persisttag.json"))
+            for arm in ("scene_single", "document_single"):
+                self.assertTrue(vs.arm_done(data[arm]),
+                                f"{arm} persisted but does not read as done")
+                self.assertFalse(sec.was_capped(data[arm]))
+
+    def test_file_is_never_truncated_by_a_kill(self):
+        """Every write is atomic (tmp + os.replace), so no reader can observe a
+        half-written scores file — the artefact a campaign cannot rebuild."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run_suite(tmp, fail_on="multi_3img")
+            path = os.path.join(tmp, "scores_persisttag.json")
+            with open(path) as fh:
+                json.load(fh)  # raises if truncated
+            self.assertEqual([n for n in os.listdir(tmp) if n.endswith(".tmp")], [],
+                             "atomic write left a .tmp file behind")
+
+    def test_full_run_still_writes_every_arm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run_suite(tmp)
+            data = sec.load(os.path.join(tmp, "scores_persisttag.json"))
+            self.assertEqual(sorted(data), sorted(self.ARMS))
+
+    def test_a_resume_skips_what_survived_and_reruns_only_the_rest(self):
+        """The whole point, end to end: kill mid-rung, then resume. What
+        survived must cost nothing the second time, and the arm that never
+        finished must run again. This is the resume contract the incremental
+        write has to leave intact, not just the arm_done() verdict on it.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            first = self._run_suite(tmp, fail_on="multi_3img")
+            self.assertEqual(first, self.ARMS)
+            second = self._run_suite(tmp, order=["multi_3img"])
+            self.assertEqual(second, ["multi_3img"],
+                             "resume re-ran arms that were already finished")
+            data = sec.load(os.path.join(tmp, "scores_persisttag.json"))
+            self.assertEqual(sorted(data), sorted(self.ARMS),
+                             "resume did not complete the cell")
 
 
 if __name__ == "__main__":
