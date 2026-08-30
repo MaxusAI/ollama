@@ -1,0 +1,1568 @@
+{
+  "meta": {
+    "purpose": "matched MLX-vs-GGML CUDA throughput, same host, same server process",
+    "server_version": "0.33.2-dynres-5-g2b95b4a",
+    "host": "http://127.0.0.1:11517",
+    "num_ctx_pinned": 8192,
+    "num_predict": 256,
+    "repeats": 12,
+    "think": false,
+    "confound": "engine and quantization move together (nvfp4 on MLX vs q4_K_M on GGML); this measures the two stacks as shipped, not the engine in isolation",
+    "estimator": "tail-half median; half_shift_pct reports stationarity",
+    "not_applicable_to": "mlx-metal -- different quantization, different hardware"
+  },
+  "warmup": {
+    "model": "qwen3.5:0.8b-mlx",
+    "ok": true,
+    "wall_s": 437.6,
+    "eval_count": 32,
+    "prompt_eval_count": 50,
+    "decode_tok_s": 3.87,
+    "prefill_tok_s": 0.13,
+    "load_s": 18.82,
+    "total_s": 437.55,
+    "done_reason": "length"
+  },
+  "runs": [
+    {
+      "pair": "gemma4-31b",
+      "engine": "mlx-cuda",
+      "model": "gemma4:31b-nvfp4",
+      "slot": "first",
+      "warm_discarded": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 1.42,
+          "prefill_tok_s": 0.62,
+          "load_s": 31.41,
+          "total_s": 291.34,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 47.18,
+          "prefill_tok_s": 1431869.32,
+          "load_s": 0.09,
+          "total_s": 5.52,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 47.15,
+          "prefill_tok_s": 2717542.01,
+          "load_s": 0.1,
+          "total_s": 5.53,
+          "done_reason": "length"
+        }
+      ],
+      "samples": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 50.33,
+          "prefill_tok_s": 2032773.28,
+          "load_s": 0.07,
+          "total_s": 5.16,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 46.36,
+          "prefill_tok_s": 1953280.71,
+          "load_s": 0.1,
+          "total_s": 5.62,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 50.12,
+          "prefill_tok_s": 1471029.72,
+          "load_s": 0.09,
+          "total_s": 5.2,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 45.99,
+          "prefill_tok_s": 2939059.5,
+          "load_s": 0.08,
+          "total_s": 5.65,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 43.11,
+          "prefill_tok_s": 1331087.69,
+          "load_s": 0.09,
+          "total_s": 6.03,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 43.31,
+          "prefill_tok_s": 1675328.23,
+          "load_s": 0.09,
+          "total_s": 6.0,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 44.06,
+          "prefill_tok_s": 2076711.17,
+          "load_s": 0.07,
+          "total_s": 5.88,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 49.6,
+          "prefill_tok_s": 2701510.64,
+          "load_s": 0.09,
+          "total_s": 5.26,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 43.72,
+          "prefill_tok_s": 3199268.74,
+          "load_s": 0.09,
+          "total_s": 5.95,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 48.0,
+          "prefill_tok_s": 1512345.68,
+          "load_s": 0.1,
+          "total_s": 5.43,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 48.94,
+          "prefill_tok_s": 2156974.95,
+          "load_s": 0.09,
+          "total_s": 5.32,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 46.02,
+          "prefill_tok_s": 1807517.8,
+          "load_s": 0.08,
+          "total_s": 5.65,
+          "done_reason": "length"
+        }
+      ],
+      "error": null,
+      "decode_median": 46.19,
+      "decode_min": 43.11,
+      "decode_max": 50.33,
+      "spread_pct": 15.6,
+      "n": 12,
+      "decode_tail_median": 47.01,
+      "half_shift_pct": 1.8,
+      "stationary": true
+    },
+    {
+      "pair": "gemma4-31b",
+      "engine": "cuda",
+      "model": "gemma4:31b-it-q4_K_M",
+      "slot": "first",
+      "warm_discarded": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 14.35,
+          "prefill_tok_s": 0.68,
+          "load_s": 113.99,
+          "total_s": 204.2,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.76,
+          "prefill_tok_s": 352.31,
+          "load_s": 0.07,
+          "total_s": 4.69,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.34,
+          "prefill_tok_s": 331.85,
+          "load_s": 0.05,
+          "total_s": 4.83,
+          "done_reason": "length"
+        }
+      ],
+      "samples": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.72,
+          "prefill_tok_s": 291.87,
+          "load_s": 0.05,
+          "total_s": 4.31,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 63.14,
+          "prefill_tok_s": 314.45,
+          "load_s": 0.07,
+          "total_s": 4.29,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.87,
+          "prefill_tok_s": 325.0,
+          "load_s": 0.1,
+          "total_s": 4.32,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.51,
+          "prefill_tok_s": 298.61,
+          "load_s": 0.08,
+          "total_s": 4.35,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.54,
+          "prefill_tok_s": 328.74,
+          "load_s": 0.05,
+          "total_s": 4.3,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 61.79,
+          "prefill_tok_s": 273.99,
+          "load_s": 0.07,
+          "total_s": 4.4,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.67,
+          "prefill_tok_s": 286.15,
+          "load_s": 0.05,
+          "total_s": 4.31,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.23,
+          "prefill_tok_s": 310.03,
+          "load_s": 0.06,
+          "total_s": 4.34,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.11,
+          "prefill_tok_s": 264.37,
+          "load_s": 0.06,
+          "total_s": 4.37,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.68,
+          "prefill_tok_s": 230.94,
+          "load_s": 0.08,
+          "total_s": 4.38,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 63.04,
+          "prefill_tok_s": 296.31,
+          "load_s": 0.05,
+          "total_s": 4.28,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.67,
+          "prefill_tok_s": 318.0,
+          "load_s": 0.06,
+          "total_s": 4.3,
+          "done_reason": "length"
+        }
+      ],
+      "error": null,
+      "decode_median": 62.67,
+      "decode_min": 61.79,
+      "decode_max": 63.14,
+      "spread_pct": 2.2,
+      "n": 12,
+      "decode_tail_median": 62.67,
+      "half_shift_pct": 0.1,
+      "stationary": true
+    },
+    {
+      "pair": "qwen3.8-27b",
+      "engine": "mlx-cuda",
+      "model": "qwen3.8:27b-nvfp4",
+      "slot": "first",
+      "warm_discarded": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 2.31,
+          "prefill_tok_s": 5.28,
+          "load_s": 48.31,
+          "total_s": 168.48,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 25.52,
+          "prefill_tok_s": 363.68,
+          "load_s": 0.09,
+          "total_s": 10.26,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 24.56,
+          "prefill_tok_s": 3442577.8,
+          "load_s": 0.1,
+          "total_s": 10.52,
+          "done_reason": "length"
+        }
+      ],
+      "samples": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 25.84,
+          "prefill_tok_s": 3183902.19,
+          "load_s": 0.09,
+          "total_s": 10.0,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 31.91,
+          "prefill_tok_s": 2300437.08,
+          "load_s": 0.08,
+          "total_s": 8.11,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 33.05,
+          "prefill_tok_s": 1863238.31,
+          "load_s": 0.06,
+          "total_s": 7.81,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 35.05,
+          "prefill_tok_s": 3271823.06,
+          "load_s": 0.09,
+          "total_s": 7.4,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 38.6,
+          "prefill_tok_s": 2380839.01,
+          "load_s": 0.07,
+          "total_s": 6.71,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 38.5,
+          "prefill_tok_s": 2063131.83,
+          "load_s": 0.09,
+          "total_s": 6.74,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 38.01,
+          "prefill_tok_s": 2096787.72,
+          "load_s": 0.1,
+          "total_s": 6.83,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 38.54,
+          "prefill_tok_s": 2387318.56,
+          "load_s": 0.08,
+          "total_s": 6.72,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 37.27,
+          "prefill_tok_s": 2524997.48,
+          "load_s": 0.09,
+          "total_s": 6.96,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 35.85,
+          "prefill_tok_s": 2562788.31,
+          "load_s": 0.09,
+          "total_s": 7.23,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 34.3,
+          "prefill_tok_s": 1482184.15,
+          "load_s": 0.08,
+          "total_s": 7.55,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 34.25,
+          "prefill_tok_s": 1376007.93,
+          "load_s": 0.09,
+          "total_s": 7.57,
+          "done_reason": "length"
+        }
+      ],
+      "error": null,
+      "decode_median": 35.45,
+      "decode_min": 25.84,
+      "decode_max": 38.6,
+      "spread_pct": 36.0,
+      "n": 12,
+      "decode_tail_median": 36.56,
+      "half_shift_pct": 7.4,
+      "stationary": false
+    },
+    {
+      "pair": "qwen3.8-27b",
+      "engine": "cuda",
+      "model": "qwen3.8:27b-q4_K_M",
+      "slot": "first",
+      "warm_discarded": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 69.34,
+          "prefill_tok_s": 144.33,
+          "load_s": 22.21,
+          "total_s": 26.27,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 69.76,
+          "prefill_tok_s": 187.06,
+          "load_s": 0.07,
+          "total_s": 4.58,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 70.27,
+          "prefill_tok_s": 171.41,
+          "load_s": 0.06,
+          "total_s": 4.0,
+          "done_reason": "length"
+        }
+      ],
+      "samples": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 70.08,
+          "prefill_tok_s": 160.6,
+          "load_s": 0.08,
+          "total_s": 4.05,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 69.41,
+          "prefill_tok_s": 182.32,
+          "load_s": 0.07,
+          "total_s": 4.04,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 69.44,
+          "prefill_tok_s": 134.48,
+          "load_s": 0.08,
+          "total_s": 4.15,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 69.85,
+          "prefill_tok_s": 187.64,
+          "load_s": 0.08,
+          "total_s": 4.01,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 69.8,
+          "prefill_tok_s": 110.08,
+          "load_s": 0.07,
+          "total_s": 4.2,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 69.89,
+          "prefill_tok_s": 138.24,
+          "load_s": 0.07,
+          "total_s": 4.1,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 69.54,
+          "prefill_tok_s": 135.82,
+          "load_s": 0.09,
+          "total_s": 4.14,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 70.04,
+          "prefill_tok_s": 139.09,
+          "load_s": 0.08,
+          "total_s": 4.1,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 68.51,
+          "prefill_tok_s": 160.53,
+          "load_s": 0.07,
+          "total_s": 4.13,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 69.9,
+          "prefill_tok_s": 159.13,
+          "load_s": 0.1,
+          "total_s": 4.08,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 68.93,
+          "prefill_tok_s": 182.59,
+          "load_s": 0.07,
+          "total_s": 4.06,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 69.44,
+          "prefill_tok_s": 124.4,
+          "load_s": 0.07,
+          "total_s": 4.16,
+          "done_reason": "length"
+        }
+      ],
+      "error": null,
+      "decode_median": 69.67,
+      "decode_min": 68.51,
+      "decode_max": 70.08,
+      "spread_pct": 2.3,
+      "n": 12,
+      "decode_tail_median": 69.49,
+      "half_shift_pct": -0.5,
+      "stationary": true
+    },
+    {
+      "pair": "gemma4-26b",
+      "engine": "mlx-cuda",
+      "model": "gemma4:26b-nvfp4",
+      "slot": "first",
+      "warm_discarded": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 41.99,
+          "prefill_tok_s": 0.3,
+          "load_s": 29.92,
+          "total_s": 199.97,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 59.27,
+          "prefill_tok_s": 2609297.62,
+          "load_s": 0.09,
+          "total_s": 4.41,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 66.3,
+          "prefill_tok_s": 2312193.28,
+          "load_s": 0.09,
+          "total_s": 3.95,
+          "done_reason": "length"
+        }
+      ],
+      "samples": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 63.86,
+          "prefill_tok_s": 1665590.26,
+          "load_s": 0.09,
+          "total_s": 4.1,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 68.44,
+          "prefill_tok_s": 1999510.32,
+          "load_s": 0.1,
+          "total_s": 3.84,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 65.24,
+          "prefill_tok_s": 2112797.52,
+          "load_s": 0.08,
+          "total_s": 4.01,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 63.76,
+          "prefill_tok_s": 1641541.04,
+          "load_s": 0.07,
+          "total_s": 4.09,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 67.26,
+          "prefill_tok_s": 1971434.32,
+          "load_s": 0.09,
+          "total_s": 3.9,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 68.2,
+          "prefill_tok_s": 1464216.35,
+          "load_s": 0.07,
+          "total_s": 3.82,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 64.85,
+          "prefill_tok_s": 1881648.17,
+          "load_s": 0.09,
+          "total_s": 4.04,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 66.65,
+          "prefill_tok_s": 1590599.23,
+          "load_s": 0.09,
+          "total_s": 3.93,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 68.64,
+          "prefill_tok_s": 1824206.1,
+          "load_s": 0.08,
+          "total_s": 3.81,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 66.59,
+          "prefill_tok_s": 1620423.96,
+          "load_s": 0.09,
+          "total_s": 3.93,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.94,
+          "prefill_tok_s": 2574475.91,
+          "load_s": 0.08,
+          "total_s": 4.15,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 61.67,
+          "prefill_tok_s": 1793492.19,
+          "load_s": 0.07,
+          "total_s": 4.23,
+          "done_reason": "length"
+        }
+      ],
+      "error": null,
+      "decode_median": 65.91,
+      "decode_min": 61.67,
+      "decode_max": 68.64,
+      "spread_pct": 10.6,
+      "n": 12,
+      "decode_tail_median": 65.72,
+      "half_shift_pct": -0.8,
+      "stationary": true
+    },
+    {
+      "pair": "gemma4-26b",
+      "engine": "cuda",
+      "model": "gemma4:26b-a4b-it-q4_K_M",
+      "slot": "first",
+      "warm_discarded": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 186.16,
+          "prefill_tok_s": 1.14,
+          "load_s": 31.21,
+          "total_s": 75.77,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 192.33,
+          "prefill_tok_s": 1067.91,
+          "load_s": 0.04,
+          "total_s": 1.53,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 189.32,
+          "prefill_tok_s": 1350.76,
+          "load_s": 0.07,
+          "total_s": 1.6,
+          "done_reason": "length"
+        }
+      ],
+      "samples": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 194.73,
+          "prefill_tok_s": 1182.23,
+          "load_s": 0.06,
+          "total_s": 1.43,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 191.59,
+          "prefill_tok_s": 1265.33,
+          "load_s": 0.08,
+          "total_s": 1.46,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 193.95,
+          "prefill_tok_s": 1293.39,
+          "load_s": 0.08,
+          "total_s": 1.45,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 190.39,
+          "prefill_tok_s": 1094.17,
+          "load_s": 0.08,
+          "total_s": 1.47,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 191.88,
+          "prefill_tok_s": 1316.78,
+          "load_s": 0.06,
+          "total_s": 1.44,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 188.78,
+          "prefill_tok_s": 1110.23,
+          "load_s": 0.08,
+          "total_s": 1.49,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 188.86,
+          "prefill_tok_s": 1015.57,
+          "load_s": 0.05,
+          "total_s": 1.46,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 191.92,
+          "prefill_tok_s": 898.79,
+          "load_s": 0.07,
+          "total_s": 1.47,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 190.42,
+          "prefill_tok_s": 1178.45,
+          "load_s": 0.06,
+          "total_s": 1.45,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 191.52,
+          "prefill_tok_s": 1045.53,
+          "load_s": 0.08,
+          "total_s": 1.47,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 190.7,
+          "prefill_tok_s": 1300.29,
+          "load_s": 0.05,
+          "total_s": 1.44,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 192.36,
+          "prefill_tok_s": 976.15,
+          "load_s": 0.08,
+          "total_s": 1.46,
+          "done_reason": "length"
+        }
+      ],
+      "error": null,
+      "decode_median": 191.56,
+      "decode_min": 188.78,
+      "decode_max": 194.73,
+      "spread_pct": 3.1,
+      "n": 12,
+      "decode_tail_median": 191.11,
+      "half_shift_pct": -0.3,
+      "stationary": true
+    },
+    {
+      "pair": "qwen3.6-35b-a3b",
+      "engine": "mlx-cuda",
+      "model": "qwen3.6:35b-a3b-nvfp4",
+      "slot": "first",
+      "warm_discarded": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 5.36,
+          "prefill_tok_s": 1.2,
+          "load_s": 29.66,
+          "total_s": 119.18,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 31.18,
+          "prefill_tok_s": 386.74,
+          "load_s": 0.09,
+          "total_s": 8.44,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 30.88,
+          "prefill_tok_s": 2130379.21,
+          "load_s": 0.09,
+          "total_s": 8.39,
+          "done_reason": "length"
+        }
+      ],
+      "samples": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 30.25,
+          "prefill_tok_s": 1022745.87,
+          "load_s": 0.09,
+          "total_s": 8.56,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 30.94,
+          "prefill_tok_s": 2060581.08,
+          "load_s": 0.08,
+          "total_s": 8.35,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 32.04,
+          "prefill_tok_s": 2153316.11,
+          "load_s": 0.09,
+          "total_s": 8.08,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 29.45,
+          "prefill_tok_s": 3359989.25,
+          "load_s": 0.09,
+          "total_s": 8.79,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 33.6,
+          "prefill_tok_s": 3911444.89,
+          "load_s": 0.08,
+          "total_s": 7.7,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 38.49,
+          "prefill_tok_s": 1949773.83,
+          "load_s": 0.07,
+          "total_s": 6.73,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 39.2,
+          "prefill_tok_s": 2158149.17,
+          "load_s": 0.08,
+          "total_s": 6.62,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 38.41,
+          "prefill_tok_s": 2109348.63,
+          "load_s": 0.08,
+          "total_s": 6.75,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 38.01,
+          "prefill_tok_s": 2014098.69,
+          "load_s": 0.07,
+          "total_s": 6.81,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 38.37,
+          "prefill_tok_s": 1622639.06,
+          "load_s": 0.07,
+          "total_s": 6.75,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 40.45,
+          "prefill_tok_s": 2056512.98,
+          "load_s": 0.09,
+          "total_s": 6.42,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 40.79,
+          "prefill_tok_s": 2381973.23,
+          "load_s": 0.08,
+          "total_s": 6.36,
+          "done_reason": "length"
+        }
+      ],
+      "error": null,
+      "decode_median": 38.19,
+      "decode_min": 29.45,
+      "decode_max": 40.79,
+      "spread_pct": 29.7,
+      "n": 12,
+      "decode_tail_median": 38.8,
+      "half_shift_pct": 23.2,
+      "stationary": false
+    },
+    {
+      "pair": "qwen3.6-35b-a3b",
+      "engine": "cuda",
+      "model": "qwen3.6:35b-a3b-q4_K_M",
+      "slot": "first",
+      "warm_discarded": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 100.96,
+          "prefill_tok_s": 87.66,
+          "load_s": 18.63,
+          "total_s": 21.75,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 100.27,
+          "prefill_tok_s": 377.3,
+          "load_s": 0.06,
+          "total_s": 2.99,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 98.23,
+          "prefill_tok_s": 331.11,
+          "load_s": 0.08,
+          "total_s": 2.84,
+          "done_reason": "length"
+        }
+      ],
+      "samples": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 102.14,
+          "prefill_tok_s": 341.43,
+          "load_s": 0.07,
+          "total_s": 2.73,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 100.25,
+          "prefill_tok_s": 344.6,
+          "load_s": 0.07,
+          "total_s": 2.78,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 100.46,
+          "prefill_tok_s": 339.14,
+          "load_s": 0.09,
+          "total_s": 2.79,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 101.46,
+          "prefill_tok_s": 346.65,
+          "load_s": 0.07,
+          "total_s": 2.74,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 98.28,
+          "prefill_tok_s": 342.8,
+          "load_s": 0.09,
+          "total_s": 2.84,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 99.99,
+          "prefill_tok_s": 335.25,
+          "load_s": 0.06,
+          "total_s": 2.78,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 98.07,
+          "prefill_tok_s": 243.26,
+          "load_s": 0.08,
+          "total_s": 2.9,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 100.88,
+          "prefill_tok_s": 357.94,
+          "load_s": 0.08,
+          "total_s": 2.76,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 101.24,
+          "prefill_tok_s": 355.41,
+          "load_s": 0.07,
+          "total_s": 2.75,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 98.35,
+          "prefill_tok_s": 360.39,
+          "load_s": 0.08,
+          "total_s": 2.83,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 97.79,
+          "prefill_tok_s": 359.99,
+          "load_s": 0.08,
+          "total_s": 2.84,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 50,
+          "decode_tok_s": 99.38,
+          "prefill_tok_s": 378.94,
+          "load_s": 0.08,
+          "total_s": 2.79,
+          "done_reason": "length"
+        }
+      ],
+      "error": null,
+      "decode_median": 100.12,
+      "decode_min": 97.79,
+      "decode_max": 102.14,
+      "spread_pct": 4.3,
+      "n": 12,
+      "decode_tail_median": 98.86,
+      "half_shift_pct": -1.5,
+      "stationary": true
+    },
+    {
+      "pair": "gemma4-31b",
+      "engine": "mlx-cuda",
+      "model": "gemma4:31b-nvfp4",
+      "slot": "order-control",
+      "warm_discarded": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 38.89,
+          "prefill_tok_s": 35.53,
+          "load_s": 33.76,
+          "total_s": 41.73,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 46.6,
+          "prefill_tok_s": 1696852.17,
+          "load_s": 0.11,
+          "total_s": 5.61,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 48.12,
+          "prefill_tok_s": 2217997.47,
+          "load_s": 0.08,
+          "total_s": 5.41,
+          "done_reason": "length"
+        }
+      ],
+      "samples": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 45.38,
+          "prefill_tok_s": 2186328.75,
+          "load_s": 0.09,
+          "total_s": 5.73,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 47.48,
+          "prefill_tok_s": 1526432.2,
+          "load_s": 0.08,
+          "total_s": 5.48,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 44.04,
+          "prefill_tok_s": 1849056.6,
+          "load_s": 0.08,
+          "total_s": 5.89,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 44.51,
+          "prefill_tok_s": 1900329.65,
+          "load_s": 0.08,
+          "total_s": 5.84,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 44.34,
+          "prefill_tok_s": 2040561.36,
+          "load_s": 0.1,
+          "total_s": 5.88,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 45.4,
+          "prefill_tok_s": 1126825.34,
+          "load_s": 0.06,
+          "total_s": 5.7,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 49.12,
+          "prefill_tok_s": 1947303.58,
+          "load_s": 0.09,
+          "total_s": 5.3,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 48.48,
+          "prefill_tok_s": 1770295.17,
+          "load_s": 0.09,
+          "total_s": 5.37,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 50.35,
+          "prefill_tok_s": 1589000.23,
+          "load_s": 0.09,
+          "total_s": 5.17,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 49.1,
+          "prefill_tok_s": 1683559.53,
+          "load_s": 0.09,
+          "total_s": 5.31,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 44.8,
+          "prefill_tok_s": 1665703.5,
+          "load_s": 0.1,
+          "total_s": 5.81,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 47.53,
+          "prefill_tok_s": 1579524.21,
+          "load_s": 0.09,
+          "total_s": 5.47,
+          "done_reason": "length"
+        }
+      ],
+      "error": null,
+      "decode_median": 46.44,
+      "decode_min": 44.04,
+      "decode_max": 50.35,
+      "spread_pct": 13.6,
+      "n": 12,
+      "decode_tail_median": 48.79,
+      "half_shift_pct": 8.6,
+      "stationary": false
+    },
+    {
+      "pair": "gemma4-31b",
+      "engine": "cuda",
+      "model": "gemma4:31b-it-q4_K_M",
+      "slot": "order-control",
+      "warm_discarded": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.1,
+          "prefill_tok_s": 242.7,
+          "load_s": 15.65,
+          "total_s": 20.0,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 63.24,
+          "prefill_tok_s": 338.88,
+          "load_s": 0.07,
+          "total_s": 4.65,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 63.29,
+          "prefill_tok_s": 319.18,
+          "load_s": 0.06,
+          "total_s": 4.81,
+          "done_reason": "length"
+        }
+      ],
+      "samples": [
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 63.13,
+          "prefill_tok_s": 304.75,
+          "load_s": 0.09,
+          "total_s": 4.31,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 63.09,
+          "prefill_tok_s": 288.22,
+          "load_s": 0.09,
+          "total_s": 4.32,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.8,
+          "prefill_tok_s": 264.92,
+          "load_s": 0.07,
+          "total_s": 4.34,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 63.11,
+          "prefill_tok_s": 296.08,
+          "load_s": 0.06,
+          "total_s": 4.29,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.97,
+          "prefill_tok_s": 301.38,
+          "load_s": 0.07,
+          "total_s": 4.3,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 63.4,
+          "prefill_tok_s": 250.46,
+          "load_s": 0.07,
+          "total_s": 4.31,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 63.4,
+          "prefill_tok_s": 299.35,
+          "load_s": 0.06,
+          "total_s": 4.27,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 61.71,
+          "prefill_tok_s": 302.4,
+          "load_s": 0.09,
+          "total_s": 4.41,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 60.85,
+          "prefill_tok_s": 297.16,
+          "load_s": 0.05,
+          "total_s": 4.42,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 60.89,
+          "prefill_tok_s": 306.02,
+          "load_s": 0.08,
+          "total_s": 4.46,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 60.11,
+          "prefill_tok_s": 278.24,
+          "load_s": 0.05,
+          "total_s": 4.49,
+          "done_reason": "length"
+        },
+        {
+          "eval_count": 256,
+          "prompt_eval_count": 49,
+          "decode_tok_s": 62.04,
+          "prefill_tok_s": 311.58,
+          "load_s": 0.07,
+          "total_s": 4.36,
+          "done_reason": "length"
+        }
+      ],
+      "error": null,
+      "decode_median": 62.88,
+      "decode_min": 60.11,
+      "decode_max": 63.4,
+      "spread_pct": 5.2,
+      "n": 12,
+      "decode_tail_median": 61.3,
+      "half_shift_pct": -2.9,
+      "stationary": true
+    }
+  ]
+}
