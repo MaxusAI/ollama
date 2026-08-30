@@ -1685,12 +1685,22 @@ def main():
     # work at all — at each higher rung, exactly the still-capped arms re-run.
     existing = {}
     _scores_path = f"{DIR}/scores_{TAG}.json"
-    if os.path.exists(_scores_path) and os.environ.get("FORCE") != "1":
+    # READ THE FILE EVEN UNDER FORCE. FORCE=1 means "re-run everything"; it must
+    # not also mean "discard everything". This read used to be inside the
+    # `!= "1"` guard, so a FORCE run started with results={} and the first
+    # per-arm write REPLACED the file with a single arm — every arm the run had
+    # not yet reached, and every arm outside ONLY_TESTS, gone. Before per-arm
+    # persistence an aborted FORCE run was harmless, because nothing was written
+    # until the end; the abort was the escape hatch. Seeding from disk keeps
+    # each write a merge, and FORCE still re-runs every arm because the skip
+    # decision below is what it actually gates.
+    if os.path.exists(_scores_path):
         try:
             with open(_scores_path) as _fh:
                 existing = json.load(_fh) or {}
         except Exception:
             existing = {}
+    if existing and os.environ.get("FORCE") != "1":
         done = [t[0] for t in run_tests if arm_done(existing.get(t[0]))]
         if done:
             print(f"##### SKIP {len(done)} already-scored arm(s): {', '.join(done)}")
@@ -1756,6 +1766,16 @@ def main():
                 powermode=os.environ.get("POWERMODE"),
                 cold_start=cold_mech))
             cold_mech = "warm" if cold_mech else None
+            # KEEP WHAT THE ERROR REPLACES. finetext_probe.py has carried this
+            # guard since a capped rung-1 measurement — recall tiers, durations,
+            # fingerprints — was lost to a rung-2 transport failure. vision_suite
+            # had no equivalent, and per-arm persistence made the loss durable
+            # the moment it happened instead of at the end of the rung.
+            # `prev.get("prior") or prev` flattens rather than nesting, so a
+            # second consecutive failure still points at the last real block.
+            prev = results.get(name)
+            if isinstance(prev, dict) and prev:
+                err_block["prior"] = prev.get("prior") or prev
             results[name] = err_block
             # The error block is a result too: it is what makes the arm re-run,
             # and it carries the failure for diagnosis. Losing it to a later

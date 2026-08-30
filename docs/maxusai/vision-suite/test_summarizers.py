@@ -1117,5 +1117,122 @@ class TestIncrementalPersist(unittest.TestCase):
                              "resume did not complete the cell")
 
 
+class TestPersistRegressions(unittest.TestCase):
+    """Two ways per-arm persistence lost data that the end-of-rung write did not.
+
+    Self-contained driver rather than TestIncrementalPersist's, so this stays
+    additive against the open summarizer PR that rewrites that helper.
+    """
+
+    def drive(self, tmpdir, arms, fail_on=None, env=None, seed=None):
+        if seed is not None:
+            sec.save(os.path.join(tmpdir, "scores_regr.json"), seed)
+        calls = []
+
+        def fake_gen(prompt, images, **kw):
+            name = arms[len(calls)]
+            calls.append(name)
+            if name == fail_on:
+                raise RuntimeError("connection reset by peer")
+            return {"response": "{}", "_host": "h", "_server_version": "v",
+                    "prompt_eval_count": 10, "eval_count": 20,
+                    "done_reason": "stop", "_num_ctx": 16384,
+                    "_num_predict": 2200, "total_duration": 1,
+                    "eval_duration": 1, "prompt_eval_duration": 1,
+                    "load_duration": 1}
+
+        e = {"ONLY_TESTS": ",".join(arms)}
+        e.update(env or {})
+        with mock.patch.object(vs, "DIR", tmpdir), \
+                mock.patch.object(vs, "gen", fake_gen), \
+                mock.patch.object(vs.client, "persist", lambda *a, **k: {}), \
+                mock.patch.dict(os.environ, e, clear=False), \
+                mock.patch.object(sys, "argv",
+                                  ["vs.py", "http://h:1", "regr", "m:tag"]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            try:
+                vs.main()
+            except BaseException:
+                pass
+        return sec.load(os.path.join(tmpdir, "scores_regr.json"))
+
+    FINISHED = {"eval_count": 20, "num_predict": 2200, "done_reason": "stop"}
+    CAPPED = {"eval_count": 8192, "num_predict": 8192, "done_reason": "length",
+              "num_ctx": 16384, "gen_tps": 31.4}
+
+    def test_force_plus_a_kill_keeps_arms_outside_the_run(self):
+        """FORCE=1 skips the resume read, so `results` started EMPTY and the
+        first per-arm write replaced the whole file with one arm. Before
+        per-arm persistence an aborted FORCE run was harmless — the abort was
+        the escape hatch."""
+        with tempfile.TemporaryDirectory() as tmp:
+            seed = {"document_single": dict(self.FINISHED),
+                    "scene_single": dict(self.FINISHED),
+                    "multi_3img": dict(self.FINISHED)}
+            data = self.drive(tmp, ["scene_single", "multi_3img"],
+                              fail_on="multi_3img", env={"FORCE": "1"},
+                              seed=seed)
+            self.assertIn("document_single", data,
+                          "an arm this run never touched was destroyed")
+
+    def test_force_still_reruns_everything(self):
+        """The other half of the FORCE fix: seeding `results` from disk must not
+        turn FORCE into a resume. A finished arm must still re-run."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ran = []
+            sec.save(os.path.join(tmp, "scores_regr.json"),
+                     {"scene_single": dict(self.FINISHED)})
+
+            def fake_gen(prompt, images, **kw):
+                ran.append(1)
+                return {"response": "{}", "_host": "h", "_server_version": "v",
+                        "prompt_eval_count": 10, "eval_count": 20,
+                        "done_reason": "stop", "_num_ctx": 16384,
+                        "_num_predict": 2200, "total_duration": 1,
+                        "eval_duration": 1, "prompt_eval_duration": 1,
+                        "load_duration": 1}
+
+            with mock.patch.object(vs, "DIR", tmp), \
+                    mock.patch.object(vs, "gen", fake_gen), \
+                    mock.patch.object(vs.client, "persist", lambda *a, **k: {}), \
+                    mock.patch.dict(os.environ, {"ONLY_TESTS": "scene_single",
+                                                 "FORCE": "1"}, clear=False), \
+                    mock.patch.object(sys, "argv",
+                                      ["vs.py", "http://h:1", "regr", "m:tag"]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                vs.main()
+            self.assertEqual(len(ran), 1, "FORCE did not re-run a finished arm")
+
+    def test_an_error_does_not_destroy_the_measurement_it_replaces(self):
+        """finetext_probe.py has carried a `prior` guard for exactly this since
+        a capped rung-1 measurement was lost to a rung-2 transport failure."""
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self.drive(tmp, ["scene_single"], fail_on="scene_single",
+                              seed={"scene_single": dict(self.CAPPED)})
+            blk = data["scene_single"]
+            self.assertIn("error", blk)
+            self.assertEqual(blk.get("prior", {}).get("eval_count"), 8192,
+                             "the capped measurement it replaced is gone")
+
+    def test_an_error_over_a_capped_arm_still_escalates(self):
+        """capped_arms drops non-escalatable errors, and the driver breaks its
+        rung loop when nothing is capped — so an arm that was capped and then
+        hit a transport error left the ladder silently, and the cell read as
+        converged with no NOT-CONVERGED marker."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "scores_x.json")
+            sec.save(path, {"scene_single": {"error": "connection reset",
+                                             "prior": dict(self.CAPPED)}})
+            self.assertEqual(sec.capped_arms(path), ["scene_single"])
+
+    def test_an_error_with_no_capped_history_still_does_not_escalate(self):
+        """The existing rule stands: a bare request failure re-runs at the same
+        rung rather than buying a bigger window."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "scores_y.json")
+            sec.save(path, {"scene_single": {"error": "connection reset"}})
+            self.assertEqual(sec.capped_arms(path), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
