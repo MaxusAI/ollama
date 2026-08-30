@@ -1013,6 +1013,29 @@ class TestIncompleteRenderSaysSo(unittest.TestCase):
     MODEL = "gemma4:12b-it-q4_K_M"
     ALL = list(sec.RENDERED_ARMS)
 
+    def test_a_cell_missing_only_multi_3img_anchored_is_not_flagged(self):
+        """47 historical cells on the benchmark host are missing that arm and
+        nothing else, several of them published verbatim. Flagging those reads
+        as "Do not publish" over a finished campaign, and a guard that cries
+        wolf on the archive gets trained away."""
+        r = self._render_with(["scene_single", "document_single", "multi_3img",
+                               "multi_3img_anchored", "finetext"])
+        self.assertNotIn("INCOMPLETE", r)
+        r2 = self._render_with(["scene_single", "document_single", "multi_3img",
+                                "finetext"])
+        self.assertNotIn("INCOMPLETE", r2)
+
+    def test_the_sentinel_is_still_the_last_arm_the_suite_runs(self):
+        """The narrowed expectation rests on finetext running LAST: any run cut
+        short is missing it. If the suite is reordered so something follows it,
+        that reasoning breaks and this tuple has to be reconsidered."""
+        names = [t[0] for t in vs.tests]
+        self.assertEqual(names[-1], "finetext",
+                         "finetext is no longer the last arm; RENDERED_ARMS "
+                         "relies on it as the truncation sentinel")
+        for arm in sec.RENDERED_ARMS:
+            self.assertIn(arm, names)
+
     def _render_with(self, arms, extra=()):
         d = tempfile.mkdtemp()
         scores = {a: json.loads(json.dumps(THINKOFF.get(a, {"num_ctx": 16384})))

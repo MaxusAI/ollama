@@ -32,12 +32,25 @@ import json
 import os
 import sys
 
-# The arms this report has columns for. Expected to be present in every cell of
-# a default campaign; ONLY_TESTS scopes a run to a subset, and such a run
-# declares its scope with --expect so the completeness check does not cry wolf
-# on a campaign that was never meant to fill the table.
-RENDERED_ARMS = ("scene_single", "document_single", "multi_3img",
-                 "multi_3img_anchored", "finetext")
+# The arms whose PRESENCE this report treats as evidence the campaign finished.
+# Not the same thing as the columns: the table renders "Multi anchored" either
+# way, from the block if it is there and an em-dash if it is not.
+#
+# `finetext` is the sentinel that matters — it is the LAST arm vision_suite
+# runs (27 of 27), so any run cut short is missing it, whatever else survived.
+# `multi_3img_anchored` (arm 14) was in this tuple and bought nothing on top of
+# that: every truncation it can catch, finetext catches too. What it did buy was
+# a large false-positive class — 47 historical cells on the benchmark host are
+# missing that arm and nothing else, including cells whose tables are published
+# verbatim in docs/maxusai/vision-campaign-*.md. Re-rendering one printed
+# "Do not publish" over a campaign that was complete for its era, which is
+# exactly the cry-wolf dynamic that gets a guard trained away.
+#
+# ONLY_TESTS scopes a run to a subset, and such a run declares its scope with
+# --expect so the check does not cry wolf on a campaign never meant to fill the
+# table. test_summarizers pins that finetext is still last; if the suite is
+# reordered so it is not, this sentinel has to be reconsidered.
+RENDERED_ARMS = ("scene_single", "document_single", "multi_3img", "finetext")
 
 
 def tag_for(model, think=None):
