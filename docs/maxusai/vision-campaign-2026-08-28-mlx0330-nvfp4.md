@@ -222,6 +222,16 @@ still renders in §1 above.
   campaign where the reported token count exceeds its own budget, and the
   mechanism is unexplained. Worth noting wherever `num_predict` is assumed to
   bound `eval_count`.
+
+  **It did not reproduce.** Re-run 2026-08-30 on `0.33.2-maxusai-2b95b4a5`
+  (llama.cpp b10630, MLX c793734e), same arm, same prompt, same 8,192 budget:
+  `eval_count` 5,487, comfortably inside it, with `hits_declared` 6/6 and valid
+  JSON as before. That does not explain the mechanism — it rules out a
+  persistent property of this arm, and leaves a one-off on the older build.
+  The same re-run reproduced `document_single` BYTE-IDENTICALLY (`eval_count`
+  5,210 on both builds, every score equal), so the harness is capable of exact
+  reproduction here and the overshoot's absence is a real difference rather
+  than noise swamping the comparison.
 - **Scores are on-host, untracked** (`docs/maxusai/vision-suite/scores_mlx0330nv1_*.json`,
   ten files), per the campaign convention; this document and the learnings
   entry are the durable record.
