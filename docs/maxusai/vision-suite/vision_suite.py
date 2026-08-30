@@ -1699,7 +1699,23 @@ def main():
             with open(_scores_path) as _fh:
                 existing = json.load(_fh) or {}
         except Exception:
+            # UNREADABLE IS NOT EMPTY. A truncated scores file still holds every
+            # completed block as recoverable text, and treating it as {} means
+            # the first per-arm write replaces it — measured: 3 recoverable
+            # blocks in, 1 out. Set it aside instead of overwriting it, and keep
+            # the FIRST backup if one already exists, since the earliest is
+            # usually the most complete. The campaign continues either way: a
+            # damaged file must not cost the inference still to come.
             existing = {}
+            _bak = _scores_path + ".corrupt"
+            if not os.path.exists(_bak):
+                try:
+                    os.replace(_scores_path, _bak)
+                    print(f"##### UNREADABLE scores file set aside -> {_bak}",
+                          file=sys.stderr)
+                except OSError as _exc:
+                    print(f"##### could not preserve unreadable scores file: "
+                          f"{_exc}", file=sys.stderr)
     if existing and os.environ.get("FORCE") != "1":
         done = [t[0] for t in run_tests if arm_done(existing.get(t[0]))]
         if done:
@@ -1734,7 +1750,15 @@ def main():
     # write contained. arm_done/was_capped still decide what re-runs (SPEC H4b:
     # capped arms ALWAYS re-run), so a partial file is a valid resume input.
     def persist_scores():
-        save(_scores_path, results)
+        # Never raises: this now runs at EVERY arm, under the driver's `set -eu`,
+        # at the point where the most inference has already been paid for.
+        # mark_not_converged carries the same guard for the same reason. A write
+        # that fails is loud on stderr and the run continues to the next arm,
+        # which may well succeed; aborting would forfeit the whole rung.
+        try:
+            save(_scores_path, results)
+        except Exception as exc:
+            print(f"##### persist failed for {TAG}: {exc}", file=sys.stderr)
 
     # cold_start is a per-INVOCATION fact: the driver's cold start happens
     # once, immediately before this process — only the first arm actually

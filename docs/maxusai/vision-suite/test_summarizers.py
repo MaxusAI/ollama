@@ -1366,5 +1366,94 @@ class TestPersistRegressions(unittest.TestCase):
             self.assertEqual(sec.capped_arms(path), [])
 
 
+class TestPersistDurability(unittest.TestCase):
+    """What per-arm persistence must not destroy, and must not race on."""
+
+    def test_an_unreadable_scores_file_is_preserved_not_overwritten(self):
+        """A truncated file still holds every completed block as recoverable
+        text. The loader turns it into {}, and before this guard the first
+        per-arm write replaced it — 3 recoverable blocks in, 1 out. The end-of
+        -rung writer had the same hole, but only fired once and at the end."""
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "scores_corrupt.json")
+            text = '{"a": {"eval_count": 1}, "b": {"eval_count": 2}, "c": {"eval_c'
+            open(p, "w").write(text)
+
+            def fake_gen(*a, **k):
+                return {"response": "{}", "_host": "h", "_server_version": "v",
+                        "prompt_eval_count": 10, "eval_count": 20,
+                        "done_reason": "stop", "_num_ctx": 16384,
+                        "_num_predict": 2200, "total_duration": 1,
+                        "eval_duration": 1, "prompt_eval_duration": 1,
+                        "load_duration": 1}
+
+            with mock.patch.object(vs, "DIR", tmp), \
+                    mock.patch.object(vs, "gen", fake_gen), \
+                    mock.patch.object(vs.client, "persist", lambda *a, **k: {}), \
+                    mock.patch.dict(os.environ, {"ONLY_TESTS": "scene_single"},
+                                    clear=False), \
+                    mock.patch.object(sys, "argv",
+                                      ["vs.py", "http://h:1", "corrupt", "m:t"]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                vs.main()
+            self.assertEqual(open(p + ".corrupt").read(), text,
+                             "the unreadable file was destroyed, not set aside")
+
+    def test_the_temp_file_is_unique_per_process(self):
+        """save() wrote to one shared `<path>.tmp`. Two writers on the same tag
+        interleave into it, and the loser's json.dump lands INSIDE the live
+        scores file after the winner's os.replace — which downstream reads as
+        capped_arms() == [], i.e. a CONVERGED cell with no marker."""
+        seen = []
+        real = os.replace
+
+        def spy(src, dst):
+            seen.append(src)
+            return real(src, dst)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "scores_x.json")
+            with mock.patch.object(sec.os, "replace", spy):
+                sec.save(path, {"a": 1})
+            self.assertTrue(seen, "save() did not go through os.replace")
+            self.assertNotEqual(seen[0], path + ".tmp",
+                                "shared temp path: concurrent writers collide")
+            self.assertIn(str(os.getpid()), seen[0])
+
+    def test_a_failed_write_does_not_kill_the_campaign(self):
+        """persist_scores now runs at every arm, under the driver's `set -eu`,
+        at the point where the most inference has already been paid for.
+        mark_not_converged carries the same guard for the same reason."""
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = []
+
+            def boom(*a, **k):
+                calls.append(1)
+                raise OSError("ENOSPC")
+
+            def fake_gen(*a, **k):
+                return {"response": "{}", "_host": "h", "_server_version": "v",
+                        "prompt_eval_count": 10, "eval_count": 20,
+                        "done_reason": "stop", "_num_ctx": 16384,
+                        "_num_predict": 2200, "total_duration": 1,
+                        "eval_duration": 1, "prompt_eval_duration": 1,
+                        "load_duration": 1}
+
+            with mock.patch.object(vs, "DIR", tmp), \
+                    mock.patch.object(vs, "gen", fake_gen), \
+                    mock.patch.object(vs, "save", boom), \
+                    mock.patch.object(vs.client, "persist", lambda *a, **k: {}), \
+                    mock.patch.dict(os.environ,
+                                    {"ONLY_TESTS": "scene_single,document_single"},
+                                    clear=False), \
+                    mock.patch.object(sys, "argv",
+                                      ["vs.py", "http://h:1", "io", "m:t"]), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                vs.main()
+            self.assertGreaterEqual(len(calls), 2,
+                                    "the run stopped at the first failed write")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

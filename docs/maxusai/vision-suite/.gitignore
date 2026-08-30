@@ -16,6 +16,10 @@ testimgs/
 extimgs/
 resp_*.json
 scores_*.json
+# save()'s pid-unique temp (a kill mid-write leaves one) and the copy
+# vision_suite sets aside when a scores file will not parse.
+scores_*.json.*.tmp
+scores_*.json.corrupt
 ext_*.json
 __pycache__/
 ft_*.json
