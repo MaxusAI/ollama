@@ -331,11 +331,13 @@ build + model + arms; not a refutation of the sampling finding.
   converging. Scores file kept as-is: 7 finished rows plus 20 capped rows
   whose highest recorded rung is 65536 (ADR 0012 conv 9 — capped rows are
   unfinished measurements; the file must not be summarized as results).
-- **Enforced by** — the `mlx0330nv` campaign descope: think-on runs
-  `gemma4:31b-nvfp4` only; the 12b think-on cell stays open with this entry
-  as the record. Any future 12b-nvfp4 think-on attempt starts at the 131072
-  ceiling and budgets a full day, or measures termination on the finishing
-  arms only.
+- **Enforced by** — `DESCOPED_CELLS` in `summarize_engine_compare.py`, which
+  declares `(gemma4:12b-nvfp4, "on")` not worth measuring (2026-08-30). The
+  driver skips the cell at every rung and a render prints `⚠ DESCOPED` rather
+  than counting its absent arms as incomplete, so the ~9.5 h is never spent
+  again by accident. This entry is the argument the declaration points back to.
+  Scoped to that TAG: other gemma4:12b quantisations are not covered. Reopening
+  it means deleting the entry and budgeting a full day at the 131072 ceiling.
 - **Cost** — ~9.5 h wall clock (22:08 → 07:40) and four cold ladder rungs
   for one cell that produced 7 scores; the other nine campaign cells waited
   behind it all night.
