@@ -146,6 +146,16 @@ def capped_arms(path, ctx_max=None, only=None):
                                          or "context overflow" in err
                                          or "blown generation budget" in err):
                 out.append(name)
+            elif was_capped(blk.get("prior") or {}):
+                # The error replaced a CAPPED measurement, so the arm's last
+                # known state is "this rung was not enough" and it still needs a
+                # bigger one. Without this the arm left the ladder entirely: the
+                # driver breaks its rung loop as soon as nothing is capped, so a
+                # transport failure on a capped arm ended the cell as CONVERGED
+                # with no NOT-CONVERGED marker. The rule above is unchanged for
+                # an error with no capped history — that re-runs at the same
+                # rung rather than buying a bigger window.
+                out.append(name)
             continue
         if was_capped(blk):
             out.append(name)
