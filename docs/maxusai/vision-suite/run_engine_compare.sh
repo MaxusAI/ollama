@@ -203,6 +203,16 @@ for m in $MODELS; do
     else
       tag="${base}_think${think}"
     fi
+    # POLICY skip, checked before the ceiling one because it is cheaper and
+    # unconditional: a descoped (model, think) cell is never run at any rung,
+    # whatever its scores file says. Declared in DESCOPED_CELLS, which is
+    # tracked — unlike a scores file, which is per-host and untracked, so a
+    # policy recorded there would not survive the machine.
+    if python3 "$DIR/summarize_engine_compare.py" descoped "$m" "$think"; then
+      echo "##### DESCOPED $m think=$think — cell not measured by policy; see DESCOPED_CELLS"
+      rep=$((rep + 1))
+      continue
+    fi
     # CELL-LEVEL ceiling skip. arm_done stays SPEC H4b verbatim (a capped
     # block always re-runs); whether a NOT-CONVERGED verdict still stands is
     # THIS loop's decision, because only it knows CTX_MAX. Standing means

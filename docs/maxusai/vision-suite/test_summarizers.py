@@ -1493,5 +1493,76 @@ class TestPersistDurability(unittest.TestCase):
                                     "the run stopped at the first failed write")
 
 
+class TestDescopedCells(unittest.TestCase):
+    """A (model, think) cell can be declared not worth measuring.
+
+    Distinct from NOT CONVERGED, which is a MEASUREMENT verdict recorded in an
+    untracked scores file: this is an operator POLICY decision, so it lives in
+    version control where it survives the host it was made on. A descoped cell
+    is never run and never counted against completeness — it is not missing
+    data, it is data nobody is buying.
+    """
+
+    MODEL = "gemma4:12b-nvfp4"
+
+    def test_the_12b_think_on_cell_is_descoped(self):
+        self.assertTrue(sec.is_descoped(self.MODEL, "on"))
+
+    def test_think_off_for_the_same_model_is_not(self):
+        """The expensive half is think-ON. think-off converges at rung 1 and
+        stays in the campaign."""
+        self.assertFalse(sec.is_descoped(self.MODEL, "false"))
+
+    def test_other_models_are_unaffected(self):
+        self.assertFalse(sec.is_descoped("gemma4:31b-nvfp4", "on"))
+
+    def test_every_entry_states_a_reason(self):
+        """A cell cannot be dropped silently: the reason is the record."""
+        self.assertTrue(sec.DESCOPED_CELLS)
+        for (model, think), why in sec.DESCOPED_CELLS.items():
+            self.assertTrue(think in ("on", "false"), f"{model}: {think!r}")
+            self.assertGreater(len(why), 80, f"{model}/{think}: reason too thin")
+
+    def test_the_cli_reports_it_for_the_driver(self):
+        """run_engine_compare.sh consumes this the way it consumes
+        ceiling-standing: exit 0 means skip the cell."""
+        import subprocess
+        for think, expect_rc in (("on", 0), ("false", 1)):
+            rc = subprocess.run(
+                [sys.executable, "summarize_engine_compare.py", "descoped",
+                 self.MODEL, think],
+                cwd=os.path.dirname(os.path.abspath(__file__)),
+                capture_output=True).returncode
+            self.assertEqual(rc, expect_rc, f"think={think}")
+
+    def test_a_descoped_cell_does_not_render_as_incomplete(self):
+        """Its arms are absent by design. Counting them as missing would print
+        "Do not publish" over a campaign that is exactly as complete as
+        intended."""
+        d = tempfile.mkdtemp()
+        write(d, self.MODEL, "on", {"scene_single": THINKOFF["scene_single"]})
+        argv = ["summarize_engine_compare.py", "--dir", d, "--think", "on",
+                self.MODEL]
+        out = io.StringIO()
+        with mock_argv(argv), contextlib.redirect_stdout(out):
+            sec.main()
+        r = out.getvalue()
+        self.assertNotIn("INCOMPLETE", r)
+        self.assertIn("DESCOPED", r)
+        self.assertIn(self.MODEL, r)
+
+    def test_the_same_model_still_renders_think_off(self):
+        d = tempfile.mkdtemp()
+        write(d, self.MODEL, "false", THINKOFF)
+        argv = ["summarize_engine_compare.py", "--dir", d, "--think", "false",
+                self.MODEL]
+        out = io.StringIO()
+        with mock_argv(argv), contextlib.redirect_stdout(out):
+            sec.main()
+        r = out.getvalue()
+        self.assertNotIn("DESCOPED", r)
+        self.assertIn(f"| {self.MODEL} |", r)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

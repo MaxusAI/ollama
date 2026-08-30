@@ -53,6 +53,38 @@ import sys
 RENDERED_ARMS = ("scene_single", "document_single", "multi_3img", "finetext")
 
 
+# Cells nobody is buying. A (model, think) pair declared here is never run by
+# run_engine_compare.sh and never counted against a render's completeness.
+#
+# This is NOT the same thing as NOT CONVERGED. That is a measurement verdict —
+# the ladder was climbed, the ceiling was reached, the arms are still capped —
+# and it is recorded per-cell in a scores file, which is untracked and lives on
+# one host. This is a POLICY decision about what is worth paying for, so it
+# belongs in version control where it outlives the machine it was made on and
+# has to be argued for in a diff.
+DESCOPED_CELLS = {
+    ("gemma4:12b-nvfp4", "on"): (
+        "Operator decision 2026-08-30. think-on does not terminate on this "
+        "model and the CONTEXT ladder cannot fix it: 25/27 arms capped at "
+        "8192, and after climbing to 65536 (num_predict 57,344) 20/27 were "
+        "still capped — every bboxm_* and nearly every bbox_contract_* arm — "
+        "for ~9.5 h of wall clock that produced 7 scores. The 131072 ceiling "
+        "was never attempted and now never will be. The measurement it would "
+        "buy is already available cheaper and better: gemma4:31b-nvfp4 "
+        "converges at rung 1 with quality identical to its think-off row, and "
+        "gemma4:26b-nvfp4 needs one arm's worth of escalation. Scoped to this "
+        "TAG — other gemma4:12b quantisations are not covered by the evidence "
+        "behind it (vision-learnings-log.md, 2026-08-28). think-OFF for this "
+        "model is unaffected: it converges at the 16384 start rung and stays "
+        "in every campaign."),
+}
+
+
+def is_descoped(model, think):
+    """True when this (model, think) cell is declared not worth measuring."""
+    return (model, str(think)) in DESCOPED_CELLS
+
+
 def tag_for(model, think=None):
     """Tag for a model, optionally for a think mode.
 
@@ -336,6 +368,11 @@ def main():
     if args and args[0] == "mark-not-converged":
         mark_not_converged(args[1], args[3:], int(args[2]))
         return 0
+    if args and args[0] == "descoped":
+        # Same contract as ceiling-standing: exit 0 means the driver skips the
+        # cell. Kept a subcommand rather than a shell-side list so the policy
+        # has exactly one definition and the tests can reach it.
+        return 0 if is_descoped(args[1], args[2]) else 1
     if args and args[0] == "ceiling-standing":
         only = (set(args[3].split(",")) if len(args) > 3 and args[3] else None)
         return 0 if ceiling_standing(args[1], int(args[2]), only) else 1
@@ -390,7 +427,14 @@ def main():
           f"| Multi anchored | Think tok | {token_column(think)} | Gen tok/s | Prefill tok/s | s/req | req/h |",
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
 
+    descoped = []
     for model in args:
+        if is_descoped(model, think):
+            # No row: there is no measurement, and a row of em-dashes would
+            # read as a model that failed rather than one nobody measured.
+            # The note below says which it is.
+            descoped.append(model)
+            continue
         tag = resolve_tag(rundir, model, think, prefix)
         eng = engine_for(model, engine_map)
         eng_cell = f"**{eng}**" if eng == "MLX" else eng
@@ -415,7 +459,11 @@ def main():
         # suite block or the pre-fold ft_ file, so presence follows `ft`.
         have = {a for a in expect
                 if (ft if a == "finetext" else scores.get(a))}
-        if set(expect) - have:
+        if set(expect) - have and not is_descoped(model, think):
+            # A descoped cell's arms are absent BY DESIGN. Counting them as
+            # missing would print "Do not publish" over a campaign that is
+            # exactly as complete as intended, which is how a guard gets
+            # trained away.
             missing_by_model[model] = sorted(set(expect) - have)
 
         # The window these numbers were achieved under. A cell measured at a
@@ -517,8 +565,17 @@ def main():
     # Printed BEFORE the tables: "do not publish" has to reach the reader
     # ahead of the thing not to publish. Same wording as summarize_matrix.py,
     # so the two summarizers cannot disagree about what incomplete looks like.
+    # A descoped cell is stated, never silently dropped: a reader comparing
+    # this table against the model list must be told why a name is absent, or
+    # they will assume the render is broken.
+    for model in descoped:
+        print(f"⚠ **DESCOPED** — `{model}` think={think} is not measured by "
+              f"policy, so no row is rendered. "
+              f"{DESCOPED_CELLS[(model, str(think))].split('.')[0]}.")
+    if descoped:
+        print()
     if missing_by_model:
-        n_exp = len(expect) * len(args)
+        n_exp = len([m for m in args if not is_descoped(m, think)]) * len(expect)
         n_have = n_exp - sum(len(v) for v in missing_by_model.values())
         print(f"⚠ **INCOMPLETE** — {n_have}/{n_exp} arms. "
               "Do not publish; re-render when the campaign completes. Missing:")

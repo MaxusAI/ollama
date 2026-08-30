@@ -98,7 +98,7 @@ terminate at any rung the ladder offers.**
 | qwen3.8:27b-nvfp4 | 27/27 | 16384 | converged at rung 1 |
 | gemma4:26b-nvfp4 | 26/27 | 131072 | one arm standing at the ceiling |
 | qwen3.6:35b-a3b-nvfp4 | 18/27 | 131072 | nine arms standing at the ceiling |
-| gemma4:12b-nvfp4 | 7/27 | 65536 | cell OPEN, ceiling never attempted |
+| gemma4:12b-nvfp4 | 7/27 | 65536 | DESCOPED 2026-08-30, ceiling never attempted |
 
 `summarize_engine_compare.py --think on --prefix mlx0330nv1_`, verbatim:
 
@@ -181,10 +181,21 @@ the seven arms that did finish (`scene_single_pinned`, `document_single`,
 arms bounding reasoning, as
 [2026-08-19 found for qwen3.6](vision-campaign-2026-08-19-qwen36-anchored.md).
 
-**Its cell is OPEN, not failed.** `scores_mlx0330nv1_gemma4_12b-nvfp4_thinkon.json`
-holds 7 finished rows plus 20 capped rows whose highest recorded rung is 65536
-(ADR 0012 conv 9: a capped row is an unfinished measurement). No think-on
-table row is rendered for it, and none may be assembled from that file.
+**Its cell is DESCOPED, not failed — and no longer open.**
+`scores_mlx0330nv1_gemma4_12b-nvfp4_thinkon.json` holds 7 finished rows plus 20
+capped rows whose highest recorded rung is 65536 (ADR 0012 conv 9: a capped row
+is an unfinished measurement). No think-on table row is rendered for it, and
+none may be assembled from that file.
+
+As of 2026-08-30 the cell is closed by operator decision rather than left open:
+`(gemma4:12b-nvfp4, "on")` is declared in `DESCOPED_CELLS`
+(`summarize_engine_compare.py`), so `run_engine_compare.sh` skips it at every
+rung and a render prints `⚠ DESCOPED` in place of a row instead of counting its
+absent arms as an incomplete campaign. The 131072 ceiling will not be attempted.
+What that measurement would have bought is already available cheaper: 31b
+converges at rung 1 with quality identical to its think-off row, and 26b needs
+one arm's worth of escalation. **think-off for this model is unaffected** and
+still renders in §1 above.
 
 ## 3. Limits
 
