@@ -121,37 +121,66 @@ Quality holds here too: 31b 0.959 → 0.958, qwen3.8 0.990 → 1.000, both 6/6 a
   [2026-08-19 documented](vision-learnings-log.md), not a grounding failure —
   and it is exactly why the two are separate columns.
 
-## 3. gemma4:26b-nvfp4 decodes 38% slower, and nothing else does
+## 3. Throughput on this host is not reproducible enough to compare across campaigns
 
-The one real regression in this campaign. Median `gen_tps` across all 27
-think-off arms per cell:
+**Read this before quoting any tok/s number in this document, or in the
+2026-08-28 one.**
 
-| Model | 0.33.2 median | 0.33.0 median | Δ | 0.33.2 range | 0.33.0 range | eval_count total |
-|---|---|---|---|---|---|---|
-| gemma4:12b-nvfp4 | 33.1 | 32.9 | **+1%** | 25.1–35.1 | 20.9–53.9 | same |
-| gemma4:26b-nvfp4 | 54.0 | 87.4 | **-38%** | 50.4–76.5 | 75.3–95.6 | same |
-| gemma4:31b-nvfp4 | 16.5 | 14.0 | **+18%** | 14.9–18.8 | 12.1–16.1 | same |
-| qwen3.8:27b-nvfp4 | 24.2 | 21.2 | **+14%** | 22.7–25.4 | 18.9–21.8 | 15366 vs 15383 |
-| qwen3.6:35b-a3b-nvfp4 | 90.8 | 78.4 | **+16%** | 66.0–113.0 | 72.0–104.3 | 14092 vs 14241 |
+The first draft of this section reported a 38% decode regression on
+`gemma4:26b-nvfp4`: median `gen_tps` across 27 think-off arms fell 87.4 → 54.0
+against the 0.33.0 campaign, with what looked like strong support — the two
+distributions barely overlapped (0.33.0 bottoming at 75.3, 0.33.2 topping at
+76.5), the total tokens generated were identical at 13,260 so it was
+time-per-token rather than more work, the cell's wall clock agreed at +49%, and
+every other model in the same session got *faster*, which appeared to rule out
+thermal or system-wide causes.
 
-**The 26b number is not an artefact.** The distributions barely overlap
-(0.33.0 bottoms out at 75.3, 0.33.2 tops out at 76.5, across 27 arms each), the
-**total tokens generated are identical** — 13,260 both runs, so this is purely
-time per token and not a different amount of work — and the cell's wall clock
-went 3m29s → 5m11s, a +49% that agrees with the per-arm figure. Prefill also
-dropped, 9,284 → 8,502 tok/s.
+**It was wrong.** Re-measuring the same four arms on the same binary, same
+session, same `powermode=2`, three times in a row:
 
-**It is not thermal or system-wide**, because every other model got *faster* on
-the same build in the same session: 31b +18%, qwen3.6 +16%, qwen3.8 +14%.
+| run | median gen_tps | per-arm |
+|---|---|---|
+| 1 | 105.9 | 107 110 101 104 |
+| 2 | 100.4 | 108 104 97 95 |
+| 3 | 90.5 | 101 99 82 79 |
+| — | — | |
+| the campaign's 26b cell | **53.8** | 54 54 51 58 |
+| 0.33.0's 26b cell | 88.6 | 90 92 86 87 |
 
-**Both cells ran at `powermode=2`**, verified from the two campaign logs rather
-than the score blocks — the 0.33.0 26b block carries `powermode: None`, because
-the stamp landed later than that cell. The log line is the authoritative record
-and reads `powermode=2` for every 0.33.0 think-off cell except 12b.
+The campaign figure is **1.7x below the slowest repeat** of the identical
+configuration. So 53.8 is not what this build does; it is what that cell did
+that night. Both the 0.33.0 value (88.6) and the repeats (90–106) sit in one
+broad band, and the campaign cell sits outside it.
 
-**Not investigated** (operator decision, 2026-08-31). Recorded here so the next
-person does not rediscover it, and so a 26b throughput number from this build is
-not compared against a 0.33.0 one without knowing.
+**Why the original evidence did not catch this.** Every argument above is
+*within* one cell: 27 arms that shared a single machine state, one server
+process, one thermal condition. Such evidence can establish that a cell ran
+slow — it cannot separate "this cell ran slow" from "this build is slow",
+because the confound is constant across every arm in it. The missing control
+was the cheapest one available: measure the same thing twice. It takes 40
+seconds and was not run until after the claim was written down.
+
+A follow-up A/B compounded the error before it was caught. Serving the archived
+0.33.0 binary against the current MLX payload (old Go, new MLX — the pairing
+that is possible because a binary does not carry its payload, see BINARIES.md)
+measured 89.0, which was read as "fast, therefore the MLX pin is exonerated and
+the regression is Go-side". With 0.33.2 itself measuring 90–106, 89.0 is
+unremarkable and that comparison establishes nothing. A wrong baseline
+invalidates every reading taken against it.
+
+**What this means for the numbers in §1 and §2.** The quality columns stand:
+they reproduce across builds, and §1's agreement to three decimals is itself
+evidence the measurement is sound. The `Gen tok/s`, `s/req` and `req/h` columns
+are single-run figures on a host with ~2x state-dependent spread, so they are
+usable as an order-of-magnitude characterisation of a model and **not** as a
+build-to-build comparison. The same caveat applies retroactively to the
+throughput columns in
+[the 2026-08-28 campaign](vision-campaign-2026-08-28-mlx0330-nvfp4.md).
+
+**What would make throughput comparable** is repetition, which the harness
+already supports and this campaign did not use: `REPEATS=n` with
+`summarize_reps.py`, which renders a spread rather than a point. Nothing
+here should be read as evidence that 0.33.2 is faster or slower than 0.33.0.
 
 ## 4. Limits
 
@@ -165,11 +194,14 @@ not compared against a 0.33.0 one without knowing.
   think-off cell ran at `powermode=0` and this one at `2`, so the +1% in §3 is
   the one row in that table that is not a like-for-like reading. Every other row
   is 2 → 2.
-- **No gate catches a throughput regression.** Preflight asserts token
-  accounting and payload identity, not speed; §3 was found by comparing two
-  campaigns by hand. A 38% decode regression currently ships silently.
-- **n=1 per cell.** Quality reproduces well enough here to be convincing, but
-  nothing in this campaign measures run-to-run spread.
+- **No gate catches a throughput change, and §3 shows a gate would need
+  repeats to mean anything.** Preflight asserts token accounting and payload
+  identity, not speed. A single-run speed gate on this host would fire on
+  machine state, not on code — which is exactly the mistake §3 records.
+- **n=1 per cell, and §3 is what that cost.** Quality reproduces well enough
+  to be convincing at n=1; throughput does not, and treating a single cell as a
+  baseline produced a confident regression claim that repetition refuted. Use
+  `REPEATS=n` for any campaign whose conclusions depend on timing.
 - **Scores are on-host, untracked**
   (`docs/maxusai/vision-suite/scores_mlx0332nv1_*.json`, seven files), per the
   campaign convention; this document is the durable record.
