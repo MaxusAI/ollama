@@ -9,6 +9,7 @@ Nothing in here asserts. Assertions live in checks.py, expected values live in
 expectations.toml.
 """
 import base64
+import datetime
 import json
 import os
 import re
@@ -326,6 +327,68 @@ def parse_pixel_lines(text):
     """[{'kind': 'max', 'value': 3407872, 'custom': True}, ...] in log order."""
     return [{"kind": m.group(1), "value": int(m.group(2)), "custom": bool(m.group(3))}
             for m in PIXEL_RE.finditer(text)]
+
+
+# MLX payload identity, from the runner's engine-init line. This lives HERE and
+# not in checks.py for the same reason llama_cpp_build does: checks.py hardcodes
+# "nothing except the shapes of the assertions themselves", and a `git describe`
+# string is a runtime format that will drift — llama.cpp already moved its
+# --version output once (see llama_cpp_build below), and the person who fixes
+# that drift reads this file.
+MLX_VERSION_RE = re.compile(r'"MLX version"=(\S+)')
+SLOG_TIME_RE = re.compile(r"\btime=(\S+)")
+# x/mlxrunner/mlx/CMakeLists.txt runs `git describe --tags --first-parent
+# --abbrev=7 --long --dirty --always`. --long guarantees the -g<sha> suffix even
+# at an exact tag, so a MISSING suffix means --always fired with no reachable
+# tag; --dirty appends after it, which is why the sha group is not $-anchored.
+MLX_DESCRIBE_RE = re.compile(r"-g([0-9a-f]{7,40})(-dirty)?$")
+
+
+def mlx_describe_commit(version):
+    """('c793734', dirty_bool) from a describe string, or (None, dirty_bool)."""
+    m = MLX_DESCRIBE_RE.search(version or "")
+    if not m:
+        return None, (version or "").endswith("-dirty")
+    return m.group(1), bool(m.group(2))
+
+
+def mlx_build(container, since_epoch, log_cmd=None):
+    """The MLX version the runner reported, WINDOWED to since_epoch.
+
+    Returns (version_or_None, lines_seen_total).
+
+    THE WINDOW IS ENFORCED HERE, per line, and that is the whole point of this
+    function. container_logs() renders the window by substituting {since} into
+    the caller's --log-cmd template, so a template that omits the placeholder —
+    `cat <serve log>`, which is the only form that works on the native macOS
+    path, where the log is a file and not `docker logs` — silently returns the
+    WHOLE file. Measured 2026-08-30: a month-old engine-init line, in a run that
+    loaded no model at all, satisfied a five-second window and the pin check
+    returned PASS. Filtering on each line's own slog timestamp makes the window
+    real regardless of how the lines were fetched.
+
+    A line whose timestamp cannot be parsed is treated as OUT of the window: it
+    cannot be shown to belong to this run, and cannot-confirm must never read as
+    confirmed. lines_seen lets the caller say "saw N, none in window", which is
+    the stale-log fingerprint.
+    """
+    text = container_logs(container, since_epoch, log_cmd)
+    newest, seen = None, 0
+    for line in text.splitlines():
+        m = MLX_VERSION_RE.search(line)
+        if not m:
+            continue
+        seen += 1
+        t = SLOG_TIME_RE.search(line)
+        if not t:
+            continue
+        try:
+            when = datetime.datetime.fromisoformat(t.group(1)).timestamp()
+        except ValueError:
+            continue
+        if when >= since_epoch:
+            newest = m.group(1)
+    return newest, seen
 
 
 def llama_cpp_build(container, path="/usr/lib/ollama/llama-server", exec_cmd=None):

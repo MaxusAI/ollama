@@ -529,19 +529,25 @@ class TestExpectationsFile(unittest.TestCase):
                               f"profile {pid} lists arch {arch} with no "
                               f"[expect.{pid}.{arch}] block")
 
-    def test_every_mlx_profile_pins_its_mlx_build(self):
-        """The gap this check closes, asserted at the data level so it cannot
-        reopen.
+    # mlx-cuda is declared but has never been measured (its qwen rows are
+    # status="unmeasured" and it exits 4), so it has no pin to assert. Naming it
+    # here keeps the hole VISIBLE: the previous version of this test filtered on
+    # platform == "mlx-metal" and a second test asserted non-MLX profiles must
+    # NOT carry a pin, which together left mlx-cuda — the widest version_pattern
+    # in the file — silently exempt from both.
+    KNOWN_UNPINNED = {"mlx-cuda"}
 
-        Every mlx-metal profile exists BECAUSE the MLX pin moved, so a new one
-        added without `mlx_build` would resolve for a future MLX bump and
-        inherit ladders measured on different MLX — silently, which is the whole
-        failure payload_pin was written to prevent. mlx-metal-0-33-2 was added
-        that way (2026-08-30) and nothing complained; this test is what would
-        have complained.
-        """
+    def test_every_measured_mlx_profile_pins_its_mlx_build(self):
+        """A profile serving the MLX payload must record which MLX it was
+        measured on, or mlx_payload_pin has nothing to assert and a future MLX
+        bump inherits its ladders silently."""
         for pid, prof in self.exp["profiles"].items():
-            if prof.get("platform") != "mlx-metal":
+            if not str(prof.get("platform", "")).startswith("mlx"):
+                continue
+            if pid in self.KNOWN_UNPINNED:
+                self.assertIsNone(prof.get("mlx_build"),
+                                  f"{pid} now has a pin; drop it from "
+                                  f"KNOWN_UNPINNED so it is enforced")
                 continue
             sha = prof.get("mlx_build")
             self.assertTrue(sha, f"profile {pid} serves the MLX payload but "
@@ -550,15 +556,6 @@ class TestExpectationsFile(unittest.TestCase):
             self.assertRegex(sha, r"^[0-9a-f]{40}$",
                              f"{pid}: mlx_build should be the full MLX_VERSION "
                              f"commit")
-
-    def test_a_profile_that_is_not_mlx_is_not_required_to_pin_one(self):
-        """The check must stay silent where there is no MLX payload, rather
-        than pushing operators to invent a value to quiet it."""
-        non_mlx = [p for p in self.exp["profiles"].values()
-                   if p.get("platform") not in ("mlx-metal", "mlx-cuda")]
-        self.assertTrue(non_mlx, "expected some non-MLX profiles")
-        for prof in non_mlx:
-            self.assertNotIn("mlx_build", prof)
 
     def test_pixel_budgets_equal_tokens_times_stride_squared(self):
         for pid, arches in self.exp["expect"].items():
@@ -823,7 +820,7 @@ class TestMlxPayloadPin(unittest.TestCase):
             'msg="MLX engine initialized" "MLX version"=%s device=gpu\n')
 
     def pin(self, profile, log, container="native", log_cmd="cat x"):
-        with mock.patch.object(checks, "container_logs", return_value=log):
+        with mock.patch.object(probes, "container_logs", return_value=log):
             return checks.check_mlx_payload_pin(profile, container, 0,
                                                 log_cmd=log_cmd)
 
@@ -860,6 +857,77 @@ class TestMlxPayloadPin(unittest.TestCase):
     def test_absent_line_never_passes(self):
         """No engine-init line in the window means nothing was verified."""
         r = self.pin({"mlx_build": self.PIN}, "some unrelated log\n")
+        self.assertNotEqual(r["status"], PASS)
+
+
+
+
+class TestMlxPayloadPinWindow(unittest.TestCase):
+    """The window must be enforced by the CHECK, not by the fetch command.
+
+    container_logs does `log_cmd.format(container=..., since=...)`, so a
+    template with no {since} placeholder silently drops the window — and
+    `cat <serve log>` is exactly what this check's own diagnosis prescribes on
+    the native macOS path, which is the ONLY path where mlx_build is declared.
+    Before this fix a month-old engine-init line, in a run that loaded no model
+    at all, returned PASS "matches the measured payload".
+    """
+
+    PIN = "27fec909a3df9e572f5195607a453e273e7d80d0"
+
+    @staticmethod
+    def line(ts, ver):
+        return (f'time={ts} level=INFO source=server.go:47 '
+                f'msg="MLX engine initialized" "MLX version"={ver} device=gpu\n')
+
+    def pin(self, log, since, profile=None):
+        with mock.patch.object(probes, "container_logs", return_value=log):
+            return checks.check_mlx_payload_pin(
+                profile or {"mlx_build": self.PIN}, "native", since,
+                log_cmd="cat serve.log")
+
+    def test_a_line_older_than_the_window_never_passes(self):
+        stale = self.line("2026-07-31T09:20:01.893+10:00", "0.32.0-12-g27fec90")
+        r = self.pin(stale, time.time() - 5)
+        self.assertNotEqual(r["status"], PASS,
+                            "a month-old line satisfied a five-second window")
+
+    def test_a_line_inside_the_window_still_passes(self):
+        now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()) + "+00:00"
+        with mock.patch.object(probes, "container_logs",
+                               return_value=self.line(now, "0.32.1-3-g27fec90")):
+            r = checks.check_mlx_payload_pin({"mlx_build": self.PIN}, "native",
+                                             0, log_cmd="cat serve.log")
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_nothing_in_the_window_is_a_failure_not_a_skip(self):
+        """check_payload_proof FAILs for the same condition. A SKIP leaves the
+        run's exit code at 0, so a deploy gated on it goes green with the pin
+        unasserted."""
+        r = self.pin("unrelated log line\n", time.time() - 5)
+        self.assertEqual(r["status"], FAIL)
+
+    def test_a_dirty_mlx_tree_fails_rather_than_skipping(self):
+        """`git describe --dirty` (x/mlxrunner/mlx/CMakeLists.txt) marks a
+        modified MLX source tree — precisely the different-payload case this
+        check exists to catch. It must not degrade to 'cannot parse'."""
+        now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()) + "+00:00"
+        with mock.patch.object(
+                probes, "container_logs",
+                return_value=self.line(now, "0.32.1-3-g27fec90-dirty")):
+            r = checks.check_mlx_payload_pin({"mlx_build": self.PIN}, "native",
+                                             0, log_cmd="cat serve.log")
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("dirty", r["summary"] + str(r.get("diagnosis", "")))
+
+    def test_a_pin_too_short_to_identify_a_commit_never_passes(self):
+        """`short.startswith(expected)` accepted a 3-char pin against a commit
+        it does not name."""
+        now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()) + "+00:00"
+        with mock.patch.object(probes, "container_logs",
+                               return_value=self.line(now, "0.32.1-3-gc790000")):
+            r = checks.check_mlx_payload_pin({"mlx_build": "c79"}, "native", 0,
+                                             log_cmd="cat serve.log")
         self.assertNotEqual(r["status"], PASS)
 
 
