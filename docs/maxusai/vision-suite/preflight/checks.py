@@ -391,6 +391,57 @@ def check_mlx_payload_pin(profile, container, since, log_cmd=None):
 # 3. Payload patch proof — from the MODEL-LOAD LOG, never the binary
 # --------------------------------------------------------------------------
 
+def check_aspect_ladder(client, expect, arch):
+    """Token counts across ASPECT RATIOS, the axis ladder_sizes does not vary.
+
+    ladder_sizes is five 16:9 geometries, so it moves image SIZE only. A
+    budget-fill arch scales any input to the same grid, which makes all five
+    rungs mathematically identical for gemma4 — "5/5 geometries within +/-2"
+    reporting one degree of freedom as five. Measured on 0.33.2-maxusai-2b95b4a5,
+    gemma4:12b moves 1058-1102 once the ratio changes, so the coverage is real
+    and the ladder simply never reached it.
+
+    Deliberately a SEPARATE expectation rather than more rungs in ladder_sizes:
+    that list is global, and every measured ladder in this file was taken at
+    those five geometries. Widening it would invalidate every profile the matrix
+    spans, including hosts that cannot be re-measured from here. Profiles
+    without an aspect_ladder skip, so this is additive.
+    """
+    name = "aspect_ladder"
+    cfg = expect.get("aspect_ladder")
+    if not cfg:
+        return result(name, SKIP, "no aspect-ladder expectation recorded",
+                      arch=arch)
+    tol = expect.get("ladder_tolerance", 2)
+    try:
+        prefix, _, _ = client.image_prefix(expect["model"])
+    except Exception:
+        # StubClient and older probes have no image_prefix; the ladder check
+        # passes a baseline through the same argument, so fall back to 0 rather
+        # than failing a run over a helper that is not needed for the delta.
+        prefix = 0
+    failures, seen = [], {}
+    for size, want in sorted(cfg.items()):
+        try:
+            got, _ = client.visual_tokens(expect["model"], size, prefix)
+        except ProbeError as exc:
+            return result(name, ERROR, f"{size}: {exc}", arch=arch)
+        seen[size] = got
+        if abs(got - want) > tol:
+            failures.append(f"{size}: expected {want}, got {got}")
+    if failures:
+        return result(
+            name, FAIL, "; ".join(failures), arch=arch,
+            expected=cfg, actual=seen,
+            diagnosis="Image sizing moved on an aspect ratio the 16:9 ladder "
+                      "cannot see. Re-measure deliberately and update this "
+                      "profile with provenance (ADR 0011) — do NOT edit values "
+                      "to go green.")
+    return result(name, PASS,
+                  f"{len(seen)}/{len(cfg)} aspect ratios within +/-{tol}",
+                  arch=arch, expected=cfg, actual=seen)
+
+
 def check_payload_proof(expect, arch, container, since, log_cmd=None):
     """N == max_tokens * S^2 where S = patch_size * n_merge.
 

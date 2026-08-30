@@ -214,6 +214,9 @@ def run_arch(client, exp, profile_id, arch, args, container, results, flush):
 
     results.append(checks.check_payload_proof(
         expect, arch, container, since, args.log_cmd))
+    # The aspect axis, which the 16:9 ladder above cannot reach.
+    results.append(checks.check_aspect_ladder(client, expect, arch))
+    flush()
     flush()
 
     if not args.skip_think:
