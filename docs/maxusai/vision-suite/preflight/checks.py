@@ -656,6 +656,48 @@ def check_pinned_image_token_budget(client, expect, arch, baseline, marker_allow
 # 6. think + format non-empty
 # --------------------------------------------------------------------------
 
+def schema_violations(obj, schema, path="$"):
+    """Violations of a DELIBERATE SUBSET of JSON Schema: type (object/array/
+    string/integer/number/boolean), properties, required, items.
+
+    Hand-written because the harness takes no third-party dependency, and
+    because the subset is the point: these probes assert that constrained
+    decoding produced the requested SHAPE, not that a general validator agrees.
+    Anything outside the subset is ignored rather than guessed at — an unknown
+    keyword must not manufacture a failure.
+
+    bool is checked before int on purpose: in Python True is an int, so a
+    boolean would otherwise satisfy {"type": "integer"}.
+    """
+    out = []
+    t = schema.get("type")
+    if t == "object" and not isinstance(obj, dict):
+        return [f"{path}: expected object, got {type(obj).__name__}"]
+    if t == "array" and not isinstance(obj, list):
+        return [f"{path}: expected array, got {type(obj).__name__}"]
+    if t == "string" and not isinstance(obj, str):
+        return [f"{path}: expected string, got {type(obj).__name__}"]
+    if t == "boolean" and not isinstance(obj, bool):
+        return [f"{path}: expected boolean, got {type(obj).__name__}"]
+    if t == "integer" and (isinstance(obj, bool) or not isinstance(obj, int)):
+        return [f"{path}: expected integer, got {type(obj).__name__}"]
+    if t == "number" and (isinstance(obj, bool)
+                          or not isinstance(obj, (int, float))):
+        return [f"{path}: expected number, got {type(obj).__name__}"]
+
+    if isinstance(obj, dict):
+        for key in schema.get("required", []):
+            if key not in obj:
+                out.append(f"{path}: missing required key {key!r}")
+        for key, sub in (schema.get("properties") or {}).items():
+            if key in obj:
+                out.extend(schema_violations(obj[key], sub, f"{path}.{key}"))
+    if isinstance(obj, list) and isinstance(schema.get("items"), dict):
+        for i, item in enumerate(obj):
+            out.extend(schema_violations(item, schema["items"], f"{path}[{i}]"))
+    return out
+
+
 def check_think_format(client, expect, arch, min_num_predict):
     """Stock returns an empty `response` for nemotron3/qwen3.6 when think:true is
     combined with format:"json". The fork emits valid JSON after thinking.
@@ -677,13 +719,20 @@ def check_think_format(client, expect, arch, min_num_predict):
                       arch=arch,
                       diagnosis="Refusing to run: a low num_predict manufactures a "
                                 "false vision failure. Raise it in expectations.toml.")
+    # The schema describes the shape this prompt ALREADY asks for, deliberately.
+    # A schema is only meaningful if the prompt requests the same object — but
+    # the prompt must also stay the one the recorded token counts were measured
+    # on. Asking for a different shape (measured 2026-08-30: "count the coloured
+    # shapes and name each colour") sent gemma4:12b into runaway thinking, 4000
+    # tokens and an empty response, so the probe failed a healthy build. Keep
+    # the task fixed; constrain its shape.
     try:
         resp = client.generate(
             expect["model"],
             "List three visual facts about this image as JSON: "
             '{"facts": ["...", "...", "..."]}',
             images=[ladder_image_b64("1024x576")], num_predict=np_,
-            think=True, fmt="json", label="think_format")
+            think=True, fmt=(cfg.get("schema") or "json"), label="think_format")
     except ProbeError as exc:
         return result(name, ERROR, str(exc), arch=arch)
 
@@ -713,9 +762,17 @@ def check_think_format(client, expect, arch, min_num_predict):
         failures.append("thinking is empty")
     if cfg.get("require_valid_json", True) and body:
         try:
-            json.loads(body)
+            parsed = json.loads(body)
         except Exception as exc:
             failures.append(f"response is not valid JSON: {exc}")
+        else:
+            # A schema turns this from "did it parse" into "is it the shape we
+            # asked for". Without it, ADR 0033's grammar engine was gated by
+            # json.loads() alone, and a regression emitting well-formed JSON of
+            # the wrong shape — the exact failure constrained decoding prevents
+            # — passed clean.
+            if cfg.get("schema"):
+                failures.extend(schema_violations(parsed, cfg["schema"]))
 
     status = PASS if not failures else FAIL
     return result(name, status,
