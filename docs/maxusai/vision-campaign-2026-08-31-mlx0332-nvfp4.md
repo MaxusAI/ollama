@@ -177,10 +177,24 @@ build-to-build comparison. The same caveat applies retroactively to the
 throughput columns in
 [the 2026-08-28 campaign](vision-campaign-2026-08-28-mlx0330-nvfp4.md).
 
-**What would make throughput comparable** is repetition, which the harness
-already supports and this campaign did not use: `REPEATS=n` with
-`summarize_reps.py`, which renders a spread rather than a point. Nothing
-here should be read as evidence that 0.33.2 is faster or slower than 0.33.0.
+**The campaign is a QUALITY instrument, and n=1 is the right setting for it.**
+Quality reproduces to three decimals across a payload move and a new grammar
+engine; putting an interval around a number that stable buys nothing for 3x the
+wall clock. A throughput figure in these tables is a characterisation of a
+model, not a measurement of a build.
+
+**A throughput anomaly is a TRIGGER, not a result.** When a cell's tok/s moves
+enough to notice, the answer is a targeted re-run of that cell after the
+campaign — not a bigger campaign. That is cheap and it is decisive: serve the
+build standalone, run the same arms 3x back to back, and compare against the
+same arms in the reference cell. The 53.8 above took about two minutes to refute
+that way, against the five hours REPEATS=3 would have cost across the whole
+campaign — and REPEATS would not even have caught it, because `rep` is the
+INNERMOST loop, so three consecutive reps of a cell share its machine state and
+would have agreed on the wrong number with a reassuringly tight interval.
+
+Nothing here should be read as evidence that 0.33.2 is faster or slower than
+0.33.0.
 
 ## 4. Limits
 
@@ -198,10 +212,11 @@ here should be read as evidence that 0.33.2 is faster or slower than 0.33.0.
   repeats to mean anything.** Preflight asserts token accounting and payload
   identity, not speed. A single-run speed gate on this host would fire on
   machine state, not on code — which is exactly the mistake §3 records.
-- **n=1 per cell, and §3 is what that cost.** Quality reproduces well enough
-  to be convincing at n=1; throughput does not, and treating a single cell as a
-  baseline produced a confident regression claim that repetition refuted. Use
-  `REPEATS=n` for any campaign whose conclusions depend on timing.
+- **n=1 per cell, deliberately.** Quality reproduces well enough to be
+  convincing at n=1, which is what this campaign exists to check. Throughput
+  does not, and §3 is what treating a single cell as a timing baseline cost.
+  The policy that follows is not "run bigger campaigns": it is that a
+  throughput anomaly gets re-run case by case afterwards, per §3.
 - **Scores are on-host, untracked**
   (`docs/maxusai/vision-suite/scores_mlx0332nv1_*.json`, seven files), per the
   campaign convention; this document is the durable record.
