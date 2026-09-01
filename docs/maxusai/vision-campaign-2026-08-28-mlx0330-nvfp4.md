@@ -142,17 +142,19 @@ capped at every rung, ending at the ceiling with 122,880 thinking tokens and
 three rung escalations, and its table cells read `capped` rather than a score.
 
 **qwen3.6:35b-a3b-nvfp4 is the second non-terminating cell, and the worst one.**
-18/27 converged (rungs 16384 and 32768, max `eval_count` 22,823 — already an
-order of magnitude above the gemma4 cells), and **nine arms never terminate**:
+18/27 converged — 9 at the 16384 start rung, 1 at 32768, 8 at 65536; max
+`eval_count` 22,823, or 3–6× the gemma4 cells' maxima (3,539 and 6,869) — and
+**nine arms never terminate**:
 `bboxm_pin_anc_pos`, `bboxm_free_anc_named`, `bboxm_free_noanc_named`,
 `scene_single_anchored`, `scene_single`, `multi_3img`, `multi_3img_anchored`,
 `bbox_contract_reasoning`, `bbox_contract_real_1img`. All nine capped at 65536
 and then again at the 131072 ceiling, every one producing 122,880 thinking
 tokens and **zero answer characters** at ~70 tok/s — about 30 minutes per arm.
 
-The ladder bought nothing here, and that is the finding: doubling the window
-doubled the thinking and changed no outcome. Both rungs are total
-non-termination, not a budget that was nearly enough. The cell cost ~8 hours
+The ladder bought nothing for these nine — the same 65536 re-run pass that
+converted 8 *other* arms — and that is the finding: for a non-terminator,
+doubling the window doubles the thinking and changes no outcome. Both rungs
+are total non-termination, not a budget that was nearly enough. The cell cost ~8 hours
 wall (16:29 → 00:34) for nine unscored arms, and because `scene_single*` and
 `multi_3img*` are among them, the scene-grounding and multi-image columns for
 this model cannot be filled from this campaign at all.
@@ -219,9 +221,13 @@ still renders in §1 above.
   8,192 — 52 tokens over — with `done_reason: "stop"` and a real 649-character
   answer. It is correctly treated as converged (SPEC H5 is done_reason-first,
   which is exactly why it survives), but it is the only arm in ~270 across this
-  campaign where the reported token count exceeds its own budget, and the
-  mechanism is unexplained. Worth noting wherever `num_predict` is assumed to
-  bound `eval_count`.
+  campaign where the reported token count exceeds its own budget. The
+  mechanism is unexplained but not unprecedented: `was_capped`'s docstring
+  records the same stop-overshoot class on this model — `eval_count` 8,290
+  against 8,192, qwen3.6 `bbox_contract_reasoning`, measured 2026-08-20 — and
+  [#233](https://github.com/MaxusAI/ollama/pull/233) pinned a regression test
+  for it, which is why SPEC H5 is done_reason-first in the first place. Worth
+  noting wherever `num_predict` is assumed to bound `eval_count`.
 
   **It did not reproduce.** Re-run 2026-08-30 on `0.33.2-maxusai-2b95b4a5`
   (llama.cpp b10630, MLX c793734e), same arm, same prompt, same 8,192 budget:
