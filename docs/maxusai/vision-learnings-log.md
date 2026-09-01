@@ -342,13 +342,18 @@ build + model + arms; not a refutation of the sampling finding.
   for one cell that produced 7 scores; the other nine campaign cells waited
   behind it all night.
 
-### 2026-08-30 — The anchor no longer bounds qwen3.6 think-on runaway
+### 2026-08-30 — The anchor fails to bound qwen3.6 runaway on Metal nvfp4 (n=1)
 [2026-08-19](#2026-08-19--qwen36-think-on-does-not-terminate-the-anchor-bounds-it)
 measured `multi_3img` failing to terminate while `multi_3img_anchored`
-finished in 10,910 tokens, on two platforms and two builds — the anchor was
-the bound. On `0.33.0-maxusai-21cfe88e` (Metal, nvfp4) **both members of that
-pair now fail to terminate**, so the mitigation is build- or quant-dependent
-and cannot be relied on as a property of the model.
+finished in 10,910 tokens, on two platforms and two builds — **for the
+q4_K_M quant**. That campaign's nvfp4 row was Apple-only and already
+imperfect (`✅✅❌` across three reps — the `q4_bbox` miss). On
+`0.33.0-maxusai-21cfe88e` (Metal, nvfp4) **both members of the pair fail to
+terminate** — one unrepeated observation. Read together: the mitigation was
+imperfect on this quant at n=3 and is absent at n=1 here, so it must not be
+relied on as a property of the model; whether it fails *outright* on nvfp4
+needs repeats this campaign did not buy (its own limits section says the
+same).
 
 - **Evidence** — campaign `mlx0330nv`, cell
   `mlx0330nv1_qwen3_6_35b-a3b-nvfp4_thinkon`: 9 of 27 arms capped at 65536 and
@@ -358,8 +363,10 @@ and cannot be relied on as a property of the model.
   `multi_3img_anchored`, `scene_single` + `scene_single_anchored` — plus
   `bboxm_pin_anc_pos`, `bboxm_free_anc_named`, `bboxm_free_noanc_named`,
   `bbox_contract_reasoning`, `bbox_contract_real_1img`. The remaining 18 arms
-  converged (rungs 16384/32768, max `eval_count` 22,823), so this is arm-
-  specific non-termination, not a dead cell.
+  converged — 9 at the 16384 start rung, 1 at 32768, 8 at 65536, the split
+  the capped counts below imply (the scores file's per-arm `req_num_ctx` is
+  the check) — max `eval_count` 22,823. So this is arm-specific
+  non-termination, not a dead cell.
 - **The ceiling rung resolved exactly zero arms** — capped counts by rung were
   18 → 17 → **9 → 9**. Escalation genuinely works up to 65536 (nine arms
   converted from capped to scored), and then stops working completely: the
@@ -390,16 +397,21 @@ with 122,880 tokens and 0 answer characters.
 - **The cost is bounded by the arm-level resume, not by the cell.** Each rung
   re-ran only the still-capped arms and printed what it skipped — `SKIP 19` /
   `SKIP 23` / `SKIP 25` already-scored arms against `RE-RUN 8` / `4` / `2`. So
-  a four-rung climb cost 8+4+2+1 = 15 arm-runs, not 4×27 = 108. This is the
+  the climb re-ran 8+4+2 = 14 arms on top of the 27-arm first rung — 41
+  arm-runs against a naive sweep's 4×27 = 108. This is the
   concrete answer to
   [2026-08-19's "the ladder multiplies cost across ALL arms"](#2026-08-19--the-context-ladder-multiplies-cost-across-all-arms-not-just-the-capped-one):
   it no longer does, and the `SKIP`/`RE-RUN` lines are the evidence to check
   when a climb looks too expensive.
-- **The anchor inverts here, again.** For 26b the *unanchored* `multi_3img`
-  converged at the ceiling while `multi_3img_anchored` did not — the opposite
-  ordering to [2026-08-19's qwen3.6 pair](#2026-08-19--qwen36-think-on-does-not-terminate-the-anchor-bounds-it),
-  and consistent with [the anchor's value being per-model](#2026-08-19--the-anchors-value-is-per-model-and-inverts).
-  Three images plus an anchored coordinate contract is the most
+- **The anchor's ordering flips here — one arm each way.** For 26b the
+  *unanchored* `multi_3img` converged at the ceiling while
+  `multi_3img_anchored` did not — the opposite ordering to
+  [2026-08-19's qwen3.6 pair](#2026-08-19--qwen36-think-on-does-not-terminate-the-anchor-bounds-it).
+  The prior [per-model finding](#2026-08-19--the-anchors-value-is-per-model-and-inverts)
+  was powered at n=14 geometries; this is one observation per member, which
+  is the shape of noise as readily as of inversion — an observation to
+  repeat, not confirmation. What needs no repeat: three images plus an
+  anchored coordinate contract is the most
   reasoning-expensive shape the suite asks for, and it is the one arm that
   fails on both non-converging gemma4/qwen cells.
 - **Worth testing** — whether `ONLY_TESTS` isolation of a known-runaway arm is
