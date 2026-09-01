@@ -142,19 +142,21 @@ capped at every rung, ending at the ceiling with 122,880 thinking tokens and
 three rung escalations, and its table cells read `capped` rather than a score.
 
 **qwen3.6:35b-a3b-nvfp4 is the second non-terminating cell, and the worst one.**
-18/27 converged — 9 at the 16384 start rung, 1 at 32768, 8 at 65536; max
-`eval_count` 22,823, or 3–6× the gemma4 cells' maxima (3,539 and 6,869) — and
-**nine arms never terminate**:
+18/27 converged — 10 at the 16384 start rung, 8 at 32768, none above
+(per-arm `req_num_ctx`, read 2026-09-01); max `eval_count` 22,823
+(`bboxm_pin_anc_named`), or 3–6× the gemma4 cells' maxima (3,539 and 6,869) —
+and **nine arms never terminate**:
 `bboxm_pin_anc_pos`, `bboxm_free_anc_named`, `bboxm_free_noanc_named`,
 `scene_single_anchored`, `scene_single`, `multi_3img`, `multi_3img_anchored`,
 `bbox_contract_reasoning`, `bbox_contract_real_1img`. All nine capped at 65536
 and then again at the 131072 ceiling, every one producing 122,880 thinking
 tokens and **zero answer characters** at ~70 tok/s — about 30 minutes per arm.
 
-The ladder bought nothing for these nine — the same 65536 re-run pass that
-converted 8 *other* arms — and that is the finding: for a non-terminator,
-doubling the window doubles the thinking and changes no outcome. Both rungs
-are total non-termination, not a budget that was nearly enough. The cell cost ~8 hours
+The ladder's top two rungs bought nothing at all — the 65536 re-run
+converted zero arms and the ceiling zero again; every conversion this cell
+got came at 32768 — and that is the finding: for a non-terminator, doubling
+the window doubles the thinking and changes no outcome. Both rungs are total
+non-termination, not a budget that was nearly enough. The cell cost ~8 hours
 wall (16:29 → 00:34) for nine unscored arms, and because `scene_single*` and
 `multi_3img*` are among them, the scene-grounding and multi-image columns for
 this model cannot be filled from this campaign at all.

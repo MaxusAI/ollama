@@ -363,17 +363,20 @@ same).
   `multi_3img_anchored`, `scene_single` + `scene_single_anchored` — plus
   `bboxm_pin_anc_pos`, `bboxm_free_anc_named`, `bboxm_free_noanc_named`,
   `bbox_contract_reasoning`, `bbox_contract_real_1img`. The remaining 18 arms
-  converged — 9 at the 16384 start rung, 1 at 32768, 8 at 65536, the split
-  the capped counts below imply (the scores file's per-arm `req_num_ctx` is
-  the check) — max `eval_count` 22,823. So this is arm-specific
+  converged — 10 at the 16384 start rung, 8 at 32768, none above, read from
+  the scores file's per-arm `req_num_ctx` (2026-09-01, on the campaign host)
+  — max `eval_count` 22,823 (`bboxm_pin_anc_named`). So this is arm-specific
   non-termination, not a dead cell.
-- **The ceiling rung resolved exactly zero arms** — capped counts by rung were
-  18 → 17 → **9 → 9**. Escalation genuinely works up to 65536 (nine arms
-  converted from capped to scored), and then stops working completely: the
-  65536 → 131072 doubling bought 4.5 h of inference and not one measurement.
-  That flat step is the cleanest signal available that an arm is
-  non-terminating rather than under-budgeted, and it is worth reading off the
-  `##### CAPPED` lines *during* a run instead of after.
+- **The top two rungs resolved exactly zero arms** — capped counts by rung
+  were 17 → 9 → **9 → 9**, implied exactly by the per-arm final rungs (the
+  18 → 17 → 9 → 9 previously recorded here was a mis-transcription, caught
+  2026-09-01 against the scores file). Escalation genuinely works at 32768
+  (eight arms converted from capped to scored), and then stops working
+  completely: the 32768 → 65536 doubling converted nothing, and the
+  65536 → 131072 doubling bought 4.5 h of inference and not one measurement
+  either. That double flat step is the cleanest signal available that an arm
+  is non-terminating rather than under-budgeted, and it is worth reading off
+  the `##### CAPPED` lines *during* a run instead of after.
 - **Not a refutation of the anchor's value generally** — five `bboxm_*` arms
   including anchored ones did converge here, and 2026-08-19's measurement
   stands for its own build/quant. What is refuted is treating "add the anchor"
