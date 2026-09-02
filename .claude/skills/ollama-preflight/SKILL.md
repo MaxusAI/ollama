@@ -17,11 +17,22 @@ Establish three things. Guessing any of them wastes a twenty-minute run.
 1. **Which host, and is it free?** The harness detects contention, but a
    contended run still costs you the time. The live service on `:11434` is
    frequently down and must not be started as a side effect of validating.
-2. **Which port is actually the build under test?** 11434, 11435 and 11436 are
-   all occupied on 10.8.0.6 — `:11435` currently answers version `0.9.6`, an
-   entirely different server. Never assume; the harness asserts the version
-   string first and aborts if it disagrees, which is the safety net, not a
-   substitute for checking.
+2. **Which port is actually the build under test?** On 10.8.0.6 the CUDA
+   serving endpoint is **`:11497`** — container
+   `ollama-0.33.2-dynres-5-g2b95b4a` (image `maxusai/ollama:sync-0.33.2`,
+   deployed 2026-09-02; naming convention `ollama-<version-stamp>`, stamp ==
+   what `/api/version` returns). `:11435` answers version `0.9.6`, an entirely
+   different server, and `:11434` stays parked. Never assume; the harness
+   asserts the version string first and aborts if it disagrees, which is the
+   safety net, not a substitute for checking.
+
+   The serving container deliberately runs WITHOUT `OLLAMA_MAX_LOADED_MODELS=1`,
+   so several models can be resident during a run against it. That is fine:
+   since `payload_proof` attributes each load_hparams block to the load that
+   emitted it (launch-line flags + patch stride), the harness validates a
+   serving container as-deployed. A pre-attribution harness graded gemma4
+   against qwen3.8's block on exactly this container (2026-09-02,
+   `runs/deploy-smoke-11497.json`) and failed a healthy deploy.
 3. **Which platform profile applies.** Platform names a (backend, runtime)
    pair. Backends are `cuda`, `rocm`, `metal`, `cpu`; the MLX runtime
    prefixes its backend — `mlx-metal`, `mlx-cuda` — matching the payload
@@ -152,6 +163,7 @@ different payload by design, and a merged pass/fail hides that.
   rules: `docs/maxusai/adr/0011-preflight-expectations-are-versioned-code.md`
 - Harness and the maintenance path: `docs/maxusai/vision-suite/preflight/README.md`
 - Expected values: `docs/maxusai/vision-suite/preflight/expectations.toml`
-- Reference passing run: canary `maxusai/ollama:4987dd49-dynres` on `:11437`
+- Current serving endpoint: `:11497`, container `ollama-0.33.2-dynres-5-g2b95b4a` (post-deploy smoke + gemma4 re-run recorded in `runs/deploy-smoke-11497*.json`)
+- Reference passing run: canary `maxusai/ollama:4987dd49-dynres` on `:11437` (canary not currently running)
 - ROCm gate: `docs/maxusai/amd-upgrade-gate.md`
 - Apple Silicon build: `docs/maxusai/spec/apple-silicon-build.md`
