@@ -10,7 +10,8 @@ import time
 
 from probes import (ProbeError, container_logs, grep_binary_marker,
                     ladder_image_b64, llama_cpp_build, mlx_build,
-                    mlx_describe_commit, parse_pixel_lines, poison_image_b64)
+                    mlx_describe_commit, parse_load_segments,
+                    parse_pixel_lines, poison_image_b64)
 
 PASS, FAIL, SKIP, NEEDS_BASELINE, ERROR, CONTENTION = (
     "PASS", "FAIL", "SKIP", "NEEDS_BASELINE", "ERROR", "CONTENTION")
@@ -506,6 +507,69 @@ def check_payload_proof(expect, arch, container, since, log_cmd=None):
                                 "no fresh load_hparams block was emitted), or the "
                                 "payload lacks the budget patch entirely.")
 
+    # Which bounds this arch's flags actually set. Both, for the arches whose
+    # visionServerArgs case passes --image-min-tokens AND --image-max-tokens
+    # (gemma4, nemotron_h_omni). The qwen VL family passes only the min: its max
+    # is llama.cpp's structural set_limit_image_tokens(8, 4096) ceiling and is
+    # "not tunable through --image-max-tokens" (llm/llama_server.go, on
+    # qwenVLImageMaxTokens). Demanding "(custom value)" on a bound no flag can
+    # set makes a correct build fail, so the arch declares what to expect.
+    #
+    # Checked in BOTH directions. A bound declared uncustomised that starts
+    # logging as custom means a flag began being passed, which is as much a
+    # change as one going missing — and silently tolerating it would hide the
+    # arch gate being edited.
+    custom_bounds = set(expect.get("custom_bounds", ["min", "max"]))
+
+    # ---- attribute blocks to the load that emitted them ---------------------
+    # Two models resident on one server interleave their loads in one window,
+    # and "the last block in log order" then belongs to whichever model loaded
+    # last — the 2026-09-02 deploy smoke failed a healthy gemma4 against
+    # qwen3.8's (correct) 1048576/4194304 exactly this way, on a serving
+    # container that (rightly) does not run with OLLAMA_MAX_LOADED_MODELS=1.
+    #
+    # A block is this arch's iff its runner-launch line carries the very flags
+    # this check verifies (--image-*-tokens equal to the declared budgets, on
+    # exactly the bounds custom_bounds says the arch passes) AND the block's
+    # patch_size*n_merge equals the declared patch_stride — the flags alone
+    # collide (qwen35 and qwen2.5vl both pass only --image-min-tokens 1024;
+    # strides 32 vs 28 split them). A pinned probe launches with min == max
+    # flags and so never matches an arch's default budget, which preserves the
+    # pinned belt-and-braces below by construction.
+    #
+    # A window with NO launch line keeps the old whole-window grading: the
+    # forced fresh load always brings its launch line, so that fallback only
+    # serves stale-tail windows, where nothing better is knowable.
+    segments = parse_load_segments(logs)
+    launches = [seg for seg in segments if seg["launch"]]
+    if launches:
+        want_min = bmin if "min" in custom_bounds else None
+        want_max = bmax if "max" in custom_bounds else None
+
+        def ours(seg):
+            return (seg["min_tokens"] == want_min
+                    and seg["max_tokens"] == want_max
+                    and seg["patch_size"] is not None
+                    and seg["n_merge"] is not None
+                    and seg["patch_size"] * seg["n_merge"] == stride)
+
+        mine = [seg for seg in launches if ours(seg)]
+        scoped = [d for seg in mine for d in seg["pixels"]]
+        if not scoped:
+            foreign = sum(1 for seg in launches if not ours(seg))
+            return result(
+                name, FAIL,
+                f"no load of this arch's model in the fresh log window",
+                arch=arch, expected=derivation,
+                actual=f"{foreign} unrelated load(s), 0 matching",
+                diagnosis=f"{foreign} load(s) of other models seen in the "
+                          "window; their pixel blocks must not be graded "
+                          "against this arch. Either this arch's model never "
+                          "loaded during this run, or its launch flags / "
+                          "patch stride no longer match the expectations "
+                          "block — which is a finding, not noise.")
+        lines = scoped
+
     # Pair the lines into (min, max) blocks in log order — one per model load —
     # and read the last DEFAULT-budget block. A pinned probe legitimately logs
     # min == max, which is not what this check is about. payload_proof already
@@ -528,20 +592,6 @@ def check_payload_proof(expect, arch, container, since, log_cmd=None):
     if want["min"] != want["max"]:
         usable = [b for b in blocks if not is_pinned(b)] or blocks
     got = usable[-1] if usable else {}
-
-    # Which bounds this arch's flags actually set. Both, for the arches whose
-    # visionServerArgs case passes --image-min-tokens AND --image-max-tokens
-    # (gemma4, nemotron_h_omni). The qwen VL family passes only the min: its max
-    # is llama.cpp's structural set_limit_image_tokens(8, 4096) ceiling and is
-    # "not tunable through --image-max-tokens" (llm/llama_server.go, on
-    # qwenVLImageMaxTokens). Demanding "(custom value)" on a bound no flag can
-    # set makes a correct build fail, so the arch declares what to expect.
-    #
-    # Checked in BOTH directions. A bound declared uncustomised that starts
-    # logging as custom means a flag began being passed, which is as much a
-    # change as one going missing — and silently tolerating it would hide the
-    # arch gate being edited.
-    custom_bounds = set(expect.get("custom_bounds", ["min", "max"]))
 
     bad = []
     for kind, value in want.items():
