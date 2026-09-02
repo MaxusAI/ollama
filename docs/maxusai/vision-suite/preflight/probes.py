@@ -329,6 +329,59 @@ def parse_pixel_lines(text):
             for m in PIXEL_RE.finditer(text)]
 
 
+# Runner-launch boundaries, for attributing a load_hparams block to the model
+# that emitted it. The Go server logs one "starting llama-server" line per
+# runner spawn, and its cmd string carries the --image-*-tokens flags — the
+# very values payload_proof verifies the payload honoured. This lives HERE and
+# not in checks.py for the same reason MLX_VERSION_RE does: it is a runtime log
+# format that will drift, and the person who fixes the drift reads this file.
+LAUNCH_RE = re.compile(r'msg="starting llama-server" cmd="([^"]*)"')
+IMG_MIN_FLAG_RE = re.compile(r"--image-min-tokens (\d+)")
+IMG_MAX_FLAG_RE = re.compile(r"--image-max-tokens (\d+)")
+PATCH_SIZE_RE = re.compile(r"load_hparams: patch_size:\s+(\d+)")
+N_MERGE_RE = re.compile(r"load_hparams: n_merge:\s+(\d+)")
+
+
+def parse_load_segments(text):
+    """Split a log window at runner-launch lines; parse each load separately.
+
+    Returns [{'launch': bool, 'min_tokens': int|None, 'max_tokens': int|None,
+              'patch_size': int|None, 'n_merge': int|None,
+              'pixels': parse_pixel_lines(segment)}], in log order.
+
+    Text before the first launch line becomes a launch=False segment: those
+    lines belong to a load started before the window and can be attributed to
+    nothing, which is exactly how they must be treated. Two models resident on
+    one server interleave their loads in one log; grading "the last block in
+    the window" against one arch's expectations is how a healthy gemma4 deploy
+    failed its smoke against qwen3.8's (correct) numbers on 2026-09-02 — the
+    same failure family as the warm-up Reserve() line that nearly sank a
+    working CUDA fix. Unattributed log parsing.
+    """
+    bounds = list(LAUNCH_RE.finditer(text))
+    edges = [0] + [m.start() for m in bounds] + [len(text)]
+    out = []
+    for i in range(len(edges) - 1):
+        seg = text[edges[i]:edges[i + 1]]
+        if not seg.strip():
+            continue
+        cmd_m = LAUNCH_RE.search(seg)
+        cmd = cmd_m.group(1) if cmd_m else ""
+        mn = IMG_MIN_FLAG_RE.search(cmd)
+        mx = IMG_MAX_FLAG_RE.search(cmd)
+        ps = PATCH_SIZE_RE.search(seg)
+        nm = N_MERGE_RE.search(seg)
+        out.append({
+            "launch": bool(cmd_m),
+            "min_tokens": int(mn.group(1)) if mn else None,
+            "max_tokens": int(mx.group(1)) if mx else None,
+            "patch_size": int(ps.group(1)) if ps else None,
+            "n_merge": int(nm.group(1)) if nm else None,
+            "pixels": parse_pixel_lines(seg),
+        })
+    return out
+
+
 # MLX payload identity, from the runner's engine-init line. This lives HERE and
 # not in checks.py for the same reason llama_cpp_build does: checks.py hardcodes
 # "nothing except the shapes of the assertions themselves", and a `git describe`

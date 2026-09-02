@@ -355,6 +355,111 @@ class TestPayloadProofCustomBounds(unittest.TestCase):
         self.assertEqual(r["status"], PASS, r["summary"])
 
 
+class TestPayloadProofAttribution(unittest.TestCase):
+    """A pixel block is graded only against the arch whose load emitted it.
+
+    The 2026-09-02 deploy smoke on a server WITHOUT OLLAMA_MAX_LOADED_MODELS=1
+    read qwen3.8's (correct) 1048576/4194304 block as gemma4's and failed a
+    healthy deploy with "expected 161280, got 1048576" — the same log carried
+    gemma4's own correct blocks four times. Same family as the warm-up
+    Reserve() log-scraper trap: unattributed log parsing.
+
+    Attribution keys on what the check itself verifies: the runner-launch
+    line's --image-min/max-tokens flags, matched on exactly the bounds the
+    arch declares it passes (custom_bounds), plus patch_size*n_merge ==
+    patch_stride — the flags alone collide (qwen35 and qwen2.5vl both pass
+    only --image-min-tokens 1024; strides 32 vs 28 split them).
+
+    Windows with NO launch line keep the old last-block behaviour — that is
+    the fallback the bare-log tests above exercise, and a forced fresh load
+    always brings its launch line into the window.
+    """
+
+    GEMMA = {"image_min_pixels": 161280, "image_max_pixels": 2580480,
+             "patch_stride": 48, "budget_min_tokens": 70,
+             "budget_max_tokens": 1120}
+    QWEN = {"image_min_pixels": 1048576, "image_max_pixels": 4194304,
+            "patch_stride": 32, "budget_min_tokens": 1024,
+            "budget_max_tokens": 4096, "custom_bounds": ["min"]}
+
+    @staticmethod
+    def segment(min_tok, max_tok, patch, merge, minv, maxv,
+                min_custom=True, max_custom=True):
+        flags = f"--image-min-tokens {min_tok}"
+        if max_tok is not None:
+            flags += f" --image-max-tokens {max_tok}"
+        c = " (custom value)"
+        return (
+            f'time=x level=INFO source=llama_server.go:435 '
+            f'msg="starting llama-server" cmd="/usr/lib/ollama/llama-server '
+            f'--model /root/.ollama/models/blobs/sha256-x --port 1 {flags} '
+            f'-b 1024 -ub 1024"\n'
+            f"load_hparams: image_size:         224\n"
+            f"load_hparams: patch_size:         {patch}\n"
+            f"load_hparams: n_merge:            {merge}\n"
+            f"load_hparams: image_min_pixels:   {minv}"
+            f"{c if min_custom else ''}\n"
+            f"load_hparams: image_max_pixels:   {maxv}"
+            f"{c if max_custom else ''}\n")
+
+    def gemma_seg(self):
+        return self.segment(70, 1120, 16, 3, 161280, 2580480)
+
+    def qwen_seg(self):
+        return self.segment(1024, None, 16, 2, 1048576, 4194304,
+                            max_custom=False)
+
+    def proof(self, expect, log):
+        with mock.patch.object(checks, "container_logs", return_value=log):
+            return checks.check_payload_proof(expect, "arch", "container", 0)
+
+    def test_anothers_block_after_ours_does_not_fail_us(self):
+        """The deploy-smoke reproduction: gemma4's correct block, then
+        qwen3.8's load lands in the same window. Last-block grading fails a
+        healthy payload against another model's numbers."""
+        r = self.proof(self.GEMMA, self.gemma_seg() + self.qwen_seg())
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_ours_after_anothers_still_grades_ours(self):
+        r = self.proof(self.QWEN, self.gemma_seg() + self.qwen_seg())
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_reversed_order_both_ways(self):
+        log = self.qwen_seg() + self.gemma_seg()
+        r = self.proof(self.QWEN, log)
+        self.assertEqual(r["status"], PASS, r["summary"])
+        r = self.proof(self.GEMMA, log)
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_only_foreign_loads_is_a_fail_not_a_borrowed_pass(self):
+        """Another arch's correct block must never satisfy this arch — and the
+        failure must say what WAS seen, or the operator re-reads the log
+        blind."""
+        r = self.proof(self.GEMMA, self.qwen_seg())
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("no load of this arch", r["summary"])
+        self.assertIn("1 load(s) of other models", r["diagnosis"])
+
+    def test_flag_collision_is_split_by_stride(self):
+        """qwen35 and qwen2.5vl both pass only --image-min-tokens 1024; only
+        patch_size*n_merge tells their segments apart. A qwen2.5vl-shaped
+        segment (stride 28) must not satisfy qwen35 (stride 32)."""
+        imposter = self.segment(1024, None, 14, 2, 802816, 4194304,
+                                max_custom=False)
+        r = self.proof(self.QWEN, imposter)
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("no load of this arch", r["summary"])
+
+    def test_wrong_values_in_our_own_segment_still_fail(self):
+        """Attribution narrows WHICH block is graded, never HOW. A segment
+        launched with our flags whose payload logs the wrong pixels is
+        exactly the defect payload_proof exists to catch."""
+        broken = self.segment(70, 1120, 16, 3, 161280, 9999999)
+        r = self.proof(self.GEMMA, broken)
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("expected 2580480", r["summary"])
+
+
 class TestContainerLogsWindow(unittest.TestCase):
     """The --since window must be unambiguous, or it is the wrong window.
 
