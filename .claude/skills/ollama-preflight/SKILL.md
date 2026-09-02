@@ -157,6 +157,28 @@ directory and compare summaries — the README has a one-liner for this. Report
 per-host rather than merging into a single verdict: the ROCm host is on a
 different payload by design, and a merged pass/fail hides that.
 
+## Storage layout (10.8.0.6)
+
+Two arrays, two jobs — checking only one has already produced a wrong
+"verified" conclusion:
+
+- **Models: the 4TB array.** `docker_ollama_data` is a *bind-type* named
+  volume — `docker volume inspect` shows
+  `device: /mnt/4TB_SN850X_RAID1_BTRFS/opt/ollama/.ollama, o: bind` — so
+  `-v docker_ollama_data:/root/.ollama` puts the store on btrfs (`@data`,
+  zstd), not under `/var/lib/docker`. 476 GB / 323 GB free as of 2026-09-02.
+  Every serving and suite container mounts this same volume.
+- **Builds and scratch: the 8TB array** (buildx state, build logs), per the
+  build runbook.
+- **Root (`/`) runs ~100% full (~17 GB free) as a standing condition.** That
+  is the reason builds live on the 8TB array; it is NOT a model-store
+  problem — pulls land on the 4TB array.
+
+The trap that faked a disk-full alarm here: `df -h /var/lib/docker` reports
+the ROOT filesystem, because only the volume's `_data` path is a bind mount
+below it. Ask `docker volume inspect docker_ollama_data` (the Options betray
+the bind) or `findmnt -T <mountpoint>` — never `df` of a parent directory.
+
 ## Reference
 
 - Why expectations are code and not knowledge in this file, plus the normative
