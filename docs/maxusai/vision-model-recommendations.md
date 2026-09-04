@@ -407,3 +407,14 @@ model choice at all: **ask for the `__IMAGE__` calibration anchor**. Measured
 today, it turned two ❌ multi cells into ✅ sweeps, distinguished frame errors
 from grounding failures, and converted qwen3.6's think-on non-termination
 into a 9,598-token clean finish.
+
+> **2026-08-24 — engine choice on the CUDA host.** The same battery run as
+> MLX-CUDA (nvfp4) vs llama-server (GGUF q4_K_M) on the RTX PRO 6000 shows
+> score parity on same-weights pairs but GGUF at 1.5–3.6× the req/h for
+> short-answer work (MLX prefill is fleet-fastest; its decode is 21–30 tok/s
+> on ~540-token answers). Those req/h ratios are single-run figures — the
+> direction is consistent across five pairs, no one ratio is settled; see the
+> campaign's throughput caveat before quoting one. Tables and reading:
+> [vision-campaign-2026-08-24-sync15nt-thinkon.md](vision-campaign-2026-08-24-sync15nt-thinkon.md)
+> §"Cross-engine view".
+
