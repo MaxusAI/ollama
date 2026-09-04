@@ -420,3 +420,30 @@ with 122,880 tokens and 0 answer characters.
 - **Worth testing** — whether `ONLY_TESTS` isolation of a known-runaway arm is
   cheaper than letting it pull a cell up the ladder; at 26b's numbers the
   climb cost ~4.5 h to convert 7 arms, which was worth it.
+
+## 2026-09-04 — harness engineering
+
+### 2026-09-04 — `eval_count` can exceed `num_predict` under `done_reason: "stop"`; caps are counted by the server's verdict, never by token arithmetic
+
+**Evidence.** Two more arms in the sync15nt campaign (2026-08-23/24, build
+`0.32.14-dynres-108-g76918a7`, MLX nvfp4), found while reconciling its
+write-up (#213): `gemma4:12b-nvfp4` think-on `multi_3img_anchored` at
+`eval_count` 8,610 and `gemma4:26b-nvfp4` think-on `bboxm_free_anc_named` at
+8,692, both against `num_predict` 8,192, both `done_reason: "stop"`, both with
+a complete answer (the 26b one is the 1/6-box clean-but-wrong arm). Third and
+fourth instances of a class first recorded 2026-08-20 (`qwen3.6`
+`bbox_contract_reasoning`, 8,290 vs 8,192 — the `was_capped` docstring) and
+seen once on 0.33.0 (#256, 8,244; did not reproduce on 0.33.2). Overshoot so
+far: +52 to +500 tokens. The mechanism is still unexplained — the runner
+reports a stop *after* the cap — so instances are recorded until it can be
+localised.
+
+**Enforced by.** `was_capped()` in `vision-suite/summarize_engine_compare.py`
+(done_reason-first, SPEC H5), and #233's rule that every consumer reaches that
+one definition. A tally by `eval_count >= num_predict` would have read 12b as
+13/27 and 26b as 24/27 converged instead of 14/27 and 25/27, and would have
+re-run two arms that had already answered.
+
+**Cost.** Nothing realised this time — the harness held. Each instance that
+slipped past would cost one needless re-run at the next rung (8–13 min per arm
+on these cells) and a wrong converged count in the published table.
