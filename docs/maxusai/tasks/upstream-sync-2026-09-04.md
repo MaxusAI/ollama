@@ -470,8 +470,21 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    only (the b10760 change widens MMQ to MoE on pre-DP4A cards; Blackwell is unaffected).
    ☑ qwen2.5vl poison probe re-run at b10760: PASS inside the Gate 4 preflight.
    **Gate 5 (CUDA) result: no regression.**
-8. ☐ `v0.33.3-dynres` (+ `-maxusai`) tags on the merge commit; Release with generated matrix; README pointer; SPEC H11 note in the merge-commit body.
-9. ☐ Deployed as `ollama-0.33.3-dynres-…` from the tag; `sync-0.33.2` image retained as rollback.
+8. ☑ Landed 2026-09-04 (Glenn: go for steps 1–3, deploy held): #264 merged as `0c4f09d4`;
+   annotated `v0.33.3-dynres` on that commit (`git describe` → `v0.33.3-dynres-0-g0c4f09d`);
+   image rebuilt from the tag (`maxusai/ollama:sync-0.33.3`, stamp `0.33.3-dynres-0-g0c4f09d`,
+   11 m 30 s on the warm cache); **full preflight on the tagged build: VERDICT PASS 20 / 8 / 0**
+   (`preflight/runs/full-0333-tagged.json`, same result as the pre-tag run); green matrix
+   generated from that run (cuda row green, Output quality *skipped* — no thresholds for
+   this profile's arches); GitHub Release
+   [`v0.33.3-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.33.3-dynres) with the
+   fork's notes and the matrix; README pointer + matrix in #273. `-maxusai` lineage tag is the
+   Metal half's (handoff above).
+9. ☐ **Deploy held by Glenn.** `:11497` still serves `0.33.2-dynres-5-g2b95b4a`
+   (`v0.33.2-dynres.1`); when deploying: `ollama-0.33.3-dynres-0-g0c4f09d` from
+   `maxusai/ollama:sync-0.33.3`, `sync-0.33.2` retained as rollback, README **Deployed** line
+   updated (ADR 0032 amendment), and — on this shared GPU — consider `OLLAMA_MLX_MEMORY_LIMIT`
+   for any campaign/canary container alongside it (#272).
 
 ## Effort
 
