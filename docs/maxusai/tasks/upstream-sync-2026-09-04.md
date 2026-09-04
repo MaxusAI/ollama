@@ -130,11 +130,13 @@ compile against our package. The D1-B spike starts from this list:
   the direct competitor to ADR 0008's `BudgetFillSize` ladder, and the file
   the B spike has to reconcile.
 
-**Kept and dead under D1-A:** `x/models/gemma4/process_audio.go` and
-`process_audio_test.go` compile standalone — they depend only on the new
-`x/mlxrunner/model/audio` package — so they stay as the audio front-end a
-D1-B spike would need. `x/mlxrunner/model/audio` is a clean add and likewise
-has no consumer. Nothing in the shipped path reaches either.
+**Also excluded under D1-A (2026-09-04, after Gate 2):** `x/models/gemma4/process_audio.go`
+and `process_audio_test.go`. They were first kept because they compile standalone
+against the new `x/mlxrunner/model/audio` package, but golangci-lint's `unused`
+flagged `processUnifiedAudio` at repo root — dead code that trips the lint gate is
+worse than a file the D1-B spike can restore from the tag. The D1-B spike's
+starting set is therefore all five upstream files: `audio.go`, `audio_test.go`,
+`process_audio.go`, `process_audio_test.go`, `process_image.go`.
 
 Also removed with `ClaimOSThread`: `TestMLXOperationsSurviveRescheduling`
 (ADR 0017's conformance test) went with `mlx/thread_test.go`. It existed to
@@ -375,8 +377,8 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    doc. `git diff --name-status v0.33.3 HEAD -- x/models/gemma4` is the D1-A
    shape: `D` on `audio.go`, `audio_test.go`, `process_image.go`; `M` on
    `gemma4.go`, `media.go`, `media_test.go`, `vision.go`, `vision_test.go`;
-   `assistant.go`, `gemma4_test.go`, `gemma4_moe_test.go`, `process_audio.go`
-   and `process_audio_test.go` identical to upstream. Payload pins are
+   `assistant.go`, `gemma4_test.go`, `gemma4_moe_test.go` identical to upstream;
+   `process_audio.go`/`process_audio_test.go` excluded after Gate 2 (lint). Payload pins are
    upstream's: `b10760` / `37c26e5755da…` / `c74db5307cc8…`.
 4. ☑ Gate 2 green 2026-09-04 (`golang:1.26.0`, `-u 1000:1000`, caches on the
    8 TB array). `go build ./...` clean. `go test ./llm/ -run
