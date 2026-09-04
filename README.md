@@ -21,8 +21,8 @@
 > - An experimental MLX runtime for Apple Silicon and CUDA — see the caveats
 >   below before using it for anything that matters.
 >
-> **Current fold:** [`v0.33.2-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.33.2-dynres)
-> — upstream v0.33.2, llama.cpp `b10630`. `main` moves ahead of this between
+> **Current fold:** [`v0.33.3-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.33.3-dynres)
+> — upstream v0.33.3, llama.cpp `b10760`, MLX `37c26e57`. `main` moves ahead of this between
 > folds; the tag is the fixed point to build and roll back to.
 > **Deployed:** [`v0.33.2-dynres.1`](https://github.com/MaxusAI/ollama/tree/v0.33.2-dynres.1)
 > (`2b95b4a5`, the fold plus #233/#234/#235/#238, stamped
@@ -45,7 +45,7 @@
 
 | surface | Build identity | Image size ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|
-| **cuda** | green | green | green | green | not run | green | green | `0.33.2-dynres-5-g2b95b4a` |
+| **cuda** | green | green | green | green | skipped | green | green | `0.33.3-dynres-0-g0c4f09d` |
 | **mlx-cuda** | not run | not run | not run | not run | not run | not run | not run | — |
 | **mlx-metal** | not run | not run | not run | not run | not run | not run | not run | — |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | — |
