@@ -26,9 +26,13 @@ Think-off cells for the rest of the family are the `sync15_1_` tags measured
   built before #212; from that commit on, the runner defaults the check off and
   an operator export is respected.
 - Raw results: `vision-suite/scores_sync15nt_1_*.json` (+ `ft_`/`resp_`/`think_`
-  siblings). Driver logs: `preflight-runs/vsuite_nt_thinkon.log` and
-  `vsuite_nt_qwen36.log` on the 8 TB array; the ENOSPC-killed first attempt is
-  preserved as `*.enospc-2026-08-23.log`.
+  siblings) — **on-host and untracked**: six scores files, matched by the
+  `scores_*.json` rule in `vision-suite/.gitignore`, so they are not in this
+  repo and this document is the durable record. Driver logs:
+  `preflight-runs/vsuite_nt_thinkon.log` and `vsuite_nt_qwen36.log` on the 8 TB
+  array (`/mnt/8TB_SN850X_RAID1_BTRFS/preflight-runs/`); the ENOSPC-killed
+  first attempt is preserved as `*.enospc-2026-08-23.log`, three files. Logs
+  and scores files re-checked 2026-09-04, all present.
 - Wall clock (2026-08-23/24): 12b 15:22-22:11 (see the 131072 note), 26b
   22:11-23:33, 31b 23:33-00:01, qwen3.8 00:01-00:23, qwen3.6 think-off
   00:23-00:35, qwen3.6 think-on 00:35-05:16. Zero server ERROR lines and zero
@@ -53,6 +57,16 @@ Think-off cells for the rest of the family are the `sync15_1_` tags measured
   (22:11, marker `##### STOPPED BY OPERATOR` in the log) and every remaining
   cell ran with `CTX_MAX=65536`. `gemma4:12b-nvfp4`'s capped arms therefore
   stand at the 65536 rung.
+
+  **That stop is now permanent, not a pause.** As of 2026-08-30
+  `(gemma4:12b-nvfp4, "on")` is declared in `DESCOPED_CELLS`
+  (`summarize_engine_compare.py`): the cell is closed by operator decision
+  rather than left open, `run_engine_compare.sh` skips it before any rung, and
+  the 131072 ceiling will not be attempted. What the measurement would have
+  bought is available cheaper — 31b converges at rung 1 here, qwen3.8 likewise.
+  The evidence below is the argument that declaration points back to, not a
+  backlog item. **think-off for this tag is unaffected** and still renders in
+  the cross-engine view.
 - Reproduce:
 
   ```sh
@@ -66,6 +80,12 @@ Think-off cells for the rest of the family are the `sync15_1_` tags measured
     gemma4:12b-nvfp4 gemma4:26b-nvfp4 gemma4:31b-nvfp4 qwen3.8:27b-nvfp4 qwen3.6:35b-a3b-nvfp4
   python3 summarize_engine_compare.py --think false --prefix sync15nt_1_ qwen3.6:35b-a3b-nvfp4
   ```
+
+  Re-run today those commands do not reproduce this document exactly: the
+  driver checks `DESCOPED_CELLS` before every rung, so the first one measures
+  three of its four models, and the summarizer prints `⚠ DESCOPED` in place of
+  the `gemma4:12b-nvfp4` think-on rows instead of rendering them. The rows
+  below were rendered 2026-08-24, before that declaration existed.
 
 ## Reading the ladder: what "converged 25/27" means
 
@@ -101,6 +121,56 @@ Per-cell ladder outcome:
 | qwen3.8:27b-nvfp4 | 27/27 | 0 | 16384: 27 |
 | qwen3.6:35b-a3b-nvfp4 think=false | 27/27 | 0 | 8192: 27 |
 | qwen3.6:35b-a3b-nvfp4 | 24/27 | 3 | 16384: 10 · 32768: 8 · 65536: 9 |
+
+**That table is derived, not generator output.** All three data columns were
+read out of the scores files by the orchestrator: `converged` /
+`NOT CONVERGED` from the harness's own `was_capped` (done_reason-first, SPEC
+H5 — which is why an arm that overshoots its budget and still reports
+`done_reason: "stop"` counts as converged), and `arms per rung` from each
+arm's final `req_num_ctx`, counting all 27 arms whether they converged at that
+rung or capped there. **The veto is the files themselves** —
+`scores_sync15nt_1_<cell>.json`, fields `req_num_ctx` and `done_reason`,
+re-checked against them 2026-09-04. Where the prose below disagrees with those
+fields, the fields win.
+
+`gemma4:12b-nvfp4` think=on is a **descoped** cell as of 2026-08-30, not an
+open one (see the Ceiling note above). Its 14/27, and the 13 arms standing at
+65536, are the CUDA-host counterpart of the evidence the declaration cites —
+that evidence is the Apple Silicon cell measured in
+[the 2026-08-28 campaign](vision-campaign-2026-08-28-mlx0330-nvfp4.md), which
+reached 7/27 at the same rung and was priced at ~9.5 h. Both point the same
+way. Neither is a measurement to be continued.
+
+## Throughput columns are single-run figures (caveat added 2026-09-04)
+
+**Read this before quoting any `Gen tok/s`, `s/req` or `req/h` number in this
+document, the cross-engine tables included.** The score columns are unaffected.
+
+Every timing cell below is n = 1. On 2026-08-31 a 38% decode regression
+reported from cells exactly like these was **retracted**: three repeats of the
+same arms on the same binary in the same session put the campaign's figure
+1.7× below the slowest repeat — §3 of
+[the 0.33.2 campaign](vision-campaign-2026-08-31-mlx0332-nvfp4.md)
+([#257](https://github.com/MaxusAI/ollama/pull/257)). The lesson is not about
+that build. It is that every argument available *within* one cell — 27 arms
+sharing one server process, one machine state, one thermal condition — can
+establish that a cell ran slow and cannot separate "this cell ran slow" from
+"this stack is slow", because the confound is constant across every arm in it.
+Each throughput number here was produced that way.
+
+The spread measured behind that retraction (~2×, state-dependent) is from the
+Apple Silicon host. **No equivalent repeat has been run on this CUDA host**, so
+the size of the spread *here* is unmeasured — a reason to hold these columns
+more loosely, not less. Read them as an order-of-magnitude characterisation of
+a served stack; never as a property of a build, an engine or a kernel.
+
+When a throughput figure matters, the mechanism is
+[#258](https://github.com/MaxusAI/ollama/pull/258)'s: the figure is a
+**trigger for a targeted post-campaign re-run of that one cell** — serve the
+build standalone, run the same arms 3× back to back, compare against the same
+arms in the reference cell. It is not `REPEATS=n`. `rep` is the innermost loop
+in the driver, so reps nested inside a cell share its machine state and buy a
+tight interval around whatever that cell did that night, at campaign-wide cost.
 
 ## Results — think=on
 
@@ -246,7 +316,12 @@ pair.
   its short-answer decode runs 21–30 tok/s against GGUF's 52–270, and a
   ~540-token think-off answer is almost all decode. Long think-on generations
   amortize MLX decode to 72–77 tok/s, which narrows the gap (1.6–2.0×) without
-  closing it.
+  closing it. **Every ratio in this bullet and in the pairs table above comes
+  from single runs** — see the 2026-09-04 caveat. The direction is consistent
+  across five pairs and both think modes, which is what the bullet rests on;
+  no individual ratio is a settled number, and the smallest ones are the ones a
+  repeat could most plausibly move. Settling one means a targeted 3× re-run of
+  that pair, not a closer reading of this table.
 - **Think-on hazards are cross-engine, not an MLX property.** MLX loops (12b,
   qwen3.6-nvfp4); GGUF has its own — `gemma4:26b-a4b` scene falls to 0.334,
   `qwen3.6-q4_K_M` spends 21 K think tokens for 18 req/h at the 131072 rung,
@@ -257,7 +332,9 @@ pair.
 
 No decision is recorded here. If the serving call "GGUF serves short-answer
 vision extraction on the CUDA host until MLX-CUDA's per-request decode overhead
-is addressed" is adopted, capture it as an ADR citing this section.
+is addressed" is adopted, capture it as an ADR citing this section — and, since
+that call turns on throughput, on a targeted 3× re-run of the pair it rests on
+rather than on these single-run cells alone (2026-09-04 caveat, #258).
 
 ## Findings
 
@@ -282,6 +359,12 @@ exactly at every rung offered (8192 → 24576 → 57344). The 131072 experiment 
 sampling (`presence_penalty` per the model cards), not context — these cells
 quantify the greedy-decoding failure mode, deliberately left on-policy-off.
 
+For `gemma4:12b-nvfp4` think-on the ladder stops here for good: that cell is
+descoped as of 2026-08-30, so its 13 standing arms are a **closed** finding
+about *(model, quant, greedy decoding)* and not work queued up. 26b's 2 and
+qwen3.6's 3 are not descoped and stand as ordinary NOT CONVERGED verdicts,
+reopenable by raising `CTX_MAX` on those cells.
+
 **4. qwen3.6:35b-a3b-nvfp4 wants think=off.** Think-off: 27/27 at `num_ctx`
 8192, scene IoU 0.963, full boxes/colors, invoice clean, 171 req/h — the
 fastest cell in the series. Think-on adds three NOT CONVERGED arms, one
@@ -300,16 +383,32 @@ This run: zero server errors, zero panics, one runner start per rung, across
 with 1/6 boxes (IoU 0.13/0.12) where the previous same-image run had 6/6
 (0.70/0.94), while every `bboxm_pin_*` arm and 12b/31b's free arms are 6/6.
 Two of four in one family is a signal, but at `temperature 0` with this much
-run-to-run variance it needs an n ≥ 3 repeat before it means anything.
+run-to-run variance it means nothing until it is repeated.
+
+The instrument is the one
+[#258](https://github.com/MaxusAI/ollama/pull/258) settled on: a **targeted
+post-campaign re-run of this one cell** — serve the build standalone, run
+`bboxm_free_anc_named` and `bboxm_free_noanc_pos` 3× back to back, and compare
+against the same two arms in the reference cell, which is the control. **Not**
+`REPEATS=n`: `rep` is the innermost loop in the driver, so it re-prices every
+cell in the campaign to buy repeats of one.
 
 ## Limitations
 
-- n = 1 per cell; ADR 0023's stochasticity finding applies to every think-on
-  number here, capped and converged alike.
+- **n = 1 per cell, deliberately.** The campaign is a quality gate and n = 1 is
+  the right setting for it; ADR 0023's stochasticity finding applies to every
+  think-on number here, capped and converged alike. Throughput is the column
+  n = 1 does not carry — see the 2026-09-04 caveat. The policy that follows is
+  not "run bigger campaigns": an anomaly gets a targeted re-run of its own cell
+  afterwards.
 - Mixed-rung cells (⚠) are not throughput-comparable; read tok/s only within a
-  single-rung row.
+  single-rung row — and, per that caveat, not as a build or engine property
+  even then.
 - `gemma4:12b-nvfp4`'s ceiling is operator-set at 65536; the default-ladder
   131072 rung was attempted and produced only timeouts (logged, no scores).
+  Since 2026-08-30 that is policy rather than a per-campaign setting: the
+  think-on cell is declared in `DESCOPED_CELLS` and is not re-run at any rung.
+  think-off for the same tag is unaffected.
 - Think-off cells for the gemma4/qwen3.8/nemotron family are the `sync15_1_`
   tags from 2026-08-21/22, rendered with the same summarizer against
   `--prefix sync15_1_`; they were not re-run in this campaign.
