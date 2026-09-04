@@ -176,6 +176,10 @@ turn a slow path into a dead request.
 
 ## What would fix it in the fork
 
+> **Status 2026-09-04:** both proposals shipped in #212 (merged 2026-08-26) and have
+> run every campaign since (`sync15nt`, `mlx0330nv`, `mlx0332nv`: ~14 h and two full
+> fleets, zero thrash aborts). This document is the source of record the code cites.
+>
 > **Implemented in #212** (branch `fix/mlx-thrash-check-default-off`): the runner
 > subprocess now starts with `MLX_ENABLE_CACHE_THRASHING_CHECK=0` unless the operator
 > exported the variable (`x/mlxrunner/client.go`, `mlxRunnerEnvDefaults`), and the
