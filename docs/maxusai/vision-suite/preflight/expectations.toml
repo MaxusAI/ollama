@@ -76,7 +76,7 @@ platform = "cuda"
 # so the 0.32.x and 0.33.x version families deliberately share this profile and
 # these measured values; the payload_pin below is what actually identifies the
 # numbers' provenance.
-version_pattern = '^0\.3[23]\.\d+(-rc\d+)?-dynres(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
+version_pattern = '^0\.3[23]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
 patchset = ["001", "002", "004", "005", "903"]
 arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # The real payload identity. Was b10434 = 7e4c0a96880d (upstream v0.32.14-rc0's
@@ -370,7 +370,7 @@ platform = "mlx-cuda"
 # resolve a profile at all, and the gate was unreachable. Measured server:
 # 0.32.14-rc0-dynres-20-geb0ad43. Same shape as cuda-dynres-903, which is the
 # other profile served from a container on this host.
-version_pattern = '^0\.3[23]\.\d+(-rc\d+)?-dynres(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
+version_pattern = '^0\.3[23]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
 patchset = []                     # llama.cpp compat patches do not apply to MLX
 reference_image = "maxusai/ollama:0.32.14-rc0-dynres-mlxfix"
 expect_patch_marker = 1
