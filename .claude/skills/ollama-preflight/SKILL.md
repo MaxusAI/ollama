@@ -16,7 +16,13 @@ Establish three things. Guessing any of them wastes a twenty-minute run.
 
 1. **Which host, and is it free?** The harness detects contention, but a
    contended run still costs you the time. The live service on `:11434` is
-   frequently down and must not be started as a side effect of validating.
+   frequently down and must not be started as a side effect of validating. When the canary shares the GPU with the
+   serving container, start it with `OLLAMA_MLX_MEMORY_LIMIT` set below what production
+   leaves free (e.g. `-e OLLAMA_MLX_MEMORY_LIMIT=42949672960` for 40 GiB): the MLX
+   runner's ceiling is derived from free memory at start, and a shifting neighbour turns
+   that into `cudaMallocAsync … out of memory` aborts that look like a payload fault
+   (2026-09-04, v0.33.3 spot-check: 4 OOM arms uncapped, 0/12 capped — see the vision-suite
+   README).
 2. **Which port is actually the build under test?** On 10.8.0.6 the CUDA
    serving endpoint is **`:11497`** — container
    `ollama-0.33.2-dynres-5-g2b95b4a` (image `maxusai/ollama:sync-0.33.2`,
