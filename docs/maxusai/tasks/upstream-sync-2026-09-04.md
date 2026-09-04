@@ -333,7 +333,7 @@ run only — a later `--skip-pinned` smoke would overwrite green with
 ## Acceptance criteria
 
 1. ☑ D1 and D2 decided and recorded (2026-09-04, above). No ADR changes under D1-A / D2-as-decided; the D1-B spike carries its own ADR if adopted.
-2. ☐ Housekeeping: ☑ #211, ☑ #201, ☑ #265 (point-tag patterns + ADR 0032 amendment), ☑ `v0.33.2-dynres.1` cut at `2b95b4a5` (2026-09-04), ☑ #213 amended (`adab78e4`), ☑ `release_matrix.py` quality column (#266, `1b0c716b`); ◐ `constrain.go` deletion — the merge deletes `constrain_bench_test.go` and `constrain_test.go` because neither survives the `mlxtest` API change, so the follow-up PR is now `constrain.go` + `speculate.go` call sites + the four remaining non-MLX `constrain_*_test.go`; ☐ #210 (merge or close). **The three ☑ landed on `main` after this branch was cut — see the note under Fold sequence.**
+2. ☐ Housekeeping: ☑ #211, ☑ #201, ☑ #265 (point-tag patterns + ADR 0032 amendment), ☑ `v0.33.2-dynres.1` cut at `2b95b4a5` (2026-09-04), ☑ #213 amended (`adab78e4`), ☑ `release_matrix.py` quality column (#266, `1b0c716b`); ☑ `constrain.go` deletion (#267, merged 2026-09-04 with the #269 lint fix folded in; `main` merged back into this branch at `ddb675a3`, zero conflicts, and main's test workflow is green again); ☐ #210 (merge or close). **The three ☑ landed on `main` after this branch was cut — see the note under Fold sequence.**
 3. ☑ Merged 2026-09-04 on `task/upstream-sync-0.33.3` (`git merge --no-ff
    v0.33.3`, second parent `b79067b0`). All 28 conflicts resolved per the
    table above; zero conflict markers left in the tree. Gate 1 exit grep
