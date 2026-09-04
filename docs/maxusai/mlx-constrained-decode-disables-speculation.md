@@ -1,5 +1,12 @@
 # `format:"json"` disables speculative decoding on the MLX runner, costing 42% of decode
 
+> **Superseded as an implementation by ADR 0033** (2026-08-28, the v0.33.2 fold):
+> the fork's pure-Go constrained-sampling layer measured here was retired in favour of
+> upstream's MLX grammar engine. This document is the *evidence* the ADR cites
+> (`drafted=0`, the cold-start deadlock) and stays for that reason; the mechanisms it
+> describes are no longer on the request path.
+
+
 MaxusAI-fork reference. Measured 2026-08-17/18 on CUDA (RTX PRO 6000 Blackwell),
 `maxusai/ollama:0.32.14-rc0-dynres-mlxfix` + the memory-limit override.
 
@@ -76,6 +83,12 @@ Speculative decoding *under* a grammar: draft k tokens, check each against the
 matcher, accept the longest legal prefix, roll back the rest. That is what
 llama.cpp does and why its penalty is 1.6%. It is a feature, not a tweak, and it
 is not attempted here.
+
+**Update 2026-08-18:** it has since been attempted, gated behind
+`OLLAMA_MLX_GRAMMAR_SPECULATION`, and measured. It produces correct constrained
+output but no speedup, because the depth controller cold-starts at 0 and cannot
+leave it, so it never drafts. The penalty above is unchanged and the gate ships
+off. See [grammar-aware speculation is correct and inert](grammar-speculation-measured-inert.md).
 
 A smaller, independent improvement remains available: cache the bias array
 under the same `StateKey` the mask cache already uses. Worth ~1.5% on its own,
