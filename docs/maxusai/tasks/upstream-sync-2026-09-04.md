@@ -1,8 +1,15 @@
 # TASK: fold upstream v0.33.3 into main — plan
 
-**Opened:** 2026-09-04. **Status:** PLAN, no merge attempted on `main`. Two
-decisions (D1, D2) are Glenn's before the merge starts; everything else below
-is mechanical and verified. Assessment by two max-effort reviews (PR history
+**Opened:** 2026-09-04. **Status:** DECIDED 2026-09-04 (Glenn), housekeeping in
+progress, no merge attempted on `main`. **D1 = keep `image_max_tokens`**: the
+per-request image-token budget survives, so this fold keeps the fork's gemma4
+MLX vision (option A below); adopting upstream's tower with the budget seam
+re-grafted (option B) is a separate measured spike + ADR. **D2 = ADR 0010's
+arithmetic on upstream's plumbing, aligned with upstream**: take
+`IncludeIntermediateMetrics` / `firstPassMetrics` / `PromptEvalCachedCount` as
+upstream shapes them, and keep the fork's cache-inclusive prompt-count
+derivation only where the two disagree (vision requests). Everything else
+below is mechanical and verified. Assessment by two max-effort reviews (PR history
 #212–#263; upstream delta) with every load-bearing claim re-verified against
 the tree, the real llama.cpp checkouts at b10630/b10760, and the deployed
 server.
@@ -243,7 +250,7 @@ run only — a later `--skip-pinned` smoke would overwrite green with
 
 ## Acceptance criteria
 
-1. ☐ D1 and D2 decided and recorded (ADR where a recorded decision changes).
+1. ☑ D1 and D2 decided and recorded (2026-09-04, above). No ADR changes under D1-A / D2-as-decided; the D1-B spike carries its own ADR if adopted.
 2. ☐ Housekeeping PRs merged: #211; `constrain.go` deletion; #201/#213/#210; `release_matrix.py` quality column; 0.33.2 tag hygiene.
 3. ☐ Merge with the resolutions above; zero conflicts; Gate 1 grep clean.
 4. ☐ Gate 2 green (`go build`, `go vet`, the listed `go test` set, `test_verdicts.py`).
