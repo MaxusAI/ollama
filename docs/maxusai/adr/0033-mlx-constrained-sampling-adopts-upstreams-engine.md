@@ -63,13 +63,20 @@ express a raw grammar to reject.
 
 - `x/structured` is no longer on the MLX request path. It is still a tested
   package and still used elsewhere; it is not deleted here.
+  *(2026-09-04: with `constrain.go` deleted it has no remaining in-tree
+  importer. Kept deliberately, per this bullet.)*
 - **`constrain.go` (478 lines) is now unreachable, not half-wired.** `s.matcher`
   is set only by `attachGrammar`, which after this change is called from
   nowhere; every masking path guards on `s.matcher == nil` and `maskRows`
   returns its input when there are no masks. Verified by inspection, and the
   package's tests pass. **Follow-up: delete it and its `speculate.go` call
   sites** — deliberately not done inside this merge, to keep the diff
-  reviewable.
+  reviewable. **Done 2026-09-04:** `constrain.go` and its six test files are
+  gone (1,303 lines), along with the inert call sites in `speculate.go`
+  (`adoptGrammar`, `maskRows`, `verifyPlan`, `errNoLegalDraft`, the
+  `verifyTokens`/`verifyDist` views and the session's matcher/vocab/pieces
+  fields), `runner.go`'s `constraintVocab` cache, and the permanently-zero
+  `grammar_truncated` / `grammar_no_legal_draft` stats.
 - Grammar-aware speculation (#191, #201) is retired with it. If the depth
   controller is ever fixed, it would have to be rebuilt on upstream's engine.
 - **Not runtime-validated.** This lands on `go build` plus a green unit suite.

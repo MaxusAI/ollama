@@ -3,6 +3,12 @@
 MaxusAI-fork reference. Measured 2026-08-17/18 on CUDA (RTX PRO 6000 Blackwell),
 `maxusai/ollama:0.32.14-rc0-dynres-mlxfix` + the memory-limit override.
 
+> **Code references removed 2026-09-04 (ADR 0033 follow-up).** The measured
+> behaviour still holds — a constrained MLX session never drafts — but upstream's
+> grammar engine now enforces it, and `x/mlxrunner/constrain.go`
+> (`constrainedDecoder`, `constraintBias` and both benchmarks) has been deleted.
+> The excerpts below describe the 0.32.14 implementation, not HEAD.
+
 ## The measurement
 
 Same model family, same 1920×1080 image (`visimgs/scene_hd.png`), same prompt —
