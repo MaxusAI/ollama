@@ -132,7 +132,14 @@ first is image accounting and the second is generation length.
 - `serve-apple-mlx.sh` — **the RESTART_CMD hook, Apple Silicon + MLX store only.**
   Note "MLX" alone does not imply Apple: the fork also ships an `mlx_cuda_v13`
   payload for Linux/CUDA ([why it is unloadable](../upstream-mlx-cuda-payload-unloadable.md)).
-  For CUDA/ROCm restart the container instead — `run_grid.sh` shows the docker form. Sets `OLLAMA_MAX_LOADED_MODELS=1`,
+  For CUDA/ROCm restart the container instead — `run_grid.sh` shows the docker form. **On the shared CUDA host also set `OLLAMA_MLX_MEMORY_LIMIT`
+  (bytes) on the campaign container.** The MLX runner derives its allocator ceiling from the
+  memory *free at cell start*; the production endpoint on the same GPU keeps moving underneath
+  it, and its pool then grows into headroom that is no longer there. Measured 2026-09-04
+  (v0.33.3 spot-check, `mlx0333cu_`): four `cudaMallocAsync … out of memory` arms on 26b/31b at
+  a 61.7 GiB free-derived ceiling with gemma4:31b resident on `:11497`; the same four arms 3×
+  at `OLLAMA_MLX_MEMORY_LIMIT=42949672960` (40 GiB) converged 12/12 with every metric equal to
+  the baseline. The override may only lower the derived ceiling (`budgetWithOverride`). Sets `OLLAMA_MAX_LOADED_MODELS=1`,
   without which a sweep holds every model it has served resident; measured
   106 GB used and 53.9 GB swap on a 128 GB host before this existed.
 - `summarize_contract_matrix.py --think <mode> [--log <runner log>] <model…>` —
