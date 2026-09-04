@@ -320,6 +320,32 @@ run only — a later `--skip-pinned` smoke would overwrite green with
 *skipped*); README **Current fold** pointer; deploy as
 `ollama-0.33.3-dynres-<n>-g<sha>` built from the tag; `:11434` stays parked.
 
+## Metal half — handoff (Glenn's host, 10.8.0.3; SSH refused from the CUDA host)
+
+Once #264 passes the CUDA gates, the Apple side is the same three steps as
+#243/#225, on the fold branch's tree:
+
+1. Native build of the branch (`0.33.3-maxusai-<sha>` stamp), served on
+   `:11437` for preflight (`:11436`/`serve-apple-mlx.sh` for the campaign);
+   confirm the runner logs `"MLX version"=37c26e5755da…` (the payload moved,
+   so `mlx_payload_pin` must see the new pin, not `c793734e`).
+2. Cut `[profile.mlx-metal-0-33-3]` in `expectations.toml`: `version_pattern
+   = '^0\.33\.3-maxusai-[0-9a-f]{7,40}$'`, `mlx_build = "37c26e5755da637255d57ea34b4879196a485301"`,
+   `[expect.…]` blocks seeded from `mlx-metal-0-33-2` and **re-measured**
+   (`measure_ladder.py`, incl. `aspect_ladder`); never widen `0-33-2`'s
+   pattern (ADR 0011 rule 5). Then the full `--platform mlx-metal` preflight,
+   detached, exit 0 required.
+3. `OLLAMA_VISION_E2E=1 go test ./x/mlxrunner/ -run 'TestVisionGoldenParity|TestVisionEndToEnd'`
+   against the four goldens — the MLX pin moved fused-kernel rounding once
+   before (#225: bound raised with a `gemma4:26b-mlx-bf16` control); a
+   recalibration needs the same control, not a bound edit.
+4. Campaign spot-check `mlx0333nv1_`, think-off, five nvfp4 tags, compared
+   to `mlx0332nv1` (#257) — the three-decimal criterion applies **here**,
+   same host, same suite.
+
+Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
+(the green matrix regenerates from it), the profile, and the campaign doc.
+
 ## Do not touch / defer
 
 - `903` — keep; functional gate before any pre-Ada GPU deploy.
