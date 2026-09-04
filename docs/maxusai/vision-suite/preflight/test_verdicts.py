@@ -8,10 +8,14 @@ fail if the diagnosis is ever wired to the shape alone instead of the arch.
 
     python3 test_verdicts.py
 """
+import contextlib
+import io
 import json
 import os
+import re
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 import pathlib
@@ -23,6 +27,7 @@ sys.path.insert(0, ".")
 import checks  # noqa: E402
 import measure_ladder  # noqa: E402
 import probes  # noqa: E402
+import release_matrix  # noqa: E402
 from checks import FAIL, PASS, SKIP  # noqa: E402
 
 SIZES = ["256x144", "512x288", "1024x576", "2048x1152", "3072x1728"]
@@ -1232,6 +1237,135 @@ class TestAspectLadder(unittest.TestCase):
                     len(distinct), 1,
                     f"{pid}/{arch}: every aspect geometry predicts the same "
                     f"count as the 16:9 ladder, so it adds no coverage")
+
+
+class TestReleaseMatrixColumns(unittest.TestCase):
+    """The generated matrix is the fold's headline artifact — it is embedded in
+    README.md and attached to the release — so a cell that reads green for a
+    check nobody ran is the exact claim release_matrix.py's docstring exists to
+    forbid ("a hand-written green badge is worse than none").
+
+    "Output quality" was mapped to {"text_baseline", "quality"} and read green
+    on every run ever recorded. Neither name is the quality verdict:
+    check_quality records "extraction_quality", nothing has ever emitted
+    "quality", and "text_baseline" is preflight.py's prefix calibration, PASS
+    for every arch that gets past the probe. A missed recall floor rendered
+    green; so did a run that never asked for the quality arm.
+    """
+
+    COLUMN = "Output quality"
+    HERE = pathlib.Path(__file__).parent
+
+    # Names no longer emitted by the harness but carried by artifacts recorded
+    # before a rename. Kept explicit so this test still holds on a lineage
+    # cherry-picked without runs/, and so adding one is a deliberate act.
+    RECORDED_ALIASES = {"pinned_budget"}
+
+    def render(self, results, platform="cuda",
+               version="0.33.2-dynres-5-gsynthet"):
+        """Render one synthetic artifact and return {column: cell} for its row.
+
+        Goes through main() rather than the group logic directly: the bug was
+        in the mapping the renderer reads, which a unit test of worst() cannot
+        see.
+        """
+        run = {"meta": {"platform": platform, "version": version,
+                        "started_utc": "20260904T120000"},
+               "results": results}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "run.json")
+            with open(path, "w") as fh:
+                json.dump(run, fh)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                release_matrix.main([path])
+        columns = [g for g, _ in release_matrix.GROUPS] + ["measured on"]
+        for line in out.getvalue().splitlines():
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if cells and cells[0] == f"**{platform}**":
+                self.assertEqual(len(cells) - 1, len(columns), line)
+                return dict(zip(columns, cells[1:]))
+        self.fail(f"no row rendered for {platform}:\n{out.getvalue()}")
+
+    @staticmethod
+    def rec(check, status, arch="gemma4", summary="synthetic"):
+        return {"check": check, "arch": arch, "status": status,
+                "summary": summary}
+
+    # A run always carries these; they are what made the false green invisible
+    # — every other column was legitimately green beside it.
+    def with_baseline(self, *extra):
+        return [self.rec("version", PASS, arch=None),
+                self.rec("text_baseline", PASS),
+                self.rec("token_ladder", PASS),
+                self.rec("endpoint_exclusive", PASS, arch=None)] + list(extra)
+
+    def test_a_failed_quality_arm_is_not_green(self):
+        """The regression. A missed recall floor is a FAIL an operator reads
+        the matrix to find; it rendered green because the column was watching
+        two names the check does not use."""
+        row = self.render(self.with_baseline(
+            self.rec("extraction_quality", FAIL,
+                     summary="label_recall 0.42 < 0.7")))
+        self.assertEqual(row[self.COLUMN], "**FAIL**")
+        self.assertEqual(row["Image size ladder"], "green")   # unaffected
+
+    def test_no_quality_result_reads_not_run(self):
+        """--quality is opt-in (preflight.py), so most runs record no quality
+        verdict at all. Absence is shown, never assumed green — the same rule
+        the generator applies to a surface with no run."""
+        row = self.render(self.with_baseline())
+        self.assertEqual(row[self.COLUMN], "not run")
+
+    def test_a_skipped_quality_arm_reads_skipped(self):
+        """check_quality SKIPs on a lineage carrying preflight/ without
+        vision_suite.py, and where no thresholds are recorded. Not measured is
+        not the same as measured and passed."""
+        row = self.render(self.with_baseline(
+            self.rec("extraction_quality", SKIP,
+                     summary="vision_suite.py is not present in this tree")))
+        self.assertEqual(row[self.COLUMN], "skipped")
+
+    def test_a_passing_quality_arm_is_green(self):
+        """The column must still be able to say green — from the check that
+        actually measured it."""
+        row = self.render(self.with_baseline(
+            self.rec("extraction_quality", PASS,
+                     summary="json_valid=1.00 label_recall=0.83")))
+        self.assertEqual(row[self.COLUMN], "green")
+
+    def test_the_prefix_calibration_cannot_carry_a_column(self):
+        """text_baseline is not a verdict: preflight.py records it PASS for
+        every arch that reaches the ladder, and its only other status (ERROR)
+        returns before any further check runs. A check that cannot fail can
+        only inflate the group it is mapped into."""
+        for column, names in release_matrix.GROUPS:
+            self.assertNotIn("text_baseline", names, column)
+
+    def test_every_mapped_name_is_one_something_records(self):
+        """The bug in one line: "quality" was a name nothing had ever emitted,
+        and a column watching only names nobody records reports on nothing.
+        Rather than re-checking two names by hand, every name in GROUPS must be
+        one the harness emits today or one a recorded artifact carries."""
+        src = "\n".join((self.HERE / f).read_text()
+                        for f in ("checks.py", "preflight.py"))
+        known = set(re.findall(r'result\(\s*"([a-z0-9_]+)"', src))
+        known |= set(re.findall(r'^\s*name = "([a-z0-9_]+)"', src, re.M))
+        known |= self.RECORDED_ALIASES
+        for artifact in sorted((self.HERE / "runs").glob("*.json")):
+            try:
+                recorded = json.loads(artifact.read_text())
+            except (ValueError, OSError):
+                continue          # a half-written artifact proves nothing here
+            known |= {r.get("check") for r in recorded.get("results", [])}
+        self.assertIn("extraction_quality", known,
+                      "checks.py no longer emits the name this test relies on")
+        for column, names in release_matrix.GROUPS:
+            for name in sorted(names):
+                self.assertIn(name, known,
+                              f'the "{column}" column watches for "{name}", '
+                              f"which neither checks.py/preflight.py emits nor "
+                              f"any recorded run carries")
 
 
 # The main block must stay at the END of the file: unittest.main() runs the
