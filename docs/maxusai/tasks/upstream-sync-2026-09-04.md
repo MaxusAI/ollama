@@ -437,7 +437,33 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    Note the run is stamped `0.33.2-dynres.1-39-g242cad5` (pre-tag); Gate 6 rebuilds from
    the tagged merge commit and re-runs the full preflight so the green matrix carries the
    `0.33.3-dynres` identity without an equivalence argument; full preflight exit 0 with `poison_probe` corroborated; `mlx-metal-0-33-3` profile cut and PASS; goldens PASS (or recalibrated with a bf16 control, as #225).
-7. ☐ Gate 5: five think-off nvfp4 cells reproduce to three decimals; MMQ padding gate and qwen2.5vl probe re-run at b10760.
+7. ◐ Gate 5 (CUDA, 2026-09-04 17:53–19:27, `vsuite-0333` on `:11503`, `mlx0333cu_1_` think=false,
+   `num_ctx` 8192, one runner, cold restart per cell; scores copied to
+   `preflight-runs/scores-0333/`). Against the sync15 CUDA baselines, converged arms compared
+   on every score column:
+   - gemma4:12b 27/27 (20 identical, rest ±0.004; `bbox_contract_adv_norm1` 0/6 → 6/6)
+   - gemma4:26b 26/27 (14 identical, rest ±0.005; `bbox_contract_real_1img` 1 → 0 hits at
+     IoU 0.15 → 0.05 — poor in both runs)
+   - gemma4:31b 24/27 (14 identical, rest ±0.005; `bboxm_free_noanc_pos` 0.925 → 0.960)
+   - qwen3.8:27b 27/27 (11 identical, rest ±0.01 both ways)
+   - qwen3.6:35b-a3b 27/27 (8 identical; `bbox_contract_reasoning` 0 → 6/6 and
+     `bboxm_free_anc_named` 1 → 6/6 up; `document_single` name_bbox 0.646 → 0.504 down;
+     invoice fields identical)
+   No systematic direction; the movements are the temperature-0 run-to-run class #258
+   documents. **The four non-converged arms are all `cudaMallocAsync … out of memory`** on
+   26b (`multi_3img_anchored`) and 31b (`multi_3img`, `bbox_contract_perobject`,
+   `bbox_contract_adv_norm1`) — two of them small single-image requests, so not request
+   size: the runner's MLX ceiling is derived from free memory at cell start (61.7 GiB here)
+   while the production endpoint on the same GPU (`:11497`, gemma4:31b q4 resident, a client
+   sending `/api/chat` every 30–80 s throughout) moved underneath it. The fold's machinery
+   behaved: `guardClose` reported the OOM as the cause, the scheduler expired the model, the
+   next request reloaded. The memory-limit port (`mlxError` for `mlxCall`) is faithful and
+   the limit is logged as applied on every runner start; the cache limit is env-driven and
+   unchanged. ☐ Discriminator running: the same four arms 3× back to back with
+   `OLLAMA_MLX_MEMORY_LIMIT=40 GiB` (`vsuite-0333-capped`, `mlx0333cuRR_`) — converging there
+   marks the OOMs as shared-GPU contention; a serving note follows either way. ☐ qwen3.5-MoE
+   MMQ padding gate at b10760 (Blackwell is outside the widened path; source-inspected only).
+   ☑ qwen2.5vl poison probe re-run at b10760: PASS inside the Gate 4 preflight.
 8. ☐ `v0.33.3-dynres` (+ `-maxusai`) tags on the merge commit; Release with generated matrix; README pointer; SPEC H11 note in the merge-commit body.
 9. ☐ Deployed as `ollama-0.33.3-dynres-…` from the tag; `sync-0.33.2` image retained as rollback.
 
