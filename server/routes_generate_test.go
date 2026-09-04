@@ -4469,6 +4469,181 @@ func TestGenerateThinkFormatTransitionMetrics(t *testing.T) {
 	}
 }
 
+// TestGenerateThinkFormatTransitionMetricsReportedPassOne is /api/generate's
+// twin of TestChatThinkFormatTransitionMetricsReportedPassOne: the same
+// think+format transition flow, except pass one actually reports. Upstream's
+// IncludeIntermediateMetrics makes every chunk of a deferring pass carry the
+// runner's own metrics, so a pass cancelled at the thinking-to-content
+// transition still has a report of its own — and that report is the runner's
+// cache-inclusive prefill, image-embedding tokens included.
+//
+// The assertion that matters: the folded prompt count carries the image
+// surplus. Nothing in the textual reconstruction can see those tokens (ADR
+// 0010 exists to recover them by subtraction), so a fold that fell back to
+// tokenizing the prompt would understate this by imageTokens and the test
+// would catch it. TestGenerateThinkFormatTransitionMetrics pins that fallback,
+// where the runner reports nothing.
+//
+// Streamed, because asking for per-chunk metrics has a second half: the
+// intermediate copies must be blanked, so no chunk before done exposes a
+// mid-stream counter.
+func TestGenerateThinkFormatTransitionMetricsReportedPassOne(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mock := &mockRunner{}
+	s := setupTransitionThinkingModel(t, mock, "test-transition-thinking-vision-generate")
+
+	format := json.RawMessage(`{"type":"object","properties":{"answer":{"type":"string"}}}`)
+	passOneRaw := `<think> Reasoning deeply about the answer. </think> {"answer`
+
+	// One nemotron3 image's worth of soft tokens, present in the runner's
+	// prefill counts and invisible to the whitespace-field mock Tokenize.
+	const imageTokens = 2042
+
+	var (
+		requestsMu sync.Mutex
+		requests   []llm.CompletionRequest
+	)
+
+	var passOnePrompt int
+	mock.CompletionFn = func(ctx context.Context, r llm.CompletionRequest, fn func(r llm.CompletionResponse)) error {
+		requestsMu.Lock()
+		requests = append(requests, r)
+		callNum := len(requests)
+		requestsMu.Unlock()
+
+		switch callNum {
+		case 1:
+			passOnePrompt = len(strings.Fields(r.Prompt)) + imageTokens
+			if !r.IncludeIntermediateMetrics {
+				t.Error("expected the deferring pass to request per-token metrics")
+			}
+			// A streamed, non-terminal chunk carrying pass one's metrics:
+			// what upstream's timings_per_token and the MLX pipeline's
+			// per-chunk reporting deliver, and what the cancel would
+			// otherwise discard.
+			fn(llm.CompletionResponse{
+				Content:               passOneRaw,
+				Done:                  false,
+				PromptEvalCount:       passOnePrompt,
+				PromptEvalCachedCount: testIntPtr(7),
+				PromptEvalDuration:    11,
+				EvalCount:             12,
+				EvalDuration:          13,
+			})
+			// the transition cancels this pass: the final chunk that would
+			// carry the pass-one metrics never arrives
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Second):
+				t.Errorf("timeout waiting for structured outputs cancellation")
+				return nil
+			}
+		case 2:
+			if r.IncludeIntermediateMetrics {
+				t.Error("expected the constrained pass to use terminal metrics")
+			}
+			fn(llm.CompletionResponse{
+				Content:    `{"answer":"42"}`,
+				Done:       true,
+				DoneReason: llm.DoneReasonStop,
+				// The continuation re-counts the reasoning as prompt; the
+				// fold must not report this.
+				PromptEvalCount:       len(strings.Fields(r.Prompt)) + imageTokens,
+				PromptEvalCachedCount: testIntPtr(19),
+				PromptEvalDuration:    30,
+				EvalCount:             5,
+				EvalDuration:          50,
+			})
+			return nil
+		default:
+			t.Errorf("unexpected number of completion calls: %d", callNum)
+			return nil
+		}
+	}
+
+	think := true
+	w := createRequest(t, s.GenerateHandler, api.GenerateRequest{
+		Model:  "test-transition-thinking-vision-generate",
+		Prompt: "Why is the sky blue?",
+		Think:  &api.ThinkValue{Value: think},
+		Format: format,
+	})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(requests) != 2 {
+		t.Fatalf("expected two completion calls, got %d", len(requests))
+	}
+	if requests[0].Format != nil {
+		t.Errorf("expected first completion format to be nil, got %q", requests[0].Format)
+	}
+	if !bytes.Equal([]byte(format), []byte(requests[1].Format)) {
+		t.Errorf("expected second completion format to match original format")
+	}
+
+	var thinking, response strings.Builder
+	var final api.GenerateResponse
+	dec := json.NewDecoder(w.Body)
+	for {
+		var chunk api.GenerateResponse
+		if err := dec.Decode(&chunk); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		thinking.WriteString(chunk.Thinking)
+		response.WriteString(chunk.Response)
+		if chunk.Done {
+			final = chunk
+			continue
+		}
+		// The per-chunk metrics are pass one's own report, not a running
+		// total for the client: they must not leak into a streamed chunk
+		// (the reason ADR 0010 rejected a running-counter protocol).
+		if chunk.PromptEvalCount != 0 || chunk.PromptEvalCachedCount != nil ||
+			chunk.PromptEvalDuration != 0 || chunk.EvalCount != 0 || chunk.EvalDuration != 0 {
+			t.Errorf("non-terminal chunk unexpectedly exposed metrics: %+v", chunk.Metrics)
+		}
+	}
+
+	if got := thinking.String(); got != "Reasoning deeply about the answer. " {
+		t.Errorf("thinking = %q, want %q", got, "Reasoning deeply about the answer. ")
+	}
+	if got := response.String(); got != `{"answer":"42"}` {
+		t.Errorf("response = %q, want %q", got, `{"answer":"42"}`)
+	}
+	if !final.Done || final.DoneReason != "stop" {
+		t.Fatalf("expected a final stop chunk, got done=%v reason=%q", final.Done, final.DoneReason)
+	}
+
+	// R6: the request's own prompt cost, image tokens included.
+	if final.PromptEvalCount != passOnePrompt {
+		t.Errorf("prompt eval count = %d, want %d (pass one's own cache-inclusive prefill, image tokens included)", final.PromptEvalCount, passOnePrompt)
+	}
+	if final.PromptEvalCount <= len(strings.Fields(requests[0].Prompt)) {
+		t.Errorf("prompt eval count %d does not carry the image surplus", final.PromptEvalCount)
+	}
+	// Every generated token counted once across both passes.
+	if want := 12 + 5; final.EvalCount != want {
+		t.Errorf("eval count = %d, want %d (both passes)", final.EvalCount, want)
+	}
+	// ADR 0004's summing: each pass's prefill is prefill, each pass's decode
+	// is decode (see wantMetrics in TestChatWithPromptEndingInThinkTag).
+	if want := time.Duration(11 + 30); final.PromptEvalDuration != want {
+		t.Errorf("prompt eval duration = %d, want %d", final.PromptEvalDuration, want)
+	}
+	if want := time.Duration(13 + 50); final.EvalDuration != want {
+		t.Errorf("eval duration = %d, want %d", final.EvalDuration, want)
+	}
+	// prompt_eval_cached_count is deliberately not asserted: unlike chat's,
+	// generate's fold does not re-attribute it to pass one, so the response
+	// still carries the continuation's. Changing that is a fold change, not
+	// part of wiring the flag.
+}
+
 // TestChatThinkFormatTransitionMetrics is the /api/chat side of R6 on the
 // transition flow: pass one is cancelled at the thinking→content transition
 // with no runner-reported metrics, and the final response must still total

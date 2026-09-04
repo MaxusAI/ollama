@@ -711,6 +711,10 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 		transitionPromptDelta := -1
 		var continueViaMarker bool
 		var contentStarted bool
+		// firstPassMetrics is the runner's own report for pass one, kept from
+		// the last chunk that carried metrics (upstream's
+		// IncludeIntermediateMetrics makes every chunk carry them).
+		var firstPassMetrics api.Metrics
 		// contextPrompt is what the final Context field is tokenized against;
 		// it stays the original prompt for the textual continuation and is
 		// retargeted to the re-rendered prompt in the transition flow.
@@ -739,6 +743,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 					passOpts = &o
 				}
 			}
+			includeIntermediateMetrics := req.Format != nil && currentFormat == nil
 
 			ctx, cancel := context.WithCancel(c.Request.Context())
 
@@ -749,33 +754,46 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 			var firstChunkAt time.Time
 
 			err := r.Completion(ctx, llm.CompletionRequest{
-				Prompt:          prompt,
-				Media:           media,
-				Format:          currentFormat,
-				Options:         passOpts,
-				Shift:           req.Shift == nil || *req.Shift,
-				Truncate:        truncate,
-				Logprobs:        req.Logprobs,
-				TopLogprobs:     req.TopLogprobs,
-				PreservedTokens: preservedTokensForCompletion(builtinParser),
-				LeadingBOS:      leadingBOS,
+				Prompt:                     prompt,
+				Media:                      media,
+				Format:                     currentFormat,
+				Options:                    passOpts,
+				Shift:                      req.Shift == nil || *req.Shift,
+				Truncate:                   truncate,
+				Logprobs:                   req.Logprobs,
+				TopLogprobs:                req.TopLogprobs,
+				PreservedTokens:            preservedTokensForCompletion(builtinParser),
+				LeadingBOS:                 leadingBOS,
+				IncludeIntermediateMetrics: includeIntermediateMetrics,
 			}, func(cr llm.CompletionResponse) {
 				if firstChunkAt.IsZero() {
 					firstChunkAt = time.Now()
+				}
+				metrics := api.Metrics{
+					PromptEvalCount:       cr.PromptEvalCount,
+					PromptEvalCachedCount: cr.PromptEvalCachedCount,
+					PromptEvalDuration:    cr.PromptEvalDuration,
+					EvalCount:             cr.EvalCount,
+					EvalDuration:          cr.EvalDuration,
+				}
+				if includeIntermediateMetrics {
+					// A deferring pass asks the runner for per-chunk timings,
+					// so keep the latest as pass one's own report and blank the
+					// intermediate copies: a mid-stream counter must not leak
+					// into every streamed API chunk (ADR 0010's reason for
+					// rejecting a running-counter protocol in the first place).
+					firstPassMetrics = metrics
+					if !cr.Done {
+						metrics = api.Metrics{}
+					}
 				}
 				res := api.GenerateResponse{
 					Model:     req.Model,
 					CreatedAt: time.Now().UTC(),
 					Response:  cr.Content,
 					Done:      cr.Done,
-					Metrics: api.Metrics{
-						PromptEvalCount:       cr.PromptEvalCount,
-						PromptEvalCachedCount: cr.PromptEvalCachedCount,
-						PromptEvalDuration:    cr.PromptEvalDuration,
-						EvalCount:             cr.EvalCount,
-						EvalDuration:          cr.EvalDuration,
-					},
-					Logprobs: toAPILogprobs(cr.Logprobs),
+					Metrics:   metrics,
+					Logprobs:  toAPILogprobs(cr.Logprobs),
 				}
 
 				if _, err := sb.WriteString(cr.Content); err != nil {
@@ -937,10 +955,21 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 				} else {
 					// The transition cancelled pass one mid-stream before its
 					// final metrics arrived; reconstruct them so the final
-					// response still counts every pass-one token (R6).
+					// response still counts every pass-one token (R6). The
+					// prompt count is refined once pass two reports its prefill.
 					if pass1 == nil {
-						pass1 = transitionPassMetrics(c.Request.Context(), r, contextPrompt, sb.String(), passStart, firstChunkAt)
-						reconstructed = pass1 != nil
+						// Upstream's per-chunk metrics carry pass one's own
+						// report even though the cancel discarded its final
+						// chunk, and that report is the runner's cache-inclusive
+						// prefill — image-embedding tokens included — which is
+						// exactly what ADR 0010's subtraction exists to recover.
+						// Prefer it, and keep the textual reconstruction for the
+						// runners and paths that report nothing (ADR 0010 is
+						// best-effort).
+						if pass1 = reportedPassMetrics(firstPassMetrics); pass1 == nil {
+							pass1 = transitionPassMetrics(c.Request.Context(), r, contextPrompt, sb.String(), passStart, firstChunkAt)
+							reconstructed = pass1 != nil
+						}
 					}
 
 					msg := api.Message{
