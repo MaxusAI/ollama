@@ -12,14 +12,6 @@ type specStats struct {
 	drafted    int
 	accepted   int
 	maxDraft   int
-	// Grammar-aware speculation only. truncated counts draft positions the
-	// grammar refused before verification; noLegalDraft counts rounds where it
-	// refused the FIRST draft, so no verification forward ran at all. Without
-	// them an acceptance of 0.00 cannot be told apart from "the target rejected
-	// every draft" -- which is exactly the ambiguity that let the gated path
-	// look merely unhelpful while it was emitting unconstrained output.
-	truncated    int
-	noLegalDraft int
 	// chosen is the draft depth picked each round, in order; split into time
 	// buckets it distinguishes a ramp that holds from one that thrashes shallow.
 	chosen []int
@@ -67,7 +59,7 @@ func (s *speculationSession) logStats() {
 		avgDraft = float64(s.stats.drafted) / float64(s.stats.iterations)
 		avgAccepted = float64(s.stats.accepted) / float64(s.stats.iterations)
 	}
-	slog.Info("speculative decode stats", "iterations", s.stats.iterations, "drafted", s.stats.drafted, "accepted", s.stats.accepted, "acceptance", fmt.Sprintf("%.2f", acceptance), "avg_draft", fmt.Sprintf("%.2f", avgDraft), "max_draft", s.stats.maxDraft, "avg_accepted", fmt.Sprintf("%.2f", avgAccepted), "grammar_truncated", s.stats.truncated, "grammar_no_legal_draft", s.stats.noLegalDraft, "depth_over_time", s.stats.depthOverTime())
+	slog.Info("speculative decode stats", "iterations", s.stats.iterations, "drafted", s.stats.drafted, "accepted", s.stats.accepted, "acceptance", fmt.Sprintf("%.2f", acceptance), "avg_draft", fmt.Sprintf("%.2f", avgDraft), "max_draft", s.stats.maxDraft, "avg_accepted", fmt.Sprintf("%.2f", avgAccepted), "depth_over_time", s.stats.depthOverTime())
 
 	if !slog.Default().Enabled(context.TODO(), slog.LevelDebug) {
 		return

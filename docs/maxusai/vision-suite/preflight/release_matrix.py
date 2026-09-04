@@ -32,7 +32,17 @@ GROUPS = [
     # matrix that silently stopped seeing this check would read as green.
     ("Pinned image budget", {"pinned_image_token_budget", "pinned_budget"}),
     ("thinking on/off", {"think_format"}),
-    ("Output quality", {"text_baseline", "quality"}),
+    # The quality verdict the harness actually records is "extraction_quality"
+    # (checks.check_quality). "quality" is a name nothing has ever emitted, so
+    # this column never saw the check at all. What it did see was
+    # "text_baseline", which is not a verdict: preflight.py records it PASS for
+    # every arch that gets past the prefix probe, and its only other status
+    # (ERROR) aborts that arch before anything else runs. A check that cannot
+    # fail can only inflate the group it sits in -- and a group is reported at
+    # its weakest check -- so it is dropped rather than kept alongside.
+    # --quality is opt-in, so a run that did not ask for the arm records no
+    # result here and the cell reads "not run", like any other unmeasured cell.
+    ("Output quality", {"extraction_quality"}),
     ("fp16 overflow canary", {"poison_probe"}),
     ("Runner isolation", {"endpoint_exclusive"}),
 ]
@@ -79,7 +89,8 @@ def main(paths, version=None):
     runs = []
     for p in paths:
         try:
-            runs.append(json.load(open(p)))
+            with open(p) as fh:
+                runs.append(json.load(fh))
         except Exception as exc:                                  # noqa: BLE001
             print(f"skipping {p}: {exc}", file=sys.stderr)
     if not runs:

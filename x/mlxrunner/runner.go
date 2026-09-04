@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -26,7 +25,6 @@ import (
 	"github.com/ollama/ollama/x/mlxrunner/model"
 	"github.com/ollama/ollama/x/mlxrunner/model/base"
 	"github.com/ollama/ollama/x/mlxrunner/sample"
-	"github.com/ollama/ollama/x/structured"
 	"github.com/ollama/ollama/x/tokenizer"
 )
 
@@ -61,12 +59,6 @@ type Runner struct {
 	// spec is the speculative-decoding subsystem. Nil when the model ships no
 	// draft head.
 	spec *speculation
-
-	// Constrained-sampling vocabulary index, built lazily on the first
-	// request that carries a format.
-	constraintOnce   sync.Once
-	constraintVocab  *structured.Vocab
-	constraintPieces [][]byte
 }
 
 func (r *Runner) Load(modelName string) error {
