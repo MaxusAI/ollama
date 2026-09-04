@@ -380,7 +380,13 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    `assistant.go`, `gemma4_test.go`, `gemma4_moe_test.go` identical to upstream;
    `process_audio.go`/`process_audio_test.go` excluded after Gate 2 (lint). Payload pins are
    upstream's: `b10760` / `37c26e5755da…` / `c74db5307cc8…`.
-4. ☑ Gate 2 green 2026-09-04 (`golang:1.26.0`, `-u 1000:1000`, caches on the
+4. ☑ Gate 2 green 2026-09-04 — and re-run after `main` was merged back (`ddb675a3`) and
+   `process_audio*.go` excluded (`ec7c35a5`): `go build ./...`, full `go test ./...` = 67
+   packages ok, `test_verdicts.py` 100 OK, **golangci-lint 0 issues at repo root**. GitHub
+   CI on `ec7c35a5` (#264): all jobs green — `test` ×3 OS, upstream's new `race` ×2 and
+   `go_license`, `patches` ×2 and `patches-ggml` (the compat band applied against b10760
+   in CI), `go_mod_tidy`, `changes`. Original Gate 2 record follows.
+   Gate 2 (first run) 2026-09-04 (`golang:1.26.0`, `-u 1000:1000`, caches on the
    8 TB array). `go build ./...` clean. `go test ./llm/ -run
    'TestImageTokensForSize|TestKVCacheType'` clean. The full set
    (`./server/ ./model/... ./llm/ ./api/ ./convert/ ./x/structured/...
