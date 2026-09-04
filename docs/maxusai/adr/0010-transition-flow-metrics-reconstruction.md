@@ -3,7 +3,12 @@
 - **Status:** accepted, implemented + live-validated 2026-08-08 on fork `main`
   lineage. Amends the transition-flow metrics behaviour of
   [ADR 0004](0004-routes-layer-think-format-double-request.md); 0004's marker
-  flow is unchanged.
+  flow is unchanged. **2026-09-04 (v0.33.3 fold):** both handlers now prefer
+  the runner's own reported pass-one metrics (`reportedPassMetrics()`, fed by
+  upstream's `IncludeIntermediateMetrics`) at the transition site; the textual
+  reconstruction described below is the fallback for the runners and paths
+  that report nothing, and `transitionPromptDelta` still refines a
+  reconstructed pass only.
 - **Date:** 2026-08-08
 - **Deciders:** MaxusAI fork maintainers
 
