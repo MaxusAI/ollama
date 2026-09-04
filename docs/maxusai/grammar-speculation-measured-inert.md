@@ -1,5 +1,12 @@
 # Grammar-aware speculation is correct and inert: the depth controller cannot leave 0
 
+> **Superseded as an implementation by ADR 0033** (2026-08-28, the v0.33.2 fold):
+> the fork's pure-Go constrained-sampling layer measured here was retired in favour of
+> upstream's MLX grammar engine. This document is the *evidence* the ADR cites
+> (`drafted=0`, the cold-start deadlock) and stays for that reason; the mechanisms it
+> describes are no longer on the request path.
+
+
 MaxusAI-fork reference. Measured 2026-08-18 on CUDA (RTX PRO 6000 Blackwell) from
 the merge of [#191](https://github.com/MaxusAI/ollama/pull/191). Companion to
 [`format:"json"` disables speculative decoding](mlx-constrained-decode-disables-speculation.md),
