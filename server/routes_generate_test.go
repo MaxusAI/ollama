@@ -2835,26 +2835,36 @@ func TestChatFormatPassthrough(t *testing.T) {
 	}{
 		// The original think-false rows: format applies from pass one
 		// (forceImmediate) and must reach the runner verbatim.
-		{"gemma4-schema-thinkfalse", "gemma4", schema, false,
-			`{"answer":"42"}`},
-		{"qwen3.5-schema-thinkfalse", "qwen3.5", schema, false,
-			`{"answer":"42"}`},
-		{"qwen3-thinking-schema-thinkfalse", "qwen3-thinking", schema, false,
-			`{"answer":"42"}`},
+		{
+			"gemma4-schema-thinkfalse", "gemma4", schema, false,
+			`{"answer":"42"}`,
+		},
+		{
+			"qwen3.5-schema-thinkfalse", "qwen3.5", schema, false,
+			`{"answer":"42"}`,
+		},
+		{
+			"qwen3-thinking-schema-thinkfalse", "qwen3-thinking", schema, false,
+			`{"answer":"42"}`,
+		},
 		// JSON null is NOT a format (structured-output SPEC §1): with think
 		// true it must not trigger the two-pass deferral. ChatHandler used
 		// to test req.Format != nil — and RawMessage("null") is non-nil —
 		// so an explicit null ran the whole flow to apply nothing (P0-7).
-		{"gemma4-null-thinktrue", "gemma4", json.RawMessage(`null`), true,
-			`{"answer":"42"}`},
+		{
+			"gemma4-null-thinktrue", "gemma4", json.RawMessage(`null`), true,
+			`{"answer":"42"}`,
+		},
 		// think:false + marker-wrapped thinking in the output: the FIRST
 		// line of defense is the parser itself — Init(think:false) makes
 		// gemma4 discard channel events, so no thinking surfaces and the
 		// transition stays quiet. The handler-side guard (deferring) is
 		// pinned separately by TestChatTransitionRequiresDeferring with a
 		// parser that does NOT honor that contract.
-		{"gemma4-schema-thinkfalse-thinking-leak", "gemma4", schema, false,
-			"<|channel>pondering the shape<channel|>" + `{"answer":"42"}`},
+		{
+			"gemma4-schema-thinkfalse-thinking-leak", "gemma4", schema, false,
+			"<|channel>pondering the shape<channel|>" + `{"answer":"42"}`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
