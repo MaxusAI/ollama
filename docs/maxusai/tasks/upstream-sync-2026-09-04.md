@@ -422,7 +422,11 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    resolves every dependency of `libmlx.so`/`libmlxc.so` inside the image (0 unresolved);
    the `ollama-go-license` step produced `GO_LICENSE`; `--image-max-tokens` is in the
    binary (go_patch_marker). Log: `claude-scratch/build-0333-final.log` on the 8 TB array.
-6. ☐ Gate 4: CUDA ladders re-measured then `payload_pin` moved to `0f3a71be1`; full preflight exit 0 with `poison_probe` corroborated; `mlx-metal-0-33-3` profile cut and PASS; goldens PASS (or recalibrated with a bf16 control, as #225).
+6. ◐ Gate 4: ☑ CUDA ladders re-measured on the `:11437` canary (`sync-0.33.3`, 2026-09-04
+   17:31–17:41) **before** the pin moved — nemotron `[266, 266, 578, 2306, 3270]`, gemma4
+   `[1102 ×5]`, qwen35 `[1034, 1034, 1034, 2306, 4082]`, byte-identical to the b10630 rows
+   (third pin bump in a row with unchanged ladders); ☑ `payload_pin` moved to `0f3a71be1`,
+   no expected value edited (the #239 procedure); ☐ full preflight; full preflight exit 0 with `poison_probe` corroborated; `mlx-metal-0-33-3` profile cut and PASS; goldens PASS (or recalibrated with a bf16 control, as #225).
 7. ☐ Gate 5: five think-off nvfp4 cells reproduce to three decimals; MMQ padding gate and qwen2.5vl probe re-run at b10760.
 8. ☐ `v0.33.3-dynres` (+ `-maxusai`) tags on the merge commit; Release with generated matrix; README pointer; SPEC H11 note in the merge-commit body.
 9. ☐ Deployed as `ollama-0.33.3-dynres-…` from the tag; `sync-0.33.2` image retained as rollback.

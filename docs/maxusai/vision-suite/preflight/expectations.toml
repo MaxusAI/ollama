@@ -117,7 +117,7 @@ arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # corroboration: the meter (llama/compat/801) was enabled on the container and
 # reported clean over 33 nodes, so the fp16-accumulate class is now asserted at
 # v.blk.31.ffn_down itself rather than inferred from the decoded text.
-llama_cpp_build = "d222767c7"
+llama_cpp_build = "0f3a71be1"   # b10760, v0.33.3 fold 2026-09-04; ladders re-measured first, byte-identical to the b10630 rows
 
 [profiles.rocm-0-32-1-dynres]
 platform = "rocm"
