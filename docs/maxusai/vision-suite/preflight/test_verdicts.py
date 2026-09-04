@@ -19,6 +19,7 @@ import tempfile
 import time
 import tomllib
 import pathlib
+import re
 import unittest
 from unittest import mock
 
@@ -622,6 +623,41 @@ class TestLineageProfilesTrackOneVersionFamily(unittest.TestCase):
             self.assertNotIn("[23]", pat,
                              f"{pid} is baseline-pinned; a new version needs a "
                              f"new profile with re-measured expectations (ADR 0011)")
+
+    # ADR 0032 amendment (2026-09-04): a point tag `v<release>-dynres.N` names a
+    # deployed commit between folds. `scripts/env.sh` stamps builds from
+    # `git describe --tags --first-parent`, so once v0.33.2-dynres.1 existed at
+    # the deployed commit, every later build on main described as
+    # `0.33.2-dynres.1-<n>-g<sha>` -- a string the lineage patterns rejected,
+    # which would have failed the version gate (exit 2) for the same payload.
+    POINT_TAG_STAMPS = (
+        "0.33.2-dynres.1-0-g2b95b4a",   # the deployed build, re-stamped from the point tag
+        "0.33.2-dynres.1-27-gb54d4d0",  # main after the point tag
+        "0.33.2-dynres-5-g2b95b4a",     # the same deployed build, pre-point-tag stamp
+        "0.33.0-dynres-0-g5171887",     # a fold tag stamp
+        "0.33.2-dynres-0f3a71be1",      # bare-sha form
+    )
+    FOREIGN_STAMPS = (
+        "0.34.0-dynres-0-gabcdef0",     # next family: needs its own fold + widening
+        "0.33.2-maxusai-2b95b4a5",      # the native Metal stamp is not this lineage
+        "0.33.2-dynres.1",              # a tag name is not a build stamp
+        "0.33.2-dynres.x-0-g2b95b4a",   # point tags are numeric
+    )
+
+    def test_lineage_patterns_admit_point_tags_and_reject_foreign_families(self):
+        for pid in self.LINEAGE:
+            pat = re.compile(self.exp["profiles"][pid]["version_pattern"])
+            for stamp in self.POINT_TAG_STAMPS:
+                self.assertRegex(stamp, pat, f"{pid} must admit {stamp}")
+            for stamp in self.FOREIGN_STAMPS:
+                self.assertNotRegex(stamp, pat, f"{pid} must reject {stamp}")
+
+    def test_point_tags_do_not_leak_into_pinned_profiles(self):
+        """A `.N` stamp is the same payload as its fold on the LINEAGE profiles
+        only; a baseline-pinned profile keeps refusing to guess."""
+        for pid in ("mlx-metal-0-33-2", "metal-0-32-14", "cpu", "rocm-0-32-1-dynres"):
+            pat = re.compile(self.exp["profiles"][pid]["version_pattern"])
+            self.assertNotRegex("0.33.2-dynres.1-0-g2b95b4a", pat, pid)
 
 
 class TestExpectationsFile(unittest.TestCase):

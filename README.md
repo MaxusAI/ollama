@@ -24,6 +24,9 @@
 > **Current fold:** [`v0.33.2-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.33.2-dynres)
 > — upstream v0.33.2, llama.cpp `b10630`. `main` moves ahead of this between
 > folds; the tag is the fixed point to build and roll back to.
+> **Deployed:** [`v0.33.2-dynres.1`](https://github.com/MaxusAI/ollama/tree/v0.33.2-dynres.1)
+> (`2b95b4a5`, the fold plus #233/#234/#235/#238, stamped
+> `0.33.2-dynres-5-g2b95b4a` — same payload; ADR 0032 amendment).
 >
 > Fork builds are stamped `<upstream-version>-dynres-<n>-g<sha>`; `dynres`
 > names the change that started the fork, not the company that runs it.

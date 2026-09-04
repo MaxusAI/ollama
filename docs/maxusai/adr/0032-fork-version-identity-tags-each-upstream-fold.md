@@ -60,3 +60,26 @@ here stays two builds.
 - The habit of leaving version identity implicit after a fold is retired;
   #217's task doc had flagged the tag as optional, and this ADR closes that
   option.
+
+## Amendment 2026-09-04 — point tags between folds
+
+The deployed 0.33.2 build was `0.33.2-dynres-5-g2b95b4a` (the #238 merge),
+five first-parent commits past `v0.33.2-dynres` — so the README's "the tag is
+the fixed point to roll back to" named a commit that was not what ran. Rule:
+
+- A deploy that is not the fold commit gets a **point tag** on the deployed
+  commit, `v<release>-dynres.N` (precedent: `v0.32.1-dynres.2/.3`). Cut
+  `v0.33.2-dynres.1` at `2b95b4a5`. The payload is unchanged, so the profile is
+  unchanged; `payload_pin` stays the provenance anchor.
+- `scripts/env.sh` stamps from `git describe --tags --first-parent`, so after a
+  point tag every later build on `main` describes as
+  `<release>-dynres.N-<n>-g<sha>`. The two lineage patterns
+  (`cuda-dynres-903`, `mlx-cuda`) therefore admit `-dynres(\.\d+)?`; pinned
+  profiles do not (test `TestLineageProfilesTrackOneVersionFamily`).
+- Recorded H11/H13 equivalence: `0.33.2-dynres-5-g2b95b4a` ≡
+  `0.33.2-dynres.1-0-g2b95b4a` — one build (main @ `2b95b4a5`, payload
+  `d222767c7`, MLX `c793734e`).
+- The README carries a **Deployed** line next to **Current fold** whenever the
+  two differ; updating it is part of a deploy, as the fold pointer is part of
+  a fold.
+
