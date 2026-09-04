@@ -303,8 +303,13 @@ before — #225).
 **Gate 5 — vision-suite spot-check** (`run_engine_compare.sh` only,
 `OLLAMA_MAX_LOADED_MODELS=1`, new `TAG_PREFIX`; ADR 0032: `v0.33.3-dynres` is
 a new build identity, never folded into a `0.33.2` table): the five nvfp4
-think-off cells — on 0.33.2 they reproduced 0.33.0 to three decimals (#257);
-the same is the pass criterion here. Under D1-B add the gemma4 MLX cells at
+think-off cells. **Baseline on the CUDA host is the last CUDA MLX think-off
+data — `sync15_1_` (12b/26b/31b/qwen3.8) and `sync15nt_1_` (qwen3.6), build
+`0.32.14-dynres-108-g76918a7`** — because the mlx0330nv/mlx0332nv campaigns
+(#229/#257, "reproduced to three decimals") are Metal-host measurements. Pass
+criterion: converged arms identical on the score columns within run-to-run
+noise (n = 1, #258), no arm newly capped or errored. The Metal half of this
+gate is Glenn's, against mlx0332nv1. Under D1-B add the gemma4 MLX cells at
 n≥5 with a positive control. Re-run the qwen3.5-MoE MMQ padding gate at
 b10760 and the qwen2.5vl poison probe (both `cuda-dynres-903`).
 
