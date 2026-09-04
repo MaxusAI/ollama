@@ -24,10 +24,9 @@ func envEntries(cmd *exec.Cmd, key string) []string {
 func TestRunnerEnvDisablesThrashingCheckByDefault(t *testing.T) {
 	for _, v := range []string{"", "unset"} {
 		if v == "unset" {
-			// t.Setenv cannot unset; restore whatever was there afterwards.
-			if old, ok := os.LookupEnv(CacheThrashingCheckEnv); ok {
-				t.Cleanup(func() { os.Setenv(CacheThrashingCheckEnv, old) })
-			}
+			// t.Setenv registers the restore; the Unsetenv after it is the
+			// state under test (usetesting forbids os.Setenv in tests).
+			t.Setenv(CacheThrashingCheckEnv, "")
 			os.Unsetenv(CacheThrashingCheckEnv)
 		} else {
 			t.Setenv(CacheThrashingCheckEnv, v)
