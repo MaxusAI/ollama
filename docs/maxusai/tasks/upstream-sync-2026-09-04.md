@@ -412,7 +412,16 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    `TestVisionGoldenParity` and `TestVisionEndToEnd` (which also gate on
    `OLLAMA_VISION_E2E`). Both compile and skip cleanly. That coverage is
    Gate 4's.
-5. ☐ Gate 3 image built on `bigdisk`, patch/payload/go-license proofs recorded.
+5. ☑ Gate 3 (2026-09-04): `maxusai/ollama:sync-0.33.3` built on `bigdisk` from `242cad55`
+   (cache-warming build of `eaef4905` 4 h 40 m, then the stamped rebuild 8 m 53 s), stamp
+   `0.33.2-dynres.1-39-g242cad5` (pre-tag; ADR 0032 equivalence to be recorded when
+   `v0.33.3-dynres` is cut on the merge commit). Proofs: build rc 0 with all six compat
+   patches applied by `apply-git-patches.cmake` (the compat sources compiled into `llama`
+   and `mtmd`; a failed patch fatals the configure); `lib/ollama/mlx_cuda_v13` carries
+   `libquadmath` plus upstream's new `libcusolver`/`libcusparse`/`libnvJitLink`, and `ldd`
+   resolves every dependency of `libmlx.so`/`libmlxc.so` inside the image (0 unresolved);
+   the `ollama-go-license` step produced `GO_LICENSE`; `--image-max-tokens` is in the
+   binary (go_patch_marker). Log: `claude-scratch/build-0333-final.log` on the 8 TB array.
 6. ☐ Gate 4: CUDA ladders re-measured then `payload_pin` moved to `0f3a71be1`; full preflight exit 0 with `poison_probe` corroborated; `mlx-metal-0-33-3` profile cut and PASS; goldens PASS (or recalibrated with a bf16 control, as #225).
 7. ☐ Gate 5: five think-off nvfp4 cells reproduce to three decimals; MMQ padding gate and qwen2.5vl probe re-run at b10760.
 8. ☐ `v0.33.3-dynres` (+ `-maxusai`) tags on the merge commit; Release with generated matrix; README pointer; SPEC H11 note in the merge-commit body.
