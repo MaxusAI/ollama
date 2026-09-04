@@ -42,7 +42,7 @@
 
 | surface | Build identity | Image size ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|
-| **cuda** | green | green | green | green | green | green | green | `0.33.2-dynres-5-g2b95b4a` |
+| **cuda** | green | green | green | green | not run | green | green | `0.33.2-dynres-5-g2b95b4a` |
 | **mlx-cuda** | not run | not run | not run | not run | not run | not run | not run | — |
 | **mlx-metal** | not run | not run | not run | not run | not run | not run | not run | — |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | — |
