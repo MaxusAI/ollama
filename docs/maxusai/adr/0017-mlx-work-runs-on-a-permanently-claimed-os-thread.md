@@ -1,6 +1,20 @@
 # ADR 0017: MLX work runs on a permanently claimed OS thread, and arrays never cross goroutines
 
-- **Status:** accepted (2026-08-10)
+- **Status:** accepted (2026-08-10). **Mechanism superseded 2026-09-04** by the
+  v0.33.3 fold: upstream deleted `mlxCall` and the `__thread` error buffer it
+  pinned around (`ba064c36`, `c36adebc`), and this fold dropped
+  `mlx.ClaimOSThread` and its `__thread _mlx_thread_owned` flag with them. **The
+  guarantee below is unchanged**; it is now carried by upstream's own answer —
+  the "funnel every MLX operation to one dedicated thread" alternative this ADR
+  rejected in 2026-08. `x/internal/mlxthread`'s `Start` locks its worker
+  goroutine and deliberately never unlocks (runner init, `x/create` the same
+  with a bare `runtime.LockOSThread`), and tests reach that worker through
+  `x/internal/mlxtest`'s `Run` / `RunSubtest` on `x/internal/mlxthreadtest`.
+  Read decision points 1–4 as descriptions of the guarantee, not of live API:
+  `TestMLXOperationsSurviveRescheduling` went with `ClaimOSThread` (it existed to
+  drive MLX from an *unpinned* goroutine, which is now simply invalid), and the
+  contract is pinned instead by `x/internal/mlxthread`'s own
+  `thread_affinity_test.go` / `TestDoUsesSameOSThread`.
 - **Date:** 2026-08-10
 - **Deciders:** MaxusAI fork maintainers
 

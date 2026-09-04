@@ -100,6 +100,11 @@ func parseHumanParameterCount(s string) (uint64, bool) {
 	return uint64(value * multiplier), true
 }
 
+// isGemma4Renderer reports whether renderer names one of gemma4's chat
+// renderers. Upstream deleted this helper when it started advertising gemma4
+// audio; this fork keeps its own gemma4 media path (ADR 0021, D1-A) and serves
+// vision without audio, so the audio suppression in server/images.go and
+// server/model_list_cache.go still needs it.
 func isGemma4Renderer(renderer string) bool {
 	switch renderer {
 	case gemma4RendererLegacy, gemma4RendererSmall, gemma4RendererLarge:

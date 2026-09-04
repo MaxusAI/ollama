@@ -166,21 +166,24 @@ it.
 
 The repo has two independent MLX bindings, which meet that requirement differently:
 
-- **`x/mlxrunner/mlx`** — call `mlx.ClaimOSThread()` once during setup. It pins the
-  goroutine for life and resets the Go-side stream cache so the new owner resolves
-  its own. `x/mlxrunner` and `ollama create` do this in their worker init. Go has
-  no goroutine-local storage, which is why the cache has to be tied to an explicit
-  claim.
+- **`x/mlxrunner/mlx`** — all work runs on one pinned worker goroutine.
+  `mlxthread.Start` (`x/internal/mlxthread`) calls `runtime.LockOSThread` and
+  deliberately never unlocks, so the thread belongs to that worker for its life;
+  `x/mlxrunner` starts it in `Execute`, and `ollama create` pins its own worker
+  with a bare `runtime.LockOSThread`. The Go-side default-stream cache is a plain
+  package global, sound only because a single pinned owner ever touches it.
 - **`x/imagegen/mlx`** — no claim call. Its cached streams are `__thread` in the
   cgo preamble, so each OS thread resolves its own; callers still pin (`InitMLX`
   locks the main goroutine).
 
 Two rules follow when writing MLX tests:
 
-- Every test goroutine that touches MLX must be on a pinned thread. In
-  `x/mlxrunner` and the model packages the `skipIfNoMLX` helpers claim for you.
-- `t.Run` subtests are separate goroutines, so build MLX arrays **inside** the
-  subtest. Fixtures built in the parent and evaluated in a subtest will fail with
+- Every test that touches MLX runs its body on the package's shared MLX thread:
+  `mlxtest.Run(t, func(t *mlxtest.T) { ... })`, or `mlxtest.RunSubtest(t, name, fn)`
+  for a named case. Both skip when MLX is unavailable; `mlxtest.SkipIfUnavailable`
+  is the bare skip for a test that only needs the guard.
+- Subtests are separate goroutines, so build MLX arrays **inside** the callback.
+  Fixtures built in the parent and evaluated in a subtest will fail with
   `There is no Stream(gpu, N) in current thread`.
 
 Failure modes differ by binding, which matters when you are chasing one:
