@@ -426,7 +426,17 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    17:31–17:41) **before** the pin moved — nemotron `[266, 266, 578, 2306, 3270]`, gemma4
    `[1102 ×5]`, qwen35 `[1034, 1034, 1034, 2306, 4082]`, byte-identical to the b10630 rows
    (third pin bump in a row with unchanged ladders); ☑ `payload_pin` moved to `0f3a71be1`,
-   no expected value edited (the #239 procedure); ☐ full preflight; full preflight exit 0 with `poison_probe` corroborated; `mlx-metal-0-33-3` profile cut and PASS; goldens PASS (or recalibrated with a bf16 control, as #225).
+   no expected value edited (the #239 procedure); ☑ full preflight (2026-09-04 17:46–17:52, `:11437` canary, `--quality`): **VERDICT PASS —
+   20 PASS / 8 SKIP / 0 FAIL**, artifact `preflight/runs/full-0333.json` (on host, copied to
+   the 8 TB array). `version` matched `cuda-dynres-903` via #265's widened pattern;
+   `payload_pin` matched `0f3a71be1`; `poison_probe` decoded healthily with the `801` meter
+   clean over 33 nodes (the #215 gate holds on b10760); ladders/pinned budgets/think_format
+   PASS on all three arches. SKIPs are recorded gaps, not failures: no `aspect_ladder` or
+   quality thresholds on this profile (×3 each), qwen35 pinned-budget not applicable,
+   `mlx_payload_pin` unpinned on `mlx-cuda`. Same PASS count as the 0.33.2 fold's full run.
+   Note the run is stamped `0.33.2-dynres.1-39-g242cad5` (pre-tag); Gate 6 rebuilds from
+   the tagged merge commit and re-runs the full preflight so the green matrix carries the
+   `0.33.3-dynres` identity without an equivalence argument; full preflight exit 0 with `poison_probe` corroborated; `mlx-metal-0-33-3` profile cut and PASS; goldens PASS (or recalibrated with a bf16 control, as #225).
 7. ☐ Gate 5: five think-off nvfp4 cells reproduce to three decimals; MMQ padding gate and qwen2.5vl probe re-run at b10760.
 8. ☐ `v0.33.3-dynres` (+ `-maxusai`) tags on the merge commit; Release with generated matrix; README pointer; SPEC H11 note in the merge-commit body.
 9. ☐ Deployed as `ollama-0.33.3-dynres-…` from the tag; `sync-0.33.2` image retained as rollback.
