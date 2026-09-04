@@ -437,7 +437,7 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    Note the run is stamped `0.33.2-dynres.1-39-g242cad5` (pre-tag); Gate 6 rebuilds from
    the tagged merge commit and re-runs the full preflight so the green matrix carries the
    `0.33.3-dynres` identity without an equivalence argument; full preflight exit 0 with `poison_probe` corroborated; `mlx-metal-0-33-3` profile cut and PASS; goldens PASS (or recalibrated with a bf16 control, as #225).
-7. ◐ Gate 5 (CUDA, 2026-09-04 17:53–19:27, `vsuite-0333` on `:11503`, `mlx0333cu_1_` think=false,
+7. ☑ Gate 5 (CUDA, 2026-09-04 17:53–19:27, `vsuite-0333` on `:11503`, `mlx0333cu_1_` think=false,
    `num_ctx` 8192, one runner, cold restart per cell; scores copied to
    `preflight-runs/scores-0333/`). Against the sync15 CUDA baselines, converged arms compared
    on every score column:
@@ -459,11 +459,17 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    behaved: `guardClose` reported the OOM as the cause, the scheduler expired the model, the
    next request reloaded. The memory-limit port (`mlxError` for `mlxCall`) is faithful and
    the limit is logged as applied on every runner start; the cache limit is env-driven and
-   unchanged. ☐ Discriminator running: the same four arms 3× back to back with
-   `OLLAMA_MLX_MEMORY_LIMIT=40 GiB` (`vsuite-0333-capped`, `mlx0333cuRR_`) — converging there
-   marks the OOMs as shared-GPU contention; a serving note follows either way. ☐ qwen3.5-MoE
-   MMQ padding gate at b10760 (Blackwell is outside the widened path; source-inspected only).
+   unchanged. ☑ Discriminator (19:28–20:01, `vsuite-0333-capped` on `:11504`, `mlx0333cuRR_`, the runner
+   logging `MLX memory limit overridden from the environment: requested 40 GiB, derived
+   61.8 GiB, using 40.0 GiB`): the same four arms 3× back to back — **12/12 converged, 0
+   OOMs**, every metric equal to the sync15 baseline (31b `bbox_contract_perobject` 6/6 at IoU
+   0.923 vs 0.851; `adv_norm1` 0/6 in both). The OOMs were shared-GPU contention, not the
+   fold. Serving note: on this host a campaign or canary container must set
+   `OLLAMA_MLX_MEMORY_LIMIT` below what production leaves free (recorded in the vision-suite
+   README and the preflight skill). ☐ qwen3.5-MoE MMQ padding gate at b10760 — source-inspected
+   only (the b10760 change widens MMQ to MoE on pre-DP4A cards; Blackwell is unaffected).
    ☑ qwen2.5vl poison probe re-run at b10760: PASS inside the Gate 4 preflight.
+   **Gate 5 (CUDA) result: no regression.**
 8. ☐ `v0.33.3-dynres` (+ `-maxusai`) tags on the merge commit; Release with generated matrix; README pointer; SPEC H11 note in the merge-commit body.
 9. ☐ Deployed as `ollama-0.33.3-dynres-…` from the tag; `sync-0.33.2` image retained as rollback.
 
