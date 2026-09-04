@@ -1,6 +1,13 @@
 # ADR 0021: gemma4 serves vision through upstream's `base.MediaModel`, with a fork-local budget seam
 
-- **Status:** accepted (2026-08-11)
+- **Status:** accepted (2026-08-11). Upheld by decision D1-A of the v0.33.3
+  fold (2026-09-04): upstream shipped its own gemma4 MLX vision and audio,
+  and this fork keeps the tower below because upstream's has no per-request
+  budget seam. Two mechanisms named here have moved and the decisions have
+  not: decision 6's test seam is now `mlxtest.Run` / `RunSubtest` on
+  `x/internal/mlxthreadtest` (`mlx.ClaimOSThread` was deleted with upstream's
+  MLX-C error-contract rewrite — see ADR 0017's status), and the same applies
+  to the `mlxtest.Setup` divergence listed under Consequences.
 - **Date:** 2026-08-11
 - **Deciders:** MaxusAI fork maintainers
 - **Related:** ADR 0020 (`0020-mlx-vision-lineage-preserves-the-pre-upstream-fork.md`, on `release/mlx-vision` — not present on `main`)

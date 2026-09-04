@@ -2,6 +2,7 @@ package create
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -26,13 +27,10 @@ func runOnMLXThread(f func() error) error {
 		mlxWork = make(chan func())
 		ready := make(chan error)
 		go func() {
+			runtime.LockOSThread() // pinned for the process lifetime; never unlocked
 			err := mlx.CheckInit()
-			if err == nil {
-				// Pinned for the process lifetime; never unlocked.
-				mlx.ClaimOSThread()
-				if mlx.GPUIsAvailable() {
-					mlx.SetDefaultDeviceGPU()
-				}
+			if err == nil && mlx.GPUIsAvailable() {
+				mlx.SetDefaultDeviceGPU()
 			}
 			ready <- err
 			if err != nil {

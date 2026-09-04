@@ -1,3 +1,8 @@
+// Package mlx wraps the MLX C API.
+//
+// MLX keeps stream and backend state in thread-locals, so all calls into this
+// package must come from a single goroutine locked to its OS thread (see
+// x/internal/mlxthread).
 package mlx
 
 //go:generate go run generator/main.go -output=. ./include/mlx/c/*.h
@@ -9,48 +14,27 @@ package mlx
 // #include "generated.h"
 // #include <string.h>
 //
-// static __thread char _mlx_last_error_msg[1024] = {0};
-// static __thread int  _mlx_last_error_flag = 0;
-// static __thread int  _mlx_thread_owned = 0;
+// static char _mlx_last_error[1024];
 //
-// // _mlx_thread_owned marks an OS thread that a goroutine has claimed for MLX.
-// // Go has no goroutine-local storage, but the Go runtime only ever schedules
-// // a locked goroutine on its own thread, so "this thread is claimed" is
-// // equivalent to "this goroutine already claimed it".
-// static int mlx_thread_owned(void) {
-//     return _mlx_thread_owned;
-// }
-//
-// static void mlx_thread_take_ownership(void) {
-//     _mlx_thread_owned = 1;
-// }
-//
-// static void _mlx_capture_error_handler(const char* msg, void* data) {
+// static void _mlx_capture_error(const char* msg, void* data) {
 //     (void)data;
-//     strncpy(_mlx_last_error_msg, msg, sizeof(_mlx_last_error_msg) - 1);
-//     _mlx_last_error_msg[sizeof(_mlx_last_error_msg) - 1] = '\0';
-//     _mlx_last_error_flag = 1;
+//     strncpy(_mlx_last_error, msg, sizeof(_mlx_last_error) - 1);
 // }
 //
 // static void mlx_install_capture_handler(void) {
 //     if (mlx_set_error_handler_) {
-//         mlx_set_error_handler_(_mlx_capture_error_handler, NULL, NULL);
+//         mlx_set_error_handler_(_mlx_capture_error, NULL, NULL);
 //     }
 // }
 //
-// static void mlx_clear_last_error(void) {
-//     _mlx_last_error_flag = 0;
-//     _mlx_last_error_msg[0] = '\0';
-// }
-//
-// static const char* mlx_get_last_error(void) {
-//     return _mlx_last_error_flag ? _mlx_last_error_msg : "";
+// static char* mlx_last_error(void) {
+//     return _mlx_last_error;
 // }
 import "C"
 
 import (
+	"errors"
 	"fmt"
-	"runtime"
 )
 
 func init() {
@@ -59,69 +43,85 @@ func init() {
 	C.mlx_install_capture_handler()
 }
 
-// Version returns the MLX core library version string.
-func Version() string {
-	str := C.mlx_string_new()
-	defer C.mlx_string_free(str)
-	C.mlx_version(&str)
-	return C.GoString(C.mlx_string_data(str))
-}
+var errBuf = C.mlx_last_error()
 
-// ClaimOSThread binds the calling goroutine to its current OS thread for the
-// rest of the goroutine's life and makes that thread this process's MLX owner.
-// Call it once, during setup, from the goroutine that will drive MLX — before
-// its first MLX operation.
-//
-// MLX keeps its default streams in thread-local storage (mlx/stream.cpp) and
-// the Metal command encoders backing them in a thread_local map
-// (mlx/backend/metal/device.cpp), and an array records the stream it was built
-// on. That state spans calls, so pinning around a single call is not enough: an
-// unpinned goroutine can be rescheduled onto a different OS thread between two
-// MLX operations, and evaluating there fails with
-// "There is no Stream(gpu, 0) in current thread."
-//
-// The lock is deliberately never released — the thread-local state outlives any
-// single call, so the thread belongs to this goroutine until it exits. Repeated
-// calls are no-ops, so the runtime's LockOSThread nesting counter cannot run
-// away on a long-lived worker.
-func ClaimOSThread() {
-	if C.mlx_thread_owned() != 0 {
-		return
+// lastError consumes the captured MLX error, or returns nil when none is
+// pending.
+func lastError() error {
+	if *errBuf == 0 {
+		return nil
 	}
-
-	// Order matters: the goroutine may still migrate between the check above
-	// and the lock, so mark the thread only once it can no longer change.
-	runtime.LockOSThread()
-	C.mlx_thread_take_ownership()
-
-	// The cached stream belongs to whichever thread resolved it, so a new owner
-	// must resolve its own.
-	resetDefaultStreamCache()
+	err := fmt.Errorf("mlx: %s", C.GoString(errBuf))
+	*errBuf = 0
+	return err
 }
 
-// mlxCall claims the OS thread so the thread-local error state is read from the
-// same thread that executed fn, and so the goroutine cannot migrate away from
-// the streams its arrays were built on.
-func mlxCall(fallback string, fn func() C.int) error {
-	ClaimOSThread()
-
-	C.mlx_clear_last_error()
-	if fn() != 0 {
-		msg := C.GoString(C.mlx_get_last_error())
-		if msg == "" {
-			msg = fallback
+// mlxError returns the MLX error captured by the call that produced v. mlx-c
+// signals failure with a non-zero int status; a message next to a zero
+// status came from an earlier unchecked call.
+func mlxError[T comparable](v T) error {
+	var zero T
+	var failed, signaled bool
+	switch any(zero).(type) {
+	case C.int:
+		failed, signaled = v != zero, true
+	default:
+		// Only an int status signals failure. Handles, pointers, sizes, and
+		// dtypes are all valid at zero: a null handle is what the out-param
+		// constructors return, and an empty array has no data.
+	}
+	if *errBuf != 0 {
+		err := lastError()
+		if signaled && !failed {
+			return fmt.Errorf("mlx: unchecked error from an earlier call: %w", err)
 		}
-		return fmt.Errorf("mlx: %s", msg)
+		return err
+	}
+	if failed {
+		return errors.New("mlx: call failed without an error message")
 	}
 	return nil
 }
 
-// mlxCheck panics with the captured MLX error. Most array operations cannot
-// recover from a failed graph construction or evaluation.
-func mlxCheck(fallback string, fn func() C.int) {
-	if err := mlxCall(fallback, fn); err != nil {
-		panic(err.Error())
+// mlxCheck panics on a failed call and otherwise passes its result through.
+// Most array operations cannot recover from a failed graph construction or
+// evaluation.
+func mlxCheck[T comparable](v T) T {
+	if err := mlxError(v); err != nil {
+		panic(err)
 	}
+	return v
+}
+
+// Deferred frees go through these helpers: defer evaluates a call's
+// arguments immediately, so defer mlxCheck(C.mlx_..._free(v)) would
+// free v on the spot and defer only the check.
+func freeArray(a C.mlx_array)              { mlxCheck(C.mlx_array_free(a)) }
+func freeString(s C.mlx_string)            { mlxCheck(C.mlx_string_free(s)) }
+func freeVectorArray(v C.mlx_vector_array) { mlxCheck(C.mlx_vector_array_free(v)) }
+func freeClosure(c C.mlx_closure)          { mlxCheck(C.mlx_closure_free(c)) }
+func freeStream(s C.mlx_stream)            { mlxCheck(C.mlx_stream_free(s)) }
+func freeDevice(d C.mlx_device)            { mlxCheck(C.mlx_device_free(d)) }
+func freeDeviceInfo(i C.mlx_device_info)   { mlxCheck(C.mlx_device_info_free(i)) }
+
+func freeArrayMap(m C.mlx_map_string_to_array) {
+	mlxCheck(C.mlx_map_string_to_array_free(m))
+}
+
+func freeStringMap(m C.mlx_map_string_to_string) {
+	mlxCheck(C.mlx_map_string_to_string_free(m))
+}
+
+func freeArrayMapIterator(it C.mlx_map_string_to_array_iterator) {
+	mlxCheck(C.mlx_map_string_to_array_iterator_free(it))
+}
+
+// Version returns the MLX core library version string.
+func Version() string {
+	str := mlxCheck(C.mlx_string_new())
+	mlxCheck(C.mlx_version(&str))
+	defer freeString(str)
+	return C.GoString(mlxCheck(C.mlx_string_data(str)))
 }
 
 func doEval(outputs []*Array, async bool) {
@@ -129,21 +129,20 @@ func doEval(outputs []*Array, async bool) {
 		return
 	}
 
-	vector := C.mlx_vector_array_new()
-	defer C.mlx_vector_array_free(vector)
+	vector := mlxCheck(C.mlx_vector_array_new())
+	defer freeVectorArray(vector)
 
 	for _, output := range outputs {
 		if output != nil && output.Valid() {
-			C.mlx_vector_array_append_value(vector, output.ctx)
+			mlxCheck(C.mlx_vector_array_append_value(vector, output.ctx))
 		}
 	}
 
-	mlxCheck("eval failed", func() C.int {
-		if async {
-			return C.mlx_async_eval(vector)
-		}
-		return C.mlx_eval(vector)
-	})
+	if async {
+		mlxCheck(C.mlx_async_eval(vector))
+	} else {
+		mlxCheck(C.mlx_eval(vector))
+	}
 }
 
 func AsyncEval(outputs ...*Array) {
@@ -157,13 +156,13 @@ func Eval(outputs ...*Array) {
 // MetalIsAvailable returns true if a Metal GPU is available.
 func MetalIsAvailable() bool {
 	var available C._Bool
-	C.mlx_metal_is_available(&available)
+	mlxCheck(C.mlx_metal_is_available(&available))
 	return bool(available)
 }
 
 // CUDAIsAvailable returns true if a CUDA GPU is available.
 func CUDAIsAvailable() bool {
 	var available C._Bool
-	C.mlx_cuda_is_available(&available)
+	mlxCheck(C.mlx_cuda_is_available(&available))
 	return bool(available)
 }

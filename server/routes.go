@@ -138,6 +138,9 @@ func (s *Server) modelOptionsWithEmbeddingBatchDefault(model *Model, requestOpts
 	draftNumPredictSet := hasOption(requestOpts, "draft_num_predict")
 	if model != nil {
 		draftNumPredictSet = draftNumPredictSet || hasOption(model.Options, "draft_num_predict")
+		if err := opts.FromMap(model.GenerationDefaults); err != nil {
+			return api.Options{}, err
+		}
 		if err := opts.FromMap(model.Options); err != nil {
 			return api.Options{}, err
 		}
@@ -766,10 +769,11 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 					Response:  cr.Content,
 					Done:      cr.Done,
 					Metrics: api.Metrics{
-						PromptEvalCount:    cr.PromptEvalCount,
-						PromptEvalDuration: cr.PromptEvalDuration,
-						EvalCount:          cr.EvalCount,
-						EvalDuration:       cr.EvalDuration,
+						PromptEvalCount:       cr.PromptEvalCount,
+						PromptEvalCachedCount: cr.PromptEvalCachedCount,
+						PromptEvalDuration:    cr.PromptEvalDuration,
+						EvalCount:             cr.EvalCount,
+						EvalDuration:          cr.EvalDuration,
 					},
 					Logprobs: toAPILogprobs(cr.Logprobs),
 				}
@@ -1091,6 +1095,25 @@ const thinkingContinuationHeadroom = 8
 // continuation delta (transitionPromptDelta), which restores the image
 // tokens. The textual count still serves the no-pass-two exits (context
 // full) and as the fallback for degenerate reports.
+// reportedPassMetrics converts a runner-reported pass-one metric set into the
+// pass1 carrier, or returns nil when the runner reported nothing. Upstream's
+// IncludeIntermediateMetrics makes every chunk of a deferring pass carry
+// metrics, so a pass cancelled at the thinking-to-content transition still has
+// its own report; a runner that ignores the flag leaves the zero value, and
+// ADR 0010's textual reconstruction takes over.
+func reportedPassMetrics(m api.Metrics) *llm.CompletionResponse {
+	if m.PromptEvalCount == 0 && m.EvalCount == 0 && m.PromptEvalDuration == 0 && m.EvalDuration == 0 {
+		return nil
+	}
+	return &llm.CompletionResponse{
+		PromptEvalCount:       m.PromptEvalCount,
+		PromptEvalCachedCount: m.PromptEvalCachedCount,
+		PromptEvalDuration:    m.PromptEvalDuration,
+		EvalCount:             m.EvalCount,
+		EvalDuration:          m.EvalDuration,
+	}
+}
+
 func transitionPassMetrics(ctx context.Context, r llm.LlamaServer, prompt, output string, passStart, firstChunkAt time.Time) *llm.CompletionResponse {
 	promptTokens, perr := r.Tokenize(ctx, prompt)
 	evalTokens, eerr := r.Tokenize(ctx, output)
@@ -3111,6 +3134,10 @@ func (s *Server) ChatHandler(c *gin.Context) {
 		// including image-embedding tokens no text tokenization can count.
 		transitionPromptDelta := -1
 		var contentStarted bool
+		// firstPassMetrics is the runner's own report for pass one, kept from
+		// the last chunk that carried metrics (upstream's
+		// IncludeIntermediateMetrics makes every chunk carry them).
+		var firstPassMetrics api.Metrics
 
 		for {
 			var tb strings.Builder
@@ -3145,6 +3172,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 					passOpts = &o
 				}
 			}
+			includeIntermediateMetrics := req.Format != nil && currentFormat == nil
 
 			// sets up new context given parent context per request
 			ctx, cancel := context.WithCancel(c.Request.Context())
@@ -3152,34 +3180,54 @@ func (s *Server) ChatHandler(c *gin.Context) {
 			var parserErr error
 
 			err := r.Completion(ctx, llm.CompletionRequest{
-				Prompt:          prompt,
-				Media:           media,
-				Format:          currentFormat,
-				Options:         passOpts,
-				Shift:           req.Shift == nil || *req.Shift,
-				Truncate:        truncate,
-				Logprobs:        req.Logprobs,
-				TopLogprobs:     req.TopLogprobs,
-				PreservedTokens: preservedTokensForCompletion(builtinParser),
-				ToolCallTag:     toolCallTagForCompletion(toolParser),
-				LeadingBOS:      leadingBOSForModel(m),
+				Prompt:                     prompt,
+				Media:                      media,
+				Format:                     currentFormat,
+				Options:                    passOpts,
+				Shift:                      req.Shift == nil || *req.Shift,
+				Truncate:                   truncate,
+				Logprobs:                   req.Logprobs,
+				TopLogprobs:                req.TopLogprobs,
+				PreservedTokens:            preservedTokensForCompletion(builtinParser),
+				ToolCallTag:                toolCallTagForCompletion(toolParser),
+				LeadingBOS:                 leadingBOSForModel(m),
+				IncludeIntermediateMetrics: includeIntermediateMetrics,
 			}, func(r llm.CompletionResponse) {
 				if firstChunkAt.IsZero() {
 					firstChunkAt = time.Now()
 				}
 				raw.WriteString(r.Content)
+				metrics := api.Metrics{
+					PromptEvalCount:       r.PromptEvalCount,
+					PromptEvalCachedCount: r.PromptEvalCachedCount,
+					PromptEvalDuration:    r.PromptEvalDuration,
+					EvalCount:             r.EvalCount,
+					EvalDuration:          r.EvalDuration,
+				}
+				if includeIntermediateMetrics {
+					// A deferring pass asks the runner for per-chunk timings,
+					// so keep the latest as pass one's own report and blank the
+					// intermediate copies: a mid-stream counter must not leak
+					// into every streamed API chunk (ADR 0010's reason for
+					// rejecting a running-counter protocol in the first place).
+					firstPassMetrics = metrics
+					if !r.Done {
+						metrics = api.Metrics{}
+					}
+				}
+				// Upstream folds the restart here (retain pass one's prompt
+				// metrics, add the second prefill to decode). This fork folds
+				// it below instead, off pass1 / transitionPromptDelta, because
+				// ADR 0010's derivation is the only one that recovers the
+				// image-embedding tokens a textual count cannot see. Folding in
+				// both places would count pass one twice.
 				res := api.ChatResponse{
 					Model:     req.Model,
 					CreatedAt: time.Now().UTC(),
 					Message:   api.Message{Role: "assistant", Content: r.Content},
 					Done:      r.Done,
-					Metrics: api.Metrics{
-						PromptEvalCount:    r.PromptEvalCount,
-						PromptEvalDuration: r.PromptEvalDuration,
-						EvalCount:          r.EvalCount,
-						EvalDuration:       r.EvalDuration,
-					},
-					Logprobs: toAPILogprobs(r.Logprobs),
+					Metrics:   metrics,
+					Logprobs:  toAPILogprobs(r.Logprobs),
 				}
 
 				if r.Done {
@@ -3200,6 +3248,10 @@ func (s *Server) ChatHandler(c *gin.Context) {
 								res.Metrics.PromptEvalCount = derived
 							}
 						}
+						// The folded response reports the request's own
+						// prompt, so its cached prefill is pass one's, not the
+						// continuation's (which is almost entirely cache hits).
+						res.Metrics.PromptEvalCachedCount = pass1.PromptEvalCachedCount
 						res.Metrics.PromptEvalDuration += pass1.PromptEvalDuration
 						res.Metrics.EvalCount += pass1.EvalCount
 						res.Metrics.EvalDuration += pass1.EvalDuration
@@ -3375,8 +3427,17 @@ func (s *Server) ChatHandler(c *gin.Context) {
 				// prompt count is refined once pass two reports its prefill.
 				reconstructed := false
 				if pass1 == nil {
-					pass1 = transitionPassMetrics(c.Request.Context(), r, prompt, raw.String(), passStart, firstChunkAt)
-					reconstructed = pass1 != nil
+					// Upstream's per-chunk metrics carry pass one's own report
+					// even though the cancel discarded its final chunk, and
+					// that report is the runner's cache-inclusive prefill —
+					// image-embedding tokens included — which is exactly what
+					// ADR 0010's subtraction exists to recover. Prefer it, and
+					// keep the textual reconstruction for the runners and
+					// paths that report nothing (ADR 0010 is best-effort).
+					if pass1 = reportedPassMetrics(firstPassMetrics); pass1 == nil {
+						pass1 = transitionPassMetrics(c.Request.Context(), r, prompt, raw.String(), passStart, firstChunkAt)
+						reconstructed = pass1 != nil
+					}
 				}
 
 				msg := api.Message{
@@ -3515,10 +3576,11 @@ func (s *Server) handleNativeChat(c *gin.Context, req api.ChatRequest, m *Model,
 				Message:   r.Message,
 				Done:      r.Done,
 				Metrics: api.Metrics{
-					PromptEvalCount:    r.PromptEvalCount,
-					PromptEvalDuration: r.PromptEvalDuration,
-					EvalCount:          r.EvalCount,
-					EvalDuration:       r.EvalDuration,
+					PromptEvalCount:       r.PromptEvalCount,
+					PromptEvalCachedCount: r.PromptEvalCachedCount,
+					PromptEvalDuration:    r.PromptEvalDuration,
+					EvalCount:             r.EvalCount,
+					EvalDuration:          r.EvalDuration,
 				},
 				Logprobs: toAPILogprobs(r.Logprobs),
 			}

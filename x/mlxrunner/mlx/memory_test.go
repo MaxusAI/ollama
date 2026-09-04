@@ -6,21 +6,19 @@ import (
 	"math"
 	"slices"
 	"testing"
+
+	"github.com/ollama/ollama/x/internal/mlxthreadtest"
 )
 
 func TestSetWiredLimitRejectsOversizeWithoutChangingLimit(t *testing.T) {
-	skipIfNoMLX(t)
-	if !GPUIsAvailable() {
-		t.Skip("MLX GPU not available")
-	}
-
-	var testErr error
-	withMLXThread(t, func() {
-		testErr = checkWiredLimitRejectsOversize()
+	withMLXThread(t, func(t *mlxthreadtest.T) {
+		if !GPUIsAvailable() {
+			t.Skip("MLX GPU not available")
+		}
+		if err := checkWiredLimitRejectsOversize(); err != nil {
+			t.Fatal(err)
+		}
 	})
-	if testErr != nil {
-		t.Fatal(testErr)
-	}
 }
 
 func checkWiredLimitRejectsOversize() (err error) {
@@ -74,18 +72,14 @@ func checkWiredLimitRejectsOversize() (err error) {
 // the previous value and would round-trip identically. Cross-checking the
 // memory limit does: it must be untouched.
 func TestSetCacheLimitLeavesTheMemoryLimitAlone(t *testing.T) {
-	skipIfNoMLX(t)
-	if !GPUIsAvailable() {
-		t.Skip("MLX GPU not available")
-	}
-
-	var testErr error
-	withMLXThread(t, func() {
-		testErr = checkCacheLimitDoesNotTouchMemoryLimit()
+	withMLXThread(t, func(t *mlxthreadtest.T) {
+		if !GPUIsAvailable() {
+			t.Skip("MLX GPU not available")
+		}
+		if err := checkCacheLimitDoesNotTouchMemoryLimit(); err != nil {
+			t.Fatal(err)
+		}
 	})
-	if testErr != nil {
-		t.Fatal(testErr)
-	}
 }
 
 func checkCacheLimitDoesNotTouchMemoryLimit() (err error) {

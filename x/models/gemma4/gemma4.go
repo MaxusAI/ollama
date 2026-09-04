@@ -1,4 +1,4 @@
-// Package gemma4 provides the Gemma 4 text model implementation for MLX.
+// Package gemma4 provides the Gemma 4 model implementation for MLX.
 package gemma4
 
 import (
