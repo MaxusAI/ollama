@@ -179,6 +179,37 @@ order: `mlxtest.go` (theirs + port 18 sites) → `mlx/{mlx,stream}.go` (theirs;
 Exit check: `git grep -n 'mlxCall(\|ClaimOSThread()\|mlxtest\.Setup\|isGemma4Renderer'`
 returns only what D1 intends.
 
+Resolution recipes, read from v0.33.3 so Gate 1 is mechanical:
+
+- **`ClaimOSThread` → `mlxthread`.** Upstream's runner already pins the MLX
+  thread with `mlxthread.Start("mlxrunner", init)` (`x/mlxrunner/server.go`)
+  and `x/create/mlxthread.go` uses `runtime.LockOSThread()` for the process
+  lifetime — that *is* ADR 0017's guarantee, expressed upstream's way. Drop the
+  fork's `ClaimOSThread` and its `__thread _mlx_thread_owned` flag; keep the
+  invariant text in AGENTS.md/ADR 0017 pointing at `mlxthread`.
+- **`memory.go`.** Upstream has no `MemoryLimit` / `SetMemoryLimit` /
+  `SetCacheLimit` — the fork's VRAM/cache ceiling (`OLLAMA_MLX_MEMORY_LIMIT`,
+  `budgetWithOverride`) depends on them. Re-express the three on
+  `mlxError[T](v T) error` / `lastError()`; confirm `mlx_set_cache_limit`,
+  `mlx_set_memory_limit`, `mlx_get_memory_limit` exist in the regenerated
+  MLX-C bindings before assuming the port is a rename.
+- **`mlxtest`.** New API: `mlxtest.Run(t, func(*mlxtest.T))`,
+  `mlxtest.RunSubtest(t, name, fn)`, `mlxtest.SkipIfUnavailable(t)`; the
+  callback runs on the package's shared MLX thread (`x/internal/mlxthreadtest`).
+  Port the 18 `Setup` sites by wrapping the body; AGENTS.md's "build arrays
+  inside the subtest" rule maps onto `RunSubtest`.
+- **D2 union.** Upstream adds `IncludeIntermediateMetrics` to the runner
+  request, sets `includeIntermediateMetrics := req.Format != nil && currentFormat == nil`
+  in `ChatHandler`, captures `firstPassMetrics`, then folds with
+  `PromptEvalCount = firstPassMetrics.PromptEvalCount; EvalCount += …;
+  EvalDuration += … + r.PromptEvalDuration`. Keep all of that wiring and the
+  new `PromptEvalCachedCount` pass-through; replace only the
+  `PromptEvalCount` line with ADR 0010's `transitionPassMetrics()` derivation
+  (pass two's cache-inclusive prefill minus `transitionPromptDelta`), and keep
+  #238's `deferring` gate on both transition sites. `TestChatNullFormatIsNotConstraining`
+  and the restart tests (`TestChatWithPromptEndingInThinkTag/…`) are the
+  semantic gate; add one asserting the folded count on a vision request.
+
 **Gate 2 — no-GPU tests** (golang:1.26 container, `-u 1000:1000`, caches on
 the 8 TB array):
 ```sh
