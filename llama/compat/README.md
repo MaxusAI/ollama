@@ -76,15 +76,20 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   this must not be backported to a lineage pinned at or below b9990 — there is
   nothing there to fix and the patch will not apply), and
   `docs/maxusai/upstream-mmq-ids-padding-issue.md` for the upstream report.
-- `compat.cmake`, `apply-patch.cmake` - CMake glue and an idempotent applier
-  (used by `llama/server/CMakeLists.txt`) that applies every `*.patch` under
-- `002-llama-cpp-ui-empty-assets.patch` - lets the llama.cpp UI embed helper
-  generate an empty asset table when no UI assets are present.
-- `compat.cmake` - CMake glue that invokes the shared
-  `cmake/apply-git-patches.cmake` idempotent applier (used by
-  `llama/server/CMakeLists.txt`) for every `*.patch` under
-  this directory by numeric filename order — the hooks patch plus each
-  `models/` architecture patch.
+- `compat.cmake` - CMake glue, included by `llama/server/CMakeLists.txt` (and
+  `cmake/local.cmake`) before `FetchContent_Declare(llama_cpp ...)`. It sets
+  `OLLAMA_LLAMA_CPP_COMPAT_PATCH_COMMAND`, which FetchContent runs as its
+  `PATCH_COMMAND`: the shared idempotent applier `cmake/apply-git-patches.cmake`
+  with `PATCH_DIR` pointing at this directory. The applier globs `*.patch`
+  here **recursively** (so `models/` too), applies them in sorted filename
+  order — the numeric prefix is the apply order — skips any patch that already
+  applies in reverse (`git apply --reverse --check`, which is what makes
+  re-configuring and rebuilding safe), and fails the configure (`FATAL_ERROR`)
+  on the first patch that does not apply. `compat.cmake` also exports
+  `OLLAMA_LLAMA_CPP_COMPAT_DIR` and `OLLAMA_LLAMA_CPP_COMPAT_SOURCES` so the
+  main CMakeLists can `target_sources()` the four compat source files onto the
+  fetched llama.cpp targets after `FetchContent_MakeAvailable` — the sources
+  are never copied into the fetched tree.
 - `models/` - the sibling **new-architecture** layer: implementations of
   architectures llama.cpp doesn't support yet, each added via a small
   registration patch. (Those files *add* archs; the files above *translate*
@@ -95,8 +100,8 @@ fetched llama.cpp targets. The patch file only adds call sites.
 
 ### Number bands
 
-`apply-patch.cmake` globs `*.patch` recursively and applies them in sorted
-filename order, so the numeric prefix is the apply order. Three bands share
+`cmake/apply-git-patches.cmake` globs `*.patch` recursively and applies them
+in sorted filename order, so the numeric prefix is the apply order. Three bands share
 that sequence and they mean different things:
 
 - **0xx — the compatibility layer.** Translating existing published Ollama
