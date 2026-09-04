@@ -282,7 +282,7 @@ run only — a later `--skip-pinned` smoke would overwrite green with
 ## Acceptance criteria
 
 1. ☑ D1 and D2 decided and recorded (2026-09-04, above). No ADR changes under D1-A / D2-as-decided; the D1-B spike carries its own ADR if adopted.
-2. ☐ Housekeeping PRs merged: #211; `constrain.go` deletion; #201/#213/#210; `release_matrix.py` quality column; 0.33.2 tag hygiene.
+2. ☐ Housekeeping: ☑ #211, ☑ #201, ☑ #265 (point-tag patterns + ADR 0032 amendment), ☑ `v0.33.2-dynres.1` cut at `2b95b4a5` (2026-09-04); ☐ `constrain.go` deletion; ☐ #213 amended; ☐ `release_matrix.py` quality column; ☐ #210 (merge or close).
 3. ☐ Merge with the resolutions above; zero conflicts; Gate 1 grep clean.
 4. ☐ Gate 2 green (`go build`, `go vet`, the listed `go test` set, `test_verdicts.py`).
 5. ☐ Gate 3 image built on `bigdisk`, patch/payload/go-license proofs recorded.
