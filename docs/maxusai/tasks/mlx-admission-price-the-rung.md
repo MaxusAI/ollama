@@ -85,8 +85,10 @@ why campaign and canary containers now need `OLLAMA_MLX_MEMORY_LIMIT` by hand (#
    model, and a recurrent one; **the numbers checked against a measured load, not
    asserted.** Estimator landed (`x/mlxrunner/kvsize`) and unit-tested against the real
    gemma4:26b, qwen3.6:35b-a3b and qwen3.8:27b configs plus synthetic nemotron_h and
-   llama ones. **The half that is not done is the one that matters most: nothing has been
-   compared to a measured load yet.**
+   llama ones. ☑ **Compared to a measured load 2026-09-05**: five models × four rungs × two
+   request shapes against the runner's own `peak memory` line, 40/40 clean — see "What the
+   GPU phase measured" below. The KV term is small and the peaks are flat across rungs; the
+   remainder is the prefill transient, now calibrated per architecture.
 2. ☑ Admission compares weights + KV(rung) + headroom, and the four ladder rungs
    admit differently — `TestLadderRungsAdmitDifferently` fails on the pre-change
    code (`num_ctx 16384 needs 42949672960, not more than 42949672960 at 8192`).
@@ -96,8 +98,12 @@ why campaign and canary containers now need `OLLAMA_MLX_MEMORY_LIMIT` by hand (#
 4. ☐ KV preallocated from `num_ctx` at session start (#210 fix 2). **Not started.**
    Until it lands the estimate describes what the cache *will* hold, and the
    `Concatenate` growth moment still transiently holds two buffers.
-5. ☐ No new over-refusal: the vision-suite cells that pass today still admit at their
-   converged rungs on the CUDA host, verified by a think-off campaign run. **Not run.**
+5. ☑ (by arithmetic and by the calibration run) / ☐ (campaign) No new over-refusal: with the
+   calibrated headroom every vision-suite model admits at every ladder rung on the CUDA host —
+   worst case gemma4:31b at 65536 needs 17.3 + 5.8 + 14.5 = 37.6 GiB and qwen3.6 about 39 GiB
+   against the 45.7 GiB budget the campaigns run with (16 GiB overhead) and 61.7 GiB uncapped.
+   The calibration itself loaded all five models at all four rungs under the new admission.
+   A think-off campaign on the calibrated binary has not been run.
 6. ☑ (code) / ☐ (verified) `OLLAMA_MLX_MEMORY_LIMIT` still wins as the ceiling and keeps
    its own separate plain error — `TestOperatorCapCoversTheContextRung`. The `801`/preflight
    surface is untouched by this diff but has not been re-run.
@@ -131,12 +137,16 @@ exactly the over-refusal this work is supposed to avoid. An auto rung therefore
 **never errors** unless the weights alone do not fit: if even 2048 does not fit,
 admission falls back to weights-only and logs a warning.
 
-### The headroom placeholder
+### The headroom, calibrated (2026-09-05)
 
-`headroom = max(512 MiB, 5% of (weights + KV))`, labelled as a placeholder in the
-code. It stands in for prefill activations, the vision tower and the
-cache-growth double-hold, and it is **not** a model of any of them. Biased low
-deliberately.
+The placeholder `max(512 MiB, 5% of (weights + KV))` was 10–25× too small. The GPU phase
+showed the remainder is the **prefill transient** — activations for one 2048-token prefill
+chunk plus the vision tower — which does not depend on `num_ctx` and saturates once a
+prompt fills a chunk. So the headroom is a per-architecture constant (measured peak − weights
+at a full chunk, plus ~10%): **gemma4 14.5 GiB, qwen3.5 dense 10.5 GiB, qwen3.5-MoE 16 GiB,
+unknown architectures max(10 GiB, 5%)**. `admissionHeadroom(arch, weightsPlusKV)` in
+`client.go` carries the table and the measurements. Lowering `num_batch` shrinks the
+transient (it bounds the chunk, the GGML `num_batch` analogue) and is not modelled.
 
 ### What the estimator says now (so the GPU phase has something to falsify)
 
@@ -154,10 +164,36 @@ of the unpriced remainder.** Pricing the rung makes the ladder visible and turns
 an abort into a refusal; it does not explain the peaks. The headroom does, and it
 is a guess.
 
-### What the GPU phase must measure
+### What the GPU phase measured (2026-09-05, CUDA host, `sync-0.33.3` + this branch's binary)
 
-For each of `gemma4:26b-nvfp4`, `gemma4:31b-nvfp4`, `qwen3.6:35b-a3b` and
-`qwen3.8:27b`, at each rung 8192 / 16384 / 32768 / 65536:
+`gate-gpu-276b.sh`: five models × rungs 8192 / 16384 / 32768 / 65536 × two request shapes
+(one 2048×1152 ladder image; three ladder images), `OLLAMA_GPU_OVERHEAD` 16 GiB (budget
+45.7 GiB), a fresh runner per rung so every cell has its own admission line. 40/40 clean.
+Data: `preflight/runs/gpu276-calibration-2026-09-05.jsonl`.
+
+| model | weights | KV @8192 | KV @65536 | peak, 1 image | peak, 3 images | peak − weights, 1 img | 3 img |
+|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | 7.1 GiB | 0.44 | 1.30 | 9.53 | 16.80 | 2.4 | **9.7** |
+| gemma4:26b-nvfp4 | 16.3 | 0.35 | 1.40 | 25.65 | 26.54 | 9.4 | **10.2** |
+| gemma4:31b-nvfp4 | 17.3 | 1.40 | 5.80 | 25.37 | 30.36 | 8.1 | **13.1** |
+| qwen3.8:27b-nvfp4 | 16.9 | 0.64 | 4.10 | 26.12 | 26.12 | 9.2 | **9.2** |
+| qwen3.6:35b-a3b-nvfp4 | 22.0 | 0.22 | 1.30 | 29.26 | 36.27 | 7.3 | **14.3** |
+
+Findings against the list below: (1) **the peak was identical at all four rungs for every
+model** — the KV is consumed by tokens actually processed, so the rung is a cap admission
+assumes, not where the memory goes; the remainder is set by the largest prefill chunk (gemma4
+sees 1122 tokens for one image, a partial chunk, and 3337 for three; qwen sees 2325 and 3060,
+so one and three images cost the same there) and grows with the model; on the MoE it also
+moves with generation length (28.6–36.3 GiB peaks for the same prompt). (2) Layer counts
+were logged on every admission line; not cross-checked against `NewCaches` at runtime beyond
+the unit tests. (3) No over-refusal at any rung, see criterion 5. (4) The sliding transient is
+inside the measured peaks and therefore inside the constant; no separate term. (5) The auto
+clamp was not exercised on a real load (every calibration request set `num_ctx`) — still ☐.
+Two probe bugs cost two attempts before this data existed: the ladder images live under
+`preflight/ladderimgs/`, and a ~260 KB request body cannot be passed as a curl argument
+(Linux caps one argv string at 128 KiB; send it with `--data-binary @file`).
+
+The original measurement plan, kept for the record:
 
 1. **Estimate vs actual.** The admission line
    `MLX admission priced the context rung` carries `weights`, `kv`, `headroom`,

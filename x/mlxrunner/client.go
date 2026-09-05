@@ -333,23 +333,46 @@ func (c *Client) HasExited() bool {
 // more honest than serving a window nothing fits in.
 const autoContextFloor = 2048
 
-// admissionHeadroom is what a load needs beyond weights and KV: prefill
-// activations, the vision tower on a multi-image request, and the transient
-// double-hold when a cache grows by Concatenate.
+// admissionHeadroom is what a load needs beyond weights and KV: the prefill
+// transient -- activations for one prefill chunk, the vision tower on an image
+// request -- plus MLX's working buffers.
 //
-// PLACEHOLDER, to be calibrated in the GPU phase against the runner's own
-// `peak memory` line. It is biased deliberately LOW: over-refusal on a serving
-// host is worse than the over-admission we have today, and the operator's
-// OLLAMA_MLX_MEMORY_LIMIT remains the hard ceiling. The measured gap it stands
-// in for is large -- weights 17-24 GB against peaks of 24-36 GiB
-// (docs/maxusai/mlx-admission-prices-weights-only.md) -- so this is a first
-// margin, not a model of it.
-func admissionHeadroom(weightsPlusKV uint64) uint64 {
-	const floor = 512 << 20 // 512 MiB
-	if fraction := weightsPlusKV / 20; fraction > floor {
+// Calibrated 2026-09-05 on the CUDA host against the runner's own `peak memory`
+// line (docs/maxusai/vision-suite/preflight/runs/gpu276-calibration-2026-09-05.jsonl):
+// five models, four rungs, one- and three-image requests. Two facts shape the
+// rule. The peak was identical at num_ctx 8192, 16384, 32768 and 65536 for every
+// model: the KV is consumed by tokens actually processed, so the rung is not
+// where the memory goes. And the transient saturates once a prompt fills the
+// 2048-token prefill chunk -- gemma4's one-image prompt (1122 tokens) is a partial
+// chunk and costs 2.4 GiB on 12b, three images (3337 tokens) fill a chunk and
+// cost 9.7 GiB; qwen's one image is already 2325 tokens, so one and three images
+// cost the same. It is therefore a per-architecture constant, not a fraction of
+// the load. Measured peak minus weights at a full chunk, and the value used:
+//
+//	gemma4   12b 9.7 / 26b 10.2 / 31b 13.1 GiB          -> 14.5 GiB
+//	qwen3.5  dense 27b 9.2 GiB                           -> 10.5 GiB
+//	qwen3.5  MoE 35b-a3b 14.3 GiB (28.6-36.3 GiB peaks   -> 16 GiB
+//	         for the same prompt: it also moves with
+//	         generation length)
+//
+// Unknown architectures get max(10 GiB, 5% of weights+KV): no vision model
+// measured below 9 GiB at a full chunk, text-only models pay less. The former
+// placeholder, max(512 MiB, 5%), was 10-25x too small. Lowering num_batch
+// shrinks the transient (it bounds the chunk) and is not modelled here.
+func admissionHeadroom(arch string, weightsPlusKV uint64) uint64 {
+	const gib = uint64(1) << 30
+	switch {
+	case strings.Contains(arch, "Gemma4"):
+		return 29 * gib / 2 // 14.5 GiB
+	case strings.Contains(arch, "Qwen3_5Moe"):
+		return 16 * gib
+	case strings.Contains(arch, "Qwen3_5"), strings.Contains(arch, "Qwen3Next"):
+		return 21 * gib / 2 // 10.5 GiB
+	}
+	if fraction := weightsPlusKV / 20; fraction > 10*gib {
 		return fraction
 	}
-	return floor
+	return 10 * gib
 }
 
 // estimate prices the model's caches at numCtx, or reports an unknown estimate
@@ -368,7 +391,7 @@ func (c *Client) needFor(weights uint64, numCtx int) (need, kv, headroom uint64,
 		return weights, 0, 0, est
 	}
 	kv = est.Total()
-	headroom = admissionHeadroom(weights + kv)
+	headroom = admissionHeadroom(est.Arch, weights+kv)
 	return weights + kv + headroom, kv, headroom, est
 }
 

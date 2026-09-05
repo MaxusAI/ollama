@@ -69,18 +69,32 @@ the over-admission being fixed.
 (never `ErrLoadRequiredFull` — eviction cannot lower a constant). What changed is
 that the KV is now inside what `OLLAMA_MLX_MEMORY_LIMIT` bounds.
 
-## The headroom is a placeholder, and says so
+## The headroom is the calibrated prefill transient
 
-`headroom = max(512 MiB, 5% of (weights + KV))` stands in for prefill
-activations, the vision tower on a multi-image request, and the transient
-double-hold when a cache grows by `Concatenate`. It is **not** a model of any of
-them. It is biased low on purpose: over-refusal on a serving host is worse than
-over-admission, and `OLLAMA_MLX_MEMORY_LIMIT` remains the hard ceiling.
+The first cut used a placeholder, `max(512 MiB, 5% of (weights + KV))`. The GPU
+phase (2026-09-05, five models × four rungs × two request shapes against the
+runner's own `peak memory` line; `preflight/runs/gpu276-calibration-2026-09-05.jsonl`)
+found it 10–25× too small and, more usefully, found what the remainder is:
 
-It has to be calibrated on GPU, and the estimate makes that measurable for the
-first time: admission logs `MLX admission priced the context rung` with weights,
-KV, headroom, rung and budget, to be compared against the runner's own
-`peak memory` line.
+- **It does not depend on `num_ctx`.** Every model peaked at the same value at
+  8192, 16384, 32768 and 65536. The KV is consumed by tokens actually processed;
+  the rung is a cap admission assumes, not where the memory goes.
+- **It is the prefill transient, and it saturates at one chunk.** The runner
+  prefills in 2048-token chunks; the transient is set by the largest chunk, not
+  the whole prompt. gemma4's one-image prompt (1122 tokens) is a partial chunk
+  and costs 2.4 GiB on 12b; three images (3337 tokens) fill a chunk and cost
+  9.7 GiB. qwen's one image is already 2325 tokens, so one and three images cost
+  the same.
+- **It grows with the model**: at a full chunk, gemma4 12b 9.7 / 26b 10.2 /
+  31b 13.1 GiB, qwen3.5 dense 27b 9.2 GiB, qwen3.5-MoE 35b-a3b 14.3 GiB (and on
+  the MoE it also moves with generation length).
+
+So `headroom` is a per-architecture constant, measured peak − weights at a full
+chunk plus ~10%: **gemma4 14.5 GiB, qwen3.5 dense 10.5 GiB, qwen3.5-MoE 16 GiB,
+unknown architectures max(10 GiB, 5%)**. It is what a request costs; the KV term
+is what the rung allows the cache to grow to. Lowering `num_batch` shrinks the
+transient (it bounds the chunk, the GGML `num_batch` analogue) and is not
+modelled. `OLLAMA_MLX_MEMORY_LIMIT` remains the hard ceiling.
 
 ## What this does not fix
 
@@ -88,8 +102,8 @@ KV, headroom, rung and budget, to be compared against the runner's own
 `gemma4:26b` the estimate is 360 MiB at 8192 and 1.45 GiB at 65536, against
 weights of 17–24 GB and observed peaks of 24–36 GiB. Pricing the rung makes the
 ladder visible to admission and converts a mid-prefill abort into a refusal; it
-does not by itself explain the peaks. The activation headroom does, and that
-number is still a guess.
+does not by itself explain the peaks. The prefill transient does, and that number
+is now measured (above), not guessed.
 
 Fix 2 of the diagnosis — **pre-sizing the KV from `num_ctx`** instead of growing
 it by `Concatenate` — is not done here. Until it is, the estimate is what the

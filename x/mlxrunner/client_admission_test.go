@@ -245,14 +245,37 @@ func TestLoadRefusesARungThatDoesNotFit(t *testing.T) {
 	}
 }
 
-// The headroom is a placeholder to be calibrated on GPU; what must not drift is
-// its shape -- a floor for small models, a fraction for large ones.
-func TestHeadroomIsAFloorThenAFraction(t *testing.T) {
-	const floor = 512 << 20
-	if got := admissionHeadroom(1 << 30); got != floor {
-		t.Errorf("1 GiB model: headroom %d, want the %d floor", got, floor)
+// The headroom is the prefill transient calibrated per architecture on
+// 2026-09-05 (preflight/runs/gpu276-calibration-2026-09-05.jsonl): a constant
+// that saturates at one 2048-token prefill chunk, independent of num_ctx and
+// of the load's size. What must not drift is that a known vision architecture
+// gets its measured constant, and an unknown one gets a floor that still
+// scales for very large loads.
+func TestHeadroomIsTheCalibratedPrefillTransient(t *testing.T) {
+	const gib = uint64(1) << 30
+	cases := []struct {
+		arch string
+		want uint64
+	}{
+		{"Gemma4ForConditionalGeneration", 29 * gib / 2}, // 31b measured 13.06 GiB
+		{"Gemma4UnifiedForConditionalGeneration", 29 * gib / 2},
+		{"Qwen3_5MoeForConditionalGeneration", 16 * gib},  // 35b-a3b measured 14.27 GiB
+		{"Qwen3_5ForConditionalGeneration", 21 * gib / 2}, // 27b measured 9.22 GiB
+		{"Qwen3NextForCausalLM", 21 * gib / 2},
+		{"", 10 * gib}, // unknown: the floor
+		{"LlamaForCausalLM", 10 * gib},
 	}
-	if got := admissionHeadroom(40 << 30); got != (40<<30)/20 {
-		t.Errorf("40 GiB model: headroom %d, want 5%%", got)
+	for _, c := range cases {
+		if got := admissionHeadroom(c.arch, 40*gib); got != c.want {
+			t.Errorf("%q at 40 GiB: headroom %d, want %d", c.arch, got, c.want)
+		}
+	}
+	// A known architecture's constant does not grow with the load ...
+	if got := admissionHeadroom("Gemma4ForConditionalGeneration", 400*gib); got != 29*gib/2 {
+		t.Errorf("gemma4 at 400 GiB: headroom %d, want the 14.5 GiB constant", got)
+	}
+	// ... while an unknown one keeps the 5% shape above its floor.
+	if got := admissionHeadroom("", 400*gib); got != 400*gib/20 {
+		t.Errorf("unknown at 400 GiB: headroom %d, want 5%%", got)
 	}
 }
