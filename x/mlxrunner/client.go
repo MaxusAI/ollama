@@ -421,6 +421,12 @@ func (c *Client) admit(gpus []ml.DeviceInfo, requireFull bool) (uint64, error) {
 	// everything. Step it down until it fits and serve the smaller window --
 	// the same shape as reduceAutoNumCtxForLoadOOM on the llama.cpp path,
 	// except done before the load rather than after an OOM.
+	//
+	// The clamp is sticky across retries: sched.go reuses this Client when an
+	// eviction-and-retry follows ErrLoadRequiredFull, so a second Load starts
+	// from the already-clamped rung and can only clamp further. That is the
+	// wanted direction -- the derived default is a VRAM tier, not a request,
+	// and the 262144 one costs ~25x decode speed on this host.
 	if est.Known && c.numCtxAuto && need > vramBudget {
 		fitted, ok := c.clampAutoContext(weights, vramBudget, numCtx)
 		fittedNeed, fittedKV, fittedHeadroom, _ := c.needFor(weights, fitted)
@@ -443,7 +449,10 @@ func (c *Client) admit(gpus []ml.DeviceInfo, requireFull bool) (uint64, error) {
 				"need", format.HumanBytes2(fittedNeed),
 				"budget", format.HumanBytes2(vramBudget))
 			c.softContextLength.Store(int64(autoContextFloor))
-			numCtx, need, kv, headroom = autoContextFloor, weights, fittedKV, fittedHeadroom
+			// kv and headroom go back to zero so the admission line below
+			// stays self-consistent (need == weights + kv + headroom); the
+			// estimate that did not fit is in the warning above.
+			numCtx, need, kv, headroom = autoContextFloor, weights, 0, 0
 		}
 	}
 
