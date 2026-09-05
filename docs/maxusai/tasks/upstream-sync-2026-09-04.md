@@ -480,6 +480,25 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    [`v0.33.3-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.33.3-dynres) with the
    fork's notes and the matrix; README pointer + matrix in #273. `-maxusai` lineage tag is the
    Metal half's (handoff above).
+8b. ☑ **D1-A verified end to end (2026-09-04 23:12).** The decision this fold turns on —
+   the per-request image budget survives on MLX gemma4 — had no probe: preflight's
+   `pinned_image_token_budget` covers the llama-server path only, and Gate 5 ran default
+   budgets. `vision-suite/probe_mlx_image_budget.py` sweeps `image_max_tokens` over gemma4's
+   soft-token ladder against one image and reads `prompt_eval_count` back. Both builds, same
+   image (`ladderimgs/2048x1152.png`), `gemma4:12b-nvfp4` (MLX):
+
+   | `image_max_tokens` | default | 1120 | 560 | 280 | 140 | 70 |
+   |---|---|---|---|---|---|---|
+   | `sync-0.33.3` (`0.33.3-dynres-0-g0c4f09d`) | 1122 | 1122 | 549 | 286 | 142 | 88 |
+   | `sync-0.33.2` (`0.33.2-dynres-5-g2b95b4a`) | 1122 | 1122 | 549 | 286 | 142 | 88 |
+
+   Five distinct readings on both — the knob is live, not silently ignored — and **byte-identical
+   between the two builds**, so D1-A preserved the seam exactly. Corroboration across engines: at
+   the 560 rung the MLX prompt is 549 tokens against a ~20-token text prefix, i.e. ~529 image
+   tokens, matching preflight's independently measured `pinned 560 -> 529` on the llama-server
+   path. Default equals 1120, as ADR 0008 requires. 0 server errors; the probe capped the MLX
+   pool per #272 and tore its container down in a trap.
+
 9. ☐ **Deploy held by Glenn.** `:11497` still serves `0.33.2-dynres-5-g2b95b4a`
    (`v0.33.2-dynres.1`); when deploying: `ollama-0.33.3-dynres-0-g0c4f09d` from
    `maxusai/ollama:sync-0.33.3`, `sync-0.33.2` retained as rollback, README **Deployed** line
