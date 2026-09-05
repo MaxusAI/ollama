@@ -1,6 +1,11 @@
 # TASK: price the context rung in MLX admission, and pre-size the KV
 
-**Opened:** 2026-09-05. **Status:** OPEN, unassigned. **Report:**
+**Opened:** 2026-09-05. **Status:** CODE LANDED 2026-09-05 on branch
+`feat/mlx-admission-price-the-rung` (fix 1 only); **GPU verification outstanding**
+and fix 2 (pre-sizing) not started. See
+[ADR 0034](../adr/0034-mlx-admission-prices-the-context-rung.md) for the decision
+and [What landed](#what-landed-2026-09-05) below for the state of each criterion.
+**Report:**
 [`mlx-admission-prices-weights-only.md`](../mlx-admission-prices-weights-only.md)
 (merged as [#210](https://github.com/MaxusAI/ollama/pull/210); issues are disabled on
 this repo, so that note is the diagnosis and this is the work item).
@@ -75,19 +80,110 @@ why campaign and canary containers now need `OLLAMA_MLX_MEMORY_LIMIT` by hand (#
 
 ## Acceptance criteria
 
-1. ☐ A KV estimator that follows each model's own cache kinds (rotating vs full vs
+1. ☑/☐ A KV estimator that follows each model's own cache kinds (rotating vs full vs
    recurrent), unit-tested against at least gemma4 (sliding + global), a non-sliding dense
-   model, and a recurrent one; the numbers checked against a measured load, not asserted.
-2. ☐ Admission compares weights + KV(rung) + headroom, and the four ladder rungs
-   **admit differently** — a test that fails on today's code.
-3. ☐ A refusal at `client.go:360`'s shape naming the rung and what to lower, not an abort
-   mid-prefill.
-4. ☐ Optional but preferred: KV preallocated from `num_ctx` at session start (#210 fix 2),
-   with the growth-moment double-hold gone.
+   model, and a recurrent one; **the numbers checked against a measured load, not
+   asserted.** Estimator landed (`x/mlxrunner/kvsize`) and unit-tested against the real
+   gemma4:26b, qwen3.6:35b-a3b and qwen3.8:27b configs plus synthetic nemotron_h and
+   llama ones. **The half that is not done is the one that matters most: nothing has been
+   compared to a measured load yet.**
+2. ☑ Admission compares weights + KV(rung) + headroom, and the four ladder rungs
+   admit differently — `TestLadderRungsAdmitDifferently` fails on the pre-change
+   code (`num_ctx 16384 needs 42949672960, not more than 42949672960 at 8192`).
+3. ☑ A refusal in `client.go`'s existing shape, naming weights / KV / rung / headroom /
+   available and ending with the `runner.go:548` phrase `lower num_ctx or free VRAM on
+   the device`.
+4. ☐ KV preallocated from `num_ctx` at session start (#210 fix 2). **Not started.**
+   Until it lands the estimate describes what the cache *will* hold, and the
+   `Concatenate` growth moment still transiently holds two buffers.
 5. ☐ No new over-refusal: the vision-suite cells that pass today still admit at their
-   converged rungs on the CUDA host, verified by a think-off campaign run.
-6. ☐ The `801`/preflight surface unchanged; `OLLAMA_MLX_MEMORY_LIMIT` still wins as the
-   ceiling.
+   converged rungs on the CUDA host, verified by a think-off campaign run. **Not run.**
+6. ☑ (code) / ☐ (verified) `OLLAMA_MLX_MEMORY_LIMIT` still wins as the ceiling and keeps
+   its own separate plain error — `TestOperatorCapCoversTheContextRung`. The `801`/preflight
+   surface is untouched by this diff but has not been re-run.
+
+## What landed (2026-09-05)
+
+Branch `feat/mlx-admission-price-the-rung`, two commits, no push.
+
+- **`x/mlxrunner/kvsize`** — pure Go, no cgo, no `x/models` or `x/mlxrunner/mlx`
+  import. `Model(config, draft, numCtx) Estimate` dispatches on
+  `architectures[0]` (falling back to `model_type`) and mirrors each model
+  package's `NewCaches`. `Estimate.Known == false` for an architecture with no
+  rule, and the caller must then fall back rather than refuse.
+- **`Client.admit`** (extracted from `Load`, which now calls it) prices
+  `weights + KV(num_ctx) + headroom`.
+- **`NewClient(modelName, numCtx, numCtxAuto)`**; `server/sched.go:609` passes
+  `req.numCtxAuto`. `softContextLength` is now `atomic.Int64` because admission
+  may write it while `Ping` reads it.
+
+### The auto-clamp decision, and why
+
+An **explicit** rung that does not fit is **refused**; an **automatic** one is
+**clamped** — halved until it fits, floor 2048, with `softContextLength` updated
+so `reportedContextLength` serves the fitted window.
+
+The asymmetry is not a hedge. An explicit `num_ctx` is a request, and serving a
+smaller window silently would be a lie the caller cannot see. An automatic
+`num_ctx` is the VRAM-tier default — **262144 on this host** — that nobody chose;
+pricing it and refusing would refuse nearly every model on the card, which is
+exactly the over-refusal this work is supposed to avoid. An auto rung therefore
+**never errors** unless the weights alone do not fit: if even 2048 does not fit,
+admission falls back to weights-only and logs a warning.
+
+### The headroom placeholder
+
+`headroom = max(512 MiB, 5% of (weights + KV))`, labelled as a placeholder in the
+code. It stands in for prefill activations, the vision tower and the
+cache-growth double-hold, and it is **not** a model of any of them. Biased low
+deliberately.
+
+### What the estimator says now (so the GPU phase has something to falsify)
+
+Estimated cache bytes, from the fixtures in `x/mlxrunner/kvsize/testdata`:
+
+| model | 8192 | 16384 | 32768 | 65536 | 262144 |
+|---|---|---|---|---|---|
+| `gemma4:26b` (5 full + 25 sliding@1024) | 360 MiB | 520 MiB | 840 MiB | 1.45 GiB | 5.20 GiB |
+| `qwen3.6:35b-a3b` (10 full + 30 recurrent) | 221 MiB | 381 MiB | 701 MiB | 1.31 GiB | 5.06 GiB |
+| `qwen3.8:27b` (16 full + 48 recurrent) | 659 MiB | 1.14 GiB | 2.14 GiB | 4.14 GiB | 16.14 GiB |
+
+**Read this before calibrating:** for gemma4 the KV is a few hundred MiB against
+weights of 17–24 GB and observed peaks of 24–36 GiB. **The KV is the smaller half
+of the unpriced remainder.** Pricing the rung makes the ladder visible and turns
+an abort into a refusal; it does not explain the peaks. The headroom does, and it
+is a guess.
+
+### What the GPU phase must measure
+
+For each of `gemma4:26b-nvfp4`, `gemma4:31b-nvfp4`, `qwen3.6:35b-a3b` and
+`qwen3.8:27b`, at each rung 8192 / 16384 / 32768 / 65536:
+
+1. **Estimate vs actual.** The admission line
+   `MLX admission priced the context rung` carries `weights`, `kv`, `headroom`,
+   `need`, `num_ctx`, `budget` and the per-kind layer counts. Compare `need`
+   against the runner's `pipeline.go` `peak memory` line for the same cell —
+   **text-only first, then the multi-image cell**, because the 3.8k-token image
+   prefill is what moved the peak from ~67 to ~77 GiB in the original diagnosis.
+   Record `peak − (weights + kv)` per rung: that difference is what the headroom
+   has to cover, and whether it grows with the rung or with the image count is
+   the open question.
+2. **Whether the layer counts are right.** `layers_full` / `layers_sliding` /
+   `layers_recurrent` in that log line must match what the model actually built.
+   A mismatch means `kvsize` has drifted from a `NewCaches`.
+3. **No new over-refusal** (criterion 5): the vision-suite cells that pass today
+   must still admit at their converged rungs. A refusal that names a rung the
+   card used to serve is a calibration bug, not a success.
+4. **The sliding transient.** `RotatingKVCache.concat` (the batched prefill path)
+   trims to `window-1` and concatenates the whole chunk, so a 2048-token prefill
+   chunk holds up to `window-1+2048` slots — 3x the window for gemma4's 1024.
+   The estimator prices the **steady-state** `min(roundUp(num_ctx,256), window)`
+   and leaves that transient to the headroom. Measure whether it needs its own
+   term.
+5. **The auto clamp on a real load**: start a server with no explicit `num_ctx`,
+   confirm the clamp line `MLX context clamped to fit VRAM` appears with a
+   sensible rung, and that `/api/show` and the served context report the clamped
+   value rather than 262144.
 
 ## Not in scope
 
