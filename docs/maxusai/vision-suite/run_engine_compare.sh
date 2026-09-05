@@ -81,6 +81,22 @@ HOST="${1:?usage: run_engine_compare.sh <host>}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 MODELS="${MODELS:?set MODELS to the space-separated model list}"
 
+# Hand the host back on the way out. The pre-cell evict further down cold-starts
+# the INCOMING model; nothing ever freed the OUTGOING one when the run ended, so
+# the last cell's model sat resident until OLLAMA_KEEP_ALIVE expired -- 5m by
+# default, forever at -1 -- and on a shared GPU that is someone else's headroom.
+# Observed 2026-09-05 as "the last inference call keeps the model loaded".
+# evict-all waits for the memory to actually come back (client.py), tolerates a
+# model held by another client, and runs on every exit path: normal completion,
+# the early refusals, and an interrupted campaign. The INT/TERM handlers exit
+# explicitly, because a handler that merely returns makes sh RESUME the
+# interrupted command -- a `kill` then survives a sleep loop instead of ending it.
+evict_on_exit() {
+  python3 "$DIR/client.py" evict-all "$HOST" 2>/dev/null | sed 's/^/##### EVICT on exit: /' || true
+}
+trap evict_on_exit EXIT
+trap 'evict_on_exit; trap - EXIT; exit 130' INT TERM
+
 THINK_MODES="${THINK_MODES:-false on}"
 # 131072 added 2026-08-19. qwen3.6:35b-a3b think-on on multi_3img reached the old
 # top rung (65536) in 3/3 repeats and then hit the GENERATION cap exactly --
@@ -338,7 +354,8 @@ for m in $MODELS; do
         # CONVERGED left a ceiling cell byte-identical to a not-yet-escalated
         # one, so every resume re-climbed the whole ladder. The cell-level
         # ceiling-standing check above consumes it on the next invocation.
-        # shellcheck disable=SC2086 -- $capped is a space-separated arm list
+        # $capped is a space-separated arm list, so it must word-split here.
+        # shellcheck disable=SC2086
         python3 "$DIR/summarize_engine_compare.py" mark-not-converged \
           "$DIR/scores_${tag}.json" "$nc" $capped
         break

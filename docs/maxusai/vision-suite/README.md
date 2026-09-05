@@ -132,14 +132,24 @@ first is image accounting and the second is generation length.
 - `serve-apple-mlx.sh` — **the RESTART_CMD hook, Apple Silicon + MLX store only.**
   Note "MLX" alone does not imply Apple: the fork also ships an `mlx_cuda_v13`
   payload for Linux/CUDA ([why it is unloadable](../upstream-mlx-cuda-payload-unloadable.md)).
-  For CUDA/ROCm restart the container instead — `run_grid.sh` shows the docker form. **On the shared CUDA host also set `OLLAMA_MLX_MEMORY_LIMIT`
-  (bytes) on the campaign container.** The MLX runner derives its allocator ceiling from the
-  memory *free at cell start*; the production endpoint on the same GPU keeps moving underneath
-  it, and its pool then grows into headroom that is no longer there. Measured 2026-09-04
-  (v0.33.3 spot-check, `mlx0333cu_`): four `cudaMallocAsync … out of memory` arms on 26b/31b at
-  a 61.7 GiB free-derived ceiling with gemma4:31b resident on `:11497`; the same four arms 3×
-  at `OLLAMA_MLX_MEMORY_LIMIT=42949672960` (40 GiB) converged 12/12 with every metric equal to
-  the baseline. The override may only lower the derived ceiling (`budgetWithOverride`). Sets `OLLAMA_MAX_LOADED_MODELS=1`,
+  For CUDA/ROCm restart the container instead — `run_grid.sh` shows the docker form. **On the shared CUDA host give the
+  campaign container headroom with `OLLAMA_GPU_OVERHEAD` (bytes), not a hard cap.** The MLX runner
+  derives its allocator ceiling from the memory *free at cell start*; the production endpoint on
+  the same GPU keeps moving underneath it, and its pool then grows into headroom that is no longer
+  there. `OLLAMA_GPU_OVERHEAD` is subtracted from that free sample (`x/mlxrunner/client.go`), so
+  the ceiling follows what is actually free and always leaves the reserve for the neighbour.
+  Measured 2026-09-04 (v0.33.3 spot-check, `mlx0333cu_`): four `cudaMallocAsync … out of memory`
+  arms on 26b/31b at a 61.7 GiB free-derived ceiling with gemma4:31b resident on `:11497`; the
+  same four arms 3× under a 40 GiB ceiling converged 12/12 with every metric equal to the
+  baseline; the 0.33.2 baseline campaign (2026-09-05, `mlx0332cu_`) ran with a 16 GiB overhead
+  (ceiling 45.8 GiB) and no OOM. **Do not reach for `OLLAMA_MLX_MEMORY_LIMIT` (an absolute
+  ceiling; may only lower the derived one, `budgetWithOverride`) unless you need an absolute
+  bound, and never set it near the workload's observed peak**: at the ceiling the runner
+  *stalls* rather than OOMs — MLX's cache-thrashing check is off by default (#212), so decode
+  crawls to nothing, the request only ends at the client's timeout, and every request queued
+  behind it times out too. Measured 2026-09-05: gemma4 think-on at `num_ctx` 32768 peaked at
+  39.98 GiB under a 40 GiB cap, then one stall cost 2 h (one 30-min request plus three queued
+  behind it); the same arms completed under 56 GiB. Sets `OLLAMA_MAX_LOADED_MODELS=1`,
   without which a sweep holds every model it has served resident; measured
   106 GB used and 53.9 GB swap on a 128 GB host before this existed.
 - `summarize_contract_matrix.py --think <mode> [--log <runner log>] <model…>` —
