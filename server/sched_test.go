@@ -994,6 +994,70 @@ func TestSchedNeedsReloadIgnoresAutomaticNumCtxClamp(t *testing.T) {
 	require.True(t, runner.needsReload(ctx, req))
 }
 
+// An MLX runner reloads on a num_ctx change in either direction, and only on
+// that: larger, so admission prices the new rung before the cache grows into
+// memory it never saw; smaller, so the memory comes back. The other runner
+// options stay ignored for MLX, as upstream intended.
+func TestSchedNeedsReloadMLXOnNumCtxChange(t *testing.T) {
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
+	defer done()
+
+	llm := &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}}
+	opts := api.DefaultOptions()
+	opts.NumCtx = 8192
+	mlxModel := &Model{Config: model.ConfigV2{ModelFormat: "safetensors"}}
+	require.True(t, mlxModel.IsMLX())
+	runner := &runnerRef{
+		model:       mlxModel,
+		Options:     &opts,
+		llama:       llm,
+		numParallel: 1,
+	}
+	req := &LlmRequest{model: mlxModel, opts: api.DefaultOptions()}
+
+	req.opts.NumCtx = 8192
+	require.False(t, runner.needsReload(ctx, req), "the served rung must not reload")
+
+	req.opts.NumCtx = 65536
+	require.True(t, runner.needsReload(ctx, req), "a larger rung must reload so admission prices it")
+
+	req.opts.NumCtx = 4096
+	require.True(t, runner.needsReload(ctx, req), "a smaller rung must reload so the memory comes back")
+
+	req.opts.NumCtx = 8192
+	req.opts.NumBatch = 1234
+	require.False(t, runner.needsReload(ctx, req), "other runner options stay ignored for MLX")
+
+	// Two automatic rungs are equalised before the comparison: an unpinned
+	// client does not churn the runner even when the server default moved.
+	runner.numCtxAuto = true
+	req.numCtxAuto = true
+	req.opts.NumCtx = 262144
+	require.False(t, runner.needsReload(ctx, req))
+}
+
+// GGML reaches the same outcome through the option comparison; pin it so the
+// two paths cannot drift apart.
+func TestSchedNeedsReloadGGMLOnNumCtxChange(t *testing.T) {
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
+	defer done()
+
+	llm := &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}}
+	opts := api.DefaultOptions()
+	opts.NumCtx = 8192
+	ggufModel := &Model{}
+	require.False(t, ggufModel.IsMLX())
+	runner := &runnerRef{model: ggufModel, Options: &opts, llama: llm, numParallel: 1}
+	req := &LlmRequest{model: ggufModel, opts: api.DefaultOptions()}
+
+	req.opts.NumCtx = 8192
+	require.False(t, runner.needsReload(ctx, req))
+	req.opts.NumCtx = 65536
+	require.True(t, runner.needsReload(ctx, req))
+	req.opts.NumCtx = 4096
+	require.True(t, runner.needsReload(ctx, req))
+}
+
 func TestSchedNeedsReloadUsesEffectiveAutomaticContextShift(t *testing.T) {
 	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
