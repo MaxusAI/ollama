@@ -521,8 +521,30 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
      Like for like the builds are within ~1 GiB at every quantile, 0.33.2 the higher. **0.33.3
      does not allocate more for the same work; the Sep-4 OOMs were zero-headroom contention.**
      Data: `preflight-runs/peakmem-0332cu.log`, `scores_mlx0332cu_1_*`.
-   - Follow-ups landed from this: #276 (MLX admission prices the context rung; GPU calibration
-     pending), #277 (driver evicts on exit; README advice corrected to headroom).
+   - Follow-ups landed from this: #276 (MLX admission prices the context rung, headroom
+     calibrated on GPU), #277 (driver evicts on exit; README advice corrected to headroom),
+     #279 (a `num_ctx` change reloads an MLX runner, either direction), #280 (comparing
+     builds goes through the ADR 0012 generators; errored arms render `error`).
+7c. ☑ **`main` after those merges validated on CUDA, 2026-09-06** (Glenn's order: the OOM
+   cases, then the think-off campaign, then preflight + the clamp on a real load), on
+   `maxusai/ollama:main-a523d60b` — the tagged image's payload with `main`'s Go binary,
+   payload byte-identical. Full write-up with generator tables only:
+   [vision-campaign-2026-09-06-main-admission-validation.md](../vision-campaign-2026-09-06-main-admission-validation.md).
+   - The four Sep-4 OOM arms ×3 on 26b/31b: 24/24 converged, 0 OOMs, scores equal to the
+     Sep-4 discriminator; under a 35 GiB cap the rung that cannot fit (31b at 65536, need
+     37.6 GiB) is **refused at admission in 4 s** instead of aborting mid-prefill.
+   - Think-off, five models: 135/135 arms converged at 8192, 0 OOMs; by T2 every quality
+     row equals the tagged 0.33.3 cells and the 0.33.2 baseline (0.33.3's own Sep-4 OOM
+     cells render `error`); contract matrices identical to 0.33.2, and to 0.33.3 bar its
+     two OOM'd arms and one single-arm flip on qwen3.6 under an n=3 repeat.
+   - Preflight `cuda-dynres-903` on the `main` binary: PASS 20 / SKIP 8, 28 checks identical
+     to the tagged run. The automatic-context clamp fired on a real load (31b 262144 → 65536,
+     served; 12b not clamped).
+   - #279 live proof, FIX vs CONTROL: a rung change re-admits (larger refused when it cannot
+     fit, smaller releases the window, same rung served warm); `main` before it never reloaded.
+   **Deploy note:** the tagged `sync-0.33.3` remains the validated deployable exactly as
+   before; a build from `main` is now validated on this host to the same depth on the CUDA
+   think-off surface plus the admission behaviour, and would need the Metal half like the tag.
 8. ☑ Landed 2026-09-04 (Glenn: go for steps 1–3, deploy held): #264 merged as `0c4f09d4`;
    annotated `v0.33.3-dynres` on that commit (`git describe` → `v0.33.3-dynres-0-g0c4f09d`);
    image rebuilt from the tag (`maxusai/ollama:sync-0.33.3`, stamp `0.33.3-dynres-0-g0c4f09d`,

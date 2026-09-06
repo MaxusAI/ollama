@@ -97,16 +97,32 @@ why campaign and canary containers now need `OLLAMA_MLX_MEMORY_LIMIT` by hand (#
    the device`.
 4. ☐ KV preallocated from `num_ctx` at session start (#210 fix 2). **Not started.**
    Until it lands the estimate describes what the cache *will* hold, and the
-   `Concatenate` growth moment still transiently holds two buffers.
-5. ☑ (by arithmetic and by the calibration run) / ☐ (campaign) No new over-refusal: with the
-   calibrated headroom every vision-suite model admits at every ladder rung on the CUDA host —
-   worst case gemma4:31b at 65536 needs 17.3 + 5.8 + 14.5 = 37.6 GiB and qwen3.6 about 39 GiB
-   against the 45.7 GiB budget the campaigns run with (16 GiB overhead) and 61.7 GiB uncapped.
-   The calibration itself loaded all five models at all four rungs under the new admission.
-   A think-off campaign on the calibrated binary has not been run.
-6. ☑ (code) / ☐ (verified) `OLLAMA_MLX_MEMORY_LIMIT` still wins as the ceiling and keeps
-   its own separate plain error — `TestOperatorCapCoversTheContextRung`. The `801`/preflight
-   surface is untouched by this diff but has not been re-run.
+   `Concatenate` growth moment still transiently holds two buffers. It is the one
+   remaining item; with #279 the rung is re-admitted on every change, but inside a
+   session the cache still grows lazily toward the priced rung rather than being
+   reserved up front the way GGML reserves it.
+5. ☑ No new over-refusal. By arithmetic: with the calibrated headroom every vision-suite
+   model admits at every ladder rung on the CUDA host — worst case gemma4:31b at 65536 needs
+   17.3 + 5.8 + 14.5 = 37.6 GiB and qwen3.6 about 39 GiB against the 45.7 GiB budget the
+   campaigns run with (16 GiB overhead) and 61.7 GiB uncapped. By the calibration run, which
+   loaded all five models at all four rungs under the new admission. **By campaign,
+   2026-09-06**: the five-model think-off suite on `main` (`main276_1_`, this admission
+   with the calibrated headroom) converged 135/135 arms at rung 8192, 0 OOMs, and every
+   quality row equals the tagged 0.33.3 and the 0.33.2 cells by T2 — see
+   [the validation write-up](../vision-campaign-2026-09-06-main-admission-validation.md).
+6. ☑ `OLLAMA_MLX_MEMORY_LIMIT` still wins as the ceiling and keeps its own separate plain
+   error — `TestOperatorCapCoversTheContextRung`, and live on 2026-09-06: under a 35 GiB cap
+   gemma4:31b at 65536 (need 37.6 GiB) is refused at admission in 4 s, `model requires 37.6 GiB
+   but OLLAMA_MLX_MEMORY_LIMIT caps the MLX budget at 35.0 GiB`. The preflight surface is
+   unchanged: `cuda-dynres-903` on the `main` binary PASS 20 / SKIP 8, 28 checks identical to
+   the tagged build (`preflight/runs/full-main-a523d60b.json`).
+7. ☑ (2026-09-06, #279) **A rung change re-admits.** The scheduler compared runner options
+   only for non-MLX models (upstream `a16f9665`), so a warm MLX runner served a later, larger
+   `num_ctx` without reloading and admission never saw it — measured: 31b loaded at 8192 under
+   the 35 GiB cap served 65536 in 0 s. `needsReload` now reloads an MLX runner whenever the
+   requested `num_ctx` differs from the served one, either direction (smaller releases the
+   bigger window), the served rung being recorded after the load so a request naming it does
+   not reload. Live-proved FIX vs CONTROL on the PR.
 
 ## What landed (2026-09-05)
 
@@ -187,8 +203,11 @@ so one and three images cost the same there) and grows with the model; on the Mo
 moves with generation length (28.6–36.3 GiB peaks for the same prompt). (2) Layer counts
 were logged on every admission line; not cross-checked against `NewCaches` at runtime beyond
 the unit tests. (3) No over-refusal at any rung, see criterion 5. (4) The sliding transient is
-inside the measured peaks and therefore inside the constant; no separate term. (5) The auto
-clamp was not exercised on a real load (every calibration request set `num_ctx`) — still ☐.
+inside the measured peaks and therefore inside the constant; no separate term. (5) ☑ The auto
+clamp was exercised on a real load on 2026-09-06: gemma4:31b unpinned (server default 262144)
+on a 16 GiB-headroom container logged `MLX context clamped to fit VRAM requested=262144
+using=65536` (need 37.6 GiB against a 39.9 GiB budget) and was served; 12b unpinned fits at
+262144 (need 25.9 GiB) and was not clamped, `/api/ps` reporting `context_length=262144`.
 Two probe bugs cost two attempts before this data existed: the ladder images live under
 `preflight/ladderimgs/`, and a ~260 KB request body cannot be passed as a curl argument
 (Linux caps one argv string at 128 KiB; send it with `--data-binary @file`).
