@@ -193,6 +193,44 @@ first is image accounting and the second is generation length.
   the `format:"json"` grammar constraint and reasoning mode as variables. Mode comes
   **first**, host second; the model is hardcoded to `nemotron3:33b-q4_K_M`.
 
+## Comparing builds — which generator answers which question
+
+A fold or a fix is judged by comparing campaigns, and ADR 0012 rule 1 applies to
+every table in that comparison: numbers from harness output are rendered by a
+generator, never typed. The recipe, in the order a reader needs it:
+
+1. **Did every cell finish?** `summarize_engine_compare.py --think <mode>
+   --prefix <tag_prefix_with_rep_> <model…>` per campaign (T1). `⚠ INCOMPLETE`
+   means the campaign is still running or ran scoped — re-render after it
+   completes (rule 8), never mid-ladder. Options come before the models, in any
+   order; a misplaced or unknown one is refused rather than rendered as a row.
+2. **Same answers on the same host?** `summarize_head_to_head.py --tags
+   <tag_build_A> <tag_build_B> [<tag_build_C> [<tag_build_D>]]` (T2, rows =
+   test × metric, columns = builds). Its provenance footer will read
+   `⚠ MIXED — columns are not one campaign`: for a cross-build comparison that is
+   the point, not a defect — caption the table with the builds it compares, and
+   keep every column on ONE host (SPEC H11; mlx-cuda and mlx-metal never share a
+   table). An errored arm renders `error` and a capped one `capped`; neither is
+   a score, and neither is a ❌.
+3. **The contract and geometry arms.** `summarize_contract_matrix.py --think
+   <mode> --prefix <prefix> <model…>` per campaign, and `summarize_geometry.py
+   <prefix> <arm>` (T4) — one table per build, placed side by side.
+4. **Repeats** (an arm run 3×, a discriminator, an OOM re-run):
+   `summarize_reps.py 'label=tagA,tagB,tagC' 'other=…'` — mean and max−min
+   spread. The spread within one build is the bar any cross-build claim must
+   clear (ADR 0029).
+5. **Converged counts** ("25/27") are a derived summary, not a template. If one
+   is published, label it *derived, not generator output*, say which fields it
+   was read from (`done_reason` first, SPEC H4b), and name the veto — the score
+   files — as [the 2026-08-24 write-up](../vision-campaign-2026-08-24-sync15nt-thinkon.md)
+   does.
+
+What never goes in a table: **"bit-identical arms"**. Greedy decoding on the
+MLX/CUDA runner reproduces IoU only to ±0.001–0.005 between runs of one build
+(ADR 0029), so an identical-count is a reproducibility statistic, and next to a
+pass/fail column it reads as a failure count. Report what T2 shows: identical
+quality cells, or which metric moved and by how much.
+
 ## Scoring note: markdown-fence tolerance (2026-08-08)
 
 All scorers (`vision_suite.py`, `finetext_probe.py`) strip one markdown code

@@ -59,7 +59,14 @@ def cap_or(block, text):
     T1 has rendered these as "capped" since the ladder landed; T2 didn't, and
     published qwen3.6 think-on multi as ❌ ❌ ❌ 0/5 (16384) — "cannot ground" —
     when the cell was "never terminated at this rung" (2026-08-20, cudafull1).
+
+    An arm that ran and ERRORED (OOM, transport, HTTP 500) has a block with no
+    scores; rendering it through the score path printed ❌ ❌ ❌ —/— (?) for a
+    2026-09-04 cudaMallocAsync abort — "cannot ground" for a cell that never
+    answered. Same rule: name the state, never a score.
     """
+    if "error" in block:
+        return "error"
     return f"capped{ctx(block)}" if was_capped(block) else text
 
 

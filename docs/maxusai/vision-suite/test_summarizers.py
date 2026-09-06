@@ -1603,5 +1603,93 @@ class TestThinkOnBudgetGate(unittest.TestCase):
         self.assertIn("-4096", r.stderr)
 
 
+class TestErroredArmsRenderAsError(unittest.TestCase):
+    """An arm that ran and errored has a block with no scores. Both templates
+    rendered it through the score path: T2 printed ❌ ❌ ❌ —/— (?) and T1's
+    multi column printed a ❌ list for a 2026-09-04 cudaMallocAsync abort —
+    "cannot ground" for a cell that never answered. Same rule as capped
+    (ADR 0012 convention 9): name the state, never a score, never a ❌."""
+
+    ERROR = {"error": "HTTP 500: mlx runner aborted: mlx: cudaMallocAsync out of memory",
+             "tag": "x", "capture_schema": "1"}
+
+    def t2_cells(self, scores):
+        rundir = tempfile.mkdtemp()
+        with open(os.path.join(rundir, "scores_x.json"), "w") as fh:
+            json.dump(scores, fh)
+        argv = ["summarize_head_to_head.py", "--dir", rundir, "--tags", "x"]
+        out = io.StringIO()
+        with mock_argv(argv), contextlib.redirect_stdout(out):
+            shh.main()
+        cells = {}
+        for l in out.getvalue().splitlines():
+            if l.startswith("| ") and not l.startswith("| test") and not l.startswith("|---"):
+                parts = [p.strip() for p in l.split("|")]
+                cells[(parts[1], parts[2])] = parts[3]
+        return cells
+
+    def test_t2_renders_an_errored_multi_arm_as_error(self):
+        s = json.loads(json.dumps(THINKOFF))
+        s["multi_3img"] = dict(self.ERROR)
+        c = self.t2_cells(s)
+        self.assertEqual(c[("multi (3 img)", "q1 / q2 / q4-bbox / chart")], "error")
+        self.assertNotIn("❌", c[("multi (3 img)", "q1 / q2 / q4-bbox / chart")])
+        self.assertIn("5/5", c[("document", "items / qty+price / total / invoice")])  # others untouched
+
+    def test_t2_renders_an_errored_scene_arm_as_error(self):
+        s = json.loads(json.dumps(THINKOFF))
+        s["scene_single"] = dict(self.ERROR)
+        c = self.t2_cells(s)
+        self.assertEqual(c[("scene", "bbox IoU")], "error")
+        self.assertEqual(c[("scene", "labels / serial")], "error")
+
+    def test_t1_renders_an_errored_arm_as_error_not_a_cross(self):
+        rundir = tempfile.mkdtemp()
+        s = json.loads(json.dumps(THINKOFF))
+        s["multi_3img"] = dict(self.ERROR)
+        s["scene_single"] = dict(self.ERROR)
+        write(rundir, "m:1b", "false", s)
+        rendered = render(rundir, "m:1b", "false")
+        rows = [l for l in rendered.splitlines() if l.startswith("| m:1b |")]
+        self.assertEqual(len(rows), 2)
+        self.assertIn("| error |", rows[0])        # the scene cells
+        self.assertNotIn("❌", rows[0])
+        self.assertIn("| error |", rows[1])        # the multi cell
+        self.assertNotIn("❌ q1", rows[1])
+
+
+class TestT1OptionsInAnyOrder(unittest.TestCase):
+    """`--prefix X --think false <model>` used to leave `--think` and `false` in
+    the model list and render them as two GGUF rows that answered nothing
+    (2026-09-06). Options are read in any order ahead of the models, and a
+    misplaced or unknown one is refused instead of rendered."""
+
+    def render_argv(self, argv):
+        out = io.StringIO()
+        with mock_argv(["summarize_engine_compare.py"] + argv), contextlib.redirect_stdout(out):
+            sec.main()
+        return out.getvalue()
+
+    def test_prefix_before_think_still_renders_only_the_model(self):
+        rundir = tempfile.mkdtemp()
+        write(rundir, "m:1b", "false", THINKOFF)
+        rendered = self.render_argv(["--dir", rundir, "--prefix", "", "--think", "false", "m:1b"])
+        self.assertIn("| m:1b |", rendered)
+        self.assertNotIn("| --think |", rendered)
+        self.assertNotIn("| false |", rendered)
+
+    def test_an_unknown_option_is_refused(self):
+        rundir = tempfile.mkdtemp()
+        write(rundir, "m:1b", "false", THINKOFF)
+        with self.assertRaises(SystemExit):
+            self.render_argv(["--dir", rundir, "--bogus", "x", "m:1b"])
+
+    def test_an_option_after_the_models_is_refused(self):
+        rundir = tempfile.mkdtemp()
+        write(rundir, "m:1b", "false", THINKOFF)
+        with self.assertRaises(SystemExit):
+            self.render_argv(["--dir", rundir, "m:1b", "--think", "false"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
