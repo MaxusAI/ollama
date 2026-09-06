@@ -100,7 +100,13 @@ why campaign and canary containers now need `OLLAMA_MLX_MEMORY_LIMIT` by hand (#
    `Concatenate` growth moment still transiently holds two buffers. It is the one
    remaining item; with #279 the rung is re-admitted on every change, but inside a
    session the cache still grows lazily toward the priced rung rather than being
-   reserved up front the way GGML reserves it.
+   reserved up front the way GGML reserves it. **Measured 2026-09-06 (the session-growth
+   probe):** the price holds for a fresh short request and not for a conversation that
+   fills the rung — the prefill transient grows with context (~0.3 GiB per 1k tokens of
+   text on 12b, quadratic when new images are appended every turn) and gemma4:31b at an
+   explicit 65536 died at 12.5k tokens. The headroom constants here are an intercept;
+   the slope and the image overlay are
+   [their own task](mlx-prefill-transient-scales-with-context.md).
 5. ☑ No new over-refusal. By arithmetic: with the calibrated headroom every vision-suite
    model admits at every ladder rung on the CUDA host — worst case gemma4:31b at 65536 needs
    17.3 + 5.8 + 14.5 = 37.6 GiB and qwen3.6 about 39 GiB against the 45.7 GiB budget the
