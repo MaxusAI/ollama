@@ -377,29 +377,40 @@ def main():
         only = (set(args[3].split(",")) if len(args) > 3 and args[3] else None)
         return 0 if ceiling_standing(args[1], int(args[2]), only) else 1
     rundir = os.path.dirname(os.path.abspath(__file__))
-    if args and args[0] == "--dir":
-        rundir = args[1]
-        args = args[2:]
-    # Which think cell to render. Both are produced by run_engine_compare.sh;
+    # Which think cell to render: both are produced by run_engine_compare.sh,
     # they are separate results and must not be mixed in one table.
     think = "false"
-    if args and args[0] == "--think":
-        think = args[1]
-        args = args[2:]
     # Campaign tag namespace, matching run_engine_compare.sh's TAG_PREFIX
     # output (give the full literal prefix, e.g. "cudafull1_"). Unset, tags
     # derive exactly as before (H4).
     prefix = ""
-    if args and args[0] == "--prefix":
-        prefix = args[1]
-        args = args[2:]
     # Which arms this render should expect, for the completeness check. Give
     # the campaign's ONLY_TESTS value here when it ran scoped; unset, every
     # column the table has is expected to be filled.
     expect = list(RENDERED_ARMS)
-    if args and args[0] == "--expect":
-        expect = [a for a in args[1].split(",") if a]
-        args = args[2:]
+    # Options come before the models, in any order. They used to be read in
+    # one fixed sequence, so `--prefix X --think false` left `--think` and
+    # `false` in the model list and the table rendered them as two GGUF rows
+    # that answered nothing (2026-09-06) — the generator misreading its own
+    # arguments, which reads exactly like a typed table with a wrong row. A
+    # misplaced or unknown option is refused, never rendered.
+    while args and args[0].startswith("--"):
+        flag = args.pop(0)
+        if not args:
+            sys.exit(f"{flag} needs a value")
+        if flag == "--dir":
+            rundir = args.pop(0)
+        elif flag == "--think":
+            think = args.pop(0)
+        elif flag == "--prefix":
+            prefix = args.pop(0)
+        elif flag == "--expect":
+            expect = [a for a in args.pop(0).split(",") if a]
+        else:
+            sys.exit(f"unknown option {flag!r}; options are --dir, --think, --prefix, --expect")
+    for a in args:
+        if a.startswith("--"):
+            sys.exit(f"option {a!r} after the model list; options come first, then models")
     if not args:
         sys.exit(__doc__)
     engine_map = {}
@@ -492,6 +503,10 @@ def main():
             # qwen3.6 think-on multi ceiling cell rendered
             # "❌ q1_right, q2_right, q4_bbox_hit": "cannot ground" for a cell
             # that never terminated, the exact defect fixed in T2 that morning.
+            # An errored arm (OOM, transport, HTTP 500) has a block with no
+            # scores and must not read as ❌ either: it is "error".
+            if "error" in block:
+                return "error"
             return "capped" if was_capped(block) else text
 
         iou = sc.get("bbox_mean_iou")
@@ -512,6 +527,8 @@ def main():
             # NOT "all Qs": the multi-image prompt asks four questions and q3
             # is never scored, so a cell that answered q3 wrongly still reads
             # as a clean sweep. Name the three that are actually gated.
+            if "error" in block:
+                return "error"
             if was_capped(block):
                 return "capped"
             if block.get("q1_right") and block.get("q2_right") and block.get("q4_bbox_hit"):

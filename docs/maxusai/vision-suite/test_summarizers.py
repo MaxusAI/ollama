@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import summarize_engine_compare as sec  # noqa: E402
 import summarize_head_to_head as shh  # noqa: E402
+import summarize_contract_matrix as scm  # noqa: E402
 import summarize_reps as reps  # noqa: E402
 import vision_suite as vs  # noqa: E402
 
@@ -1601,6 +1602,131 @@ class TestThinkOnBudgetGate(unittest.TestCase):
         the sign flips the meaning."""
         r = self.run_driver(4096)
         self.assertIn("-4096", r.stderr)
+
+
+class TestErroredArmsRenderAsError(unittest.TestCase):
+    """An arm that ran and errored has a block with no scores. Both templates
+    rendered it through the score path: T2 printed ❌ ❌ ❌ —/— (?) and T1's
+    multi column printed a ❌ list for a 2026-09-04 cudaMallocAsync abort —
+    "cannot ground" for a cell that never answered. Same rule as capped
+    (ADR 0012 convention 9): name the state, never a score, never a ❌."""
+
+    ERROR = {"error": "HTTP 500: mlx runner aborted: mlx: cudaMallocAsync out of memory",
+             "tag": "x", "capture_schema": "1"}
+
+    def t2_cells(self, scores):
+        rundir = tempfile.mkdtemp()
+        with open(os.path.join(rundir, "scores_x.json"), "w") as fh:
+            json.dump(scores, fh)
+        argv = ["summarize_head_to_head.py", "--dir", rundir, "--tags", "x"]
+        out = io.StringIO()
+        with mock_argv(argv), contextlib.redirect_stdout(out):
+            shh.main()
+        cells = {}
+        for l in out.getvalue().splitlines():
+            if l.startswith("| ") and not l.startswith("| test") and not l.startswith("|---"):
+                parts = [p.strip() for p in l.split("|")]
+                cells[(parts[1], parts[2])] = parts[3]
+        return cells
+
+    def test_t2_renders_an_errored_multi_arm_as_error(self):
+        s = json.loads(json.dumps(THINKOFF))
+        s["multi_3img"] = dict(self.ERROR)
+        c = self.t2_cells(s)
+        self.assertEqual(c[("multi (3 img)", "q1 / q2 / q4-bbox / chart")], "error")
+        self.assertNotIn("❌", c[("multi (3 img)", "q1 / q2 / q4-bbox / chart")])
+        self.assertIn("5/5", c[("document", "items / qty+price / total / invoice")])  # others untouched
+
+    def test_t2_renders_an_errored_scene_arm_as_error(self):
+        s = json.loads(json.dumps(THINKOFF))
+        s["scene_single"] = dict(self.ERROR)
+        c = self.t2_cells(s)
+        self.assertEqual(c[("scene", "bbox IoU")], "error")
+        self.assertEqual(c[("scene", "labels / serial")], "error")
+
+    def test_t1_renders_an_errored_arm_as_error_not_a_cross(self):
+        rundir = tempfile.mkdtemp()
+        s = json.loads(json.dumps(THINKOFF))
+        s["multi_3img"] = dict(self.ERROR)
+        s["scene_single"] = dict(self.ERROR)
+        write(rundir, "m:1b", "false", s)
+        rendered = render(rundir, "m:1b", "false")
+        rows = [l for l in rendered.splitlines() if l.startswith("| m:1b |")]
+        self.assertEqual(len(rows), 2)
+        self.assertIn("| error |", rows[0])        # the scene cells
+        self.assertNotIn("❌", rows[0])
+        self.assertIn("| error |", rows[1])        # the multi cell
+        self.assertNotIn("❌ q1", rows[1])
+
+
+class TestContractMatrixNamesErrorAndCap(unittest.TestCase):
+    """The contract matrix judges `contract_followed`; an arm that errored has
+    no contract to judge and a capped one no answer to read. Both rendered ❌
+    for the Sep-4 OOM'd arms and read as contract failures on 31b (2026-09-06).
+    Cells: `error`, `cap`, ✅/❌ — the same states the other templates name."""
+
+    def render(self, rundir, model):
+        argv = ["summarize_contract_matrix.py", "--think", "false", model]
+        out = io.StringIO()
+        with mock.patch.object(scm, "DIR", rundir), mock_argv(argv), contextlib.redirect_stdout(out):
+            scm.main()
+        return out.getvalue()
+
+    def test_errored_capped_and_scored_arms_render_as_their_state(self):
+        rundir = tempfile.mkdtemp()
+        scores = {
+            "bbox_contract": {"error": "HTTP 500: mlx runner aborted: mlx: cudaMallocAsync out of memory"},
+            "bbox_contract_multi": {"eval_count": 2200, "num_predict": 2200, "done_reason": "length",
+                                    "contract_followed": False},
+            "bbox_contract_reasoning": {"eval_count": 400, "num_predict": 2200, "done_reason": "stop",
+                                        "contract_followed": True, "num_ctx": 8192},
+            "bbox_contract_pinned": {"eval_count": 400, "num_predict": 2200, "done_reason": "stop",
+                                     "contract_followed": False, "num_ctx": 8192},
+        }
+        tag = sec.tag_for("m:1b", "false")
+        with open(os.path.join(rundir, f"scores_{tag}.json"), "w") as fh:
+            json.dump(scores, fh)
+        row = [l for l in self.render(rundir, "m:1b").splitlines() if l.startswith("| m:1b |")][0]
+        cells = [c.strip() for c in row.split("|")[1:-1]]
+        # columns: Model, Engine, bc, bcmulti, bcreasoning, bcpinned, ...
+        self.assertEqual(cells[2], "error")
+        self.assertEqual(cells[3], "cap")
+        self.assertEqual(cells[4], "✅")
+        self.assertEqual(cells[5], "❌")
+        self.assertNotIn("❌", cells[2])
+
+
+class TestT1OptionsInAnyOrder(unittest.TestCase):
+    """`--prefix X --think false <model>` used to leave `--think` and `false` in
+    the model list and render them as two GGUF rows that answered nothing
+    (2026-09-06). Options are read in any order ahead of the models, and a
+    misplaced or unknown one is refused instead of rendered."""
+
+    def render_argv(self, argv):
+        out = io.StringIO()
+        with mock_argv(["summarize_engine_compare.py"] + argv), contextlib.redirect_stdout(out):
+            sec.main()
+        return out.getvalue()
+
+    def test_prefix_before_think_still_renders_only_the_model(self):
+        rundir = tempfile.mkdtemp()
+        write(rundir, "m:1b", "false", THINKOFF)
+        rendered = self.render_argv(["--dir", rundir, "--prefix", "", "--think", "false", "m:1b"])
+        self.assertIn("| m:1b |", rendered)
+        self.assertNotIn("| --think |", rendered)
+        self.assertNotIn("| false |", rendered)
+
+    def test_an_unknown_option_is_refused(self):
+        rundir = tempfile.mkdtemp()
+        write(rundir, "m:1b", "false", THINKOFF)
+        with self.assertRaises(SystemExit):
+            self.render_argv(["--dir", rundir, "--bogus", "x", "m:1b"])
+
+    def test_an_option_after_the_models_is_refused(self):
+        rundir = tempfile.mkdtemp()
+        write(rundir, "m:1b", "false", THINKOFF)
+        with self.assertRaises(SystemExit):
+            self.render_argv(["--dir", rundir, "m:1b", "--think", "false"])
 
 
 if __name__ == "__main__":
