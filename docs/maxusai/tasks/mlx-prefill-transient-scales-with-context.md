@@ -2,9 +2,11 @@
 
 **Opened:** 2026-09-06. **Status:** OPEN, unassigned. **Found by:** the session-growth probe
 of the `main` validation (Glenn's item 3, "what a deploy of a `main` build should know").
-**Evidence:** `preflight-runs/session-growth.jsonl` + `session-growth-runner.log`,
-`growth-shape.jsonl` + `growth-shape-runner.log`, `trace-arrays-runner.log`, `slopes.jsonl`
-(31b and qwen3.8 slopes, measured the same evening), all on the CUDA host, build
+**Evidence:** the probe records are in-repo under `vision-suite/preflight/runs/` —
+`gpu276-session-growth-2026-09-06.jsonl`, `gpu276-growth-shape-2026-09-06.jsonl`,
+`gpu276-slopes-2026-09-06.jsonl` (31b and qwen3.8 text slopes, measured the same evening); the
+runner logs (`session-growth-runner.log`, `growth-shape-runner.log`, `trace-arrays-runner.log`)
+stay on the CUDA host in `preflight-runs/`. All on the CUDA host, build
 `main-a523d60b` (= `sync-0.33.3` payload, #276's admission, 16 GiB `OLLAMA_GPU_OVERHEAD`
 except where noted).
 
@@ -43,8 +45,32 @@ only the linear term. The linear text term is un-attributed but reproducible (a 
 attention buffer over the context is the obvious candidate; the prefill chunk is a hard-coded
 2048, `pipeline.go:22`).
 
-Slopes for gemma4:31b and qwen3.8 (text-only leg A): `preflight-runs/slopes.jsonl` — filled in
-when measured.
+### Text-only slopes, measured 2026-09-06 (`probe-slopes.sh`; `gpu276-slopes-2026-09-06.jsonl`)
+
+Same shape as leg A: one fresh text prompt per request, explicit `num_ctx` 65536, `num_predict`
+32, `OLLAMA_GPU_OVERHEAD=0`, one model at a time, beside production; the peak is the runner's
+`peak memory` line. Weights = the 16-token warm-up peak.
+
+| model | weights | peak at 5.2k / 10.4k / 20.9k / 41.6k tokens | fit over the ≥ 10k points | at a full 65536 | #276 prices |
+|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 (leg A above) | 7.2 GiB | 16.7 / 19.9 / 23.3 / 28.8 GiB | 17.2 + **0.28** GiB per 1k tokens | ≈ 36 GiB | 22.9 GiB |
+| gemma4:31b-nvfp4 | 17.6 GiB | 30.2 / 37.3 / 43.4 / 55.3 GiB | 31.3 + **0.58** GiB per 1k | ≈ 69 GiB | 37.6 GiB |
+| qwen3.8:27b-nvfp4 | 17.4 GiB | 28.3 / 30.3 / 35.1 / 41.0 GiB | 27.3 + **0.33** GiB per 1k | ≈ 49 GiB | 31.6 GiB |
+
+- The gemma4 opening segment (5k → 10k) is steeper — 0.62 on 12b, **1.36** on 31b — and
+  settles to the slope above; qwen3.8 is linear from the start (0.39, then 0.33). The ≥ 10k
+  fit is the large-context slope; a fit over all four points gives 0.32 / 0.65 / 0.35 and lands
+  about 2 GiB higher at 65536.
+- The intercept minus the weights — the transient at zero context — is 10.0 / 13.7 / 9.9 GiB:
+  the constants ADR 0034 calibrated (gemma4 14.5, qwen3.5 dense 10.5) are the `a` of the line,
+  as its amendment says.
+- Within an architecture the slope tracks the weights: 0.28 / 7.2 = 0.039 and 0.58 / 17.6 =
+  0.033 GiB per 1k tokens per GiB of gemma4 weights (n = 2); 0.019 for qwen3.5 dense (n = 1).
+  That is why fix 1 below can be one constant per architecture times the weights rather than a
+  per-model table.
+- Wall time is not a memory result, but for the record: the first sized prompt on each model
+  was slow once (781 s for 5.2k tokens on 31b, then 99 s for 10.4k); qwen3.8 prefilled 41.6k
+  tokens in 31 s.
 
 ## Why the calibration missed it
 
@@ -56,14 +82,18 @@ short prompts and needs the qualifier (amended alongside this task).
 
 A gemma4 chat that keeps adding images and reaches ~8–12k tokens of context on 26b/31b dies
 mid-prefill under a ~40 GiB budget; past ~16k the mask guard refuses it cleanly. Text-only
-sessions on 12b need ~36 GiB at a full 65536 rung against a priced 22.9. Single-image
-requests (the teacher-v3 loop) never approach either.
+sessions that fill a 65536 rung need ≈ 36 GiB on 12b (priced 22.9), ≈ 69 GiB on 31b (priced
+37.6) and ≈ 49 GiB on qwen3.8 (priced 31.6); the 31b figure is more than any budget this
+shared card offers, so an explicit 65536 on 31b is admitted today and cannot be filled.
+Single-image requests (the teacher-v3 loop) never approach either.
 
 ## Fixes, in layers
 
 1. **Headroom that scales with the rung.** `admissionHeadroom` becomes `a_arch + b_arch ×
-   num_ctx` with `b` from the text-only slopes (12b ≈ 0.3 GiB/1k; 31b and qwen3.8 from
-   `slopes.jsonl`). Honest and small; it will refuse or clamp big rungs on this card where the
+   num_ctx` with `b` from the text-only slopes above (≥ 10k fit: 12b 0.28, 31b 0.58, qwen3.8
+   0.33 GiB per 1k tokens), in the one-constant form `b_arch × weights × num_ctx` (gemma4
+   0.035, qwen3.5 dense 0.019 GiB per 1k per GiB of weights; the MoE is unmeasured — take
+   gemma4's until it is). Honest and small; it will refuse or clamp big rungs on this card where the
    constant admitted them, which is the point (GGML's fit-derived default does the same).
 2. **Per-request pricing of the dense overlay.** The ADR 0014 guard should charge the widened
    chunk's *scores* (chunk × promptLen × heads × bytes for the widest layer), not the mask, against
@@ -75,8 +105,8 @@ requests (the teacher-v3 loop) never approach either.
 
 ## Acceptance criteria
 
-1. ☐ Text-only slope measured for gemma4:12b (done), 31b and qwen3.8 (`slopes.jsonl`), and the
-   headroom formula reproduces the leg-A peaks within ~10 % at 4k–42k.
+1. ☑ Text-only slope measured for gemma4:12b, 31b and qwen3.8 (2026-09-06, table above).
+   ☐ The headroom formula reproduces the leg-A peaks within ~10 % at 4k–42k.
 2. ☐ A conversation that fills a 65536 rung with text on 12b runs to the rung without OOM under
    the priced need (the priced need now covers it).
 3. ☐ The image-append chat shape is refused per request with the guard's message *before* the

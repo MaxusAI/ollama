@@ -1,0 +1,10 @@
+{"model": "gemma4:31b-nvfp4", "target_tokens": 16, "prompt_eval": 16, "peak_gib": 17.55, "error": null, "secs": 942}
+{"model": "gemma4:31b-nvfp4", "target_tokens": 4000, "prompt_eval": 5251, "peak_gib": 30.2, "error": null, "secs": 781}
+{"model": "gemma4:31b-nvfp4", "target_tokens": 8000, "prompt_eval": 10438, "peak_gib": 37.26, "error": null, "secs": 99}
+{"model": "gemma4:31b-nvfp4", "target_tokens": 16000, "prompt_eval": 20851, "peak_gib": 43.38, "error": null, "secs": 153}
+{"model": "gemma4:31b-nvfp4", "target_tokens": 32000, "prompt_eval": 41638, "peak_gib": 55.26, "error": null, "secs": 423}
+{"model": "qwen3.8:27b-nvfp4", "target_tokens": 16, "prompt_eval": 15, "peak_gib": 17.38, "error": null, "secs": 641}
+{"model": "qwen3.8:27b-nvfp4", "target_tokens": 4000, "prompt_eval": 5249, "peak_gib": 28.29, "error": null, "secs": 112}
+{"model": "qwen3.8:27b-nvfp4", "target_tokens": 8000, "prompt_eval": 10436, "peak_gib": 30.31, "error": null, "secs": 13}
+{"model": "qwen3.8:27b-nvfp4", "target_tokens": 16000, "prompt_eval": 20849, "peak_gib": 35.08, "error": null, "secs": 17}
+{"model": "qwen3.8:27b-nvfp4", "target_tokens": 32000, "prompt_eval": 41636, "peak_gib": 40.98, "error": null, "secs": 31}
