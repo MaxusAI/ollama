@@ -545,6 +545,14 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    **Deploy note:** the tagged `sync-0.33.3` remains the validated deployable exactly as
    before; a build from `main` is now validated on this host to the same depth on the CUDA
    think-off surface plus the admission behaviour, and would need the Metal half like the tag.
+7d. ☑ **GGUF (llama-server) path, think off, four builds on CUDA, 2026-09-06** — 0.32.14
+   (`sync15_1_`, Aug 24) · 0.33.2 · 0.33.3 · `main` (`a523d60b`), eight GGUF models, 24/24
+   suites converged at 8192, 0 OOMs, 0 errors. `main` = 0.33.3 on all 56 quality and 64
+   contract cells; 0.33.3 vs 0.33.2 differs on 7 quality cells (five ≤ 0.009 IoU, two n=1
+   flips: e4b multi `q2`, nemotron q8 `name_bbox`) and 4 contract cells on the within-build
+   noisy arms. Throughput columns not comparable (beside production). Generator tables only:
+   [vision-campaign-2026-09-06-gguf-four-builds.md](../vision-campaign-2026-09-06-gguf-four-builds.md).
+   Think-on rows overnight 2026-09-06/07, appended there.
 8. ☑ Landed 2026-09-04 (Glenn: go for steps 1–3, deploy held): #264 merged as `0c4f09d4`;
    annotated `v0.33.3-dynres` on that commit (`git describe` → `v0.33.3-dynres-0-g0c4f09d`);
    image rebuilt from the tag (`maxusai/ollama:sync-0.33.3`, stamp `0.33.3-dynres-0-g0c4f09d`,
