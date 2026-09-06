@@ -713,6 +713,11 @@ iGPUScan:
 	if effectiveNumCtx := llama.ContextLength(); req.model.ModelPath != "" && effectiveNumCtx > 0 {
 		req.opts.NumCtx = effectiveNumCtx
 		req.contextShift = resolveContextShift(req.shift, req.model)
+	} else if req.model.IsMLX() && effectiveNumCtx > 0 {
+		// The MLX client may have clamped an automatic rung to what fits
+		// (admit's auto-context clamp); record the rung actually served so a
+		// later request naming that rung matches instead of reloading.
+		req.opts.NumCtx = effectiveNumCtx
 	}
 	runner := &runnerRef{
 		model:           req.model,
@@ -761,6 +766,15 @@ iGPUScan:
 		slog.Debug("finished setting up", "runner", runner)
 		if runner.pid < 0 {
 			runner.pid = llama.Pid()
+		}
+		if runner.model.IsMLX() {
+			// The MLX client only learns the served context once the runner
+			// answers its status probe, which is after the load; refresh the
+			// recorded rung now so needsReload compares against what is served
+			// (refMu is still held by this goroutine).
+			if served := llama.ContextLength(); served > 0 {
+				runner.Options.NumCtx = served
+			}
 		}
 		runner.refCount++
 		runner.loading = false
@@ -1452,6 +1466,15 @@ func (runner *runnerRef) needsReload(ctx context.Context, req *LlmRequest) bool 
 	if !reflect.DeepEqual(runner.model.AdapterPaths, req.model.AdapterPaths) || // have the adapters changed?
 		!reflect.DeepEqual(runner.model.ProjectorPaths, req.model.ProjectorPaths) || // have the projectors changed?
 		(!runner.model.IsMLX() && !reflect.DeepEqual(optsExisting, optsNew)) || // have the runner options changed?
+		// An MLX runner ignores the other runner options, but num_ctx is the
+		// rung admission priced the load at (x/mlxrunner/client.go admit) and
+		// the window the runner serves. A different rung is a different load:
+		// larger, so admission sees it before the cache grows into memory
+		// that was never priced; smaller, so the memory comes back instead of
+		// the runner hogging the bigger window. GGML reaches the same outcome
+		// through the option comparison above. Two automatic rungs were
+		// equalised earlier, so unpinned clients do not churn.
+		(runner.model.IsMLX() && optsExisting.NumCtx != optsNew.NumCtx) ||
 		runner.llama.Ping(ctx) != nil {
 		return true
 	}
