@@ -76,9 +76,11 @@ phase (2026-09-05, five models × four rungs × two request shapes against the
 runner's own `peak memory` line; `preflight/runs/gpu276-calibration-2026-09-05.jsonl`)
 found it 10–25× too small and, more usefully, found what the remainder is:
 
-- **It does not depend on `num_ctx`.** Every model peaked at the same value at
-  8192, 16384, 32768 and 65536. The KV is consumed by tokens actually processed;
-  the rung is a cap admission assumes, not where the memory goes.
+- **It does not depend on `num_ctx` — for the short prompts the calibration
+  used** (≤ 3.4k tokens; see the 2026-09-06 amendment below). Every model peaked
+  at the same value at 8192, 16384, 32768 and 65536. The KV is consumed by tokens
+  actually processed; the rung is a cap admission assumes, not where the memory
+  goes — but what a request costs does grow with the context it carries.
 - **It is the prefill transient, and it saturates at one chunk.** The runner
   prefills in 2048-token chunks; the transient is set by the largest chunk, not
   the whole prompt. gemma4's one-image prompt (1122 tokens) is a partial chunk
@@ -95,6 +97,20 @@ unknown architectures max(10 GiB, 5%)**. It is what a request costs; the KV term
 is what the rung allows the cache to grow to. Lowering `num_batch` shrinks the
 transient (it bounds the chunk, the GGML `num_batch` analogue) and is not
 modelled. `OLLAMA_MLX_MEMORY_LIMIT` remains the hard ceiling.
+
+**Amended 2026-09-06 — the constant is an intercept, not the transient.** The
+session-growth probe of the `main` validation
+([task](../tasks/mlx-prefill-transient-scales-with-context.md)) measured what the
+calibration's short prompts could not: the transient grows with the context a
+request carries. Text-only on 12b: ~8 GiB + ~0.3 GiB per 1k tokens, linear to the
+rung (≈ 36 GiB at a full 65536 against the 22.9 priced here). With new images
+appended every turn (what chat clients do) the dense overlay of ADR 0014 widens
+to the whole prompt and the cost is quadratic: gemma4:31b at an explicit 65536,
+priced 37.6 GiB, died at 12.5k tokens with a 49 GiB peak. The constants above
+therefore price a *fresh, short* request correctly and under-price a conversation
+that fills the rung. The headroom has to become `a + b × num_ctx` per architecture
+and the image overlay has to be priced per request or bounded — the task doc
+carries the measured law, the slopes and the fix layers.
 
 ## What this does not fix
 
