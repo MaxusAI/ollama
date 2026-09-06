@@ -27,42 +27,77 @@ import (
 	"github.com/ollama/ollama/llm"
 	"github.com/ollama/ollama/ml"
 	"github.com/ollama/ollama/x/imagegen/manifest"
+	"github.com/ollama/ollama/x/mlxrunner/kvsize"
 )
 
 // Client wraps an MLX runner subprocess to implement llm.LlamaServer for LLM models.
 type Client struct {
-	port              int
-	modelName         string
+	port      int
+	modelName string
+	// contextLength is what the runner reports; softContextLength is the
+	// recommended limit to avoid poor performance. Atomic because Load may
+	// clamp the soft limit down to what VRAM can hold while Ping reads it.
 	contextLength     atomic.Int64
-	softContextLength int // recommended limit to avoid poor performance
-	memory            atomic.Uint64
-	done              chan struct{}
-	doneErr           error // valid after done is closed
-	client            *http.Client
-	status            *llm.StatusWriter
-	mu                sync.Mutex
-	cmd               *exec.Cmd
+	softContextLength atomic.Int64
+	// numCtxAuto records that num_ctx came from Ollama's VRAM-tier default
+	// rather than from the request, the model or the environment. An automatic
+	// rung is clamped to fit; an explicit one is refused. See admit.
+	numCtxAuto bool
+	memory     atomic.Uint64
+	// kvEstimate prices the model's per-layer caches at a context rung. Set
+	// from the manifest's config.json in NewClient, nil when that could not be
+	// read; tests substitute their own.
+	kvEstimate func(numCtx int) kvsize.Estimate
+	done       chan struct{}
+	doneErr    error // valid after done is closed
+	client     *http.Client
+	status     *llm.StatusWriter
+	mu         sync.Mutex
+	cmd        *exec.Cmd
 }
 
 // NewClient prepares a new MLX runner client for LLM models.
 // The subprocess is not started until Load() is called.
-func NewClient(modelName string, softContextLength int) (*Client, error) {
+//
+// numCtx is the context rung the request resolved to, and numCtxAuto reports
+// whether it came from Ollama's automatic VRAM-tier default. Load needs both:
+// the rung to price the KV cache, and its provenance to decide between clamping
+// and refusing when it does not fit.
+func NewClient(modelName string, numCtx int, numCtxAuto bool) (*Client, error) {
 	if err := checkPlatformSupport(); err != nil {
 		return nil, err
 	}
 
 	c := &Client{
-		modelName:         modelName,
-		softContextLength: softContextLength,
-		done:              make(chan struct{}),
-		client:            http.DefaultClient,
+		modelName:  modelName,
+		numCtxAuto: numCtxAuto,
+		done:       make(chan struct{}),
+		client:     http.DefaultClient,
 	}
+	c.softContextLength.Store(int64(numCtx))
 
 	modelManifest, err := manifest.LoadManifest(modelName)
 	if err != nil {
 		return nil, err
 	}
 	c.memory.Store(uint64(modelManifest.TotalTensorSize()))
+
+	// The geometry a KV estimate needs is in config.json, which the manifest
+	// already carries; no weights are loaded to price a rung.
+	config, err := modelManifest.ReadConfig("config.json")
+	if err != nil {
+		// Not fatal: admission falls back to weights only, which is what it
+		// did before the estimator existed.
+		slog.Warn("MLX admission cannot read config.json; pricing weights only",
+			"model", modelName, "error", err)
+		return c, nil
+	}
+	// draft/config.json is the default location a draft model's config lands
+	// at (x/mlxrunner/model/root.go readDraftConfig); it is absent for most
+	// models and a manifest may point elsewhere, in which case the draft's
+	// caches go unpriced, which under-prices rather than over-refuses.
+	draft, _ := modelManifest.ReadConfig("draft/config.json")
+	c.kvEstimate = func(numCtx int) kvsize.Estimate { return kvsize.Model(config, draft, numCtx) }
 
 	return c, nil
 }
@@ -256,8 +291,9 @@ func (c *Client) ContextLength() int {
 }
 
 func (c *Client) reportedContextLength(modelContextLength int) int {
-	if c.softContextLength > 0 && (modelContextLength == 0 || c.softContextLength < modelContextLength) {
-		return c.softContextLength
+	soft := int(c.softContextLength.Load())
+	if soft > 0 && (modelContextLength == 0 || soft < modelContextLength) {
+		return soft
 	}
 	return modelContextLength
 }
@@ -292,68 +328,236 @@ func (c *Client) HasExited() bool {
 	}
 }
 
-// Load checks whether the model fits in GPU memory and starts the subprocess.
-func (c *Client) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.DeviceInfo, requireFull bool) ([]ml.DeviceID, error) {
+// autoContextFloor is the lowest rung the automatic-num_ctx clamp will step
+// down to. Below it a model is not usefully servable anyway, and refusing is
+// more honest than serving a window nothing fits in.
+const autoContextFloor = 2048
+
+// admissionHeadroom is what a load needs beyond weights and KV: the prefill
+// transient -- activations for one prefill chunk, the vision tower on an image
+// request -- plus MLX's working buffers.
+//
+// Calibrated 2026-09-05 on the CUDA host against the runner's own `peak memory`
+// line (docs/maxusai/vision-suite/preflight/runs/gpu276-calibration-2026-09-05.jsonl):
+// five models, four rungs, one- and three-image requests. Two facts shape the
+// rule. The peak was identical at num_ctx 8192, 16384, 32768 and 65536 for every
+// model: the KV is consumed by tokens actually processed, so the rung is not
+// where the memory goes. And the transient saturates once a prompt fills the
+// 2048-token prefill chunk -- gemma4's one-image prompt (1122 tokens) is a partial
+// chunk and costs 2.4 GiB on 12b, three images (3337 tokens) fill a chunk and
+// cost 9.7 GiB; qwen's one image is already 2325 tokens, so one and three images
+// cost the same. It is therefore a per-architecture constant, not a fraction of
+// the load. Measured peak minus weights at a full chunk, and the value used:
+//
+//	gemma4   12b 9.7 / 26b 10.2 / 31b 13.1 GiB          -> 14.5 GiB
+//	qwen3.5  dense 27b 9.2 GiB                           -> 10.5 GiB
+//	qwen3.5  MoE 35b-a3b 14.3 GiB (28.6-36.3 GiB peaks   -> 16 GiB
+//	         for the same prompt: it also moves with
+//	         generation length)
+//
+// Unknown architectures get max(10 GiB, 5% of weights+KV): no vision model
+// measured below 9 GiB at a full chunk, text-only models pay less. The former
+// placeholder, max(512 MiB, 5%), was 10-25x too small. Lowering num_batch
+// shrinks the transient (it bounds the chunk) and is not modelled here.
+func admissionHeadroom(arch string, weightsPlusKV uint64) uint64 {
+	const gib = uint64(1) << 30
+	switch {
+	case strings.Contains(arch, "Gemma4"):
+		return 29 * gib / 2 // 14.5 GiB
+	case strings.Contains(arch, "Qwen3_5Moe"):
+		return 16 * gib
+	case strings.Contains(arch, "Qwen3_5"), strings.Contains(arch, "Qwen3Next"):
+		return 21 * gib / 2 // 10.5 GiB
+	}
+	if fraction := weightsPlusKV / 20; fraction > 10*gib {
+		return fraction
+	}
+	return 10 * gib
+}
+
+// estimate prices the model's caches at numCtx, or reports an unknown estimate
+// when no config was readable at construction.
+func (c *Client) estimate(numCtx int) kvsize.Estimate {
+	if c.kvEstimate == nil {
+		return kvsize.Estimate{NumCtx: numCtx}
+	}
+	return c.kvEstimate(numCtx)
+}
+
+// needFor is what a load at numCtx is expected to occupy.
+func (c *Client) needFor(weights uint64, numCtx int) (need, kv, headroom uint64, est kvsize.Estimate) {
+	est = c.estimate(numCtx)
+	if !est.Known {
+		return weights, 0, 0, est
+	}
+	kv = est.Total()
+	headroom = admissionHeadroom(est.Arch, weights+kv)
+	return weights + kv + headroom, kv, headroom, est
+}
+
+// admit decides whether this model may load on the given devices and returns
+// the byte budget to hand the runner subprocess.
+//
+// It prices weights + KV(num_ctx) + headroom, not weights alone. Before this,
+// 8192 / 16384 / 32768 / 65536 all admitted identically on MLX and a rung that
+// could not fit was accepted and then killed mid-prefill by cudaMallocAsync
+// (docs/maxusai/mlx-admission-prices-weights-only.md).
+func (c *Client) admit(gpus []ml.DeviceInfo, requireFull bool) (uint64, error) {
+	if len(gpus) == 0 {
+		return 0, nil
+	}
+
+	weights := c.memory.Load()
+	// We currently only use the first GPU with MLX
+	available := gpus[0].FreeMemory
+	overhead := gpus[0].MinimumMemory() + envconfig.GpuOverhead()
+	if available > overhead {
+		available -= overhead
+	} else {
+		available = 0
+	}
+
 	// Budget handed to the runner so MLX caps its allocator at what is actually
 	// free. MLX's own CUDA default comes from TOTAL device memory and therefore
 	// overcommits whenever anything else is resident on the card.
-	var vramBudget uint64
+	vramBudget := available
+	if capped, overridden := budgetWithOverride(available, os.Getenv(MemoryLimitEnv)); overridden {
+		vramBudget = capped
+		slog.Info("MLX memory limit overridden from the environment",
+			"requested", os.Getenv(MemoryLimitEnv),
+			"derived", format.HumanBytes2(available),
+			"using", format.HumanBytes2(vramBudget))
+	}
 
-	if len(gpus) > 0 {
-		modelSize := c.memory.Load()
-		// We currently only use the first GPU with MLX
-		available := gpus[0].FreeMemory
-		overhead := gpus[0].MinimumMemory() + envconfig.GpuOverhead()
-		if available > overhead {
-			available -= overhead
-		} else {
-			available = 0
-		}
-		vramBudget = available
+	numCtx := int(c.softContextLength.Load())
+	need, kv, headroom, est := c.needFor(weights, numCtx)
+	if !est.Known {
+		// No cache rule for this architecture. Fall back to exactly what
+		// admission did before the estimator existed rather than guessing: a
+		// wrong estimate refuses loads that would have served.
+		slog.Warn("MLX admission is pricing weights only: no KV rule for this architecture",
+			"architecture", est.Arch, "model", c.modelName, "num_ctx", numCtx)
+	}
 
-		if capped, overridden := budgetWithOverride(available, os.Getenv(MemoryLimitEnv)); overridden {
-			vramBudget = capped
-			slog.Info("MLX memory limit overridden from the environment",
-				"requested", os.Getenv(MemoryLimitEnv),
-				"derived", format.HumanBytes2(available),
-				"using", format.HumanBytes2(vramBudget))
+	// An automatic rung was never asked for: it is Ollama's VRAM-tier default
+	// (262144 on the CUDA host), so pricing it and refusing would refuse
+	// everything. Step it down until it fits and serve the smaller window --
+	// the same shape as reduceAutoNumCtxForLoadOOM on the llama.cpp path,
+	// except done before the load rather than after an OOM.
+	//
+	// The clamp is sticky across retries: sched.go reuses this Client when an
+	// eviction-and-retry follows ErrLoadRequiredFull, so a second Load starts
+	// from the already-clamped rung and can only clamp further. That is the
+	// wanted direction -- the derived default is a VRAM tier, not a request,
+	// and the 262144 one costs ~25x decode speed on this host.
+	if est.Known && c.numCtxAuto && need > vramBudget {
+		fitted, ok := c.clampAutoContext(weights, vramBudget, numCtx)
+		fittedNeed, fittedKV, fittedHeadroom, _ := c.needFor(weights, fitted)
+		switch {
+		case ok:
+			slog.Info("MLX context clamped to fit VRAM",
+				"model", c.modelName, "requested", numCtx, "using", fitted,
+				"weights", format.HumanBytes2(weights),
+				"kv", format.HumanBytes2(fittedKV),
+				"headroom", format.HumanBytes2(fittedHeadroom),
+				"budget", format.HumanBytes2(vramBudget))
+			c.softContextLength.Store(int64(fitted))
+			numCtx, need, kv, headroom = fitted, fittedNeed, fittedKV, fittedHeadroom
+		default:
+			// Even the floor does not fit. An automatic rung must not turn into
+			// a refusal the user cannot act on, so admit on the weights alone
+			// (today's behaviour) and let the runner's own ceiling bound it.
+			slog.Warn("MLX auto context does not fit even at the floor; admitting on weights alone",
+				"model", c.modelName, "requested", numCtx, "floor", autoContextFloor,
+				"need", format.HumanBytes2(fittedNeed),
+				"budget", format.HumanBytes2(vramBudget))
+			c.softContextLength.Store(int64(autoContextFloor))
+			// kv and headroom go back to zero so the admission line below
+			// stays self-consistent (need == weights + kv + headroom); the
+			// estimate that did not fit is in the warning above.
+			numCtx, need, kv, headroom = autoContextFloor, weights, 0, 0
 		}
+	}
 
-		// PHYSICAL shortfall: the card cannot hold the model. Evictable, so it
-		// stays ErrLoadRequiredFull under requireFull -- freeing another runner
-		// raises FreeMemory and a retry can succeed.
-		if modelSize > available {
-			if requireFull {
-				return nil, llm.ErrLoadRequiredFull
-			}
-			return nil, fmt.Errorf("model requires %s but only %s are available (after %s overhead)", format.HumanBytes2(modelSize), format.HumanBytes2(available), format.HumanBytes2(overhead))
+	// PHYSICAL shortfall: the card cannot hold the model. Evictable, so it
+	// stays ErrLoadRequiredFull under requireFull -- freeing another runner
+	// raises FreeMemory and a retry can succeed.
+	if need > available {
+		if requireFull {
+			return 0, llm.ErrLoadRequiredFull
 		}
+		if !est.Known {
+			return 0, fmt.Errorf("model requires %s but only %s are available (after %s overhead)", format.HumanBytes2(need), format.HumanBytes2(available), format.HumanBytes2(overhead))
+		}
+		return 0, fmt.Errorf("model requires %s (weights %s + KV cache %s at num_ctx %d + %s headroom) but only %s are available (after %s overhead); lower num_ctx or free VRAM on the device",
+			format.HumanBytes2(need), format.HumanBytes2(weights), format.HumanBytes2(kv), numCtx,
+			format.HumanBytes2(headroom), format.HumanBytes2(available), format.HumanBytes2(overhead))
+	}
 
-		// OPERATOR shortfall: it fits the card but not the ceiling the operator
-		// set. This check has to exist separately, and it must NOT be
-		// ErrLoadRequiredFull.
-		//
-		// Separately, because the check above reads `available` while the value
-		// actually handed to the runner is `vramBudget`. Before the override
-		// existed the two were the same number, so one check covered both; now
-		// a cap below the model size is admitted and passed straight through to
-		// the subprocess. Measured: model 18.29 GiB, 88 GiB free,
-		// OLLAMA_MLX_MEMORY_LIMIT=8589934592 -> admitted even with
-		// requireFull=true, ceiling 10.3 GiB under the weights. Nothing
-		// downstream catches it either: runner.go evaluates the weights before
-		// configureMemoryLimit runs, so the cap lands on an already-resident
-		// model, and that function only guards upward.
-		//
-		// And NOT ErrLoadRequiredFull, because sched.go turns that into "evict a
-		// runner and retry". Eviction raises FreeMemory; the operator's cap is a
-		// constant that free memory cannot move, so every retry would recompute
-		// the same budget and fail identically -- evicting every other model to
-		// satisfy a constraint eviction cannot satisfy. A plain error naming the
-		// variable is the only correct answer, and it tells the operator which
-		// knob to turn.
-		if modelSize > vramBudget {
-			return nil, fmt.Errorf("model requires %s but %s caps the MLX budget at %s", format.HumanBytes2(modelSize), MemoryLimitEnv, format.HumanBytes2(vramBudget))
+	// OPERATOR shortfall: it fits the card but not the ceiling the operator
+	// set. This check has to exist separately, and it must NOT be
+	// ErrLoadRequiredFull.
+	//
+	// Separately, because the check above reads `available` while the value
+	// actually handed to the runner is `vramBudget`. Before the override
+	// existed the two were the same number, so one check covered both; now
+	// a cap below the model size is admitted and passed straight through to
+	// the subprocess. Measured: model 18.29 GiB, 88 GiB free,
+	// OLLAMA_MLX_MEMORY_LIMIT=8589934592 -> admitted even with
+	// requireFull=true, ceiling 10.3 GiB under the weights. Nothing
+	// downstream catches it either: runner.go evaluates the weights before
+	// configureMemoryLimit runs, so the cap lands on an already-resident
+	// model, and that function only guards upward.
+	//
+	// And NOT ErrLoadRequiredFull, because sched.go turns that into "evict a
+	// runner and retry". Eviction raises FreeMemory; the operator's cap is a
+	// constant that free memory cannot move, so every retry would recompute
+	// the same budget and fail identically -- evicting every other model to
+	// satisfy a constraint eviction cannot satisfy. A plain error naming the
+	// variable is the only correct answer, and it tells the operator which
+	// knob to turn.
+	if need > vramBudget {
+		return 0, fmt.Errorf("model requires %s but %s caps the MLX budget at %s", format.HumanBytes2(need), MemoryLimitEnv, format.HumanBytes2(vramBudget))
+	}
+
+	// The one line the GPU phase compares against the runner's `peak memory`.
+	slog.Info("MLX admission priced the context rung",
+		"model", c.modelName,
+		"architecture", est.Arch,
+		"num_ctx", numCtx,
+		"num_ctx_auto", c.numCtxAuto,
+		"weights", format.HumanBytes2(weights),
+		"kv", format.HumanBytes2(kv),
+		"headroom", format.HumanBytes2(headroom),
+		"need", format.HumanBytes2(need),
+		"available", format.HumanBytes2(available),
+		"budget", format.HumanBytes2(vramBudget),
+		"layers", est.Layers.Total(),
+		"layers_full", est.Layers.Attention,
+		"layers_sliding", est.Layers.Sliding,
+		"layers_recurrent", est.Layers.Recurrent)
+
+	return vramBudget, nil
+}
+
+// clampAutoContext halves the rung until the load fits the budget, stopping at
+// autoContextFloor. It reports the rung and whether one was found that fits.
+func (c *Client) clampAutoContext(weights, budget uint64, numCtx int) (int, bool) {
+	rung := numCtx
+	for rung > autoContextFloor {
+		rung = max(rung/2, autoContextFloor)
+		if need, _, _, _ := c.needFor(weights, rung); need <= budget {
+			return rung, true
 		}
+	}
+	return rung, false
+}
+
+// Load checks whether the model fits in GPU memory and starts the subprocess.
+func (c *Client) Load(ctx context.Context, _ ml.SystemInfo, gpus []ml.DeviceInfo, requireFull bool) ([]ml.DeviceID, error) {
+	vramBudget, err := c.admit(gpus, requireFull)
+	if err != nil {
+		return nil, err
 	}
 
 	// Find a free port
