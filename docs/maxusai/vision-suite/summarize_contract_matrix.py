@@ -88,6 +88,11 @@ def main():
             sec = d.get(a)
             if not sec:
                 cells.append("—")
+            elif "error" in sec:
+                # An arm that ran and errored (OOM, transport, HTTP 500) has no
+                # contract to judge. It rendered ❌ for the Sep-4 cudaMallocAsync
+                # aborts and read as two contract failures on 31b (2026-09-06).
+                cells.append("error")
             elif was_capped(sec):
                 # ADR 0012 rule 8: a capped cell has no score to report. Say so
                 # rather than rendering a False that reads as a measured failure.
@@ -97,7 +102,9 @@ def main():
         eng = engine_for(model, {})
         print(f"| {model} | {'**MLX**' if eng == 'MLX' else eng} | " +
               " | ".join(cells) + f" | {ctx_for(*[d.get(a) for a in ARMS])} |")
-    print("\n`cap` = generation stopped at the `num_predict` cap rather than "
+    print("\n`error` = the arm ran and errored (OOM, transport, HTTP 500), so there is "
+          "no contract to judge. "
+          "`cap` = generation stopped at the `num_predict` cap rather than "
           "finishing, so the cell carries no score (ADR 0012 rule 8). The cap is "
           "a separate limit from the `num_ctx` window.")
 

@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import summarize_engine_compare as sec  # noqa: E402
 import summarize_head_to_head as shh  # noqa: E402
+import summarize_contract_matrix as scm  # noqa: E402
 import summarize_reps as reps  # noqa: E402
 import vision_suite as vs  # noqa: E402
 
@@ -1656,6 +1657,43 @@ class TestErroredArmsRenderAsError(unittest.TestCase):
         self.assertNotIn("❌", rows[0])
         self.assertIn("| error |", rows[1])        # the multi cell
         self.assertNotIn("❌ q1", rows[1])
+
+
+class TestContractMatrixNamesErrorAndCap(unittest.TestCase):
+    """The contract matrix judges `contract_followed`; an arm that errored has
+    no contract to judge and a capped one no answer to read. Both rendered ❌
+    for the Sep-4 OOM'd arms and read as contract failures on 31b (2026-09-06).
+    Cells: `error`, `cap`, ✅/❌ — the same states the other templates name."""
+
+    def render(self, rundir, model):
+        argv = ["summarize_contract_matrix.py", "--think", "false", model]
+        out = io.StringIO()
+        with mock.patch.object(scm, "DIR", rundir), mock_argv(argv), contextlib.redirect_stdout(out):
+            scm.main()
+        return out.getvalue()
+
+    def test_errored_capped_and_scored_arms_render_as_their_state(self):
+        rundir = tempfile.mkdtemp()
+        scores = {
+            "bbox_contract": {"error": "HTTP 500: mlx runner aborted: mlx: cudaMallocAsync out of memory"},
+            "bbox_contract_multi": {"eval_count": 2200, "num_predict": 2200, "done_reason": "length",
+                                    "contract_followed": False},
+            "bbox_contract_reasoning": {"eval_count": 400, "num_predict": 2200, "done_reason": "stop",
+                                        "contract_followed": True, "num_ctx": 8192},
+            "bbox_contract_pinned": {"eval_count": 400, "num_predict": 2200, "done_reason": "stop",
+                                     "contract_followed": False, "num_ctx": 8192},
+        }
+        tag = sec.tag_for("m:1b", "false")
+        with open(os.path.join(rundir, f"scores_{tag}.json"), "w") as fh:
+            json.dump(scores, fh)
+        row = [l for l in self.render(rundir, "m:1b").splitlines() if l.startswith("| m:1b |")][0]
+        cells = [c.strip() for c in row.split("|")[1:-1]]
+        # columns: Model, Engine, bc, bcmulti, bcreasoning, bcpinned, ...
+        self.assertEqual(cells[2], "error")
+        self.assertEqual(cells[3], "cap")
+        self.assertEqual(cells[4], "✅")
+        self.assertEqual(cells[5], "❌")
+        self.assertNotIn("❌", cells[2])
 
 
 class TestT1OptionsInAnyOrder(unittest.TestCase):

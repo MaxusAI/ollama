@@ -154,8 +154,9 @@ first is image accounting and the second is generation length.
   106 GB used and 53.9 GB swap on a 128 GB host before this existed.
 - `summarize_contract_matrix.py --think <mode> [--log <runner log>] <model…>` —
   the bbox-contract matrix plus per-model power-mode provenance. Capped cells
-  render as `cap` rather than a false `❌` (ADR 0012 rule 8), and the `num_ctx`
-  column shows the ladder rung each row reached.
+  render as `cap` and errored arms (OOM, transport, HTTP 500) as `error`, never
+  a false `❌` (ADR 0012 rule 8 / convention 9), and the `num_ctx` column shows
+  the ladder rung each row reached.
 - `summarize_reps.py <tag…>` — repeated arms as mean and spread, with the
   context-ladder rung and `num_predict` as the first rows (ADR 0029, SPEC H4a).
 - `summarize_geometry.py <tag-prefix> <arm> […]` — **template T4** (ADR 0012):
