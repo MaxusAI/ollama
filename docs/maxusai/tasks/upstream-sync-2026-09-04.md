@@ -464,12 +464,65 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    61.8 GiB, using 40.0 GiB`): the same four arms 3× back to back — **12/12 converged, 0
    OOMs**, every metric equal to the sync15 baseline (31b `bbox_contract_perobject` 6/6 at IoU
    0.923 vs 0.851; `adv_norm1` 0/6 in both). The OOMs were shared-GPU contention, not the
-   fold. Serving note: on this host a campaign or canary container must set
-   `OLLAMA_MLX_MEMORY_LIMIT` below what production leaves free (recorded in the vision-suite
-   README and the preflight skill). ☐ qwen3.5-MoE MMQ padding gate at b10760 — source-inspected
-   only (the b10760 change widens MMQ to MoE on pre-DP4A cards; Blackwell is unaffected).
-   ☑ qwen2.5vl poison probe re-run at b10760: PASS inside the Gate 4 preflight.
+   fold. Serving note (corrected 2026-09-05, see 7b): on this host give a campaign or canary
+   container **headroom with `OLLAMA_GPU_OVERHEAD`** — the runner subtracts it from free VRAM
+   when it sizes itself, so the ceiling follows what is actually free; a hard
+   `OLLAMA_MLX_MEMORY_LIMIT` is an absolute bound and, set near the workload's peak, it stalls
+   instead of OOMing (vision-suite README, #277). ☐ qwen3.5-MoE MMQ padding gate at b10760 —
+   source-inspected only (the b10760 change widens MMQ to MoE on pre-DP4A cards; Blackwell is
+   unaffected). ☑ qwen2.5vl poison probe re-run at b10760: PASS inside the Gate 4 preflight.
    **Gate 5 (CUDA) result: no regression.**
+7b. ☑ **Gate 5 completed on CUDA, 2026-09-05** — the think-on half, and the same-platform
+   0.33.2 baseline that Gate 5 had lacked (its comparator above is the sync15 0.32.14 build;
+   the 0.33.2 vision campaigns were Metal-host measurements and never mix with CUDA ones).
+   - **Think-on** (`vsuite-0333on` on `:11505`, `mlx0333cu_1_*_thinkon`, ladder
+     16384→32768→65536) against `sync15nt_1_`: 12b DESCOPED by policy; 26b **25/27 = 25/27**
+     (same two arms standing); 31b **27/27 = 27/27** at rung 1 (17 identical, rest ±0.003);
+     qwen3.8 **27/27 = 27/27** at rung 1; qwen3.6 **24/27 = 24/27** at the ceiling with two
+     of the three standing arms the same (`scene_single`, `bbox_contract_real_1img`; the third
+     `scene_single_pinned` now vs `bboxm_free_anc_pos` then). Per-arm scores on qwen3.6 swing
+     both ways run to run (4/23 comparable arms identical, 0→5 and 6→4 hits in the same cell);
+     the converged count is the stable metric. **No regression.**
+   - **What the think-on run also found.** The container had been started with a hard
+     `OLLAMA_MLX_MEMORY_LIMIT` of 40 GiB (the discriminator's value). At rung 32768 the
+     request before the trouble peaked at 39.98 GiB; the next request got its 371-token prompt
+     processed and then the runner logged nothing for 30 min, and the three requests behind it
+     never reached prompt processing — each burned its own 1800 s client timeout. Two hours
+     lost to one stall, cleared only by the between-rung restart. At the ceiling MLX does not
+     OOM, it crawls: the cache-thrashing check that would abort it is off by default (#212).
+     Glenn's call: the container was replaced mid-rung-3 with an identical one at 56 GiB (the
+     client's transport retry carried the arm in flight); the four affected arms all completed
+     at rung 3, so their recorded rung of convergence is higher than baseline for three of them
+     — an artefact of the stall, not the model. Evidence: `preflight-runs/vsuite-0333on-runner.log`.
+     **Lesson: the runner already has a headroom knob, `OLLAMA_GPU_OVERHEAD`; use it, not a cap.**
+   - **0.33.2 think-off baseline on CUDA** (`vsuite-0332cu` on `:11506`, `maxusai/ollama:sync-0.33.2`,
+     `mlx0332cu_1_*_thinkfalse`, `OLLAMA_GPU_OVERHEAD` 16 GiB → ceiling 45.8 GiB, **0 OOMs**),
+     against the 0.33.3 cells of criterion 7, converged arms compared on every score column:
+
+     | cell (think-off, CUDA) | 0.33.2 | 0.33.3 | identical / comparable | rest |
+     |---|---|---|---|---|
+     | gemma4:12b-nvfp4 | 27/27 | 27/27 | 24 / 27 | ±0.003 |
+     | gemma4:26b-nvfp4 | 27/27 | 26/27 (1 OOM) | 11 / 26 | ±0.005; `positional_1img` 0.971→0.859, `real_1img` 1→0 hits (unstable arms) |
+     | gemma4:31b-nvfp4 | 27/27 | 24/27 (3 OOM) | 13 / 24 | ±0.004 |
+     | qwen3.8:27b-nvfp4 | 27/27 | 27/27 | **27 / 27** | — |
+     | qwen3.6:35b-a3b-nvfp4 | 27/27 | 27/27 | 10 / 27 | ±0.01; 0.33.3 higher on `bbox_contract_reasoning` 0→6 and `_multi` 0→3 |
+
+     Every arm 0.33.3 lacks is one of the four OOM'd arms, all of which re-ran clean.
+   - **Memory, per-request `peak memory` from the runner** (same models, same arms):
+
+     | | n | p50 | p90 | max |
+     |---|---|---|---|---|
+     | 0.33.2, gemma4 cells | 83 | 25.8 GiB | 34.2 GiB | 37.1 GiB |
+     | 0.33.3, recorded sample (the three gemma4 cells) | 84 | 24.4 GiB | 33.1 GiB | 36.3 GiB |
+     | 0.33.2, whole run | 144 | 26.6 GiB | 36.6 GiB | 41.1 GiB |
+
+     Per model on 0.33.2: 12b 24.8, 26b 34.7, 31b 37.1, qwen3.8 39.2, qwen3.6 **41.1 GiB** — the
+     last above the 40 GiB the discriminator used, which happened to touch only 26b/31b arms.
+     Like for like the builds are within ~1 GiB at every quantile, 0.33.2 the higher. **0.33.3
+     does not allocate more for the same work; the Sep-4 OOMs were zero-headroom contention.**
+     Data: `preflight-runs/peakmem-0332cu.log`, `scores_mlx0332cu_1_*`.
+   - Follow-ups landed from this: #276 (MLX admission prices the context rung; GPU calibration
+     pending), #277 (driver evicts on exit; README advice corrected to headroom).
 8. ☑ Landed 2026-09-04 (Glenn: go for steps 1–3, deploy held): #264 merged as `0c4f09d4`;
    annotated `v0.33.3-dynres` on that commit (`git describe` → `v0.33.3-dynres-0-g0c4f09d`);
    image rebuilt from the tag (`maxusai/ollama:sync-0.33.3`, stamp `0.33.3-dynres-0-g0c4f09d`,
@@ -502,7 +555,7 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
 9. ☐ **Deploy held by Glenn.** `:11497` still serves `0.33.2-dynres-5-g2b95b4a`
    (`v0.33.2-dynres.1`); when deploying: `ollama-0.33.3-dynres-0-g0c4f09d` from
    `maxusai/ollama:sync-0.33.3`, `sync-0.33.2` retained as rollback, README **Deployed** line
-   updated (ADR 0032 amendment), and — on this shared GPU — consider `OLLAMA_MLX_MEMORY_LIMIT`
+   updated (ADR 0032 amendment), and — on this shared GPU — consider `OLLAMA_GPU_OVERHEAD` (headroom; not a hard cap, see 7b)
    for any campaign/canary container alongside it (#272).
 
 ## Effort
