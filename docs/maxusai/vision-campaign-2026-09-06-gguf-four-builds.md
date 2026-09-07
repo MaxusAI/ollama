@@ -6,7 +6,12 @@
 > listed below — and on 4 contract cells, in both directions, on the arms that flip between
 > repeats within one build. 24/24 suites converged at 8192 with 0 OOMs and 0 errors on every
 > build. The throughput columns were measured beside production and are not comparable.
-> Think-on rows follow (overnight 2026-09-06/07, section at the end).
+>
+> **Think-on (appended 2026-09-08): no build stands out.** 0.33.3 and `main`, which share
+> the native payload, differ on 10 of 56 quality cells; 0.33.2 vs 0.33.3 differ on 11. That
+> is the think-on run-to-run spread (trace length → cap → ladder escalation → a different
+> answer), not a build effect. gemma4 is stable across the three 0.33 builds; qwen3.6's
+> scene cell is flagged for an n ≥ 5 repeat before any call. 0 OOMs on 54 rung-suites.
 
 ## Provenance
 
@@ -105,11 +110,76 @@ is contention, not builds. The T1 and T2 throughput columns below are rendered b
 generators render them; do not read build differences from them. A controlled throughput
 comparison needs the quiet GPU and is not queued.
 
-## Think-on
+## Think-on (row 2): 0.32.14 · 0.33.2 · 0.33.3 · main, 2026-09-06 22:21 → 2026-09-08 08:02
 
-Row 2 of the plan — GGUF think-on on the same three builds (`ggml0332nt_1_1_`,
-`ggml0333nt_1_1_`, `ggmlmainnt_1_1_`, ladder from 16384) — runs overnight 2026-09-06/07
-(`overnight-chain.sh`); its render (`render-ggml.sh on`) is appended here when complete.
+Same eight models and conditions with `THINK_MODES=on`: ladder from 16384 (the driver's
+think-on start), `num_predict` 8192 → 24576 → 57344 with the rung, one build after the other
+(`overnight-chain.sh`). Campaign prefixes `ggml0332nt_1_1_`, `ggml0333nt_1_1_`,
+`ggmlmainnt_1_1_`; reference `sync15_1_*_thinkon` (0.32.14, 2026-08-24). Render
+`render-ggml.sh on` → `preflight-runs/ggml-render-thinkon.md`, generator output only, in the
+tables at the end.
+
+| build | OOMs | errors | rung-suites | not converged at 65536 | wall |
+|---|---|---|---|---|---|
+| 0.33.2 | 0 | 0 | 19 | 26b `bbox_contract_multi`; qwen3.6 `bbox_contract_real_1img` | 11 h 39 min |
+| 0.33.3 | 0 | 3 | 18 | 26b `bbox_contract_perobject`; qwen3.6 `bbox_contract_real_1img`, `bbox_contract_adv_real` | 11 h 46 min |
+| main | 0 | 0 | 17 | the same two cells as 0.33.3 | 10 h 15 min |
+
+The three errors on 0.33.3 are the driver's 1800 s HTTP timeout on 26b's re-run at 32768
+(`num_predict` 24576): `document_single`, `bbox_contract_perobject`,
+`bbox_contract_box2d_1img`, during the daytime leg with the production loop holding the GPU
+at 70–87 %. The same arms on `main` overnight finished. Contention, not the build; those cells
+render `error` on 0.33.3 and carry scores on the other builds.
+
+### What differs between the builds (think-on)
+
+The same column diff as for think-off (56 quality cells, 64 contract cells per pair); the
+same veto — the tables at the end are the record.
+
+| pair | quality cells differ | contract cells differ |
+|---|---|---|
+| 0.33.3 vs main (same native payload) | 10 / 56 | 7 / 64 |
+| 0.33.2 vs 0.33.3 | 11 / 56 | 15 / 64 |
+| 0.32.14 vs 0.33.3 | 19 / 56 | 16 / 64 |
+
+**Reading: no build stands out.** The pair that shares the native payload moves as many cells
+as the pairs that do not, so the spread is what think-on at temperature 0 does between runs,
+not a build effect: a longer reasoning trace caps the arm, the ladder escalates, the arm is
+re-answered at a bigger rung with a bigger budget, and the answer changes. The rungs reached
+show it (table below).
+
+- **gemma4 think-on is stable across the three 0.33 builds:** 0 differing cells 0.33.3 vs
+  `main`, one 0.33.2 vs 0.33.3 (26b `name_bbox` 0.713 → 0.712 across a rung change). 26b's
+  scene IoU is 0.968 on all three against 0.334 on 0.32.14 (answered at 65536 after two
+  escalations there).
+- **qwen3.6** is the escalation case: its scene arm converged at 16384 on 0.33.2 (IoU 0.972)
+  and capped there on 0.32.14, 0.33.3 and `main`, whose 32768 re-runs answered 0.717 / 0.238 /
+  0.238. `name_bbox` is 0.401 on 0.32.14, 0.33.3 and `main`, 0.740 on 0.33.2. The two
+  0.33.3 = `main` agreements are consistent with a deterministic payload — and so is chance:
+  the qwen3.8 and nemotron cells show the same payload disagreeing with itself.
+- **nemotron3 (both quants)** moves on scene IoU (q4 0.862 / 0.572 / 0.835 / 0.827; q8
+  0.265 / 0.876 / 0.858 / 0.772) and on `name_bbox` (0.000–0.403, at chance on every build),
+  in no build's favour.
+- **qwen3.8** moves by ≤ 0.016 IoU on scene, 0.735–0.823 on `name_bbox`, one 7 px OCR hit
+  on `main`.
+
+Rungs the ladder reached (the T1 `num_ctx` column; ⚠ = arms converged at different rungs):
+
+| model | 0.32.14 | 0.33.2 | 0.33.3 | main |
+|---|---|---|---|---|
+| gemma4:31b | 16384 | 16384 | 16384 | 16384 |
+| gemma4:26b-a4b | 16384/65536 | 16384 | 16384/65536 | 16384/65536 |
+| gemma4:e4b | 16384 | 16384 | 16384 | 16384 |
+| gemma4:e2b | 16384 | 16384/65536 | 16384/65536 | 16384/65536 |
+| qwen3.8 | 16384 | 16384 | 16384 | 16384 |
+| qwen3.6 | 16384/32768/131072 | 16384/32768 | 16384/32768 | 16384/32768 |
+| nemotron3 q4 | 16384/32768 | 16384/32768 | 16384/65536 | 16384/32768/65536 |
+| nemotron3 q8 | 16384/32768 | 16384/32768/65536 | 16384/32768 | 16384/32768 |
+
+**What would settle it:** the one cell where 0.33.3 and `main` agree on a bad number that
+0.33.2 does not show — qwen3.6 `scene_single` think-on — repeated n ≥ 5 on 0.33.2 and on
+0.33.3 in the same container (the rule since the 2026-08-24 retraction). Not run; the GPU
+carries the MLX think-on on `main` first.
 
 ## Tables — generator output, `render-ggml.sh false`, rendered 2026-09-06 21:26
 
@@ -442,6 +512,340 @@ Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:
 | qwen3.6:35b-a3b-q4_K_M | GGUF | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 8192 |
 | nemotron3:33b-q4_K_M | GGUF | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | 8192 |
 | nemotron3:33b-q8 | GGUF | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | 8192 |
+
+`error` = the arm ran and errored (OOM, transport, HTTP 500), so there is no contract to judge. `cap` = generation stopped at the `num_predict` cap rather than finishing, so the cell carries no score (ADR 0012 rule 8). The cap is a separate limit from the `num_ctx` window.
+
+## Tables (think-on) — generator output, `render-ggml.sh on`, rendered 2026-09-08 08:05
+
+## T1 — campaign `sync15_1_`
+
+## Scene grounding (six objects, norm-1000 boxes) + document extraction
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 0.962 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 0.334 | 0/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:e4b-it-q4_K_M | GGUF | 16384 | 0.292 | 3/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 2 |
+| gemma4:e2b-it-q4_K_M | GGUF | 16384 | 0.238 | 4/6 · 6/6 · 5/6 | ✅ | 0/5 · 0/5 · ✅ | 0 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 0.990 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768/131072 ⚠ | 0.717 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/32768 ⚠ | 0.862 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 4 |
+| nemotron3:33b-q8 | GGUF | 16384/32768 ⚠ | 0.265 | 0/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 5 |
+
+## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Gen tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1372 | 57 | 165 | 34.3 | 105 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 7576 | 173 | 478 | 47.4 | 76 |
+| gemma4:e4b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 1 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 2086 | 179 | 1539 | 12.7 | 283 |
+| gemma4:e2b-it-q4_K_M | GGUF | 16384 | 0 | 0 | 0 | 0 | 0 | ❌ q4_bbox_hit | ❌ q1_right | — | 1756 | 243 | 1779 | 8.2 | 440 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 0 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | — | 1084 | 68 | 1572 | 17.5 | 205 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768/131072 ⚠ | 4 | 4 | 4 | 2 | 2 | capped | ✅ q1 + q2 + q4-bbox | — | 21058 | 104 | 2407 | 203.6 | 18 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/32768 ⚠ | 4 | 4 | 4 | 4 | 0 | ✅ q1 + q2 + q4-bbox | ❌ q1_right, q2_right, q4_bbox_hit | — | 3583 | 271 | 2760 | 14.2 | 253 |
+| nemotron3:33b-q8 | GGUF | 16384/32768 ⚠ | 4 | 4 | 4 | 4 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 6223 | 232 | 2354 | 28.0 | 129 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502 · build(s) 0.32.14-dynres-108-g76918a7 · think=on
+
+## T1 — campaign `ggml0332nt_1_1_`
+
+## Scene grounding (six objects, norm-1000 boxes) + document extraction
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 0.962 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384 | 0.968 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:e4b-it-q4_K_M | GGUF | 16384 | 0.243 | 2/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 2 |
+| gemma4:e2b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 0.088 | 1/6 · 6/6 · 5/6 | ✅ | 0/5 · 0/5 · ✅ | 0 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 0.974 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768 ⚠ | 0.972 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/32768 ⚠ | 0.572 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 5 |
+| nemotron3:33b-q8 | GGUF | 16384/32768/65536 ⚠ | 0.876 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 3 |
+
+## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Gen tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1372 | 20 | 136 | 81.8 | 44 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 4553 | 47 | 346 | 101.6 | 35 |
+| gemma4:e4b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 1 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1765 | 40 | 1104 | 45.4 | 79 |
+| gemma4:e2b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 0 | 0 | 0 | 0 | 0 | ❌ q4_bbox_hit | ❌ q1_right, q4_bbox_hit | — | 1379 | 48 | 1032 | 30.1 | 120 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 0 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | — | 1148 | 24 | 921 | 50.6 | 71 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768 ⚠ | 4 | 4 | 4 | 2 | 2 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 2226 | 38 | 1175 | 60.4 | 60 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/32768 ⚠ | 4 | 4 | 4 | 4 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 6135 | 57 | 1303 | 109.8 | 33 |
+| nemotron3:33b-q8 | GGUF | 16384/32768/65536 ⚠ | 4 | 4 | 4 | 4 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1780 | 63 | 1918 | 29.6 | 122 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11516 · build(s) 0.33.2-dynres-5-g2b95b4a · think=on
+
+## T1 — campaign `ggml0333nt_1_1_`
+
+## Scene grounding (six objects, norm-1000 boxes) + document extraction
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 0.962 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 0.968 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:e4b-it-q4_K_M | GGUF | 16384 | 0.243 | 2/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 2 |
+| gemma4:e2b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 0.088 | 1/6 · 6/6 · 5/6 | ✅ | 0/5 · 0/5 · ✅ | 0 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 0.984 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768 ⚠ | 0.238 | 2/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/65536 ⚠ | 0.835 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 5 |
+| nemotron3:33b-q8 | GGUF | 16384/32768 ⚠ | 0.858 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 4 |
+
+## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Gen tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1372 | 22 | 265 | 68.1 | 53 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 5305 | 37 | 365 | 147.3 | 24 |
+| gemma4:e4b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 1 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1765 | 40 | 1561 | 44.9 | 80 |
+| gemma4:e2b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 0 | 0 | 0 | 0 | 0 | ❌ q4_bbox_hit | ❌ q1_right, q4_bbox_hit | — | 1379 | 44 | 1688 | 32.1 | 112 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 0 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | — | 1131 | 25 | 1018 | 47.4 | 76 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768 ⚠ | 4 | 4 | 4 | 2 | 2 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 17944 | 37 | 532 | 487.4 | 7 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/65536 ⚠ | 4 | 4 | 4 | 4 | 0 | ✅ q1 + q2 + q4-bbox | ❌ q4_bbox_hit | — | 4676 | 57 | 1734 | 84.3 | 43 |
+| nemotron3:33b-q8 | GGUF | 16384/32768 ⚠ | 3 | 4 | 4 | 3 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 4348 | 56 | 1608 | 79.4 | 45 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11516 · build(s) 0.33.3-dynres-0-g0c4f09d · think=on
+
+## T1 — campaign `ggmlmainnt_1_1_`
+
+## Scene grounding (six objects, norm-1000 boxes) + document extraction
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 0.962 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 0.968 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:e4b-it-q4_K_M | GGUF | 16384 | 0.243 | 2/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 2 |
+| gemma4:e2b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 0.088 | 1/6 · 6/6 · 5/6 | ✅ | 0/5 · 0/5 · ✅ | 0 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 1.000 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768 ⚠ | 0.238 | 2/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/32768/65536 ⚠ | 0.827 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 5 |
+| nemotron3:33b-q8 | GGUF | 16384/32768 ⚠ | 0.772 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 5 |
+
+## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Gen tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1372 | 22 | 270 | 67.4 | 53 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 5305 | 41 | 465 | 131.5 | 27 |
+| gemma4:e4b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 1 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1765 | 40 | 1460 | 44.8 | 80 |
+| gemma4:e2b-it-q4_K_M | GGUF | 16384/65536 ⚠ | 0 | 0 | 0 | 0 | 0 | ❌ q4_bbox_hit | ❌ q1_right, q4_bbox_hit | — | 1379 | 57 | 1652 | 25.3 | 142 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 1 | 1 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | — | 1092 | 25 | 1012 | 46.5 | 77 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | 16384/32768 ⚠ | 4 | 4 | 4 | 2 | 2 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 17944 | 47 | 558 | 389.9 | 9 |
+| nemotron3:33b-q4_K_M | GGUF | 16384/32768/65536 ⚠ | 4 | 4 | 4 | 4 | 1 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 2216 | 56 | 2132 | 40.7 | 88 |
+| nemotron3:33b-q8 | GGUF | 16384/32768 ⚠ | 4 | 4 | 4 | 4 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 3697 | 57 | 1819 | 66.4 | 54 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11516 · build(s) 0.33.3-dynres-10-ga523d60 · think=on
+
+## T2 — gemma4:31b-it-q4_K_M think=on: 0.32.14 · 0.33.2 · 0.33.3 · main (cross-build by design; MIXED footer names the builds; all columns on the CUDA host)
+
+| test | metric | sync15_1_gemma4_31b-it-q4_K_M_thinkon | ggml0332nt_1_1_gemma4_31b-it-q4_K_M_thinkon | ggml0333nt_1_1_gemma4_31b-it-q4_K_M_thinkon | ggmlmainnt_1_1_gemma4_31b-it-q4_K_M_thinkon |
+|---|---|---|---|---|---|
+| scene | bbox IoU | 0.962 (16384) | 0.962 (16384) | 0.962 (16384) | 0.962 (16384) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.709 (16384) | 0.706 (16384) | 0.706 (16384) | 0.706 (16384) |
+| fine text | 22/16/12/9/7 px | 4/4/4/4/3 (16384) | 4/4/4/3/3 (16384) | 4/4/4/3/3 (16384) | 4/4/4/3/3 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| throughput | gen tok/s | 57 | 20 | 22 | 22 |
+| throughput | prefill tok/s | 165 | 136 | 265 | 270 |
+| latency | s/req (unique image) | 34.3 | 81.8 | 68.1 | 67.4 |
+| latency | req/h (serial) | 105 | 44 | 53 | 53 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:11516 · build(s) 0.32.14-dynres-108-g76918a7, 0.33.2-dynres-5-g2b95b4a, 0.33.3-dynres-0-g0c4f09d, 0.33.3-dynres-10-ga523d60 ⚠ MIXED — columns are not one campaign
+
+## T2 — gemma4:26b-a4b-it-q4_K_M think=on: 0.32.14 · 0.33.2 · 0.33.3 · main (cross-build by design; MIXED footer names the builds; all columns on the CUDA host)
+
+| test | metric | sync15_1_gemma4_26b-a4b-it-q4_K_M_thinkon | ggml0332nt_1_1_gemma4_26b-a4b-it-q4_K_M_thinkon | ggml0333nt_1_1_gemma4_26b-a4b-it-q4_K_M_thinkon | ggmlmainnt_1_1_gemma4_26b-a4b-it-q4_K_M_thinkon |
+|---|---|---|---|---|---|
+| scene | bbox IoU | 0.334 (65536) | 0.968 (16384) | 0.968 (16384) | 0.968 (16384) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.714 (16384) | 0.713 (16384) | 0.712 (65536) | 0.712 (65536) |
+| fine text | 22/16/12/9/7 px | 4/4/4/4/3 (16384) | 4/4/4/3/3 (16384) | 4/4/4/3/3 (16384) | 4/4/4/3/3 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| throughput | gen tok/s | 173 | 47 | 37 | 41 |
+| throughput | prefill tok/s | 478 | 346 | 365 | 465 |
+| latency | s/req (unique image) | 47.4 | 101.6 | 147.3 | 131.5 |
+| latency | req/h (serial) | 76 | 35 | 24 | 27 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:11516 · build(s) 0.32.14-dynres-108-g76918a7, 0.33.2-dynres-5-g2b95b4a, 0.33.3-dynres-0-g0c4f09d, 0.33.3-dynres-10-ga523d60 ⚠ MIXED — columns are not one campaign
+
+## T2 — gemma4:e4b-it-q4_K_M think=on: 0.32.14 · 0.33.2 · 0.33.3 · main (cross-build by design; MIXED footer names the builds; all columns on the CUDA host)
+
+| test | metric | sync15_1_gemma4_e4b-it-q4_K_M_thinkon | ggml0332nt_1_1_gemma4_e4b-it-q4_K_M_thinkon | ggml0333nt_1_1_gemma4_e4b-it-q4_K_M_thinkon | ggmlmainnt_1_1_gemma4_e4b-it-q4_K_M_thinkon |
+|---|---|---|---|---|---|
+| scene | bbox IoU | 0.292 (16384) | 0.243 (16384) | 0.243 (16384) | 0.243 (16384) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.000 (16384) | 0.000 (16384) | 0.000 (16384) | 0.000 (16384) |
+| fine text | 22/16/12/9/7 px | 4/4/4/1/1 (16384) | 4/4/4/1/1 (16384) | 4/4/4/1/1 (16384) | 4/4/4/1/1 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| throughput | gen tok/s | 179 | 40 | 40 | 40 |
+| throughput | prefill tok/s | 1539 | 1104 | 1561 | 1460 |
+| latency | s/req (unique image) | 12.7 | 45.4 | 44.9 | 44.8 |
+| latency | req/h (serial) | 283 | 79 | 80 | 80 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:11516 · build(s) 0.32.14-dynres-108-g76918a7, 0.33.2-dynres-5-g2b95b4a, 0.33.3-dynres-0-g0c4f09d, 0.33.3-dynres-10-ga523d60 ⚠ MIXED — columns are not one campaign
+
+## T2 — gemma4:e2b-it-q4_K_M think=on: 0.32.14 · 0.33.2 · 0.33.3 · main (cross-build by design; MIXED footer names the builds; all columns on the CUDA host)
+
+| test | metric | sync15_1_gemma4_e2b-it-q4_K_M_thinkon | ggml0332nt_1_1_gemma4_e2b-it-q4_K_M_thinkon | ggml0333nt_1_1_gemma4_e2b-it-q4_K_M_thinkon | ggmlmainnt_1_1_gemma4_e2b-it-q4_K_M_thinkon |
+|---|---|---|---|---|---|
+| scene | bbox IoU | 0.238 (16384) | 0.088 (16384) | 0.088 (16384) | 0.088 (16384) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 0/5, 0/5, ✅, ✅ | 0/5, 0/5, ✅, ✅ | 0/5, 0/5, ✅, ✅ | 0/5, 0/5, ✅, ✅ |
+| document | name_bbox IoU | 0.000 (16384) | 0.000 (16384) | 0.000 (16384) | 0.000 (16384) |
+| fine text | 22/16/12/9/7 px | 0/0/0/0/0 (16384) | 0/0/0/0/0 (65536) | 0/0/0/0/0 (65536) | 0/0/0/0/0 (65536) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ❌ 5/5 (16384) | ✅ ✅ ❌ 3/5 (16384) | ✅ ✅ ❌ 3/5 (16384) | ✅ ✅ ❌ 3/5 (16384) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ❌ ✅ ✅ 5/5 (16384) | ❌ ✅ ❌ 3/5 (16384) | ❌ ✅ ❌ 3/5 (16384) | ❌ ✅ ❌ 3/5 (16384) |
+| throughput | gen tok/s | 243 | 48 | 44 | 57 |
+| throughput | prefill tok/s | 1779 | 1032 | 1688 | 1652 |
+| latency | s/req (unique image) | 8.2 | 30.1 | 32.1 | 25.3 |
+| latency | req/h (serial) | 440 | 120 | 112 | 142 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:11516 · build(s) 0.32.14-dynres-108-g76918a7, 0.33.2-dynres-5-g2b95b4a, 0.33.3-dynres-0-g0c4f09d, 0.33.3-dynres-10-ga523d60 ⚠ MIXED — columns are not one campaign
+
+## T2 — qwen3.8:27b-q4_K_M think=on: 0.32.14 · 0.33.2 · 0.33.3 · main (cross-build by design; MIXED footer names the builds; all columns on the CUDA host)
+
+| test | metric | sync15_1_qwen3_8_27b-q4_K_M_thinkon | ggml0332nt_1_1_qwen3_8_27b-q4_K_M_thinkon | ggml0333nt_1_1_qwen3_8_27b-q4_K_M_thinkon | ggmlmainnt_1_1_qwen3_8_27b-q4_K_M_thinkon |
+|---|---|---|---|---|---|
+| scene | bbox IoU | 0.990 (16384) | 0.974 (16384) | 0.984 (16384) | 1.000 (16384) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.787 (16384) | 0.735 (16384) | 0.745 (16384) | 0.823 (16384) |
+| fine text | 22/16/12/9/7 px | 4/4/4/1/0 (16384) | 4/4/4/1/0 (16384) | 4/4/4/1/0 (16384) | 4/4/4/1/1 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ❌ 5/5 (16384) | ✅ ✅ ❌ 5/5 (16384) | ✅ ✅ ❌ 5/5 (16384) | ✅ ✅ ❌ 5/5 (16384) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| throughput | gen tok/s | 68 | 24 | 25 | 25 |
+| throughput | prefill tok/s | 1572 | 921 | 1018 | 1012 |
+| latency | s/req (unique image) | 17.5 | 50.6 | 47.4 | 46.5 |
+| latency | req/h (serial) | 205 | 71 | 76 | 77 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:11516 · build(s) 0.32.14-dynres-108-g76918a7, 0.33.2-dynres-5-g2b95b4a, 0.33.3-dynres-0-g0c4f09d, 0.33.3-dynres-10-ga523d60 ⚠ MIXED — columns are not one campaign
+
+## T2 — qwen3.6:35b-a3b-q4_K_M think=on: 0.32.14 · 0.33.2 · 0.33.3 · main (cross-build by design; MIXED footer names the builds; all columns on the CUDA host)
+
+| test | metric | sync15_1_qwen3_6_35b-a3b-q4_K_M_thinkon | ggml0332nt_1_1_qwen3_6_35b-a3b-q4_K_M_thinkon | ggml0333nt_1_1_qwen3_6_35b-a3b-q4_K_M_thinkon | ggmlmainnt_1_1_qwen3_6_35b-a3b-q4_K_M_thinkon |
+|---|---|---|---|---|---|
+| scene | bbox IoU | 0.717 (32768) | 0.972 (16384) | 0.238 (32768) | 0.238 (32768) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.401 (16384) | 0.740 (16384) | 0.401 (16384) | 0.401 (16384) |
+| fine text | 22/16/12/9/7 px | 4/4/4/2/2 (16384) | 4/4/4/2/2 (16384) | 4/4/4/2/2 (16384) | 4/4/4/2/2 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | capped (131072) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (32768) | ✅ ✅ ✅ 5/5 (32768) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (32768) | ✅ ✅ ✅ 5/5 (32768) | ✅ ✅ ✅ 5/5 (32768) | ✅ ✅ ✅ 5/5 (32768) |
+| throughput | gen tok/s | 104 | 38 | 37 | 47 |
+| throughput | prefill tok/s | 2407 | 1175 | 532 | 558 |
+| latency | s/req (unique image) | 203.6 | 60.4 | 487.4 | 389.9 |
+| latency | req/h (serial) | 18 | 60 | 7 | 9 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:11516 · build(s) 0.32.14-dynres-108-g76918a7, 0.33.2-dynres-5-g2b95b4a, 0.33.3-dynres-0-g0c4f09d, 0.33.3-dynres-10-ga523d60 ⚠ MIXED — columns are not one campaign
+
+## T2 — nemotron3:33b-q4_K_M think=on: 0.32.14 · 0.33.2 · 0.33.3 · main (cross-build by design; MIXED footer names the builds; all columns on the CUDA host)
+
+| test | metric | sync15_1_nemotron3_33b-q4_K_M_thinkon | ggml0332nt_1_1_nemotron3_33b-q4_K_M_thinkon | ggml0333nt_1_1_nemotron3_33b-q4_K_M_thinkon | ggmlmainnt_1_1_nemotron3_33b-q4_K_M_thinkon |
+|---|---|---|---|---|---|
+| scene | bbox IoU | 0.862 (16384) | 0.572 (16384) | 0.835 (16384) | 0.827 (32768) |
+| scene | labels / serial | 6/6, ❌ | 6/6, ❌ | 6/6, ❌ | 6/6, ❌ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.000 (32768) | 0.019 (16384) | 0.232 (16384) | 0.000 (32768) |
+| fine text | 22/16/12/9/7 px | 4/4/4/4/0 (16384) | 4/4/4/4/0 (16384) | 4/4/4/4/0 (16384) | 4/4/4/4/1 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (32768) | ✅ ✅ ✅ 5/5 (65536) | ✅ ✅ ✅ 5/5 (16384) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ❌ ❌ ❌ 4/5 (32768) | ✅ ✅ ✅ 5/5 (32768) | ✅ ✅ ❌ 5/5 (16384) | ✅ ✅ ✅ 5/5 (65536) |
+| throughput | gen tok/s | 271 | 57 | 57 | 56 |
+| throughput | prefill tok/s | 2760 | 1303 | 1734 | 2132 |
+| latency | s/req (unique image) | 14.2 | 109.8 | 84.3 | 40.7 |
+| latency | req/h (serial) | 253 | 33 | 43 | 88 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:11516 · build(s) 0.32.14-dynres-108-g76918a7, 0.33.2-dynres-5-g2b95b4a, 0.33.3-dynres-0-g0c4f09d, 0.33.3-dynres-10-ga523d60 ⚠ MIXED — columns are not one campaign
+
+## T2 — nemotron3:33b-q8 think=on: 0.32.14 · 0.33.2 · 0.33.3 · main (cross-build by design; MIXED footer names the builds; all columns on the CUDA host)
+
+| test | metric | sync15_1_nemotron3_33b-q8_thinkon | ggml0332nt_1_1_nemotron3_33b-q8_thinkon | ggml0333nt_1_1_nemotron3_33b-q8_thinkon | ggmlmainnt_1_1_nemotron3_33b-q8_thinkon |
+|---|---|---|---|---|---|
+| scene | bbox IoU | 0.265 (32768) | 0.876 (16384) | 0.858 (16384) | 0.772 (16384) |
+| scene | labels / serial | 6/6, ❌ | 6/6, ❌ | 6/6, ❌ | 6/6, ❌ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.007 (16384) | 0.403 (16384) | 0.231 (16384) | 0.087 (16384) |
+| fine text | 22/16/12/9/7 px | 4/4/4/4/0 (16384) | 4/4/4/4/0 (32768) | 3/4/4/3/0 (16384) | 4/4/4/4/0 (32768) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (65536) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (32768) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (32768) | ✅ ✅ ✅ 5/5 (65536) | ✅ ✅ ✅ 5/5 (32768) | ✅ ✅ ✅ 5/5 (32768) |
+| throughput | gen tok/s | 232 | 63 | 56 | 57 |
+| throughput | prefill tok/s | 2354 | 1918 | 1608 | 1819 |
+| latency | s/req (unique image) | 28.0 | 29.6 | 79.4 | 66.4 |
+| latency | req/h (serial) | 129 | 122 | 45 | 54 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:11516 · build(s) 0.32.14-dynres-108-g76918a7, 0.33.2-dynres-5-g2b95b4a, 0.33.3-dynres-0-g0c4f09d, 0.33.3-dynres-10-ga523d60 ⚠ MIXED — columns are not one campaign
+
+## Contract matrix, think=on, campaign `sync15_1_`
+
+## Contract matrix (`contract_followed`), think=on
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | GGUF | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 16384 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384 |
+| gemma4:e4b-it-q4_K_M | GGUF | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | 16384 |
+| gemma4:e2b-it-q4_K_M | GGUF | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 16384 |
+| qwen3.8:27b-q4_K_M | GGUF | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 16384 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | cap | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384/32768/65536/131072 ⚠ |
+| nemotron3:33b-q4_K_M | GGUF | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ | 16384/32768 ⚠ |
+| nemotron3:33b-q8 | GGUF | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | 16384/32768 ⚠ |
+
+`error` = the arm ran and errored (OOM, transport, HTTP 500), so there is no contract to judge. `cap` = generation stopped at the `num_predict` cap rather than finishing, so the cell carries no score (ADR 0012 rule 8). The cap is a separate limit from the `num_ctx` window.
+
+## Contract matrix, think=on, campaign `ggml0332nt_1_1_`
+
+## Contract matrix (`contract_followed`), think=on
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | GGUF | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384/65536 ⚠ |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | ✅ | cap | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384/65536 ⚠ |
+| gemma4:e4b-it-q4_K_M | GGUF | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | 16384 |
+| gemma4:e2b-it-q4_K_M | GGUF | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 16384 |
+| qwen3.8:27b-q4_K_M | GGUF | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 16384 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384/32768/65536 ⚠ |
+| nemotron3:33b-q4_K_M | GGUF | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ | 16384/32768 ⚠ |
+| nemotron3:33b-q8 | GGUF | ✅ | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | 16384 |
+
+`error` = the arm ran and errored (OOM, transport, HTTP 500), so there is no contract to judge. `cap` = generation stopped at the `num_predict` cap rather than finishing, so the cell carries no score (ADR 0012 rule 8). The cap is a separate limit from the `num_ctx` window.
+
+## Contract matrix, think=on, campaign `ggml0333nt_1_1_`
+
+## Contract matrix (`contract_followed`), think=on
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | GGUF | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | ✅ | ✅ | ✅ | ✅ | cap | ✅ | ✅ | ✅ | 16384/65536 ⚠ |
+| gemma4:e4b-it-q4_K_M | GGUF | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | 16384 |
+| gemma4:e2b-it-q4_K_M | GGUF | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 16384 |
+| qwen3.8:27b-q4_K_M | GGUF | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 16384 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | cap | ✅ | 16384/32768/65536 ⚠ |
+| nemotron3:33b-q4_K_M | GGUF | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | 16384/32768 ⚠ |
+| nemotron3:33b-q8 | GGUF | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ | 16384/32768/65536 ⚠ |
+
+`error` = the arm ran and errored (OOM, transport, HTTP 500), so there is no contract to judge. `cap` = generation stopped at the `num_predict` cap rather than finishing, so the cell carries no score (ADR 0012 rule 8). The cap is a separate limit from the `num_ctx` window.
+
+## Contract matrix, think=on, campaign `ggmlmainnt_1_1_`
+
+## Contract matrix (`contract_followed`), think=on
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | GGUF | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | ✅ | ✅ | ✅ | ✅ | cap | ✅ | ✅ | ✅ | 16384/65536 ⚠ |
+| gemma4:e4b-it-q4_K_M | GGUF | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | 16384 |
+| gemma4:e2b-it-q4_K_M | GGUF | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 16384 |
+| qwen3.8:27b-q4_K_M | GGUF | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 16384 |
+| qwen3.6:35b-a3b-q4_K_M | GGUF | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | cap | ✅ | 16384/32768/65536 ⚠ |
+| nemotron3:33b-q4_K_M | GGUF | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ | 16384 |
+| nemotron3:33b-q8 | GGUF | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | 16384 |
 
 `error` = the arm ran and errored (OOM, transport, HTTP 500), so there is no contract to judge. `cap` = generation stopped at the `num_predict` cap rather than finishing, so the cell carries no score (ADR 0012 rule 8). The cap is a separate limit from the `num_ctx` window.
 
