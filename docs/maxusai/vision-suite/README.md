@@ -606,8 +606,9 @@ A standalone Go tool on the fork's MLX binding that times, per layer shape of th
 and per row count, the three ways MLX can run an nvfp4 linear: `qmm` (what the runner uses:
 bf16 activations, in-register dequant, bf16 tensor-core MMA), `qqmm` (activations quantised
 to nvfp4 on the fly, cuBLASLt block-scaled FP4 GEMM on compute capability 10 and up) and a
-bf16 cuBLASLt reference; each cell carries the error against an fp32 product with the
-unquantised weights. Build it in the Go container, then run it inside the image with the GPU
+bf16 cuBLASLt reference, plus `dequant` (the nvfp4 weights dequantised to bf16 on every call
+and fed to the bf16 GEMM: qmm's numbers at the price of a temporary copy); each cell carries the
+error against an fp32 product with the unquantised weights. Build it in the Go container, then run it inside the image with the GPU
 and the same environment the server gives its MLX runner (bundled CUDA headers for the NVRTC
 JIT, the MLX library dir on the loader path) plus a persistent PTX cache so the JIT is paid once:
 

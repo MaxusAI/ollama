@@ -72,7 +72,7 @@ func TestPrintTableRendersSpeedupAndErrors(t *testing.T) {
 		{Preset: "p", Proj: "q", M: 64, K: 64, N: 128, Method: "qqmm", Error: "unsupported"},
 	}
 	out := captureStdout(t, func() { printTable(results, []string{"bf16", "qmm", "qqmm"}) })
-	for _, want := range []string{"## p q (K=64, N=128)", "| 8 | 1.000 (1) | 2.000 (0) | 1.000 (1) | 2.00x | 3.0e-03 / 1.0e-01 / 1.4e-01 |", "| 64 | 1.000 (1) | 2.000 (0) | error | — | 3.0e-03 / 1.0e-01 / error |"} {
+	for _, want := range []string{"## p q (K=64, N=128)", "| qmm / bf16 | qmm / qqmm |", "| 8 | 1.000 (1) | 2.000 (0) | 1.000 (1) | 2.00x | 2.00x | 3.0e-03 / 1.0e-01 / 1.4e-01 |", "| 64 | 1.000 (1) | 2.000 (0) | error | 2.00x | — | 3.0e-03 / 1.0e-01 / error |"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("table lacks %q:\n%s", want, out)
 		}

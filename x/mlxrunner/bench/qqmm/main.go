@@ -9,6 +9,10 @@
 //	      fallback. This is the path the runner does not use.
 //	bf16  mlx.Matmul: x bf16, w bf16 unquantized. cuBLASLt, the
 //	      no-quantization reference.
+//	dequant  mlx.Dequantize of the nvfp4 weights to bf16 on every call, then
+//	      the bf16 cuBLASLt matmul: the same numbers as qmm (bf16 math on
+//	      the same 4-bit weights) at the cost of a temporary bf16 copy of
+//	      the layer, priced here per call.
 //
 // Every cell reports the wall time per call (median, p10, p90 over -iters
 // after -warmup calls, plus the first call), TFLOP/s, and the error against
@@ -92,7 +96,7 @@ type result struct {
 func main() {
 	shapesFlag := flag.String("shapes", "gemma4-31b,qwen3.8-27b", "comma-separated presets, or custom name=K:N entries")
 	mFlag := flag.String("m", "1,8,64,512,2048,4096", "comma-separated row counts (1 = decode, 2048 = the prefill chunk)")
-	methodsFlag := flag.String("methods", "bf16,qmm,qqmm", "comma-separated subset of bf16,qmm,qqmm")
+	methodsFlag := flag.String("methods", "bf16,qmm,qqmm,dequant", "comma-separated subset of bf16,qmm,qqmm,dequant")
 	iters := flag.Int("iters", 20, "timed calls per cell")
 	warmup := flag.Int("warmup", 3, "untimed calls per cell before the timed ones (the first is reported as first_ms)")
 	seed := flag.Uint64("seed", 1, "seed for the normal-distributed operands")
@@ -168,6 +172,11 @@ func main() {
 					}
 				case "qqmm":
 					f = func() *mlx.Array { return mlx.QQMM(xbf, wq, ws, groupSize, bits, mode, nil, nil) }
+				case "dequant":
+					f = func() *mlx.Array {
+						w := mlx.Dequantize(wq, ws, wb, groupSize, bits, mode, nil).AsType(mlx.DTypeBFloat16)
+						return mlx.Matmul(xbf, w.Transpose(1, 0))
+					}
 				default:
 					fmt.Fprintln(os.Stderr, "unknown method", method)
 					os.Exit(2)
@@ -247,8 +256,9 @@ func printRow(r result) {
 }
 
 // printTable renders one markdown table per shape: a row per M, a column per
-// method with median ms and TFLOP/s, qqmm's speed-up over qmm, and the
-// relative RMS errors.
+// method with median ms and TFLOP/s, each other method's speed-up over qmm
+// (qmm's median divided by the method's; above 1 is faster than today), and
+// the relative RMS errors.
 func printTable(results []result, methods []string) {
 	byShape := map[string][]result{}
 	var order []string
@@ -265,11 +275,21 @@ func printTable(results []result, methods []string) {
 		for _, m := range methods {
 			fmt.Printf(" %s ms (TFLOP/s) |", m)
 		}
-		fmt.Printf(" qqmm / qmm | relRMS %s |\n|---|", strings.Join(methods, " / "))
+		var ratios []string
+		for _, m := range methods {
+			if m != "qmm" {
+				ratios = append(ratios, m)
+				fmt.Printf(" qmm / %s |", m)
+			}
+		}
+		fmt.Printf(" relRMS %s |\n|---|", strings.Join(methods, " / "))
 		for range methods {
 			fmt.Printf("---|")
 		}
-		fmt.Printf("---|---|\n")
+		for range ratios {
+			fmt.Printf("---|")
+		}
+		fmt.Printf("---|\n")
 		rows := byShape[key]
 		ms := map[int]map[string]result{}
 		var mOrder []int
@@ -298,11 +318,13 @@ func printTable(results []result, methods []string) {
 				}
 			}
 			q, qok := ms[m]["qmm"]
-			qq, qqok := ms[m]["qqmm"]
-			if qok && qqok && q.Error == "" && qq.Error == "" && qq.MedianMs > 0 {
-				fmt.Printf(" %.2fx |", q.MedianMs/qq.MedianMs)
-			} else {
-				fmt.Printf(" — |")
+			for _, name := range ratios {
+				o, ok := ms[m][name]
+				if qok && ok && q.Error == "" && o.Error == "" && o.MedianMs > 0 {
+					fmt.Printf(" %.2fx |", q.MedianMs/o.MedianMs)
+				} else {
+					fmt.Printf(" — |")
+				}
 			}
 			fmt.Printf(" %s |\n", strings.Join(errs, " / "))
 		}
