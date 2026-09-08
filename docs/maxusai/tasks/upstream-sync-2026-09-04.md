@@ -542,6 +542,10 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
      served; 12b not clamped).
    - #279 live proof, FIX vs CONTROL: a rung change re-admits (larger refused when it cannot
      fit, smaller releases the window, same rung served warm); `main` before it never reloaded.
+   - **Think-on on `main` (2026-09-08, 8 h 07):** four nvfp4 models, 9 rung-suites incl. the
+     65536 rungs on 26b and qwen3.6, **0 OOMs, 0 errors**; vs the 0.33.3 and 0.32.14 MLX
+     think-on cells 9 / 12 / 10 of 28 quality cells move between the pairs — run-to-run spread,
+     as on the GGUF path; appended to the write-up.
    **Deploy note:** the tagged `sync-0.33.3` remains the validated deployable exactly as
    before; a build from `main` is now validated on this host to the same depth on the CUDA
    think-off surface plus the admission behaviour, and would need the Metal half like the tag.

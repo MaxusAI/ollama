@@ -6,6 +6,14 @@
 > converge 24/24 under headroom and are refused at admission under a cap that
 > cannot hold the rung; the automatic-context clamp fires on a real load. One
 > single-arm contract flip on qwen3.6 is under an n=3 repeat (section at the end).
+>
+> **Think-on (appended 2026-09-08): no build stands out either.** The MLX think-on on `main`
+> (four nvfp4 models, ladder from 16384, 8 h 07 min) ran 9 rung-suites with **0 OOMs and
+> 0 errors** under 16 GiB headroom, including the 65536 rungs on 26b and qwen3.6 — the rungs
+> that aborted mid-prefill on Sep 4 now admit and complete. Against the tagged 0.33.3 and the
+> 0.32.14 MLX think-on cells, 9 / 12 / 10 of 28 quality cells move between the three pairs,
+> the same run-to-run spread the GGUF think-on showed (`name_bbox` swings 0.36–0.75 on 31b
+> across builds); nothing is attributable to the build.
 
 ## Provenance
 
@@ -322,4 +330,224 @@ Contract matrix per repeat (generator output; `bcreasoning` is the column in que
 The same arm flips between repeats of one build, so the single-arm difference seen in the
 campaign tables is run-to-run variance of greedy decoding on this model — the ADR 0029
 class — not a build effect. It stays out of the verdict.
+
+## Row 4 (2026-09-08) — MLX think-on on `main`, against the 0.33.3 and 0.32.14 MLX think-on cells
+
+`overnight-chain.sh`, container `vsuite-main276on` on `:11517`, `maxusai/ollama:main-a523d60b`
+(`0.33.3-dynres-10-ga523d60`), `THINK_MODES=on`, ladder from 16384 to 65536 (`num_predict`
+8192 → 24576 → 57344), `OLLAMA_GPU_OVERHEAD` 16 GiB, one runner, cold restart per cell, beside
+production. gemma4:12b is descoped for think-on by policy (`DESCOPED_CELLS`). Prefix
+`main276nt_1_1_`; references `mlx0333cu_1_*_thinkon` (tagged 0.33.3, 2026-09-04) and
+`sync15nt_1_*_thinkon` (0.32.14, 2026-08-24), all on this host. Render `render-main276nt.sh`
+→ `preflight-runs/main276nt-render.md`, generator output only, appended below.
+
+| model | rungs | not converged at 65536 | done |
+|---|---|---|---|
+| gemma4:26b-nvfp4 | 16384 / 32768 / 65536 | `multi_3img_anchored` | 10:31 (2 h 29) |
+| gemma4:31b-nvfp4 | 16384 / 32768 | — | 11:12 (0 h 42) |
+| qwen3.8:27b-nvfp4 | 16384 | — | 11:49 (0 h 37) |
+| qwen3.6:35b-a3b-nvfp4 | 16384 / 32768 / 65536 | `bboxm_free_anc_named`, `scene_single` | 16:09 (4 h 20) |
+
+**Driver summary: OOMs=0 errors=0 suites=9 not_converged=2** (08:02 → 16:09). The two
+65536 rungs — explicit `num_ctx` 65536 with think traces up to 57k tokens on 26b and on the
+MoE — are the request shape that produced the Sep-4 mid-prefill aborts; under #276's admission
+and 16 GiB headroom they are admitted and complete. That is the think-on half of criterion 5.
+
+**What differs between the builds** (column diff of the four T2 tables, 7 quality rows × 4
+models = 28 cells; the tables below are the veto):
+
+| pair | quality cells differ | contract cells differ (of 32) |
+|---|---|---|
+| main vs 0.33.3 (same MLX payload) | 9 / 28 | 6 |
+| 0.33.3 vs 0.32.14 | 12 / 28 | 5 |
+| main vs 0.32.14 | 10 / 28 | 6 |
+
+The pair sharing the payload moves as many cells as the pairs that do not — the same finding
+as the GGUF think-on ([the GGUF write-up](vision-campaign-2026-09-06-gguf-four-builds.md)):
+run-to-run spread of greedy decoding with long reasoning traces, not a build effect. Scene IoU
+is stable on every model (26b 0.970–0.973, 31b 0.963–0.964, qwen3.8 0.984–1.000); the volatile
+arm is `name_bbox` (31b 0.619 / 0.355 / 0.751; qwen3.6 0.167 / 0.609 / 0.164; qwen3.8
+0.527 / 0.608 / 0.728), plus single flips of a multi-image `q4-bbox` hit on the qwen models and
+±1 fine-text hit. The ladders reached are identical across builds except qwen3.6, which climbed
+one rung further on `main`. Contract flips sit on the arms that flip within a build. Throughput
+columns are contended and not comparable.
+
+## Tables (think-on) — generator output, `render-main276nt.sh`, rendered 2026-09-08 16:15
+
+## T1 — campaign `main276nt_1_1_` think=on
+
+## Scene grounding (six objects, norm-1000 boxes) + document extraction
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| gemma4:26b-nvfp4 | **MLX** | 16384/32768/65536 ⚠ | **0.972** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:31b-nvfp4 | **MLX** | 16384 | **0.964** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| qwen3.8:27b-nvfp4 | **MLX** | 16384 | **1.000** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | 16384/32768/65536 ⚠ | capped | capped | capped | 5/5 · 5/5 · ✅ | 4 |
+
+## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Gen tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:26b-nvfp4 | **MLX** | 16384/32768/65536 ⚠ | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | capped | — | 3729 | 53 | 124 | 84.5 | 43 |
+| gemma4:31b-nvfp4 | **MLX** | 16384 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 3161 | 30 | 79 | 128.3 | 28 |
+| qwen3.8:27b-nvfp4 | **MLX** | 16384 | 4 | 4 | 4 | 2 | 0 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | — | 1081 | 18 | 2429 | 60.0 | 60 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | 16384/32768/65536 ⚠ | 4 | 4 | 4 | 2 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | capped | ≥57344 ⚠ | 66 | 2251 | capped | capped |
+
+Provenance (from score files): host(s) http://127.0.0.1:11517 · build(s) 0.33.3-dynres-10-ga523d60 · think=on
+
+## T1 — campaign `mlx0333cu_1_` think=on
+
+## Scene grounding (six objects, norm-1000 boxes) + document extraction
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| gemma4:26b-nvfp4 | **MLX** | 16384/32768/65536 ⚠ | **0.973** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:31b-nvfp4 | **MLX** | 16384 | **0.963** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| qwen3.8:27b-nvfp4 | **MLX** | 16384 | **0.984** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | 16384/65536 ⚠ | capped | capped | capped | 5/5 · 5/5 · ✅ | 4 |
+
+## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Gen tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:26b-nvfp4 | **MLX** | 16384/32768/65536 ⚠ | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | capped | — | 3340 | 58 | 137 | 69.5 | 52 |
+| gemma4:31b-nvfp4 | **MLX** | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1986 | 34 | 155 | 69.4 | 52 |
+| qwen3.8:27b-nvfp4 | **MLX** | 16384 | 4 | 4 | 4 | 1 | 0 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | — | 1062 | 20 | 8292 | 52.9 | 68 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | 16384/65536 ⚠ | 4 | 4 | 4 | 2 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | capped | ≥57344 ⚠ | 52 | 2186 | capped | capped |
+
+Provenance (from score files): host(s) http://127.0.0.1:11505 · build(s) 0.33.3-dynres-0-g0c4f09d · think=on
+
+## T1 — campaign `sync15nt_1_` think=on
+
+## Scene grounding (six objects, norm-1000 boxes) + document extraction
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| gemma4:26b-nvfp4 | **MLX** | 16384/32768/65536 ⚠ | **0.970** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4 |
+| gemma4:31b-nvfp4 | **MLX** | 16384 | **0.964** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.8:27b-nvfp4 | **MLX** | 16384 | **0.999** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | 16384/65536 ⚠ | capped | capped | capped | 5/5 · 5/5 · ✅ | 4 |
+
+## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Gen tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:26b-nvfp4 | **MLX** | 16384/32768/65536 ⚠ | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | capped | — | 6008 | 77 | 88 | 97.6 | 37 |
+| gemma4:31b-nvfp4 | **MLX** | 16384 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1977 | 44 | 184 | 54.3 | 66 |
+| qwen3.8:27b-nvfp4 | **MLX** | 16384 | 4 | 4 | 4 | 1 | 1 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 1030 | 29 | 4381 | 35.7 | 101 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | 16384/65536 ⚠ | 4 | 4 | 4 | 2 | 2 | ✅ q1 + q2 + q4-bbox | ❌ q4_bbox_hit | capped | ≥57344 ⚠ | 76 | 4052 | capped | capped |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502 · build(s) 0.32.14-dynres-108-g76918a7 · think=on
+
+## T2 — gemma4:26b-nvfp4 think=on: main · 0.33.3 · 0.32.14 (cross-build by design; MIXED footer names the builds; all columns on the CUDA host)
+
+| test | metric | main276nt_1_1_gemma4_26b-nvfp4_thinkon | mlx0333cu_1_gemma4_26b-nvfp4_thinkon | sync15nt_1_gemma4_26b-nvfp4_thinkon |
+|---|---|---|---|---|
+| scene | bbox IoU | 0.972 (16384) | 0.973 (16384) | 0.970 (16384) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.703 (16384) | 0.739 (65536) | 0.764 (16384) |
+| fine text | 22/16/12/9/7 px | 4/4/4/4/3 (16384) | 4/4/4/4/3 (16384) | 4/4/4/4/3 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (32768) | ✅ ✅ ✅ 5/5 (32768) | ✅ ✅ ✅ 5/5 (32768) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | capped (65536) | capped (65536) | capped (65536) |
+| throughput | gen tok/s | 53 | 58 | 77 |
+| throughput | prefill tok/s | 124 | 137 | 88 |
+| latency | s/req (unique image) | 84.5 | 69.5 | 97.6 |
+| latency | req/h (serial) | 43 | 52 | 37 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:11505, http://127.0.0.1:11517 · build(s) 0.32.14-dynres-108-g76918a7, 0.33.3-dynres-0-g0c4f09d, 0.33.3-dynres-10-ga523d60 ⚠ MIXED — columns are not one campaign
+
+## T2 — gemma4:31b-nvfp4 think=on: main · 0.33.3 · 0.32.14 (cross-build by design; MIXED footer names the builds; all columns on the CUDA host)
+
+| test | metric | main276nt_1_1_gemma4_31b-nvfp4_thinkon | mlx0333cu_1_gemma4_31b-nvfp4_thinkon | sync15nt_1_gemma4_31b-nvfp4_thinkon |
+|---|---|---|---|---|
+| scene | bbox IoU | 0.964 (16384) | 0.963 (16384) | 0.964 (16384) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.619 (16384) | 0.355 (16384) | 0.751 (16384) |
+| fine text | 22/16/12/9/7 px | 4/4/4/3/3 (16384) | 4/4/4/4/3 (16384) | 4/4/4/3/3 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| throughput | gen tok/s | 30 | 34 | 44 |
+| throughput | prefill tok/s | 79 | 155 | 184 |
+| latency | s/req (unique image) | 128.3 | 69.4 | 54.3 |
+| latency | req/h (serial) | 28 | 52 | 66 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:11505, http://127.0.0.1:11517 · build(s) 0.32.14-dynres-108-g76918a7, 0.33.3-dynres-0-g0c4f09d, 0.33.3-dynres-10-ga523d60 ⚠ MIXED — columns are not one campaign
+
+## T2 — qwen3.8:27b-nvfp4 think=on: main · 0.33.3 · 0.32.14 (cross-build by design; MIXED footer names the builds; all columns on the CUDA host)
+
+| test | metric | main276nt_1_1_qwen3_8_27b-nvfp4_thinkon | mlx0333cu_1_qwen3_8_27b-nvfp4_thinkon | sync15nt_1_qwen3_8_27b-nvfp4_thinkon |
+|---|---|---|---|---|
+| scene | bbox IoU | 1.000 (16384) | 0.984 (16384) | 0.999 (16384) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.527 (16384) | 0.608 (16384) | 0.728 (16384) |
+| fine text | 22/16/12/9/7 px | 4/4/4/2/0 (16384) | 4/4/4/1/0 (16384) | 4/4/4/1/1 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ❌ 5/5 (16384) | ✅ ✅ ❌ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| throughput | gen tok/s | 18 | 20 | 29 |
+| throughput | prefill tok/s | 2429 | 8292 | 4381 |
+| latency | s/req (unique image) | 60.0 | 52.9 | 35.7 |
+| latency | req/h (serial) | 60 | 68 | 101 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:11505, http://127.0.0.1:11517 · build(s) 0.32.14-dynres-108-g76918a7, 0.33.3-dynres-0-g0c4f09d, 0.33.3-dynres-10-ga523d60 ⚠ MIXED — columns are not one campaign
+
+## T2 — qwen3.6:35b-a3b-nvfp4 think=on: main · 0.33.3 · 0.32.14 (cross-build by design; MIXED footer names the builds; all columns on the CUDA host)
+
+| test | metric | main276nt_1_1_qwen3_6_35b-a3b-nvfp4_thinkon | mlx0333cu_1_qwen3_6_35b-a3b-nvfp4_thinkon | sync15nt_1_qwen3_6_35b-a3b-nvfp4_thinkon |
+|---|---|---|---|---|
+| scene | bbox IoU | capped (65536) | capped (65536) | capped (65536) |
+| scene | labels / serial | capped (65536) | capped (65536) | capped (65536) |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.167 (16384) | 0.609 (16384) | 0.164 (16384) |
+| fine text | 22/16/12/9/7 px | 4/4/4/2/3 (16384) | 4/4/4/2/3 (16384) | 4/4/4/2/2 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (32768) | ✅ ✅ ✅ 5/5 (65536) | ✅ ✅ ✅ 5/5 (16384) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (65536) | ✅ ✅ ✅ 5/5 (65536) | ✅ ✅ ❌ 5/5 (65536) |
+| throughput | gen tok/s | 66 | 52 | 76 |
+| throughput | prefill tok/s | 2251 | 2186 | 4052 |
+| latency | s/req (unique image) | capped | capped | capped |
+| latency | req/h (serial) | capped | capped | capped |
+
+Provenance (from score files): host(s) http://127.0.0.1:11502, http://127.0.0.1:11505, http://127.0.0.1:11517 · build(s) 0.32.14-dynres-108-g76918a7, 0.33.3-dynres-0-g0c4f09d, 0.33.3-dynres-10-ga523d60 ⚠ MIXED — columns are not one campaign
+
+## Contract matrix, think=on, campaign `main276nt_1_1_`
+
+## Contract matrix (`contract_followed`), think=on
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:26b-nvfp4 | **MLX** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384/32768/65536 ⚠ |
+| gemma4:31b-nvfp4 | **MLX** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 16384/32768 ⚠ |
+| qwen3.8:27b-nvfp4 | **MLX** | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | 16384 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384/32768/65536 ⚠ |
+
+`error` = the arm ran and errored (OOM, transport, HTTP 500), so there is no contract to judge. `cap` = generation stopped at the `num_predict` cap rather than finishing, so the cell carries no score (ADR 0012 rule 8). The cap is a separate limit from the `num_ctx` window.
+
+## Contract matrix, think=on, campaign `mlx0333cu_1_`
+
+## Contract matrix (`contract_followed`), think=on
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:26b-nvfp4 | **MLX** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | cap | ❌ | 16384/65536 ⚠ |
+| gemma4:31b-nvfp4 | **MLX** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384 |
+| qwen3.8:27b-nvfp4 | **MLX** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 16384 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384/32768/65536 ⚠ |
+
+`error` = the arm ran and errored (OOM, transport, HTTP 500), so there is no contract to judge. `cap` = generation stopped at the `num_predict` cap rather than finishing, so the cell carries no score (ADR 0012 rule 8). The cap is a separate limit from the `num_ctx` window.
+
+## Contract matrix, think=on, campaign `sync15nt_1_`
+
+## Contract matrix (`contract_followed`), think=on
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:26b-nvfp4 | **MLX** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 16384/32768/65536 ⚠ |
+| gemma4:31b-nvfp4 | **MLX** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384 |
+| qwen3.8:27b-nvfp4 | **MLX** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | 16384 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | 16384/32768/65536 ⚠ |
+
+`error` = the arm ran and errored (OOM, transport, HTTP 500), so there is no contract to judge. `cap` = generation stopped at the `num_predict` cap rather than finishing, so the cell carries no score (ADR 0012 rule 8). The cap is a separate limit from the `num_ctx` window.
 
