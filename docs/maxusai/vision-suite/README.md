@@ -599,3 +599,25 @@ claimed.
 
 Do **not** "fix" a failing cell by relaxing the scorer to best-fit. That
 tolerance is what hid this class of error in the first place.
+
+## Microbenchmark: nvfp4 matmul paths (`x/mlxrunner/bench/qqmm`)
+
+A standalone Go tool on the fork's MLX binding that times, per layer shape of the nvfp4 models
+and per row count, the three ways MLX can run an nvfp4 linear: `qmm` (what the runner uses:
+bf16 activations, in-register dequant, bf16 tensor-core MMA), `qqmm` (activations quantised
+to nvfp4 on the fly, cuBLASLt block-scaled FP4 GEMM on compute capability 10 and up) and a
+bf16 cuBLASLt reference; each cell carries the error against an fp32 product with the
+unquantised weights. Build it in the Go container, then run it inside the image with the GPU
+and the same environment the server gives its MLX runner (bundled CUDA headers for the NVRTC
+JIT, the MLX library dir on the loader path) plus a persistent PTX cache so the JIT is paid once:
+
+    docker run --rm --gpus all --entrypoint /usr/bin/qqmm -v $PWD/qqmm:/usr/bin/qqmm:ro \
+      -e CUDA_PATH=/usr/lib/ollama/mlx_cuda_v13 -e LD_LIBRARY_PATH=/usr/lib/ollama/mlx_cuda_v13 \
+      -v jitcache:/jitcache -e MLX_PTX_CACHE_DIR=/jitcache/mlx-ptx -e CUDA_CACHE_PATH=/jitcache/nv \
+      maxusai/ollama:<tag> -out /results/qqmm.jsonl
+
+It prints a markdown table per shape and appends one JSON line per cell. Wall times beside
+other GPU work measure the contention, not the kernels: run it on a quiet GPU and record the
+`nvidia-smi` state next to the result. Without `MLX_PTX_CACHE_DIR` every fresh container
+recompiles MLX's JIT kernels (the 10–15 min cold first request); the runner containers pay
+that too.
