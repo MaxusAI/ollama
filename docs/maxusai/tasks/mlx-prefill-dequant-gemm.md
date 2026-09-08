@@ -93,6 +93,30 @@ the direction does not depend on it. The 2080 Ti was idle.
 | 2048 | 65.943 (7) | 620.483 (1) | 619.697 (1) | 1.00x | 2.9e-03 / 1.0e-01 / 1.4e-01 |
 | 4096 | 134.901 (7) | 1278.075 (1) | 1268.947 (1) | 1.01x | 2.9e-03 / 1.0e-01 / 1.4e-01 |
 
+### Two runs after the campaign (2026-09-08 17:14 and 17:17; production still at 79 % GPU)
+
+`qqmm-blackwell-quiet-{1,2}-2026-09-08.jsonl`. "Quiet" on this host means production only; the
+time-slicing floor still shows in the M ≤ 512 cells, so the reading stays on M ≥ 2048. Median ms
+per call, run 1 / run 2, and the speed-up of each path over `qmm` (run 1 / run 2):
+
+| projection | M | bf16 | qmm | dequant | qqmm | dequant vs qmm | qqmm vs qmm |
+|---|---|---|---|---|---|---|---|
+| gemma4:31b gate | 2048 | 3.98 / 4.05 | 6.33 / 7.77 | 4.25 / 4.20 | 2.30 / 2.68 | 1.5× / 1.9× | 2.8× / 2.9× |
+| gemma4:31b gate | 4096 | 5.92 / 7.73 | 11.85 / 13.21 | 7.98 / 7.39 | 3.05 / 3.02 | 1.5× / 1.8× | 3.9× / 4.4× |
+| gemma4:31b down | 2048 | 3.79 / 3.95 | 8.42 / 8.26 | 4.20 / 4.28 | 2.97 / 2.83 | 2.0× / 1.9× | 2.8× / 2.9× |
+| gemma4:31b down | 4096 | 7.72 / 7.80 | 15.19 / 15.83 | 8.31 / 8.17 | 3.59 / 3.44 | 1.8× / 1.9× | 4.2× / 4.6× |
+| qwen3.8 gate | 2048 | 3.55 / 3.36 | 6.76 / 7.34 | 3.74 / 3.80 | 2.93 / 2.62 | 1.8× / 1.9× | 2.3× / 2.8× |
+| qwen3.8 gate | 4096 | 4.72 / 4.64 | 10.98 / 12.63 | 7.16 / 7.26 | 3.08 / 3.31 | 1.5× / 1.7× | 3.6× / 3.8× |
+| qwen3.8 down | 2048 | 3.37 / 3.43 | 7.28 / 7.30 | 3.93 / 1.55 | 2.87 / 0.60 | 1.9× / 4.7× | 2.5× / 12× |
+| qwen3.8 down | 4096 | 4.58 / 4.90 | 12.12 / 11.22 | 7.48 / 7.29 | 3.34 / 3.31 | 1.6× / 1.5× | 3.6× / 3.4× |
+
+(Derived from the two runs' JSONL; the runs are the record. The run-2 qwen3.8 down 2048 cell
+caught a quiet window, which is what the floor does in the other direction.) Repeatable at
+M ≥ 2048: the dense path is 1.5–2.0× `qmm`, the FP4 GEMM 2.3–4.6×, on every MLP projection.
+At M=1 the dense path costs 0.7–3 ms against 0.06–0.2 ms for `qmm` — the copy — so the row
+threshold is not optional. The crossover lies between 512 and 2048 rows and is not resolved by
+these runs (no 1024 point); criterion 3's one-image shape (1122 rows) probes it directly.
+
 ### Reading
 
 - **Today's kernel is slower than plain bf16 at prefill sizes.** At M=4096 `qmm` reaches
@@ -173,9 +197,10 @@ for long-prompt and batched use. Off by default; measured before it is turned on
 
 ## Acceptance criteria
 
-1. ☐ **Quiet-GPU bench** (`run-qqmmbench.sh` on the Blackwell with the campaign finished): true
-   ratios and the crossover row count; set the documented default threshold from it (1024 is
-   the placeholder).
+1. ☑ **Bench after the campaign** (two runs, production still on the card): ratios repeatable
+   at M ≥ 2048 (table above). ☐ The crossover row count and the documented default threshold
+   (1024 is the placeholder; 2048 — full prefill chunks only — is the conservative choice if
+   criterion 3's 1122-row shape shows no gain).
 2. ☐ **Parity**: think-off T1 on the five nvfp4 models with `OLLAMA_MLX_PREFILL_DEQUANT_ROWS`
    set against the current `main276_1_` cells, through the ADR 0012 generators; every quality
    cell within run-to-run spread, contract matrices identical.
