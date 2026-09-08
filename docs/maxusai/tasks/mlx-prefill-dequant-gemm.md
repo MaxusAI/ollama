@@ -240,7 +240,25 @@ peak before the threshold default is set.
    at M ≥ 2048 (table above). ☐ The crossover row count and the documented default threshold
    (1024 is the placeholder; 2048 — full prefill chunks only — is the conservative choice if
    criterion 3's 1122-row shape shows no gain).
-2. ◐ **Parity, inconclusive.** Think-off T1 with the flag on (`main276dq_1_1_`, 5 models,
+2. ✗ **FAILED: the flag changes output, deterministically.** The control settles it
+   (`repeat-namebbox.sh`, `document_single` ×3 per flag state, one container each, rendered with
+   `summarize_reps.py`):
+
+   | model | flag off (n=3) | flag on (n=3) | within-state spread |
+   |---|---|---|---|
+   | gemma4:12b-nvfp4 | 0.714 | 0.622 | **0 — identical across all 3 runs, both states** |
+   | qwen3.8:27b-nvfp4 | 0.542 | 0.697 | **0** |
+   | qwen3.6:35b-a3b-nvfp4 | 0.504 | 0.613 | **0** |
+
+   Each configuration is bit-reproducible on this arm; the two configurations differ far outside
+   that spread. So the 7/35 T1 differences below are **all** attributable to the flag, not to
+   noise — as a changed accumulation order should be: deterministic, and different. Two of the
+   three models score higher with the flag on and one lower, so there is no evidence of a
+   systematic quality change, but "output-preserving" is false and criterion 2 as written
+   ("within run-to-run spread") cannot be met by any threshold. Anything built on this path has
+   to be judged as a **numerics change**, with the vision suite as the gate.
+
+   Prior detail, for the record. **Parity run.** Think-off T1 with the flag on (`main276dq_1_1_`, 5 models,
    0 OOMs, 0 errors) against the flag-off `main276_1_` cells: **7 of 35 quality cells and 1 of 40
    contract cells differ** (`preflight-runs/dequant-t1-render.md`). Four are trivial (scene IoU
    ≤ 0.004, one 7 px OCR hit). Three are large and all on `name_bbox`, the arm every earlier
