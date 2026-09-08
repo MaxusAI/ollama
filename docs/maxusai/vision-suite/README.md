@@ -614,11 +614,13 @@ JIT, the MLX library dir on the loader path) plus a persistent PTX cache so the 
 
     docker run --rm --gpus all --entrypoint /usr/bin/qqmm -v $PWD/qqmm:/usr/bin/qqmm:ro \
       -e CUDA_PATH=/usr/lib/ollama/mlx_cuda_v13 -e LD_LIBRARY_PATH=/usr/lib/ollama/mlx_cuda_v13 \
-      -v jitcache:/jitcache -e MLX_PTX_CACHE_DIR=/jitcache/mlx-ptx -e CUDA_CACHE_PATH=/jitcache/nv \
+      -v jitcache:/jitcache -e MLX_PTX_CACHE_DIR=/jitcache/mlx-ptx-sm120 -e CUDA_CACHE_PATH=/jitcache/nv \
       maxusai/ollama:<tag> -out /results/qqmm.jsonl
 
 It prints a markdown table per shape and appends one JSON line per cell. Wall times beside
 other GPU work measure the contention, not the kernels: run it on a quiet GPU and record the
 `nvidia-smi` state next to the result. Without `MLX_PTX_CACHE_DIR` every fresh container
 recompiles MLX's JIT kernels (the 10–15 min cold first request); the runner containers pay
-that too.
+that too. Keep one cache directory per GPU architecture: the entries are named by kernel and
+shape only, and a directory shared between a 2080 Ti and the Blackwell handed the latter a
+Turing-compiled kernel that aborted every request needing it.
