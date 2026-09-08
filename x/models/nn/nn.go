@@ -131,10 +131,15 @@ var quantizedLinearOutputScale = mlx.Compile2(
 // on a CUDA device dequantises its weights to the activation dtype and runs the
 // dense GEMM (cuBLASLt) instead of MLX's mixed-input kernel. On the RTX PRO 6000
 // the mixed-input kernel wins below ~512 rows (decode, small chunks) and loses
-// 1.4-2x to the dense path from ~2048 rows, the prefill chunk
-// (docs/maxusai/tasks/mlx-prefill-dequant-gemm.md); the dense path costs one
-// transient copy of the layer per call. 0, the default, keeps the mixed-input
-// kernel everywhere. Opt in with OLLAMA_MLX_PREFILL_DEQUANT_ROWS.
+// 1.4-2x to the dense path from ~2048 rows, the prefill chunk; a real image
+// prefill gains 1.2-2.1x (docs/maxusai/tasks/mlx-prefill-dequant-gemm.md).
+//
+// It costs memory: MLX evaluates a chunk's forward pass as one graph, so the
+// dequantised copies of many layers are live at once -- measured at up to
+// +6.8 GiB on gemma4:31b. Admission does not price that, so this stays off by
+// default and must not be enabled on a shared card until the copies are
+// bounded. 0, the default, keeps the mixed-input kernel everywhere. Opt in with
+// OLLAMA_MLX_PREFILL_DEQUANT_ROWS.
 var PrefillDequantRows = prefillDequantRowsFromEnv(os.Getenv("OLLAMA_MLX_PREFILL_DEQUANT_ROWS"))
 
 // prefillDequantRowsFromEnv parses the opt-in; anything that is not a

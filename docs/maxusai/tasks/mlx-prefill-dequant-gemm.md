@@ -195,19 +195,67 @@ for long-prompt and batched use. Off by default; measured before it is turned on
   parser, the policy table, and the branch body against the mixed-input kernel on the same
   nvfp4 weights (runs wherever MLX runs).
 
+## Runner measurements, 2026-09-08 (flag off vs on, same binary, same container shape)
+
+`pr287-4bf13c65` (this branch's Go binary swapped onto `main-a523d60b`; native payload unchanged),
+`OLLAMA_MLX_PREFILL_DEQUANT_ROWS=1024`, explicit `num_ctx` 65536, `num_predict` 32, one container
+per flag state, beside production. Records: `preflight/runs/prefill-dequant-text-2026-09-08.jsonl`
+(long text) and `prefill-dequant-images-2026-09-08.jsonl` (images; a nonce in a **system** message
+defeats the prefix cache — the `[img-N]` tags precede the user content, so a nonce inside the
+content does not, and a first attempt measured cache hits). Peaks are the runner's own
+`peak memory` line, which `TextGenerationPipeline` resets per request, compared at equal position
+in an identical request sequence.
+
+| shape | rows | prefill off → on | speed-up | peak off → on |
+|---|---|---|---|---|
+| gemma4:31b, 1 image | 1134 | 418 → 896 tok/s | **2.13×** | 30.7 → **37.5** GiB (+6.8) |
+| gemma4:31b, 3 images | 3340 | 376 → 603 tok/s | **1.60×** | 36.7 → **40.4** GiB (+3.8) |
+| qwen3.8, 1 image | 2338 | 961 → 1210 tok/s | 1.26× | 32.9 → 34.1 GiB (+1.2) |
+| qwen3.8, 3 images | 3064 | 1006 → 1162 tok/s | 1.16× | 34.9 → 35.7 GiB (+0.8) |
+| gemma4:31b, text 41.6k | 41644 | 82 → 96 tok/s | 1.17× | 53.7 → 53.7 GiB (0.0) |
+| qwen3.8, text 41.6k | 41642 | 1130 → 1550 tok/s | 1.37× | 49.0 → 49.2 GiB (+0.2) |
+
+**The speed-up is real and larger on images than the microbenchmark suggested** (a vision prefill
+is almost all matmul over the image tokens). **The memory cost is real too, and it was not
+predicted:** up to +6.8 GiB on gemma4:31b.
+
+### Why the transient is layers wide, not one layer
+
+The PR's first claim — "one transient copy of one layer, ~230 MB" — is **wrong for a lazily
+evaluated graph**. MLX builds the whole chunk's forward pass before evaluating it, so the
+dequantised bf16 copies of many layers are live simultaneously; on 31b the MLP pair alone is
+~460 MB per layer over 60 layers. The long-text shape hides it because its peak is set by the
+attention transient at a different moment, which is why the text rows show no change.
+
+**This blocks enabling the flag anywhere, even opt-in, on a shared card.** Admission (#276)
+prices weights + KV + a per-architecture headroom; several GiB of unpriced prefill transient on a
+~40 GiB budget is precisely the failure mode
+[the prefill-transient task](mlx-prefill-transient-scales-with-context.md) documents. Bound the
+copies first — force evaluation per layer, or dequantise into one reused buffer — then re-measure
+peak before the threshold default is set.
+
 ## Acceptance criteria
 
 1. ☑ **Bench after the campaign** (two runs, production still on the card): ratios repeatable
    at M ≥ 2048 (table above). ☐ The crossover row count and the documented default threshold
    (1024 is the placeholder; 2048 — full prefill chunks only — is the conservative choice if
    criterion 3's 1122-row shape shows no gain).
-2. ☐ **Parity**: think-off T1 on the five nvfp4 models with `OLLAMA_MLX_PREFILL_DEQUANT_ROWS`
-   set against the current `main276_1_` cells, through the ADR 0012 generators; every quality
-   cell within run-to-run spread, contract matrices identical.
-3. ☐ **Prefill throughput** on `main`, flag on vs off, same container: one image (1.2k tokens),
-   three images (3.3k), the 41.6k-token text prompt on gemma4:31b and qwen3.8; report tok/s and
-   the request time, not just the GEMM.
-4. ☐ **Runner peak memory** (`peak memory` line) unchanged within 0.5 GiB with the flag on.
+2. ◐ **Parity, inconclusive.** Think-off T1 with the flag on (`main276dq_1_1_`, 5 models,
+   0 OOMs, 0 errors) against the flag-off `main276_1_` cells: **7 of 35 quality cells and 1 of 40
+   contract cells differ** (`preflight-runs/dequant-t1-render.md`). Four are trivial (scene IoU
+   ≤ 0.004, one 7 px OCR hit). Three are large and all on `name_bbox`, the arm every earlier
+   comparison found volatile — 12b 0.622 on / 0.714 off, qwen3.8 0.697 / 0.542, qwen3.6 0.613 /
+   0.506 — in **both directions**, which is what a changed accumulation order looks like rather
+   than a quality change. MLX think-off is usually reproducible cell for cell, but the `main`
+   validation already caught one arm flipping between repeats of one build, so the spread is not
+   zero and is unmeasured for this arm. ☐ The control that settles it: `document_single` ×3 with
+   the flag off and ×3 with it on, one container each, on those three models
+   (`repeat-namebbox.sh`).
+3. ☑ **Prefill throughput** measured on all six shapes (table above): 1.16–2.13× on images,
+   1.17–1.37× on long text.
+4. ✗ **FAILED. Runner peak memory** rises up to **6.8 GiB** with the flag on (gemma4:31b, one
+   image); qwen3.8 +0.8–1.2 GiB; long text unchanged. The dequantised copies are layers wide, not
+   one layer. Bounding them is a prerequisite for any default.
 5. ☐ With the flag unset: no behaviour change (the policy returns false at threshold 0).
 
 ## Layer 2, not in scope here: the FP4 GEMM (`qqmm`)
