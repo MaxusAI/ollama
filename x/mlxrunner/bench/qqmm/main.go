@@ -85,6 +85,7 @@ type result struct {
 	TFLOPS   float64 `json:"tflops"`
 	RelRMS   float64 `json:"rel_rms_err"`
 	MaxAbs   float64 `json:"max_abs_err"`
+	PeakGiB  float64 `json:"peak_gib"` // MLX's device peak so far (weights, operands, outputs, cache)
 	Error    string  `json:"error,omitempty"`
 }
 
@@ -173,6 +174,7 @@ func main() {
 				}
 				r := result{Preset: sh.preset, Proj: sh.name, M: m, K: sh.k, N: sh.n, Method: method}
 				measure(&r, f, ref, *warmup, *iters)
+				r.PeakGiB = float64(mlx.PeakMemory()) / (1 << 30)
 				results = append(results, r)
 				printRow(r)
 				if sink != nil {
@@ -186,7 +188,9 @@ func main() {
 		mlx.Unpin(w32, wbf, wq, ws, wb, w32T, wbfT)
 		mlx.Sweep()
 		mlx.ClearCache()
+		fmt.Printf("   device peak so far %.2f GiB (active now %.2f GiB)\n", float64(mlx.PeakMemory())/(1<<30), float64(mlx.ActiveMemory())/(1<<30))
 	}
+	fmt.Printf("\ndevice peak over the run: %.2f GiB (MLX allocations; the CUDA context and JIT are on top)\n", float64(mlx.PeakMemory())/(1<<30))
 	printTable(results, methods)
 }
 
