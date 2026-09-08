@@ -222,7 +222,11 @@ opt-in. The bench prices it; the vision suite decides it. Turing excluded by con
   every fresh runner container recompiles — the 10–15 min cold first request. A standalone MLX
   tool also needs `CUDA_PATH`/`CUDA_HOME` and `LD_LIBRARY_PATH` pointing at the `mlx_cuda_v13`
   dir, which the server sets for its runner. Persisting the cache is a one-variable change for
-  the campaign containers and a candidate server default.
+  the campaign containers and a candidate server default — **one directory per GPU
+  architecture**: the entries are named by kernel and shape only, and a directory shared
+  between the 2080 Ti and the RTX PRO 6000 handed the Blackwell runner a Turing-compiled
+  `qmm_naive` kernel; every gemma4 request aborted with `Failed to load compiled … kernel`
+  (2026-09-08, the first attempt at criterion 3).
 - The production llama-server runs its CPU pool at 16 threads (no `-t` passed) and busy-polls
   ~8 cores while serving a GPU-resident model; `num_thread` is a request/Modelfile option and a
   probe for it is staged (`probe-num-thread.sh`).
