@@ -692,3 +692,30 @@ func EnableCompile() {
 func DisableCompile() {
 	mlxCheck(C.mlx_disable_compile())
 }
+
+// QQMM is mlx_qqmm, the quantized-by-quantized matmul: x is quantized on the
+// fly to the same floating-point mode as w (nvfp4 or mxfp8) and the product
+// runs on the cuBLASLt block-scaled GEMM where the device has it (compute
+// capability 10 and up); elsewhere MLX falls back to its mixed-input kernels.
+// w and scales come from Quantize with the same mode. The nvfp4 global scales
+// are optional and must be given together or not at all. Unlike
+// QuantizedMatmul there is no transpose flag: w is [N, K] as Quantize returns it.
+func QQMM(x, w, scales *Array, groupSize, bits int, mode string, globalScaleX, globalScaleW *Array) *Array {
+	cMode := C.CString(mode)
+	defer C.free(unsafe.Pointer(cMode))
+	optGroupSize := C.mlx_optional_int{value: C.int(groupSize), has_value: true}
+	optBits := C.mlx_optional_int{value: C.int(bits), has_value: true}
+	var s, gx, gw C.mlx_array
+	if scales != nil {
+		s = scales.ctx
+	}
+	if globalScaleX != nil {
+		gx = globalScaleX.ctx
+	}
+	if globalScaleW != nil {
+		gw = globalScaleW.ctx
+	}
+	out := New("QQMM")
+	mlxCheck(C.mlx_qqmm(&out.ctx, x.ctx, w.ctx, s, optGroupSize, optBits, cMode, gx, gw, DefaultStream().ctx))
+	return out
+}
