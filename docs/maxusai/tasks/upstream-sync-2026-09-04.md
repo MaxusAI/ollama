@@ -623,9 +623,16 @@ The two fixes differ:
 | log output | **degraded**: `sync.Mutex` is not reentrant, so the **11 of ~25 log sites that already hold `refMu`** (sched.go 343, 408, 415, 417, 428, 433, 439, 451, 483, 762, 766) *always* fail the TryLock and permanently lose `name`, `inference`, `pid`, `num_ctx` | unchanged at every site |
 | regression test | none — `server/sched_test.go` untouched upstream | `TestRunnerRefLogValueDuringUnload`, reproduces all three reported races on unfixed code |
 
-**Decision (2026-09-10): keep ours at the sync**, because the scheduler debug lines that lose
-their fields under upstream's version are exactly the ones this fork reads when diagnosing runner
-behaviour, and because upstream ships no test. Expect a conflict in `LogValue` and resolve it in
+**Decision (2026-09-10): keep ours at the sync**, because upstream's version silently strips
+those four attrs from the eleven in-lock sites — the lines you get when you raise the level to
+diagnose a runner — and because upstream ships no test. Measured, not assumed:
+`TestRunnerRefLogValueKeepsFieldsUnderRefMu` logs a runner while holding `refMu` exactly as
+`sched.go:433` does and asserts the attrs survive; it passes on ours and fails on all four attrs
+with upstream's `LogValue` pasted in. (A caveat on an earlier phrasing of this note: those are
+`slog.Debug` lines, and only one run this week — the array-trace probe of 2026-09-06,
+`preflight-runs/trace-arrays-runner.log` — was captured at debug level, e.g.
+`sched.go:433 … runner.name=…gemma4:12b-nvfp4 runner.pid=316 runner.num_ctx=65536`. The routine
+campaign logs run at INFO and never carried them.) Expect a conflict in `LogValue` and resolve it in
 our favour; carry our test either way, since it also covers upstream's implementation. Worth
 offering upstream as a follow-up so the divergence can be retired.
 
