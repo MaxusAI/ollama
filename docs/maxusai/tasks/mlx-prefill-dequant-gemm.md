@@ -432,6 +432,68 @@ Others on consumer Blackwell hit the same wall from the other side:
   datacenter-Blackwell designs assume far more shared memory, so any sm120 kernel must size its
   tiles and pipeline depth to ~100 KiB — a real reason MLX's tiles are small.
 
+## A real sm120 mixed-input kernel (2026-09-11) — **the kernel route is viable after all**
+
+A Fable 5.1 agent took the loader-swap question to CUTLASS. Code on branch
+`feat/sm120-mixed-input-gemm` (not merged, no PR), under `docs/maxusai/kernels/sm120_mixed_input/`;
+logs `claude-scratch/wt-sm120mi-*.log`. Claims below were spot-checked against CUTLASS and the logs.
+
+**Composition through CUTLASS's builders is impossible**, as the interim check found: the sm120
+builder accepts only 4/6/8-bit operands, the atom selector returns only the narrow-format
+`SM120_16x8x32` shape, and the mainloop's operand-transform slots are never invoked. **But the
+tuned mainloop underneath exists and is generic over the MMA atom.** Hand-instantiating
+`MainloopSm120TmaWarpSpecialized` with the Ampere bf16 atom, bypassing `CollectiveBuilder`,
+compiled first time and runs at 0.8–1.2× cuBLAS. The Metal analogy does transfer, once the
+builder is bypassed.
+
+**The kernel:** a ~580-line derivative of CUTLASS's `sm120_mma_tma.hpp` that keeps its TMA
+producer/`mma.sync` consumer split and pipeline, adds TMA streams for packed weights and scales,
+and dequantises e2m1→bf16 in registers between fragment load and MMA — the slot the dense loop
+uses for `ldmatrix`. Weights use a Marlin-style fragment-native layout, a pure permutation of
+MLX's native layout. Numerically exact by construction (e2m1 × e4m3 fits bf16's mantissa);
+measured max error 2.6–3.3e-3, zero elements over 5 % — the error profile of cuBLAS bf16.
+
+**Measured, interleaved in one process, `do_bench` median of 3 rounds, GPU shared throughout**
+(`wt-sm120mi-ab-v2v3v4.log`, best version v3 with bf16 scales; M=2048 rows were stable to <1 %):
+
+| shape, M=2048 | v3 | cuBLAS bf16 | ratio |
+|---|---|---|---|
+| gemma4:31b gate | 238 TF/s | 285 | **0.84** |
+| gemma4:31b down | 229 | 290 | **0.79** |
+| qwen3.8 gate | 232 | 285 | **0.81** |
+| qwen3.8 down | 217 | 336 | **0.65** |
+
+The M=4096 rows swung up to 2× between rounds, dense kernel included; re-measure on a quiet GPU.
+
+**Against MLX's kernel, stated carefully.** The agent's "~3× MLX" compares absolute TFLOP/s across
+two harnesses whose cuBLAS readings differ ~2× (its `do_bench` medians against the #286 wall-clock
+bench), so it overstates. Comparing each kernel's ratio to cuBLAS *within its own harness* —
+MLX `qmm` reached 0.45–0.63 of bf16 at M=2048 in the quiet #286 runs — gives **~1.3–1.8×
+over MLX's kernel**. Veto: a same-harness run of MLX's `quantized_matmul`, not yet done. (The
+Triton table above also used `do_bench`'s default *mean* under contention, so its absolutes are
+pessimistic; its in-run ratios stand.)
+
+**Where the remaining gap is**, measured with probe builds (`wt-sm120mi-probes.log`): with the
+e2m1→bf16 conversion compiled out but every load, TMA stream and stage intact, the kernel runs
+at **0.96–1.03× cuBLAS**. So the loader/pipeline swap costs nothing; **the whole overhead is the
+conversion arithmetic on the MMA warps**, which this chip's tensor pipe does not hide (~12–15
+non-MMA instructions per HMMA in the SASS).
+
+**Next step, the agent's estimate 2–3 days:** move dequantisation off the MMA warps into
+producer/transform warps that write bf16 B tiles to shared memory, so the consumers run the dense
+loop unmodified — the sm100 transform-warpgroup pattern. On sm120 three of the four producer
+warps idle today. The constraint is shared memory: a bf16 B tile is 16 KB per stage against a
+99 KB budget. The probe result is the evidence it would land near dense speed.
+
+**What this changes in the conclusions above.** "Kernel work is not where the leverage is" was
+drawn from a naive Triton prototype at 0.25× cuBLAS; a CUTLASS-mainloop derivative reaches 0.65–
+0.84×, and the structural cap (mixed input tops out at bf16-dense speed) still holds but is now
+within reach rather than theoretical. Unlike the dequant-to-bf16 opt-in in this PR, this path
+needs **no full-size weight copy** and keeps MLX's output unchanged in kind, so neither of this
+PR's two failed criteria (+6.8 GiB peak; deterministic output change) applies to it — both still
+need measuring once integrated. Prototype limits: N % 128 = 0, K % 64 = 0, TN, batch 1,
+synthetic weights, not integrated into MLX.
+
 ## Acceptance criteria
 
 1. ☑ **Bench after the campaign** (two runs, production still on the card): ratios repeatable
