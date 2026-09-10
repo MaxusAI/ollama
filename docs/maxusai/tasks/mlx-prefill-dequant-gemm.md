@@ -292,6 +292,48 @@ Two honest options remain, and neither is this PR as written:
 Criterion 2 (the path changes output deterministically) is unaffected by any of this and remains
 a separate blocker.
 
+## Ceiling probe (2026-09-10): a Triton mixed-input kernel is **slower** than MLX's
+
+The "make the streaming kernel fast" option needs a number: what can a well-tiled kernel that
+unpacks 4-bit weights in registers and multiplies against bf16 activations actually reach on
+sm120? `kernels/triton_mixed_input_gemm.py` implements one (Triton 3.3.1, torch 2.7.1+cu128) and
+benchmarks it against bf16 cuBLAS on the same dequantised weights, autotuning 24 tile/stage
+configurations per shape. Log: `preflight/runs/triton-mixed-input-2026-09-10.log`.
+
+| shape | M | Triton mixed-input | bf16 cuBLAS | ratio | rel err |
+|---|---|---|---|---|---|
+| gemma4-31b gate | 2048 | 38.6 TF/s | 117.0 | 0.33× | 3.2e-03 |
+| gemma4-31b gate | 4096 | 48.0 | 207.4 | 0.23× | 3.2e-03 |
+| gemma4-31b down | 2048 | 53.9 | 197.6 | 0.27× | 3.2e-03 |
+| gemma4-31b down | 4096 | 41.4 | 171.3 | 0.24× | 3.2e-03 |
+| qwen3.8 gate | 2048 | 51.2 | 200.6 | 0.26× | 3.2e-03 |
+| qwen3.8 gate | 4096 | 53.2 | 219.1 | 0.24× | 3.2e-03 |
+| qwen3.8 down | 2048 | 52.0 | 191.8 | 0.27× | 3.2e-03 |
+| qwen3.8 down | 4096 | 51.1 | 187.9 | 0.27× | 3.2e-03 |
+
+The error is bf16 rounding against the dequantised reference, i.e. the kernel is correct.
+
+**It reaches 23–33 % of cuBLAS, which is *below* MLX's own kernel** (55–73 TF/s at 4096 rows in
+the #286 harness, roughly 40–60 % of cuBLAS measured there). **So this does not establish the
+ceiling — it refutes the cheap hypothesis** that MLX's kernel is simply badly written and a
+rewrite walks to cuBLAS parity. It is a competent kernel; beating it takes Marlin-class work.
+
+Caveats, so nobody over-reads the table: the absolute cuBLAS figures here (117–219) come from
+`do_bench` medians on a warm GPU and are not comparable with the wall-clock-per-call figures in
+the #286 tables (100–160) — compare ratios within a harness, not numbers across harnesses. And
+this prototype is deliberately simple: it splits K in half to keep both nibble halves contiguous,
+which doubles the number of `tl.dot` calls at half the K each; it reloads the per-16 scales 8×
+redundantly instead of staging them in shared memory; and it has no swizzling or hand-tuned
+pipelining beyond `num_stages`. A serious attempt would pre-shuffle the weight layout the way
+Marlin does.
+
+**What this changes.** Mixed-input tops out at bf16-dense speed *by construction* — the 4-bit
+tensor cores need both operands in 4-bit — so even a perfect kernel here buys at most ~2× over
+MLX today, for days of kernel work, on the one shape class that is matmul-bound. The 4-bit path
+already exists for this chip (CUTLASS ships `sm120_blockscaled_mma_tma` collectives and worked
+nvfp4 examples) and is worth 2–4×, but its blocker is the accuracy question, not kernels. **The
+kernel work is not where the leverage is.**
+
 ## Acceptance criteria
 
 1. ☑ **Bench after the campaign** (two runs, production still on the card): ratios repeatable

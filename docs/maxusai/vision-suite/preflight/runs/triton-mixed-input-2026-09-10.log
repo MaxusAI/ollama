@@ -1,0 +1,14 @@
+NVIDIA RTX PRO 6000 Blackwell Workstation Edition  cc (12, 0)  triton 3.3.1
+shape                  M  triton mixed  bf16 cuBLAS  vs cuBLAS   rel err
+  [gemma4-31b gate] quantising K=5376 N=21504 ...
+gemma4-31b gate     2048     38.6 TF/s    117.0 TF/s      0.33x  3.17e-03
+gemma4-31b gate     4096     48.0 TF/s    207.4 TF/s      0.23x  3.17e-03
+  [gemma4-31b down] quantising K=21504 N=5376 ...
+gemma4-31b down     2048     53.9 TF/s    197.6 TF/s      0.27x  3.17e-03
+gemma4-31b down     4096     41.4 TF/s    171.3 TF/s      0.24x  3.17e-03
+  [qwen3.8 gate] quantising K=5120 N=17408 ...
+qwen3.8 gate        2048     51.2 TF/s    200.6 TF/s      0.26x  3.17e-03
+qwen3.8 gate        4096     53.2 TF/s    219.1 TF/s      0.24x  3.17e-03
+  [qwen3.8 down] quantising K=17408 N=5120 ...
+qwen3.8 down        2048     52.0 TF/s    191.8 TF/s      0.27x  3.17e-03
+qwen3.8 down        4096     51.1 TF/s    187.9 TF/s      0.27x  3.17e-03
