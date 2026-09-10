@@ -390,6 +390,48 @@ architecture. This is reasoning from the hardware balance, not a measurement.
 not actionable; "build the CUDA quantised path on a CUTLASS collective with a dequantising
 loader, as the Metal path does on steel" is.
 
+## Similar reports elsewhere (searched 2026-09-10)
+
+Others on consumer Blackwell hit the same wall from the other side:
+
+- **vLLM on RTX 5090 / RTX PRO 6000** (vllm-project/vllm#47749, #48199): weight-only NVFP4
+  checkpoints (`W4A16_NVFP4`) are pinned to Marlin, which dequantises weights to the activation
+  dtype inside the kernel, because those checkpoints carry no activation scales and *native FP4
+  GEMM needs FP4 activations*. That is the structural finding above, stated by vLLM's own code.
+- **vLLM #55405**: on sm_12x a W4A4 checkpoint was silently routed to a dequantise-to-16-bit
+  kernel, costing **~31 % prefill on GB10**, recovered by forcing the native W4A4 kernel — a
+  measured price of mixed input against native FP4 on consumer Blackwell.
+- **CUTLASS #3096, on our exact card** (4× RTX PRO 6000): native NVFP4 MoE grouped GEMM produced
+  garbage; the working fix combined FlashInfer sm120 patches with **`compute_120f` built by
+  CUDA 13.0**, and even then native FP4 ran **14.6 tok/s against Marlin W4A16's 46–49** because
+  the fast warp-specialised TMA tactics failed to initialise. On this card a mature mixed-input
+  kernel beat an immature native one — the kernel-maturity reading again.
+- **MLX #4339, GB10 (sm_121)**: `gather_qmm` ~24× slower than equal-FLOP `quantized_matmul`;
+  quantised MoE prefill 6.5× slower than the same model in bf16. Our qwen3.6 and gemma4:26b are
+  MoE and take that path. Dense quantised reached ~85 % of bf16 there against our 40–60 %,
+  consistent with GB10 being bandwidth-poor, where 4-bit weights win more — the Metal argument.
+
+## Toolchain facts, checked with this host's own `ptxas` (2026-09-10)
+
+| probe | ptxas 12.8 | ptxas 13.0 |
+|---|---|---|
+| `wgmma` on sm_90a | assembles | assembles |
+| `wgmma` on **sm_120a** | **not supported** | **not supported** |
+| `tcgen05` on sm_100a | assembles | assembles |
+| `tcgen05` on **sm_120a** | **not supported** | **not supported** |
+| family target `sm_120f` | **not defined** | assembles |
+
+- **No toolkit version unlocks Hopper or datacenter-Blackwell instructions on this card**, so
+  "widen MLX's sm90 gate to cc 12" is impossible, not merely untested. A community wiki claiming
+  `wgmma` runs on sm_120 at lower throughput is wrong.
+- **The family target is the one genuinely version-gated item**: `sm_120f` does not exist in 12.8
+  and does in 13.0, and CUTLASS #3096's working fix needed it. MLX targets `sm_120a`, which 12.8
+  has, and its prefill kernel uses no family features — so this does not explain MLX's speed.
+- **Driver-reported limits** (`torch.cuda.get_device_properties`): 99 KiB opt-in shared memory per
+  block, 100 KiB per SM, 65,536 registers per SM, 188 SMs, 128 MiB L2. The Hopper and
+  datacenter-Blackwell designs assume far more shared memory, so any sm120 kernel must size its
+  tiles and pipeline depth to ~100 KiB — a real reason MLX's tiles are small.
+
 ## Acceptance criteria
 
 1. ☑ **Bench after the campaign** (two runs, production still on the card): ratios repeatable
