@@ -311,6 +311,10 @@ configurations per shape. Log: `preflight/runs/triton-mixed-input-2026-09-10.log
 | qwen3.8 down | 2048 | 52.0 | 191.8 | 0.27× | 3.2e-03 |
 | qwen3.8 down | 4096 | 51.1 | 187.9 | 0.27× | 3.2e-03 |
 
+**Rerun pending:** the GPU was shared with production throughout. Re-run
+`kernels/triton_mixed_input_gemm.py` on a quiet Blackwell before quoting these as final; the
+ratios should hold but the absolute figures will move.
+
 The error is bf16 rounding against the dequantised reference, i.e. the kernel is correct.
 
 **It reaches 23–33 % of cuBLAS, which is *below* MLX's own kernel** (55–73 TF/s at 4096 rows in
@@ -333,6 +337,44 @@ MLX today, for days of kernel work, on the one shape class that is matmul-bound.
 already exists for this chip (CUTLASS ships `sm120_blockscaled_mma_tma` collectives and worked
 nvfp4 examples) and is worth 2–4×, but its blocker is the accuracy question, not kernels. **The
 kernel work is not where the leverage is.**
+
+## What the Metal path does differently, and what is worth borrowing
+
+Glenn's observation (2026-09-10): MLX-CUDA nvfp4 is slower than GGML q4_K_M, yet on MLX-Metal
+nvfp4 is roughly on par with q4_K_M. **We cannot verify the Metal half here** — this host has no
+Metal campaigns and the two platforms are never mixed — so treat the premise as his, not as
+measured. The architectural difference behind it is real and checkable in the MLX source:
+
+| | Metal | CUDA |
+|---|---|---|
+| dense GEMM | MLX's own `steel` template (`BlockMMA`, `BlockLoader`), tuned by them | **cuBLAS / cuBLASLt** — NVIDIA's, not extensible |
+| quantised GEMM | **the same `steel` template with a `QuantizedBlockLoader` swapped in for the weight operand** (`metal/kernels/quantized.h:1228-1271`) | a **standalone** CuTe kernel with its own tiled MMA and `cp_async` pipeline (`device/qmm_sm80.cuh`) |
+| consequence | quantised inherits every dense tuning; dequantisation is fused into the tile load | quantised inherits nothing; it is a separate artefact competing against decades-tuned kernels |
+
+**That is the asymmetry, and it is not about the format.** On Metal the comparison is MLX-vs-MLX:
+the quantised kernel *is* the dense kernel plus a loader, so it keeps pace by construction. On
+CUDA the comparison is MLX's own kernel against ggml's MMQ, hand-tuned over years — a kernel
+maturity gap. Our Triton probe (above) supports that reading: a competent from-scratch mixed-input
+kernel landed *below* MLX's, so the deficit is not carelessness, it is the absence of a tuned
+template to build on.
+
+**The borrowable concept: make the quantised CUDA path a loader swap on a tuned GEMM template,
+not a bespoke kernel.** CUDA's equivalent of `steel` is a CUTLASS collective mainloop, and
+CUTLASS's Hopper mixed-dtype example is exactly that shape — standard collective plus a custom
+operand converter — so an sm120 version would inherit TMA, warp specialisation and the tile
+tuning instead of re-deriving them. A second, cheaper borrow: Metal parameterises **one** loader
+by quantisation mode, where CUDA carries a zoo of kernels behind capability gates
+(`qmm_sm90` pinned to cc 9, `qmm_sm80`, `qmm_naive`, `qmv`, `fp_qmv`), which is how a Blackwell
+card ends up on an Ampere kernel.
+
+**Caveat on transferability.** Blackwell has far more tensor-core throughput per byte of
+bandwidth than an Apple GPU, so the ALU spent unpacking 4-bit weights is proportionally more
+exposed on CUDA: parity-with-dense is a harder target there than on Metal, even with the same
+architecture. This is reasoning from the hardware balance, not a measurement.
+
+**This is the well-specified version of the upstream ask.** "Make the streaming kernel fast" is
+not actionable; "build the CUDA quantised path on a CUTLASS collective with a dequantising
+loader, as the Metal path does on steel" is.
 
 ## Acceptance criteria
 
