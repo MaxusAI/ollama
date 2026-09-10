@@ -255,11 +255,42 @@ is not the Go handle: whatever holds those buffers alive is inside MLX's own gra
 `mlx.Release` is kept — it is correct, tested, and cheap — but it is not the fix, and this
 disproves the mechanism stated in the previous section.
 
-Next diagnostic, running: force the layer's matmul to evaluate inside `denseGEMM`
-(`mlx.Eval(out)`; an experiment, not a shipping change, since it serialises the chunk). If the
-peak drops, the transient is graph-lifetime and the fix is to bound the graph — chunk the layers,
-or evaluate in groups. If it does not, the +7 GiB is not the dequantised copies at all and the
-whole premise of this task needs re-deriving from an array trace at peak.
+### Rework attempt 2 (same day): force the layer to evaluate — **strictly worse, it OOMs**
+
+`mlx.Eval(out)` inside `denseGEMM`, so a dequantised copy cannot outlive its own layer
+(`preflight/runs/prefill-dequant-images-perlayer-eval-2026-09-10.jsonl`). On gemma4:31b's very
+first one-image request the peak went to **64.7 GiB and the request died** with
+`cudaMallocAsync … out of memory`, against 37.7 GiB for the same shape without the Eval. The
+flag-off control in the same run was unchanged (30.7 GiB), so it is the eager evaluation that
+costs the memory. Stopped there.
+
+**Reading: the lazy graph was helping, not hurting.** Evaluating layer by layer defeats MLX's own
+scheduling — it materialises each layer's copy at a point of its choosing and prevents whatever
+reuse the whole-graph evaluation was doing — so the transient is neither the Go handles (attempt
+1) nor a graph-lifetime artefact that eager evaluation can bound (attempt 2).
+
+### Where that leaves the approach
+
+**llama.cpp's fix does not port.** Its bound comes from ggml evaluating node by node into a
+**reused pool buffer** it owns; MLX's Go API has no out-parameter matmul, no donation control and
+no scratch arena at this level, so there is no way to express "dequantise into the same buffer
+each layer" from here. Bounding it would need an MLX-side change (a scratch/donation API, or a
+fused dequantise-matmul that never materialises the copy).
+
+Two honest options remain, and neither is this PR as written:
+
+1. **Price it instead of bounding it.** The transient is measurable and per-architecture (+7.0 GiB
+   gemma4:31b, +0.8 qwen3.8). `admissionHeadroom` could add it when the flag is set, which turns
+   an unpriced risk into a priced one exactly as #276 does for everything else. Cheap, honest, and
+   it makes the flag safe on a shared card — but it *buys* the speed-up with budget, so on a card
+   that is already tight it will refuse loads that succeed today.
+2. **Take it upstream.** A fused nvfp4 dequantise-matmul, or a scratch-buffer API, is the real
+   fix and belongs in MLX; the microbenchmark in #286 is the evidence to open that conversation
+   with. Note MLX's mixed-input kernel is what loses here — llama.cpp's equivalent (MMQ) *wins*
+   against dequantise+cuBLAS on tensor-core hardware, so the gap is a kernel-quality gap.
+
+Criterion 2 (the path changes output deterministically) is unaffected by any of this and remains
+a separate blocker.
 
 ## Acceptance criteria
 
