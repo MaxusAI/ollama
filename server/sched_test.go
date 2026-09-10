@@ -2411,3 +2411,44 @@ func TestSchedNeedsReloadImageTokenBudget(t *testing.T) {
 		})
 	}
 }
+
+// TestRunnerRefLogValueDuringUnload pins the fix for the data race between
+// unload, which clears model/Options/gpus, and LogValue, which slog resolves
+// lazily and therefore outside refMu at most log sites. Under -race this test
+// reports the race without the logMu guard in sched.go.
+func TestRunnerRefLogValueDuringUnload(t *testing.T) {
+	opts := api.Options{Runner: api.Runner{NumCtx: 4096}}
+	runner := &runnerRef{
+		model:       &Model{Name: "race-model"},
+		modelPath:   "/models/race",
+		llama:       &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}},
+		Options:     &opts,
+		gpus:        []ml.DeviceID{{ID: "0"}},
+		numParallel: 1,
+	}
+
+	// The reader resolves the value exactly as slog does when it handles a
+	// record. It signals that it is running before the unload, and keeps
+	// reading well past it, so the two overlap without any synchronisation
+	// of their own.
+	started, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		close(started)
+		for range 200000 {
+			if v := slog.AnyValue(runner).Resolve(); v.Kind() != slog.KindGroup {
+				panic("LogValue did not resolve to a group")
+			}
+		}
+	}()
+
+	<-started
+	runner.refMu.Lock()
+	runner.unload()
+	runner.refMu.Unlock()
+	<-done
+
+	if got := slog.AnyValue(runner).Resolve(); got.Kind() != slog.KindGroup {
+		t.Fatalf("LogValue after unload = %v, want a group", got.Kind())
+	}
+}

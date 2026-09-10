@@ -1374,6 +1374,13 @@ type runnerRef struct {
 	refMu    sync.Mutex
 	refCount uint // prevent unloading if > 0
 
+	// logMu guards the fields unload clears (model, Options, gpus,
+	// contextShift) against LogValue, which slog resolves lazily and which
+	// therefore runs outside refMu at most log sites. It is a leaf: it is
+	// taken after refMu and never the other way round, so it cannot
+	// deadlock with the many log sites that already hold refMu.
+	logMu sync.RWMutex
+
 	llama        llm.LlamaServer
 	pid          int
 	loading      bool          // True only during initial load, then false forever
@@ -1407,10 +1414,12 @@ func (runner *runnerRef) unload() {
 	if runner.llama != nil {
 		runner.llama.Close()
 	}
+	runner.logMu.Lock()
 	runner.model = nil
 	runner.Options = nil
 	runner.gpus = nil
 	runner.contextShift = false
+	runner.logMu.Unlock()
 }
 
 func (runner *runnerRef) needsReload(ctx context.Context, req *LlmRequest) bool {
@@ -1558,13 +1567,27 @@ func (runner *runnerRef) LogValue() slog.Value {
 	if modelID == "" {
 		modelID = runner.modelKey
 	}
-	attrs := []slog.Attr{}
-	if runner.model != nil {
-		attrs = append(attrs, slog.String("name", runner.model.Name))
+	// Read the fields unload clears under logMu, not refMu: slog resolves
+	// this value lazily and most log sites already hold refMu.
+	runner.logMu.RLock()
+	name, hasModel := "", runner.model != nil
+	if hasModel {
+		name = runner.model.Name
 	}
-	if len(runner.gpus) > 0 {
+	gpus := runner.gpus
+	numCtx, hasOptions := 0, runner.Options != nil
+	if hasOptions {
+		numCtx = runner.Options.NumCtx
+	}
+	runner.logMu.RUnlock()
+
+	attrs := []slog.Attr{}
+	if hasModel {
+		attrs = append(attrs, slog.String("name", name))
+	}
+	if len(gpus) > 0 {
 		attrs = append(attrs,
-			slog.Any("inference", runner.gpus),
+			slog.Any("inference", gpus),
 		)
 	}
 	attrs = append(attrs,
@@ -1574,8 +1597,8 @@ func (runner *runnerRef) LogValue() slog.Value {
 		slog.Int("pid", runner.pid),
 		slog.String("model", modelID),
 	)
-	if runner.Options != nil {
-		attrs = append(attrs, slog.Int("num_ctx", runner.Options.NumCtx))
+	if hasOptions {
+		attrs = append(attrs, slog.Int("num_ctx", numCtx))
 	}
 	return slog.GroupValue(attrs...)
 }
