@@ -2452,3 +2452,42 @@ func TestRunnerRefLogValueDuringUnload(t *testing.T) {
 		t.Fatalf("LogValue after unload = %v, want a group", got.Kind())
 	}
 }
+
+// TestRunnerRefLogValueKeepsFieldsUnderRefMu pins the behaviour that separates
+// our logMu fix from upstream's TryLock one (ollama/ollama#18319): eleven of
+// the scheduler's ~25 runner log sites hold refMu when they log, and slog
+// resolves the value there. sync.Mutex is not reentrant, so a TryLock inside
+// LogValue always fails at those sites and drops name, inference, pid and
+// num_ctx from exactly the lines used to diagnose a runner. Ours keeps them.
+// See tasks/upstream-sync-2026-09-04.md, "One deliberate divergence".
+func TestRunnerRefLogValueKeepsFieldsUnderRefMu(t *testing.T) {
+	opts := api.Options{Runner: api.Runner{NumCtx: 65536}}
+	runner := &runnerRef{
+		model:       &Model{Name: "registry/library/gemma4:12b-nvfp4"},
+		modelPath:   "/models/gemma4",
+		llama:       &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}},
+		Options:     &opts,
+		gpus:        []ml.DeviceID{{ID: "0"}},
+		numParallel: 1,
+		pid:         316,
+	}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	// Exactly what sched.go:433 does: log the runner while holding refMu.
+	runner.refMu.Lock()
+	logger.Debug("after processing request finished event", "runner", runner)
+	runner.refMu.Unlock()
+
+	for _, want := range []string{
+		"runner.name=registry/library/gemma4:12b-nvfp4",
+		"runner.pid=316",
+		"runner.num_ctx=65536",
+		"runner.inference=",
+	} {
+		if !bytes.Contains(buf.Bytes(), []byte(want)) {
+			t.Errorf("log line lost %q when logged under refMu:\n%s", want, buf.String())
+		}
+	}
+}
