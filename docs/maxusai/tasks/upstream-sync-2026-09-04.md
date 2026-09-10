@@ -552,7 +552,11 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    flips: e4b multi `q2`, nemotron q8 `name_bbox`) and 4 contract cells on the within-build
    noisy arms. Throughput columns not comparable (beside production). Generator tables only:
    [vision-campaign-2026-09-06-gguf-four-builds.md](../vision-campaign-2026-09-06-gguf-four-builds.md).
-   Think-on rows overnight 2026-09-06/07, appended there.
+   **Think-on ×3 builds (2026-09-06 22:21 → 09-08 08:02):** 0 OOMs on 54 rung-suites; no build
+   stands out — 0.33.3 vs `main` (same payload) differ on 10/56 quality cells, 0.33.2 vs 0.33.3
+   on 11/56, the think-on run-to-run spread (trace length → cap → escalation); gemma4 stable
+   across the 0.33 builds; qwen3.6 `scene_single` think-on flagged for an n ≥ 5 repeat. Three
+   1800 s timeouts on 0.33.3's daytime leg were contention (`main` overnight finished the same arms).
 8. ☑ Landed 2026-09-04 (Glenn: go for steps 1–3, deploy held): #264 merged as `0c4f09d4`;
    annotated `v0.33.3-dynres` on that commit (`git describe` → `v0.33.3-dynres-0-g0c4f09d`);
    image rebuilt from the tag (`maxusai/ollama:sync-0.33.3`, stamp `0.33.3-dynres-0-g0c4f09d`,
