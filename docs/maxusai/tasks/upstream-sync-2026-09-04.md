@@ -610,6 +610,42 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
 - **Untouched by 0.34.0, so no conflict from our side:** `x/models/nn/nn.go`,
   `x/mlxrunner/mlx/ops_extra.go`, `x/mlxrunner/mlx/generated.{c,h}`.
 
+### Bump MLX with the fold: an idle runner pins a CPU core, and the fix is already upstream
+
+Our `MLX_VERSION` (`37c26e57…`, 2026-08-30) is **27 commits past the latest MLX release**
+(v0.32.2, 2026-08-25) and **24 commits behind MLX `main`**; upstream ollama pins main commits the
+same way and v0.34.0 did not bump, so we are level with it. Only three of those 24 commits touch
+the CUDA backend:
+
+- **`[CUDA] Fix completion worker busy loop` (ml-explore/mlx#4452, fixes #4451).** `Worker::thread_fn()`
+  reset `current_batch` inside the loop body, so once a batch had been signalled the condition
+  variable's predicate stayed true and the worker never slept again: each worker tied to a CUDA
+  stream pins a core. Correctness is unaffected.
+- `device.cpp`: leak the command encoders deliberately, so shutdown does not synchronise on them.
+- `quantized.cpp`: reject a `GatherQMM` global scale on CUDA with a clear error instead of
+  mis-dispatching it as affine. **Not reachable from here** — `mlx.GatherQMM` takes no global
+  scale, and the model code routes global-scale weights away from that path.
+
+**Measured on this host, 2026-09-10** (`claude-scratch/probe-idle-cpu.sh`, `main-a523d60b`,
+gemma4:12b-nvfp4, one 8-token request then no traffic at all; CPU sampled from `/proc` deltas,
+because `ps` reports the average since process start and hides this):
+
+| t after the request | runner CPU | GPU |
+|---|---|---|
+| +10 s | 100.2 % | 79 % |
+| +20 s | 100.0 % | 83 % |
+| +40 s | 100.1 % | 78 % |
+| +60 s | 100.1 % | **0 %** |
+
+**Exactly one core, held constant, with the GPU idle and no requests in flight** — the #4451
+signature. It is pure waste on a box that also runs training and the label engine, and it inflates
+every "runner CPU" figure we have quoted. Bumping `MLX_VERSION` past `4452` with the 0.34.0 fold
+picks it up; it cannot be a Go-only binary swap because MLX is part of the native payload.
+
+Nothing in those 24 commits touches the prefill matmul kernel, so none of them addresses the
+mixed-input kernel's speed ([the dequant-GEMM task](mlx-prefill-dequant-gemm.md)), and MLX's open
+Blackwell defects (notably #3879, mxfp4 numerically wrong on sm_120/121/110) are still open.
+
 ### One deliberate divergence to carry into the sync: `runnerRef.LogValue`
 
 Upstream fixed the same data race we did, on 2026-09-05, in `b5d373f3` ("fix data races in
