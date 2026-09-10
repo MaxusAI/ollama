@@ -27,6 +27,8 @@ SHAPES = [
     ("qwen3.8 down",    17408, 5120),
 ]
 
+RASTER, SWIZZLE = 0, 1   # tile scheduler knobs passed to the kernels (set from --raster/--swizzle)
+
 E2M1_TABLE = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0]
 
 
@@ -122,7 +124,7 @@ class Lib:
         err = ctypes.create_string_buffer(256)
         rc = self.lib.sm120_bf16_gemm(ctypes.c_void_p(A.data_ptr()), ctypes.c_void_p(B.data_ptr()), ctypes.c_void_p(D.data_ptr()),
                                       A.shape[0], B.shape[0], A.shape[1],
-                                      ctypes.c_void_p(torch.cuda.current_stream().cuda_stream), err, 256)
+                                      ctypes.c_void_p(torch.cuda.current_stream().cuda_stream), RASTER, SWIZZLE, err, 256)
         if rc != 0:
             raise RuntimeError(f"sm120_bf16_gemm rc={rc}: {err.value.decode()}")
 
@@ -130,7 +132,7 @@ class Lib:
         err = ctypes.create_string_buffer(256)
         rc = self.lib.sm120_nvfp4_gemm(ctypes.c_void_p(A.data_ptr()), ctypes.c_void_p(Bp.data_ptr()), ctypes.c_void_p(Sp.data_ptr()),
                                        ctypes.c_void_p(D.data_ptr()), A.shape[0], N, A.shape[1], ctypes.c_float(alpha),
-                                       ctypes.c_void_p(torch.cuda.current_stream().cuda_stream), err, 256)
+                                       ctypes.c_void_p(torch.cuda.current_stream().cuda_stream), RASTER, SWIZZLE, err, 256)
         if rc != 0:
             raise RuntimeError(f"sm120_nvfp4_gemm rc={rc}: {err.value.decode()}")
 
@@ -156,7 +158,14 @@ def main():
     ap.add_argument("--warmup", type=int, default=25)
     ap.add_argument("--quick", action="store_true", help="only validate at small shapes")
     ap.add_argument("--alpha", type=float, default=1.0, help="global scale for nvfp4 (epilogue alpha)")
+    ap.add_argument("--raster", type=int, default=0, help="0 heuristic, 1 along M, 2 along N")
+    ap.add_argument("--swizzle", type=int, default=1, help="tile scheduler max_swizzle_size")
+    ap.add_argument("--rounds", type=int, default=1, help="round-robin repetitions of (kernel, cuBLAS, dense) per shape; median of medians")
+    ap.add_argument("--force-time", action="store_true", help="time even if numerics fail (for timing-probe builds)")
+    ap.add_argument("--shapes", default="", help="comma-separated substrings; only matching shape names run")
     args = ap.parse_args()
+    global RASTER, SWIZZLE
+    RASTER, SWIZZLE = args.raster, args.swizzle
     lib_name = args.lib or {"bf16": "libsm120_bf16_dense.so", "nvfp4": "libsm120_nvfp4_bf16.so"}[args.kind]
 
     torch.manual_seed(0)
@@ -174,7 +183,7 @@ def main():
         shapes = [("small", 512, 768), ("small2", 2048, 1024), ("odd-M", 640, 384)]
         Ms = {"small": [256], "small2": [300], "odd-M": [77]}
     else:
-        shapes = SHAPES
+        shapes = [t for t in SHAPES if not args.shapes or any(f in t[0] for f in args.shapes.split(","))]
         Ms = {name: [int(m) for m in args.ms.split(",")] for name, _, _ in shapes}
 
     rows = []
@@ -194,18 +203,26 @@ def main():
             run_k(); torch.cuda.synchronize()
             e_k = check(D, ref, f"sm120 {args.kind} kernel")
             e_c = check(args.alpha * (A @ B.T), ref, "cuBLAS bf16 (dequant W)")
-            if e_k > 2e-2:
+            if e_k > 2e-2 and not args.force_time:
                 print("    FAILED numerics; not timing"); rows.append((name, M, K, N, None, None, None)); continue
             if args.quick:
                 continue
             flops = 2.0 * M * N * K
-            ms_k = tt.do_bench(run_k, warmup=args.warmup, rep=args.rep, return_mode="median")
-            ms_c = tt.do_bench(lambda: torch.matmul(A, B.T, out=D), warmup=args.warmup, rep=args.rep, return_mode="median")
+            import statistics
+            mk, mc, md = [], [], []
+            for _ in range(args.rounds):   # interleave so drift in contention hits all three alike
+                mk.append(tt.do_bench(run_k, warmup=args.warmup, rep=args.rep, return_mode="median"))
+                mc.append(tt.do_bench(lambda: torch.matmul(A, B.T, out=D), warmup=args.warmup, rep=args.rep, return_mode="median"))
+                if dense is not None:
+                    md.append(tt.do_bench(lambda: dense.bf16(A, B, D), warmup=args.warmup, rep=args.rep, return_mode="median"))
+            ms_k, ms_c = statistics.median(mk), statistics.median(mc)
             tf_k, tf_c = flops / ms_k / 1e9, flops / ms_c / 1e9
             tf_d = None
             if dense is not None:
-                ms_d = tt.do_bench(lambda: dense.bf16(A, B, D), warmup=args.warmup, rep=args.rep, return_mode="median")
+                ms_d = statistics.median(md)
                 tf_d = flops / ms_d / 1e9
+            if args.rounds > 1:
+                print(f"    rounds: kernel {[round(x,3) for x in mk]}  cuBLAS {[round(x,3) for x in mc]}" + (f"  dense {[round(x,3) for x in md]}" if md else ""))
             line = f"    sm120 {args.kind:<5} {ms_k:8.3f} ms {tf_k:7.1f} TFLOP/s | cuBLAS bf16 {ms_c:8.3f} ms {tf_c:7.1f} TFLOP/s | ratio {tf_k/tf_c:.2f}"
             if tf_d is not None:
                 line += f" | dense sm120 bf16 {tf_d:7.1f} TFLOP/s ratio {tf_k/tf_d:.2f}"

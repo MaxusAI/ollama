@@ -32,6 +32,12 @@
 
 #pragma once
 
+// NVFP4_DEQUANT_MODE: 2 = real kernel (default); 1 and 0 strip the scale multiply / the whole
+// conversion and exist only to attribute time (their output is wrong by construction).
+#ifndef NVFP4_DEQUANT_MODE
+#define NVFP4_DEQUANT_MODE 2
+#endif
+
 #include <cuda_bf16.h>
 
 #include "cutlass/cutlass.h"
@@ -453,14 +459,24 @@ struct CollectiveMma<
         uint32_t w  = wbase[b_off[jn]];
         uint32_t sc = sbase[s_off[jn]];
         uint32_t h  = (w >> (16 * s)) & 0xFFFFu;          // 4 nibbles = this step's B fragment
+#if NVFP4_DEQUANT_MODE == 0
+        // timing probe only: no conversion at all (wrong numerics), same loads
+        uint32_t u01 = h | (h << 16), u23 = u01 ^ sc;
+#else
         cutlass::Array<cutlass::float_e2m1_t, 4> src;
         *reinterpret_cast<uint16_t*>(&src) = static_cast<uint16_t>(h);
         cutlass::Array<cutlass::bfloat16_t, 4> v = E2m1x4ToBf16::convert(src);
         uint32_t const* vv = reinterpret_cast<uint32_t const*>(&v);
+#if NVFP4_DEQUANT_MODE == 1
+        // timing probe only: conversion but no scale (wrong numerics)
+        uint32_t u01 = vv[0] ^ sc, u23 = vv[1];
+#else
         __nv_bfloat162 scale = __hmul2(as_bf162(e4m3_to_bf16x2_pre(sc)), two120);     // exact e4m3 value
         __nv_bfloat162 v01 = __hmul2(as_bf162(vv[0]), scale);                            // exact products
         __nv_bfloat162 v23 = __hmul2(as_bf162(vv[1]), scale);
         uint32_t u01 = as_u32(v01), u23 = as_u32(v23);
+#endif
+#endif
         tCrB(_0{}, jn, k_block) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u01 & 0xFFFFu));
         tCrB(_1{}, jn, k_block) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u01 >> 16));
         tCrB(_2{}, jn, k_block) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u23 & 0xFFFFu));

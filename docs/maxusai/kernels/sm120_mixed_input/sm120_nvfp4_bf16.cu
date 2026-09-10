@@ -120,7 +120,7 @@ size_t g_workspace_size = 0;
 extern "C" {
 
 int sm120_nvfp4_gemm(const void* A, const void* Bp, const void* Sp, void* D, int M, int N, int K, float alpha,
-                     void* stream_v, char* err, int errlen) {
+                     void* stream_v, int raster, int swizzle, char* err, int errlen) {
   cudaStream_t stream = static_cast<cudaStream_t>(stream_v);
   StrideA sA = cutlass::make_cute_packed_stride(StrideA{}, cute::make_shape(M, K, 1));
   StrideC sC = cutlass::make_cute_packed_stride(StrideC{}, cute::make_shape(M, N, 1));
@@ -132,6 +132,10 @@ int sm120_nvfp4_gemm(const void* A, const void* Bp, const void* Sp, void* D, int
     {static_cast<const ElementA*>(A), sA, static_cast<const uint32_t*>(Bp), static_cast<const uint8_t*>(Sp)},
     {{alpha, 0.0f}, static_cast<const ElementC*>(D), sC, static_cast<ElementD*>(D), sD}
   };
+  // tile scheduler knobs (runtime): raster 0=Heuristic 1=AlongM 2=AlongN; swizzle = max_swizzle_size (1 = off)
+  using RO = cutlass::gemm::kernel::detail::RasterOrderOptions;
+  args.scheduler.raster_order = raster == 1 ? RO::AlongM : raster == 2 ? RO::AlongN : RO::Heuristic;
+  args.scheduler.max_swizzle_size = swizzle > 0 ? swizzle : 1;
   Gemm gemm;
   cutlass::Status st = gemm.can_implement(args);
   if (st != cutlass::Status::kSuccess) { snprintf(err, errlen, "can_implement: %s", cutlassGetStatusString(st)); return 1; }
