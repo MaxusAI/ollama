@@ -234,6 +234,33 @@ prices weights + KV + a per-architecture headroom; several GiB of unpriced prefi
 copies first — force evaluation per layer, or dequantise into one reused buffer — then re-measure
 peak before the threshold default is set.
 
+## Rework attempt 1 (2026-09-10): release the handle — **did not bound the transient**
+
+`mlx.Release` frees a handle the caller exclusively owns; `denseGEMM` calls it on the
+dequantised copy as soon as the matmul node holds it, on the theory that a live Go handle was
+retaining the buffer through the chunk's eval (the prefill loop's own comment says a live handle
+does exactly that, `pipeline.go`). Measured on `pr287b-5c9705e7`, same probe, same host
+(`preflight/runs/prefill-dequant-images-reworked-2026-09-10.jsonl`):
+
+| model, shape | peak off | peak on, before | peak on, released | Δ vs off | speed-up |
+|---|---|---|---|---|---|
+| gemma4:31b, 1 image | 30.7 | 37.5 | **37.7** | +7.0 | 2.33× |
+| gemma4:31b, 3 images | 36.7 | 40.4 | **40.4** | +3.8 | 1.84× |
+| qwen3.8, 1 image | 32.9 | 34.1 | **33.8** | +0.8 | 1.39× |
+| qwen3.8, 3 images | 34.9 | 35.7 | **35.7** | +0.8 | 1.19× |
+
+The flag-off control reproduced the earlier run to 0.1 GiB on all four shapes, so the probe is
+repeatable and the untouched path is unchanged. **The transient is unchanged**, so the retention
+is not the Go handle: whatever holds those buffers alive is inside MLX's own graph or allocator.
+`mlx.Release` is kept — it is correct, tested, and cheap — but it is not the fix, and this
+disproves the mechanism stated in the previous section.
+
+Next diagnostic, running: force the layer's matmul to evaluate inside `denseGEMM`
+(`mlx.Eval(out)`; an experiment, not a shipping change, since it serialises the chunk). If the
+peak drops, the transient is graph-lifetime and the fix is to bound the graph — chunk the layers,
+or evaluate in groups. If it does not, the +7 GiB is not the dequantised copies at all and the
+whole premise of this task needs re-deriving from an array trace at peak.
+
 ## Acceptance criteria
 
 1. ☑ **Bench after the campaign** (two runs, production still on the card): ratios repeatable
