@@ -37,6 +37,11 @@
 #ifndef NVFP4_DEQUANT_MODE
 #define NVFP4_DEQUANT_MODE 2
 #endif
+// NVFP4_SCALE_BF16: 0 = scales arrive as e4m3 bytes and are decoded in registers (exact bit trick);
+//                   1 = scales arrive pre-converted to bf16 (exact; host-side repack) - saves 4 ALU ops per fragment.
+#ifndef NVFP4_SCALE_BF16
+#define NVFP4_SCALE_BF16 0
+#endif
 
 #include <cuda_bf16.h>
 
@@ -130,7 +135,7 @@ struct CollectiveMma<
   using StrideA   = StrideA_;
   using ElementB  = ElementB_;                 // uint32_t: 8 packed e2m1 codes, fragment-native order
   using StrideB   = StrideB_;                  // kept for the kernel layer; the TMA descriptor is built from (N/8, K)
-  using ElementScale = uint8_t;                // e4m3 bits
+  using ElementScale = cute::conditional_t<(NVFP4_SCALE_BF16 != 0), uint16_t, uint8_t>;   // e4m3 bits or bf16 bits
   using TiledMma  = TiledMma_;
   using ElementBMma = typename TiledMma::ValTypeB;   // bf16
   using CtaShape_MNK = decltype(shape_div(TileShape{}, ClusterShape{}));
@@ -160,7 +165,7 @@ struct CollectiveMma<
   static_assert(BLK_N % 8 == 0 && BLK_K % 32 == 0, "packed layout needs N tile % 8 and K tile % 32");
   static constexpr int NT = BLK_N / 8;          // 8-wide n-tiles per CTA tile
   static constexpr int KB = BLK_K / 32;         // k32 blocks per CTA k-tile
-  static constexpr int SROW = KB * 16;          // scale bytes per n-tile per k-tile
+  static constexpr int SROW = KB * 16;          // scale elements per n-tile per k-tile
 
   static_assert(cute::is_same_v<ElementB, uint32_t>, "ElementB must be the packed uint32 word type");
   static_assert(cute::is_same_v<ElementBMma, cutlass::bfloat16_t>, "MMA B type must be bf16");
@@ -180,7 +185,7 @@ struct CollectiveMma<
   using SmemLayoutB = decltype(make_layout(
       make_shape(Int<NT>{}, Int<BLK_K>{}, Int<DispatchPolicy::Stages>{}),
       make_stride(Int<BLK_K>{}, _1{}, Int<NT * BLK_K>{})));
-  // Scales: (NT, SROW, PIPE) row-major bytes.
+  // Scales: (NT, SROW, PIPE) row-major elements (uint8 e4m3 or uint16 bf16).
   using SmemLayoutS = decltype(make_layout(
       make_shape(Int<NT>{}, Int<SROW>{}, Int<DispatchPolicy::Stages>{}),
       make_stride(Int<SROW>{}, _1{}, Int<NT * SROW>{})));
@@ -199,14 +204,14 @@ struct CollectiveMma<
   static constexpr uint32_t TmaTransactionBytesMK = static_cast<uint32_t>(
       cutlass::bits_to_bytes(size(take<0,2>(SmemLayoutA{})) * sizeof_bits<ElementA>::value));
   static constexpr uint32_t TmaTransactionBytesNK = static_cast<uint32_t>(
-      NT * BLK_K * sizeof(uint32_t) + NT * SROW * sizeof(uint8_t));
+      NT * BLK_K * sizeof(uint32_t) + NT * SROW * sizeof(ElementScale));
   static constexpr uint32_t TmaTransactionBytes = TmaTransactionBytesMK + TmaTransactionBytesNK;
 
   struct SharedStorage {
     struct TensorStorage : cute::aligned_struct<128, _0> {
       alignas(1024) cute::array_aligned<ElementA, cute::cosize_v<SmemLayoutA>> smem_A;
       alignas(128)  cute::array_aligned<uint32_t, cute::cosize_v<SmemLayoutB>> smem_B;
-      alignas(128)  cute::array_aligned<uint8_t,  cute::cosize_v<SmemLayoutS>> smem_S;
+      alignas(128)  cute::array_aligned<ElementScale, cute::cosize_v<SmemLayoutS>> smem_S;
     } tensors;
     using PipelineStorage = typename MainloopPipeline::SharedStorage;
     alignas(16) PipelineStorage pipeline_storage;
@@ -218,7 +223,7 @@ struct CollectiveMma<
     ElementA const* ptr_A{nullptr};
     StrideA dA{};
     uint32_t const* ptr_B{nullptr};   // Bp[N/8][K]
-    uint8_t  const* ptr_S{nullptr};   // Sp[N/8][K/2]
+    ElementScale const* ptr_S{nullptr};   // Sp[N/8][K/2] (elements)
   };
 
   using StrideBp = Stride<int64_t, Int<1>, int64_t>;   // (N/8, K, L) row-major words
@@ -239,7 +244,7 @@ struct CollectiveMma<
         _1{}));
     using TMA_S = decltype(make_tma_copy(
         SM90_TMA_LOAD{},
-        make_tensor(static_cast<uint8_t const*>(nullptr), make_shape(int32_t(0), int32_t(0), int32_t(0)), StrideSp{}),
+        make_tensor(static_cast<ElementScale const*>(nullptr), make_shape(int32_t(0), int32_t(0), int32_t(0)), StrideSp{}),
         SmemLayoutS{}(_,_,0),
         make_shape(Int<NT>{}, Int<SROW>{}),
         _1{}));
@@ -310,7 +315,7 @@ struct CollectiveMma<
     auto [M, N, K, L] = problem_shape_MNKL;
     Tensor mA_mkl = mainloop_params.tma_load_a.get_tma_tensor(make_shape(M,K,L));                 // (m,k,l)
     Tensor mB_nkl = mainloop_params.tma_load_b.get_tma_tensor(make_shape(N/8,K,L));               // (n8,k,l) words
-    Tensor mS_nkl = mainloop_params.tma_load_s.get_tma_tensor(make_shape(N/8,K/2,L));             // (n8,k/2,l) bytes
+    Tensor mS_nkl = mainloop_params.tma_load_s.get_tma_tensor(make_shape(N/8,K/2,L));             // (n8,k/2,l) scale elements
     Tensor gA_mkl = local_tile(mA_mkl, TileShape{}, make_coord(_,_,_), Step<_1, X,_1>{});         // (BLK_M,BLK_K,m,k,l)
     Tensor gB_nkl = local_tile(mB_nkl, make_shape(Int<NT>{}, Int<BLK_K>{}), make_coord(_,_,_));   // (NT,BLK_K,n,k,l)
     Tensor gS_nkl = local_tile(mS_nkl, make_shape(Int<NT>{}, Int<SROW>{}), make_coord(_,_,_));    // (NT,SROW,n,k,l)
@@ -397,7 +402,7 @@ struct CollectiveMma<
 
     Tensor sA = make_tensor(make_smem_ptr(shared_tensors.smem_A.data()), SmemLayoutA{});    // (BLK_M,BLK_K,PIPE)
     uint32_t const* sB_words = shared_tensors.smem_B.data();
-    uint8_t  const* sS_bytes = shared_tensors.smem_S.data();
+    ElementScale const* sS_elems = shared_tensors.smem_S.data();
 
     TiledMma tiled_mma;
     auto thread_mma = tiled_mma.get_thread_slice(thread_idx);
@@ -431,33 +436,37 @@ struct CollectiveMma<
     static_assert(decltype(K_BLOCK_MAX)::value == BLK_K / 16, "one k_block per m16n8k16 step");
 
     int const lane = thread_idx & 31;
-    // Per n-tile smem byte offsets (within a stage) for this lane's word / scale pair.
-    int b_off[MMA_N];
-    int s_off[MMA_N];
+    // This thread's n-tiles are nt(jn) = nt0 + NT_STRIDE*jn: with AtomLayoutMNK 4x2x1 and the Tile<128,32,16>
+    // permutation the two N-warps interleave 8-wide n-tiles (n = 32t + 16j + 8wn + [0,8), jn = j + 2t), so the
+    // stride is a compile-time 2 and every smem load below takes an immediate offset. NVFP4_CHECK_NT traps if
+    // the TiledMma's partition disagrees (used once in the quick validation build).
+    static constexpr int NT_STRIDE = 2;
+    int const nt0   = get<0>(tCcB(_0{}, _0{}, _0{})) >> 3;
+    int const b_off0 = nt0 * BLK_K + lane;                  // word index of (nt0, kb=0, lane)
+    int const s_off0 = nt0 * SROW + ((lane >> 2) << 1);     // element index of (nt0, kb=0, n%8, s=0)
+#ifdef NVFP4_CHECK_NT
     CUTLASS_PRAGMA_UNROLL
     for (int jn = 0; jn < MMA_N; ++jn) {
-      int n  = get<0>(tCcB(_0{}, jn, _0{}));
-      int nt = n >> 3;
-      b_off[jn] = nt * BLK_K + lane;                      // word index: + kb*32
-      s_off[jn] = nt * SROW + ((lane >> 2) << 1);         // byte index: + kb*16 + s
+      if ((get<0>(tCcB(_0{}, jn, _0{})) >> 3) != nt0 + NT_STRIDE * jn) { __trap(); }
     }
+#endif
 
     int read_stage = smem_pipe_read.index();
     auto tCsA_stage = tCsA(_,_,_,read_stage);
 
-    __nv_bfloat162 const two120 = as_bf162(kTwoPow120x2);
+    [[maybe_unused]] __nv_bfloat162 const two120 = as_bf162(kTwoPow120x2);
 
     // k_block arrives as cute::Int<> from for_each or as a plain int (k_block_next); both fold after unrolling.
     auto dequant_kblock = [&](auto k_block, int stage) {
       int const kbi = static_cast<int>(k_block);
       int const kb = kbi >> 1;
       int const s  = kbi & 1;
-      uint32_t const* wbase = sB_words + stage * (NT * BLK_K) + kb * 32;
-      uint8_t  const* sbase = sS_bytes + stage * (NT * SROW) + kb * 16 + s;
+      uint32_t const*     wbase = sB_words + stage * (NT * BLK_K) + b_off0 + kb * 32;
+      ElementScale const* sbase = sS_elems + stage * (NT * SROW) + s_off0 + kb * 16 + s;
       CUTLASS_PRAGMA_UNROLL
       for (int jn = 0; jn < MMA_N; ++jn) {
-        uint32_t w  = wbase[b_off[jn]];
-        uint32_t sc = sbase[s_off[jn]];
+        uint32_t w  = wbase[jn * (NT_STRIDE * BLK_K)];
+        uint32_t sc = sbase[jn * (NT_STRIDE * SROW)];
         uint32_t h  = (w >> (16 * s)) & 0xFFFFu;          // 4 nibbles = this step's B fragment
 #if NVFP4_DEQUANT_MODE == 0
         // timing probe only: no conversion at all (wrong numerics), same loads
@@ -471,7 +480,11 @@ struct CollectiveMma<
         // timing probe only: conversion but no scale (wrong numerics)
         uint32_t u01 = vv[0] ^ sc, u23 = vv[1];
 #else
+#if NVFP4_SCALE_BF16
+        __nv_bfloat162 scale = as_bf162(sc | (sc << 16));                                // bf16 scale, both halves
+#else
         __nv_bfloat162 scale = __hmul2(as_bf162(e4m3_to_bf16x2_pre(sc)), two120);     // exact e4m3 value
+#endif
         __nv_bfloat162 v01 = __hmul2(as_bf162(vv[0]), scale);                            // exact products
         __nv_bfloat162 v23 = __hmul2(as_bf162(vv[1]), scale);
         uint32_t u01 = as_u32(v01), u23 = as_u32(v23);

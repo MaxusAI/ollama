@@ -80,15 +80,19 @@ def preshuffle_weights(codes):
     return torch.where(words >= 2**31, words - 2**32, words).to(torch.int32).contiguous()
 
 
-def preshuffle_scales(scale_bits):
-    """e4m3 scale bits [N, K/16] uint8 -> Sp [N/8, K/2] uint8: byte (nt, kb*16 + (n%8)*2 + s)."""
+def preshuffle_scales(scale_bits, as_bf16=False):
+    """e4m3 scale bits [N, K/16] uint8 -> Sp [N/8, K/2]: element (nt, kb*16 + (n%8)*2 + s).
+    as_bf16: elements are the exact bf16 value of the e4m3 scale (uint16 bit pattern) instead of the e4m3 byte."""
     N, G = scale_bits.shape
     NT, KB = N // 8, G // 2
-    s = scale_bits.view(NT, 8, KB, 2).permute(0, 2, 1, 3).reshape(NT, KB * 16)
+    src = scale_bits
+    if as_bf16:
+        src = scale_bits.view(torch.float8_e4m3fn).to(torch.bfloat16).view(torch.int16)
+    s = src.view(NT, 8, KB, 2).permute(0, 2, 1, 3).reshape(NT, KB * 16)
     return s.contiguous()
 
 
-def make_nvfp4(N, K, dev, seed=0):
+def make_nvfp4(N, K, dev, seed=0, scale_bf16=False):
     """Random NVFP4 weight: codes, e4m3 scale bits, exact bf16 dequantised weight, and both packed layouts."""
     g = torch.Generator(device=dev); g.manual_seed(seed)
     codes = torch.randint(0, 16, (N, K), device=dev, dtype=torch.uint8, generator=g)
@@ -101,7 +105,7 @@ def make_nvfp4(N, K, dev, seed=0):
     native = mlx_native_pack(codes)
     assert torch.equal(mlx_native_unpack(native, K), codes)
     Bp = preshuffle_weights(mlx_native_unpack(native, K))     # i.e. the repack path from MLX's layout
-    Sp = preshuffle_scales(sc_bits)
+    Sp = preshuffle_scales(sc_bits, as_bf16=scale_bf16)
     return codes, sc_bits, W_bf16, native, Bp, Sp
 
 
@@ -116,9 +120,10 @@ class Lib:
         info = [ctypes.c_int() for _ in range(5)]
         getattr(self.lib, f"sm120_{kind}_gemm_info")(*[ctypes.byref(i) for i in info])
         self.stages, self.tm, self.tn, self.tk, self.smem = [i.value for i in info]
+        self.scale_bf16 = bool(self.lib.sm120_nvfp4_scale_format()) if kind == "nvfp4" and hasattr(self.lib, "sm120_nvfp4_scale_format") else False
 
     def desc(self):
-        return f"{self.kind}: stages={self.stages} tile={self.tm}x{self.tn}x{self.tk} smem={self.smem} B"
+        return f"{self.kind}: stages={self.stages} tile={self.tm}x{self.tn}x{self.tk} smem={self.smem} B" + (" scales=bf16" if self.scale_bf16 else "")
 
     def bf16(self, A, B, D):
         err = ctypes.create_string_buffer(256)
@@ -197,7 +202,7 @@ def main():
                 ref = A.float() @ B.float().T
                 run_k = lambda: lib.bf16(A, B, D)
             else:
-                codes, sc_bits, B, native, Bp, Sp = make_nvfp4(N, K, dev)
+                codes, sc_bits, B, native, Bp, Sp = make_nvfp4(N, K, dev, scale_bf16=lib.scale_bf16)
                 ref = args.alpha * (A.float() @ B.float().T)
                 run_k = lambda: lib.nvfp4(A, Bp, Sp, D, N, args.alpha)
             run_k(); torch.cuda.synchronize()

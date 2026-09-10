@@ -85,9 +85,13 @@ using SmemCopyAtomB   = Copy_Atom<DefaultCopy, ElementB>;
 using GmemTiledCopyB  = SM90_TMA_LOAD;
 
 // Stage budget: A bf16 tile + packed B words + scale bytes per stage; epilogue smem carved out.
-constexpr int kStageBytes = TILE_M * TILE_K * 2 + (TILE_N / 8) * TILE_K * 4 + (TILE_N / 8) * (TILE_K / 32) * 16;
+#ifndef NVFP4_SCALE_BF16
+#define NVFP4_SCALE_BF16 0
+#endif
+constexpr int kScaleBytes = NVFP4_SCALE_BF16 ? 2 : 1;
+constexpr int kStageBytes = TILE_M * TILE_K * 2 + (TILE_N / 8) * TILE_K * 4 + (TILE_N / 8) * (TILE_K / 32) * 16 * kScaleBytes;
 constexpr int kEpilogueBytes = static_cast<int>(sizeof(typename CollectiveEpilogue::SharedStorage));
-constexpr int kReserve = 1024;   // pipeline barriers + alignment slack
+constexpr int kReserve = 256;    // pipeline barriers + alignment slack (the SharedStorage static_assert below is the real guard)
 constexpr int StagesAuto = (cutlass::gemm::collective::detail::sm120_smem_capacity_bytes - kEpilogueBytes - kReserve) / kStageBytes;
 constexpr int Stages = STAGES_OVERRIDE > 0 ? STAGES_OVERRIDE : StagesAuto;
 static_assert(Stages >= 2, "not enough smem for 2 stages at this tile shape");
@@ -129,7 +133,7 @@ int sm120_nvfp4_gemm(const void* A, const void* Bp, const void* Sp, void* D, int
   typename Gemm::Arguments args{
     cutlass::gemm::GemmUniversalMode::kGemm,
     {M, N, K, 1},
-    {static_cast<const ElementA*>(A), sA, static_cast<const uint32_t*>(Bp), static_cast<const uint8_t*>(Sp)},
+    {static_cast<const ElementA*>(A), sA, static_cast<const uint32_t*>(Bp), static_cast<const typename CollectiveMainloop::ElementScale*>(Sp)},
     {{alpha, 0.0f}, static_cast<const ElementC*>(D), sC, static_cast<ElementD*>(D), sD}
   };
   // tile scheduler knobs (runtime): raster 0=Heuristic 1=AlongM 2=AlongN; swizzle = max_swizzle_size (1 = off)
@@ -151,6 +155,8 @@ int sm120_nvfp4_gemm(const void* A, const void* Bp, const void* Sp, void* D, int
   if (st != cutlass::Status::kSuccess) { snprintf(err, errlen, "run: %s", cutlassGetStatusString(st)); return 3; }
   return 0;
 }
+
+int sm120_nvfp4_scale_format() { return NVFP4_SCALE_BF16; }   // 0: e4m3 bytes, 1: bf16
 
 int sm120_nvfp4_gemm_info(int* stages, int* tile_m, int* tile_n, int* tile_k, int* smem_bytes) {
   *stages = Stages; *tile_m = TILE_M; *tile_n = TILE_N; *tile_k = TILE_K;
