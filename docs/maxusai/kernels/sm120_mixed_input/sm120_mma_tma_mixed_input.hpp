@@ -42,6 +42,15 @@
 #ifndef NVFP4_SCALE_BF16
 #define NVFP4_SCALE_BF16 0
 #endif
+// NVFP4_CONVERT_X8: 1 = at every even k-block convert the lane's whole 32-bit word (both k16 steps of the
+//                   k32 block) with the x8 table converter and load both bf16 scales with one 32-bit load.
+//                   Halves the packed-word loads and amortises the permutes. Requires NVFP4_SCALE_BF16=1.
+#ifndef NVFP4_CONVERT_X8
+#define NVFP4_CONVERT_X8 0
+#endif
+#if NVFP4_CONVERT_X8 && !NVFP4_SCALE_BF16
+#error "NVFP4_CONVERT_X8 requires NVFP4_SCALE_BF16=1"
+#endif
 
 #include <cuda_bf16.h>
 
@@ -101,6 +110,10 @@ constexpr uint32_t kTwoPow120x2 = 0x7B807B80u;
 
 // e2m1 -> bf16 via CUTLASS's prmt lookup table (numeric_conversion.h, arch-free).
 using E2m1x4ToBf16 = cutlass::NumericArrayConverter<cutlass::bfloat16_t, cutlass::float_e2m1_t, 4>;
+using E2m1x8ToBf16 = cutlass::NumericArrayConverter<cutlass::bfloat16_t, cutlass::float_e2m1_t, 8>;
+
+CUTLASS_DEVICE uint32_t dup_lo16(uint32_t x) { return __byte_perm(x, x, 0x1010); }   // both halves = low  16 bits
+CUTLASS_DEVICE uint32_t dup_hi16(uint32_t x) { return __byte_perm(x, x, 0x3232); }   // both halves = high 16 bits
 
 } // namespace nvfp4_detail
 
@@ -463,6 +476,30 @@ struct CollectiveMma<
       int const s  = kbi & 1;
       uint32_t const*     wbase = sB_words + stage * (NT * BLK_K) + b_off0 + kb * 32;
       ElementScale const* sbase = sS_elems + stage * (NT * SROW) + s_off0 + kb * 16 + s;
+#if NVFP4_CONVERT_X8
+      if (s != 0) { return; }   // the even k-block already produced both steps of this k32 block
+      CUTLASS_PRAGMA_UNROLL
+      for (int jn = 0; jn < MMA_N; ++jn) {
+        uint32_t w   = wbase[jn * (NT_STRIDE * BLK_K)];
+        uint32_t sc2 = *reinterpret_cast<uint32_t const*>(sbase + jn * (NT_STRIDE * SROW));   // (s=0, s=1) bf16 pair
+        cutlass::Array<cutlass::float_e2m1_t, 8> src8;
+        *reinterpret_cast<uint32_t*>(&src8) = w;
+        cutlass::Array<cutlass::bfloat16_t, 8> v8 = E2m1x8ToBf16::convert(src8);
+        uint32_t const* vv = reinterpret_cast<uint32_t const*>(&v8);
+        __nv_bfloat162 sc0 = as_bf162(dup_lo16(sc2)), sc1 = as_bf162(dup_hi16(sc2));
+        uint32_t u0 = as_u32(__hmul2(as_bf162(vv[0]), sc0)), u1 = as_u32(__hmul2(as_bf162(vv[1]), sc0));
+        uint32_t u2 = as_u32(__hmul2(as_bf162(vv[2]), sc1)), u3 = as_u32(__hmul2(as_bf162(vv[3]), sc1));
+        tCrB(_0{}, jn, kbi)     = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u0 & 0xFFFFu));
+        tCrB(_1{}, jn, kbi)     = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u0 >> 16));
+        tCrB(_2{}, jn, kbi)     = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u1 & 0xFFFFu));
+        tCrB(_3{}, jn, kbi)     = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u1 >> 16));
+        tCrB(_0{}, jn, kbi + 1) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u2 & 0xFFFFu));
+        tCrB(_1{}, jn, kbi + 1) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u2 >> 16));
+        tCrB(_2{}, jn, kbi + 1) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u3 & 0xFFFFu));
+        tCrB(_3{}, jn, kbi + 1) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u3 >> 16));
+      }
+      return;
+#endif
       CUTLASS_PRAGMA_UNROLL
       for (int jn = 0; jn < MMA_N; ++jn) {
         uint32_t w  = wbase[jn * (NT_STRIDE * BLK_K)];
