@@ -315,6 +315,20 @@ configurations per shape. Log: `preflight/runs/triton-mixed-input-2026-09-10.log
 `kernels/triton_mixed_input_gemm.py` on a quiet Blackwell before quoting these as final; the
 ratios should hold but the absolute figures will move.
 
+**Is it the CUDA 12.8 toolchain?** (Glenn, 2026-09-10: 12.8 was the first release with sm_120.)
+It splits by component:
+
+| component | toolchain that compiled it | could 12.8 explain it? |
+|---|---|---|
+| MLX, production (the slow kernel) | CUDA **13.0** (NVRTC 13.0.88, cudart 13.0.96, cuBLAS 13.1.1.3), JIT flag `--gpu-architecture=sm_120a` from `jit_module.cpp` | **no** — not 12.8, and it targets sm_120a natively; the Ampere-era `SM80_16x8x16` MMA and `cp.async` are chosen in MLX's *source*, which no toolkit version changes |
+| this Triton prototype | Triton 3.3.1's bundled `ptxas-blackwell`, **CUDA 12.8.61** | **plausibly** — early sm_120 code generation could schedule worse |
+| bf16 cuBLAS reference | torch 2.7.1+cu128, cuBLAS 12.8 | no — it reaches 117–219 TF/s on the same card, so 12.8 drives sm_120 tensor cores well |
+
+The Triton half is testable with one variable: the host has `/usr/local/cuda-13.0/bin/ptxas`, and
+Triton reads `TRITON_PTXAS-BLACKWELL_PATH` (a hyphenated name, so it has to go through `env`, not
+`export`). `claude-scratch/ab-triton-ptxas.sh` runs the prototype with both, in separate Triton
+caches so each recompiles; it is staged for the quiet-GPU rerun, not run.
+
 The error is bf16 rounding against the dequantised reference, i.e. the kernel is correct.
 
 **It reaches 23–33 % of cuBLAS, which is *below* MLX's own kernel** (55–73 TF/s at 4096 rows in
