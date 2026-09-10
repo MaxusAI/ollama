@@ -596,6 +596,39 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    updated (ADR 0032 amendment), and — on this shared GPU — consider `OLLAMA_GPU_OVERHEAD` (headroom; not a hard cap, see 7b)
    for any campaign/canary container alongside it (#272).
 
+## Next fold: upstream v0.34.0 (released 2026-09-05) — first look, 2026-09-10
+
+- **The native payload is unchanged.** `MLX_VERSION` `37c26e57…`, `MLX_C_VERSION` `c74db530…`,
+  `LLAMA_CPP_VERSION` `b10760` are byte-identical to v0.33.3, so 0.34.0 is a Go- and app-side
+  release. **Every regression result in this fold's write-ups stays valid across the sync**, and a
+  Go-only binary swap (see the memory note) measures 0.34.0 without a CUDA rebuild.
+- Scope: 88 files, 21 commits. Mostly `app/` (36), `x/mlxrunner` (14, largely `xgrammar` and
+  `speculate`), `cmd/` (11), `server/` (8). Headline features are ChatGPT Desktop integration,
+  OpenAI-compatible tool search and response compaction, and Apple-silicon structured output.
+- `x/mlxrunner/client.go` gains `requestGrammar` (wraps `req.Format` into a `json_schema`
+  structural tag). It does **not** touch admission, so #276's pricing is unaffected.
+- **Untouched by 0.34.0, so no conflict from our side:** `x/models/nn/nn.go`,
+  `x/mlxrunner/mlx/ops_extra.go`, `x/mlxrunner/mlx/generated.{c,h}`.
+
+### One deliberate divergence to carry into the sync: `runnerRef.LogValue`
+
+Upstream fixed the same data race we did, on 2026-09-05, in `b5d373f3` ("fix data races in
+progress and sched", ollama/ollama#18319) — **four days before our #289** and independently.
+The two fixes differ:
+
+| | upstream 0.34.0 | ours (#289) |
+|---|---|---|
+| mechanism | `refMu.TryLock()` in `LogValue`, **fields omitted when the lock is contended** | a leaf `logMu sync.RWMutex` guarding the fields `unload` clears |
+| race-free | yes | yes |
+| log output | **degraded**: `sync.Mutex` is not reentrant, so the **11 of ~25 log sites that already hold `refMu`** (sched.go 343, 408, 415, 417, 428, 433, 439, 451, 483, 762, 766) *always* fail the TryLock and permanently lose `name`, `inference`, `pid`, `num_ctx` | unchanged at every site |
+| regression test | none — `server/sched_test.go` untouched upstream | `TestRunnerRefLogValueDuringUnload`, reproduces all three reported races on unfixed code |
+
+**Decision (2026-09-10): keep ours at the sync**, because the scheduler debug lines that lose
+their fields under upstream's version are exactly the ones this fork reads when diagnosing runner
+behaviour, and because upstream ships no test. Expect a conflict in `LogValue` and resolve it in
+our favour; carry our test either way, since it also covers upstream's implementation. Worth
+offering upstream as a follow-up so the divergence can be retired.
+
 ## Effort
 
 Housekeeping ½ day · merge + ports 1–2 days · image ~3 h · CUDA preflight
