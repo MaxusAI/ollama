@@ -489,14 +489,11 @@ struct CollectiveMma<
         __nv_bfloat162 sc0 = as_bf162(dup_lo16(sc2)), sc1 = as_bf162(dup_hi16(sc2));
         uint32_t u0 = as_u32(__hmul2(as_bf162(vv[0]), sc0)), u1 = as_u32(__hmul2(as_bf162(vv[1]), sc0));
         uint32_t u2 = as_u32(__hmul2(as_bf162(vv[2]), sc1)), u3 = as_u32(__hmul2(as_bf162(vv[3]), sc1));
-        tCrB(_0{}, jn, kbi)     = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u0 & 0xFFFFu));
-        tCrB(_1{}, jn, kbi)     = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u0 >> 16));
-        tCrB(_2{}, jn, kbi)     = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u1 & 0xFFFFu));
-        tCrB(_3{}, jn, kbi)     = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u1 >> 16));
-        tCrB(_0{}, jn, kbi + 1) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u2 & 0xFFFFu));
-        tCrB(_1{}, jn, kbi + 1) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u2 >> 16));
-        tCrB(_2{}, jn, kbi + 1) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u3 & 0xFFFFu));
-        tCrB(_3{}, jn, kbi + 1) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u3 >> 16));
+        // the 4-bf16 fragment slice is contiguous in registers: store the two 32-bit words directly
+        Tensor f0 = recast<uint32_t>(tCrB(_, jn, kbi));
+        Tensor f1 = recast<uint32_t>(tCrB(_, jn, kbi + 1));
+        f0(_0{}) = u0; f0(_1{}) = u1;
+        f1(_0{}) = u2; f1(_1{}) = u3;
       }
       return;
 #endif
@@ -527,10 +524,8 @@ struct CollectiveMma<
         uint32_t u01 = as_u32(v01), u23 = as_u32(v23);
 #endif
 #endif
-        tCrB(_0{}, jn, k_block) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u01 & 0xFFFFu));
-        tCrB(_1{}, jn, k_block) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u01 >> 16));
-        tCrB(_2{}, jn, k_block) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u23 & 0xFFFFu));
-        tCrB(_3{}, jn, k_block) = cutlass::bfloat16_t::bitcast(static_cast<uint16_t>(u23 >> 16));
+        Tensor f = recast<uint32_t>(tCrB(_, jn, k_block));
+        f(_0{}) = u01; f(_1{}) = u23;
       }
     };
 
