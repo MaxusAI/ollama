@@ -172,14 +172,26 @@ func rows(x *mlx.Array) int {
 
 // denseGEMM dequantises the layer to x's dtype and multiplies on the dense
 // path: the same weights and bf16 math as the mixed-input kernel with a
-// different accumulation order, and a transient [N, K] copy of the layer that
-// lives only inside this call's graph.
+// different accumulation order, and a transient [N, K] copy of the layer.
+//
+// The copy is released as soon as the matmul node holds it. Without that, every
+// layer's copy stays live until the chunk's Sweep -- the prefill loop evaluates
+// a whole chunk as one graph, and a live handle retains its buffer through the
+// eval -- which measured +6.8 GiB on gemma4:31b. Released, the buffer returns to
+// MLX's allocator once that layer's matmul has run and the next layer reuses it,
+// which is what llama.cpp gets from a pool-allocated scratch buffer in
+// ggml_cuda_mul_mat_cublas_impl.
 func (ql *QuantizedLinear) denseGEMM(x *mlx.Array) *mlx.Array {
 	w := mlx.Dequantize(ql.Weight, ql.Scales, ql.QBiases, ql.GroupSize, ql.Bits, ql.Mode, nil)
 	if w.DType() != x.DType() {
-		w = w.AsType(x.DType())
+		converted := w.AsType(x.DType())
+		mlx.Release(w)
+		w = converted
 	}
-	return x.Matmul(w.Transpose(1, 0))
+	wT := w.Transpose(1, 0)
+	out := x.Matmul(wT)
+	mlx.Release(wT, w)
+	return out
 }
 
 func (ql *QuantizedLinear) Forward(x *mlx.Array) *mlx.Array {

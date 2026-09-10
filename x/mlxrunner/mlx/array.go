@@ -157,6 +157,27 @@ func Unpin(s ...*Array) {
 	}
 }
 
+// Release frees an array's handle now, before the next Sweep. The graph keeps
+// its own reference to anything it consumes, so releasing a handle the caller
+// exclusively owns lets MLX return that buffer to its allocator as soon as the
+// consuming node has run, instead of holding it for the rest of the chunk (a
+// live handle retains its buffer through an eval — see the prefill loop). It is
+// idempotent, and it panics on a pinned array, which is always a bug.
+func Release(s ...*Array) {
+	arraysMu.Lock()
+	defer arraysMu.Unlock()
+	for _, t := range s {
+		if t == nil || !t.Valid() {
+			continue
+		}
+		if t.pinned.Load() > 0 {
+			panic(fmt.Sprintf("mlx.Release: array %q is pinned", t.name))
+		}
+		mlxCheck(C.mlx_array_free(t.ctx))
+		t.ctx.ctx = nil
+	}
+}
+
 // Sweep releases all unpinned arrays, primarily intermediate tensors. MLX will truly
 // free them when there are no other references, including dependencies in the graph.
 func Sweep() {
