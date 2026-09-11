@@ -1597,6 +1597,7 @@ func (runner *runnerRef) LogValue() slog.Value {
 		slog.String("size", format.HumanBytes2(runner.totalSize)),
 		slog.String("vram", format.HumanBytes2(runner.vramSize)),
 		slog.Int("parallel", runner.numParallel),
+		slog.Int("pid", runner.pid),
 		slog.String("model", modelID),
 	)
 	if hasOptions {
