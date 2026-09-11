@@ -9,18 +9,18 @@ First look: [upstream-sync-2026-09-04.md](upstream-sync-2026-09-04.md), section 
 **The MLX bump is in.** `fbedf506` pins MLX to `ce916dbb`, which is ml-explore/mlx#4452, the fix
 for the idle runner that pins a CPU core. The decision is below (2026-09-11 23:30).
 
-## Status (2026-09-12, 03:25)
+## Status (2026-09-12, 06:40)
 
 | gate | state |
 |---|---|
 | 1, merge | done, `ca3ff1db`, three conflicts resolved |
 | 2, no-GPU tests | green after two fixes in `ba2eb4f1`; one upstream flake, two findings already on main |
-| 3, image | Go-only swap `maxusai/ollama:sync-0.34.0-swap` (`0.33.3-dynres-26-gba2eb4f`), **valid for the GGUF half only**; payload swap `sync-0.34.0-mlxswap` for the MLX half; the full image `sync-0.34.0` is still building |
-| 4, preflight `cuda-dynres-903` | PASS 20, SKIP 8 on the swap image, the same as main; repeated on the rebuilt image |
+| 3, image | **built**: `maxusai/ollama:sync-0.34.0` (`0.33.3-dynres-28-gfbedf50`, 05:05). Its MLX payload is byte-identical to the payload-swap image's (2,648 files), and its Go code matches, so the MLX gates measured there cover it |
+| 4, preflight `cuda-dynres-903` | PASS 20, SKIP 8 on the swap image, the same as main; on the real image: gate-sync034h, running |
 | 5, GGUF think-off against `ggmlmain_1_` | **green**: 8 suites, no OOM, no error; every quality row identical to main |
 | MLX format check and idle-CPU probe | **passed** on the rebuilt MLX payload (below) |
-| 5, MLX think-off against `main276_` | done on the payload-swap image, 01:33 to 02:58: 5 suites, no OOM, no error. Identical to main except a few cells, and the fold drafts under a grammar where main never did (below) |
-| MLX attribution A/B, `gate-sync034e` | running since 03:13: does drafting under a grammar explain those cells? |
+| 5, MLX think-off against `main276_` | done on the payload-swap image, 01:33 to 02:58: 5 suites, no OOM, no error. The few moved cells are knife-edge flips that drafting under a grammar adds (attribution below) |
+| MLX attribution, gates 034e to 034i | **done**. Without drafting under a grammar the fold matches main on outputs and memory. With it, knife-edge cells flip between runs and qwen3.5-family memory grows untracked across requests. **Decision needed** (below) |
 
 ## Conflicts and their resolution
 
@@ -219,18 +219,228 @@ afterwards. When a draft chain holds the stop token followed by more drafts, the
 refuses the next one and xgrammar logs the warning. `accept` cuts the run at an accepted stop
 token, so no position past it is ever committed.
 
-**Attribution: `claude-scratch/gate-sync034e.sh`, running since 03:13.** It runs three images over
-the three arms that moved, 5 repeats each:
+### Attribution: gates 034e to 034i
 
-- fold: `sync-0.34.0-mlxswap`;
-- nodraft: `sync-0.34.0-nodraft`, the fold with main's gate restored. That is one line in
-  `speculate.go`, built from a detached worktree at `2b5478ab` and never committed;
-- main: `main-a523d60b`.
+The render is `preflight-runs/specab-render.md`, from `claude-scratch/render-specab.sh`. Every table in it is
+generator output. The images:
 
-The arms are gemma4:12b-nvfp4 on `bbox_contract_adv_norm1`, and qwen3.6:35b-a3b-nvfp4 on
-`document_single` and `finetext`. nodraft against the fold isolates drafting. nodraft against main
-isolates the MLX bump and the rest of the fold. `claude-scratch/render-specab.sh` renders the result
-once the gate is done.
+- **fold:** `sync-0.34.0-mlxswap`.
+- **nodraft:** the fold with main's one-line gate restored, `sync-0.34.0-nodraft`, built from a detached worktree and
+  never committed.
+- **main:** `main-a523d60b`.
+- **mainmlx:** main with only the fold's `libmlx.so` and `libmlxc.so`, `main-a523d60b-mlxce916`. It separates the MLX
+  bump from every Go change.
+
+The fold, nodraft and mainmlx images were removed from Docker at 06:26 to spare the full root disk. Each can be
+rebuilt in about a minute, with no CUDA compile, from `main-a523d60b` and the exports on the 8TB array:
+`mlxpayload-034`, `gobin-034b` and `gobin-034-nodraft`.
+
+**Cold repeats (034e, 034f).** Each image ran the arms that moved five times, with a cold restart before every run.
+
+- **gemma4:12b `bbox_contract_adv_norm1`:** the fold, nodraft and main each give the same answer on all five runs,
+  contract ❌. mainmlx ran only qwen3.6 cold.
+- **qwen3.6:** the same knife-edge cells flip on every image except mainmlx, which gave one answer all five times.
+  Main's document name_bbox lands on 0.504 or 0.613, and the 7 px tier on the fold and on nodraft lands on 1 or 2.
+
+So on cold loads neither drafting nor the MLX bump moves these arms beyond the flips each image shows on its own.
+
+One caveat bounds that result: **cold, the fold barely drafts.** Its depth controller starts at depth 0 after every
+load. It drafts deep only once its cost model holds a clean sample at two depths, and here that took two requests. A
+cold single-request repeat drafted about 0.02 tokens per round. A full suite drafts from its third request on, about
+3 per round on qwen3.6.
+
+**Full-suite repeats (034g).** Main and the fold each ran the full suite twice more.
+
+- **Main** gives contract ✅ on bcadvnorm1 in all three of its full-suite runs, and ❌ in all five cold ones. The
+  answer depends on context but not on the run. In a full suite the test restores a cached prefix from the test before
+  it, which sends the same three images.
+- **The fold** drafts warm in a full suite, and gives ❌, ❌, then ✅.
+- **qwen3.6's name_bbox** varies on both images.
+
+Three runs a side is suggestive, not conclusive. Answer length, measured by the inspection script
+`claude-scratch/evaldiff.py`, shows how far apart two runs of the same image already are:
+
+- **gemma4:12b:** main against main differs on 2 of 27 tests, the fold against itself on 3, and main against the fold
+  on 2 to 3.
+- **qwen3.6:** main against main differs on 7 tests, the fold against itself on 7, and main against the fold on 7 to 8.
+
+The gate's single-run comparison sits inside each image's own variation.
+
+**Drafting or the MLX bump (034i).** nodraft is the fold with drafting under a grammar switched off. It keeps the
+same MLX payload and every other v0.34.0 Go change.
+
+- **bcadvnorm1:** in a full suite nodraft gives main's answer, contract ✅.
+- **Length:** evaldiff shows nodraft's answer lengths matching main's first full-suite repeat on all 27 tests. Where it
+  differs from main's second repeat, it's the same two tests on which main's two repeats differ from each other.
+
+So without drafting, the fold lands inside main's own run-to-run variation, and the MLX bump and the rest of the fold
+leave these outputs alone. mainmlx confirms it from the other side. With main's Go and only the fold's MLX
+libraries, its full suite gives main's answer, contract ✅, and its answer lengths match main's first full-suite
+repeat, and nodraft's, on all 27 tests.
+
+What remains is drafting under a grammar. The runs without it give ✅ on bcadvnorm1 in 4 of 4 full suites; the runs
+with it give ✅ in 1 of 3. That is weak evidence on its own (Fisher's exact test, p ≈ 0.14), but the mechanism fits:
+
+- Verification runs the target over the drafts in one batch, so its logits can pick a different argmax than one-token
+  decode at a near-tie.
+- The depth controller is timing-driven, so where drafting happens changes from run to run.
+- Against nodraft, each fold run differs in answer length on one or two extra gemma4 tests.
+
+**Memory: drafting under a grammar leaves untracked MLX memory behind on qwen3.8.** Gate 034i ran the qwen3.8 full
+suite at trace level on nodraft and on the fold. After each request's teardown the runner lists every live array it
+tracks, next to MLX's own active-memory figure. These are inspection-grade numbers, from `claude-scratch/tracemem.py`
+and `peakdiff.py`.
+
+- **The prefix-cache trie holds the same content on both, request for request.** The recurrent snapshots grow by 144
+  arrays (48 layers × 3 snapshots) per request up to the 8 GiB cap, and the paged-out bytes match.
+- **On nodraft, MLX's active memory matches the tracked arrays** within 0.14 GiB all suite long.
+- **On the fold, active memory runs ahead of the tracked arrays, and the gap grows:** +0.7 GiB after request 4, +3.7
+  after 13, +5.8 after 22, +6.8 after 28, with no plateau. The memory survives the teardown's sweep and cache clear
+  but belongs to no array the runner tracks, so neither the admission headroom nor the trie's cap sees it.
+- **Per-request peaks:** nodraft matches main (median +0.00 GiB), so the MLX bump and the other v0.34.0 changes cost
+  nothing. The fold runs a median 2.9 GiB above nodraft, and up to 7.0 GiB, at a maximum draft depth of 6. The 01:33
+  run drafted up to 16 deep and ran up to 14 GiB above main.
+- **gemma4's peaks match main's** at every draft depth.
+
+The mechanism is not pinned down. `KVCache`'s lazy snapshots hold no handle on the live buffer by design, so they are
+not it. The likely candidates are lazily built arrays that the speculation path keeps across rounds, for example the
+draft side holding slices of the verification forward's hidden states. Until it is fixed, drafting under a grammar
+lets memory creep on a long-running server beyond what admission prices. That is a blocker for keeping it on the
+qwen3.5 family.
+
+**Rendered evidence.** These are generator tables from `preflight-runs/specab-render.md`, pasted verbatim. The
+render also holds every cold run's contract matrix and the T2 pivots.
+
+qwen3.6 cold repeats, from `summarize_reps.py`:
+
+| metric | main 09-06 (n=1) | fold 09-12 (n=1) | fold (n=5) | nodraft (n=5) | main (n=5) | mainmlx (n=5) |
+|---|---|---|---|---|---|---|
+| **num_ctx rung** | 8192 | 8192 | 8192 | 8192 | 8192 | 8192 |
+| **num_predict** | 2200 | 2200 | 2200 | 2200 | 2200 | 2200 |
+| scene bbox IoU | 0.964 | 0.965 | — | — | — | — |
+| scene labels | 6 | 6 | — | — | — | — |
+| scene colors | 6 | 6 | — | — | — | — |
+| scene serial | 1/1 ✅ | 1/1 ✅ | — | — | — | — |
+| doc items | 5 | 5 | 5 | 5 | 5 | 5 |
+| doc qty+price | 5 | 5 | 5 | 5 | 5 | 5 |
+| doc total | 1/1 ✅ | 1/1 ✅ | 5/5 ✅ | 5/5 ✅ | 5/5 ✅ | 5/5 ✅ |
+| doc name_bbox IoU | 0.506 | 0.613 | 0.504 | 0.504 | 0.548 [0.504–0.613] | 0.504 |
+| multi q1 | 1/1 ✅ | 1/1 ✅ | — | — | — | — |
+| multi q2 | 1/1 ✅ | 1/1 ✅ | — | — | — | — |
+| multi q4-bbox | 1/1 ✅ | 1/1 ✅ | — | — | — | — |
+| multi chart | 5 | 5 | — | — | — | — |
+| finetext 22px | 4 | 4 | 4 | 4 | 4 | 4 |
+| finetext 16px | 4 | 4 | 4 | 4 | 4 | 4 |
+| finetext 12px | 4 | 4 | 4 | 4 | 4 | 4 |
+| finetext 9px | 2 | 2 | 2 | 2 | 2 | 2 |
+| finetext 7px | 1 | 2 | 1.6 [1–2] | 1.2 [1–2] | 1 | 1 |
+| finetext correct /20 | 15 | 16 | 15.6 [15–16] | 15.2 [15–16] | 15 | 15 |
+| finetext unmatched | 5 | 4 | 4.4 [4–5] | 4.8 [4–5] | 5 | 5 |
+
+```text
+Within-arm spread (max-min), the bar any cross-arm claim must clear:
+  main 09-06: n=1, no spread measurable
+  fold 09-12: n=1, no spread measurable
+  fold: counts — finetext unmatched 1, finetext correct /20 1, finetext 7px 1
+  nodraft: counts — finetext unmatched 1, finetext correct /20 1, finetext 7px 1
+  main: ratios — doc name_bbox IoU 0.109
+  mainmlx: identical across all 5 runs
+```
+
+qwen3.6 full suites, from `summarize_reps.py`:
+
+| metric | main 09-06 (n=1) | fold 09-12 (n=1) | main full (n=2) | fold full (n=2) |
+|---|---|---|---|---|
+| **num_ctx rung** | 8192 | 8192 | 8192 | 8192 |
+| **num_predict** | 2200 | 2200 | 2200 | 2200 |
+| scene bbox IoU | 0.964 | 0.965 | 0.964 | 0.964 |
+| scene labels | 6 | 6 | 6 | 6 |
+| scene colors | 6 | 6 | 6 | 6 |
+| scene serial | 1/1 ✅ | 1/1 ✅ | 2/2 ✅ | 2/2 ✅ |
+| doc items | 5 | 5 | 5 | 5 |
+| doc qty+price | 5 | 5 | 5 | 5 |
+| doc total | 1/1 ✅ | 1/1 ✅ | 2/2 ✅ | 2/2 ✅ |
+| doc name_bbox IoU | 0.506 | 0.613 | 0.558 [0.504–0.613] | 0.558 [0.504–0.613] |
+| multi q1 | 1/1 ✅ | 1/1 ✅ | 2/2 ✅ | 2/2 ✅ |
+| multi q2 | 1/1 ✅ | 1/1 ✅ | 2/2 ✅ | 2/2 ✅ |
+| multi q4-bbox | 1/1 ✅ | 1/1 ✅ | 2/2 ✅ | 2/2 ✅ |
+| multi chart | 5 | 5 | 5 | 5 |
+| finetext 22px | 4 | 4 | 4 | 4 |
+| finetext 16px | 4 | 4 | 4 | 4 |
+| finetext 12px | 4 | 4 | 4 | 4 |
+| finetext 9px | 2 | 2 | 2 | 2 |
+| finetext 7px | 1 | 2 | 1 | 1.5 [1–2] |
+| finetext correct /20 | 15 | 16 | 15 | 15.5 [15–16] |
+| finetext unmatched | 5 | 4 | 5 | 4.5 [4–5] |
+
+```text
+Within-arm spread (max-min), the bar any cross-arm claim must clear:
+  main 09-06: n=1, no spread measurable
+  fold 09-12: n=1, no spread measurable
+  main full: ratios — doc name_bbox IoU 0.109
+  fold full: ratios — doc name_bbox IoU 0.109; counts — finetext unmatched 1, finetext correct /20 1, finetext 7px 1
+```
+
+gemma4:12b full suites, from `summarize_contract_matrix.py`, one table per run; bcadvnorm1 is the `bcadvnorm1` column:
+
+`main276_1_`, main, the gate's run (2026-09-06):
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | 8192 |
+
+`sync034_1_`, fold, the gate's run (2026-09-12 01:33):
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | 8192 |
+
+`specfull_main_1_`, main, full-suite repeat 1:
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | 8192 |
+
+`specfull_main_2_`, main, full-suite repeat 2:
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | 8192 |
+
+`specfull_fold_1_`, fold, full-suite repeat 1:
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | 8192 |
+
+`specfull_fold_2_`, fold, full-suite repeat 2:
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | 8192 |
+
+`specmem_nodraft_1_`, nodraft, full suite:
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | 8192 |
+
+`specmem_mainmlx_1_`, mainmlx, full suite:
+
+| Model | Engine | bc | bcmulti | bcreasoning | bcpinned | bcperobject | bcanchored | bcadvreal | bcadvnorm1 | num_ctx |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | 8192 |
+
+**What this means for the gates.** ADR 0012 §4 says think-off quality cells are bit-reproducible per (payload,
+backend, budget, image). On MLX they are not:
+
+- they move with the prefix-cache state a test inherits;
+- knife-edge cells flip across cold loads;
+- warm, timing-driven drafting adds more flips.
+
+`vision-lowtemp-thinkon-negative-result.md` already calls MLX temperature 0 non-reproducible across loads, but §4 was
+never amended. So a single-run MLX gate cannot tell a near-tie flip from a real change, and a cross-build difference
+needs repeats on both builds, three or more as here. Amending §4 is Glenn's call.
 
 ## Gate 3: why the Go-only swap covers only the GGUF half
 
@@ -266,6 +476,35 @@ status, can only be seen on a rebuilt payload. It is the first MLX check after t
 The swap-validity check that passed this listed native paths by hand and omitted the shim. It now
 names the shim and defers to the Dockerfile's `COPY` lines. The first-look section of the sync
 doc carries the same correction.
+
+## Decision needed: drafting under a grammar (Glenn)
+
+Upstream `4986e923` lets a structured-output request draft; main's `speculation.open` refused to. The fold carries
+upstream's version. Everything else in the fold matches main on these gates: nodraft, which is the fold with main's
+one line restored, matches main on outputs and on memory. So the choice comes down to that one line.
+
+**Keep upstream's drafting under a grammar.**
+
+- For: generation speed on the four larger models. In the full-suite context T1's gen tok/s rose from main to the fold
+  by 1.5 to 2.6 times. Both runs were beside production and confounded by the MLX bump, and gemma4:12b got slower.
+- Against:
+  - Untracked MLX memory grows across requests on the qwen3.5 family: +6.8 GiB by request 28 in one run, with no
+    plateau.
+  - Admission cannot see that memory, so a long-running server can climb past what it priced.
+  - Knife-edge cells flip between runs more than on main.
+
+**Restore main's gate: one line in `speculate.go`, with a test** (recommended until the memory growth is understood
+or fixed upstream).
+
+- For: outputs and memory stay exactly as on main. The fold keeps everything else, including the structural-tag
+  grammars and the idle-core fix.
+- Against: structured-output requests decode one token at a time again, as they do on main today.
+
+The patch exists only in the detached worktree `claude-scratch/wt-sync034-nodraft`, uncommitted.
+
+**Still open whichever way this goes.** Main already drafts on think-on and format-less requests, so whether main's
+own drafting leaks the same way matters to production today. Answering it takes a trace-level run of main's think-on
+drafting, like 034i's, about 30 minutes of GPU time.
 
 ## Decision: rebuild, with the MLX bump (Glenn, 2026-09-11 23:30)
 
