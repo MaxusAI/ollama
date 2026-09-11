@@ -9,7 +9,7 @@ First look: [upstream-sync-2026-09-04.md](upstream-sync-2026-09-04.md), section 
 **Not in this fold yet:** the MLX bump past ml-explore/mlx#4452, the fix for the idle runner that
 pins a CPU core. It needs a native rebuild, and "don't rebuild yet" still stands.
 
-## Status (2026-09-12, 00:45)
+## Status (2026-09-12, 01:35)
 
 | gate | state |
 |---|---|
@@ -18,7 +18,8 @@ pins a CPU core. It needs a native rebuild, and "don't rebuild yet" still stands
 | 3, image | Go-only swap `maxusai/ollama:sync-0.34.0-swap` (`0.33.3-dynres-26-gba2eb4f`), **valid for the GGUF half only** |
 | 4, preflight `cuda-dynres-903` | PASS 20, SKIP 8 on the swap image, the same as main; repeated on the rebuilt image |
 | 5, GGUF think-off against `ggmlmain_1_` | **green**: 8 suites, no OOM, no error; every quality row identical to main |
-| 5, MLX think-off against `main276_` | waiting for the rebuilt image, which is building |
+| MLX format check and idle-CPU probe | **passed** on the rebuilt MLX payload (below) |
+| 5, MLX think-off against `main276_` | running on the payload-swap image since 01:33 |
 
 ## Conflicts and their resolution
 
@@ -81,6 +82,57 @@ It was rendered with the ADR 0012 generators (`claude-scratch/render-ggml034.sh`
   differ. The fold's campaign shared the host with a teacher leg on GPU 0 and, from 23:45, with
   the image build, at a load average of about 100 on 32 cores. Those columns measure the host,
   not the fold.
+
+## MLX half on the rebuilt MLX payload (2026-09-12)
+
+The full image crawls at the lowest CPU weight beside a teacher leg, so the MLX gates run on
+`maxusai/ollama:sync-0.34.0-mlxswap` instead (`claude-scratch/gate-sync034d.sh`, log
+`preflight-runs/gate-sync034d.log`). It is main's image with two things swapped in:
+
+- the fold's Go binary, `0.33.3-dynres-30-g5404bec`;
+- the fold's freshly built MLX payload, exported from the full build's own `mlx` stage through the
+  Dockerfile's `publish-mlx` target.
+
+The payload's `libmlx.so` reports `0.32.2-37-gce916db`, and its grammar library has all ten
+symbols the loader looks up. Its llama-server binaries are 0.33.3's, built from the same
+llama.cpp sources, so the preflight waits for the full image.
+
+**Structured output works again, and ADR 0009 holds.** The same four requests as main's step 0,
+on gemma4:12b-nvfp4:
+
+| format | main | fold, rebuilt payload |
+|---|---|---|
+| `"json"` | 200, a JSON object | 200, the same object |
+| a JSON Schema | 200, matching | 200, matching |
+| `"yaml"` | 400, "invalid format: expected "json" or a valid JSON Schema object" | 400, "invalid structured output grammar: compile grammar: Check failed: … Invalid structural tag error: JSON schema format must have a json_schema field with a object" |
+| `""` | 200, unconstrained | 200, unconstrained |
+
+The `"yaml"` answer is still an error before any output. But the message is now xgrammar's
+internal check failure instead of main's API-level explanation, because the check moved from
+`parseGrammar` into the native compile. That is worse for a caller, and a friendlier message in
+`requestGrammar` or `parseGrammar` would restore it.
+
+The runner also logged one xgrammar warning at the end of the schema request, whose output was
+correct: `grammar_matcher.cc:612: Warning: The matcher has terminated after accepting the stop
+token, but is tr…`. The gate script truncates log lines at 200 characters and the container is
+gone, so the rest of the line is lost. It suggests one token was offered to a matcher that had
+already terminated, near the new rollback path for speculative decoding under a grammar. The
+campaign's runner log is captured in full (`preflight-runs/sync034_thinkfalse-runner.log`) to see
+whether it recurs.
+
+**The idle core is fixed.** `claude-scratch/probe-idle-cpu.sh` sends one 8-token request, then no
+traffic, and reads runner CPU from `/proc` deltas:
+
+| t after the request | main, 2026-09-10 | fold, 2026-09-12 |
+|---|---|---|
+| +10 s | 100.2 % | 0.1 % |
+| +20 s | 100.0 % | 0.0 % |
+| +30 s | not sampled | 0.1 % |
+| +40 s | 100.1 % | 0.1 % |
+| +50 s | not sampled | 0.1 % |
+| +60 s | 100.1 % | 1.4 % |
+
+The GPU column in the fold's log shows the teacher leg on the same card, not the idle runner.
 
 ## Gate 3: why the Go-only swap covers only the GGUF half
 
