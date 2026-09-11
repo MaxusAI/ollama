@@ -213,8 +213,10 @@ public:
       using MainloopTensorStorage = typename CollectiveMainloop::TensorStorage;
       using EpilogueTensorStorage = typename CollectiveEpilogue::TensorStorage;
 
+#if !NVFP4_TW_RING_EPI
       EpilogueTensorStorage epilogue;
-      MainloopTensorStorage mainloop;
+#endif
+      MainloopTensorStorage mainloop;   // TW: with NVFP4_TW_RING_EPI the epilogue borrows a ring entry (see epi_tensors)
     } tensors;
   };
 
@@ -436,6 +438,20 @@ public:
 
     // Kernel level shared memory storage
     SharedStorage& shared_storage = *reinterpret_cast<SharedStorage*>(smem_buf);
+    // TW: the epilogue's shared memory: its own carve-out, or (NVFP4_TW_RING_EPI) the bf16 ring entry the MMA
+    // warps read last, which mma() leaves un-released until the epilogue's TMA stores have drained it.
+    using EpilogueTensorStorage = typename SharedStorage::TensorStorage::EpilogueTensorStorage;
+    auto epi_tensors = [&](int ring_entry) -> EpilogueTensorStorage& {
+#if NVFP4_TW_RING_EPI
+      static_assert(sizeof(EpilogueTensorStorage) <= size_t(CollectiveMainloop::RingEntryBytes), "epilogue smem must fit one ring entry");
+      static_assert(alignof(EpilogueTensorStorage) <= 1024, "ring entries are 1024 B aligned");
+      return *reinterpret_cast<EpilogueTensorStorage*>(
+          reinterpret_cast<uint8_t*>(shared_storage.tensors.mainloop.smem_BB.data()) + ring_entry * CollectiveMainloop::RingEntryBytes);
+#else
+      (void) ring_entry;
+      return shared_storage.tensors.epilogue;
+#endif
+    };
 
     int thread_idx = int(threadIdx.x);
     int lane_idx = canonical_lane_idx();
@@ -456,8 +472,11 @@ public:
       CollectiveEpilogue::prefetch_tma_descriptors(params.epilogue);
     }
 
-    CollectiveEpilogue collective_epilogue(params.epilogue, shared_storage.tensors.epilogue);
+    CollectiveEpilogue collective_epilogue(params.epilogue, epi_tensors(0));
     bool is_epi_load_needed = collective_epilogue.is_producer_load_needed();
+#if NVFP4_TW_RING_EPI
+    if (is_epi_load_needed) { __trap(); }   // TW: a source (beta != 0) would need its own smem; the ring entry is D only
+#endif
     // TileScheduler pipeline
     typename TileSchedulerPipeline::Params scheduler_pipeline_params;
     typename TileSchedulerThrottlePipeline::Params scheduler_throttle_pipeline_params;
@@ -635,7 +654,8 @@ public:
             ring_pipe_producer_state,
             work_k_tile_count,
             transform_thread_idx,
-            shared_storage.tensors.mainloop
+            shared_storage.tensors.mainloop,
+            shared_storage.pipelines.mainloop
           );
           mainloop_pipe_transform_state.advance(work_k_tile_count);
           ring_pipe_producer_state.advance(work_k_tile_count * CollectiveMainloop::RingSub);   // TW: one (or KBLOCKS) ring barrier(s) per k-tile
@@ -773,7 +793,7 @@ public:
           load_order_barrier.wait();
         }
 
-        CollectiveEpilogue collective_epilogue(params.epilogue, shared_storage.tensors.epilogue);
+        CollectiveEpilogue collective_epilogue(params.epilogue, epi_tensors(0));
 
         while (work_tile_info.is_valid()) {
           if (TileScheduler::compute_epilogue(work_tile_info, params.scheduler)) {
@@ -792,7 +812,7 @@ public:
               blk_coord,
               tiled_mma,
               lane_idx,
-              shared_storage.tensors.epilogue,
+              epi_tensors(0),
               work_tile_info.reduction_subtile_idx()
             );
           }
@@ -819,10 +839,12 @@ public:
       work_tile_info = scheduler.initial_work_tile_info(ClusterShape{});
       if constexpr (MmaRegisterRequirement > 0) { cutlass::arch::warpgroup_reg_alloc<MmaRegisterRequirement>(); }   // TW
 
-      CollectiveEpilogue collective_epilogue(params.epilogue, shared_storage.tensors.epilogue);
+      CollectiveEpilogue collective_epilogue(params.epilogue, epi_tensors(0));
 
       // Do we potentially issue tail arrives for TMA stores, if epilogue load is waiting for it
       bool do_store_tail = false;
+      typename CollectiveMainloop::MmaTail mma_tail{};   // TW: the ring entry of the last k-tile (deferred release)
+      [[maybe_unused]] bool mma_ran = false;
 #if NVFP4_TW_TIMERS
       unsigned long long tl_body = 0, tl_epi = 0, tl_fetch = 0, tl_tiles = 0;   // TW: per-tile accounting
 #endif
@@ -841,7 +863,7 @@ public:
         // MSVC CTAD breaks if we say "Tensor" here, so we use "auto" instead.
         auto accumulators = partition_fragment_C(tiled_mma, take<0,2>(blk_shape));                 // (MMA,MMA_M,MMA_N)
         if (TileScheduler::valid_warpgroup_in_work_tile(work_tile_info)) {
-          collective_mainloop.mma(     // TW: A from the TMA stage, B from the ring
+          mma_tail = collective_mainloop.mma(     // TW: A from the TMA stage, B from the ring
             mainloop_pipeline,
             mainloop_pipe_consumer_state,
             ring_pipeline,
@@ -849,8 +871,10 @@ public:
             accumulators,
             work_k_tile_count,
             mma_thread_idx,
-            shared_storage.tensors.mainloop
+            shared_storage.tensors.mainloop,
+            shared_storage.pipelines.mainloop
           );
+          mma_ran = true;
 
           // Make sure the math instructions are done and free buffers before entering the epilogue
           collective_mainloop.mma_tail(
@@ -898,13 +922,37 @@ public:
             accumulators,
             tiled_mma,
             mma_thread_idx,
-            shared_storage.tensors.epilogue,
+            epi_tensors(mma_tail.last_entry),
             work_tile_info.reduction_subtile_idx()
           );
           epi_load_pipe_consumer_state = epi_load_pipe_consumer_state_next;
           epi_store_pipe_producer_state = epi_store_pipe_producer_state_next;
           do_store_tail = true;
         }
+#if NVFP4_TW_RING_EPI
+        // TW: the epilogue borrowed ring entry mma_tail.last_entry. Drain this tile's TMA stores (bulk wait_group.read 0
+        // by the issuing warp), then every MMA warp arrives on the entry's empty barrier(s) so the transform warps may
+        // fill it with the next tile's k-tile 1 (k-tile 0 is already in the other entry).
+        if (mma_ran) {
+          auto [epi_load_tail_state, epi_store_tail_state] = collective_epilogue.store_tail(
+            epi_load_pipeline, epi_load_pipe_consumer_state, epi_store_pipeline, epi_store_pipe_producer_state);
+          epi_load_pipe_consumer_state = epi_load_tail_state;
+          epi_store_pipe_producer_state = epi_store_tail_state;
+          if constexpr (CollectiveMainloop::kDep) {
+            auto rel = mma_tail.last_rel;
+            CUTLASS_PRAGMA_UNROLL
+            for (int s = 0; s < CollectiveMainloop::RingSub; ++s) {
+#if NVFP4_TW_WARP_ARRIVE
+              cutlass::gemm::collective::nvfp4_tw_detail::warp_arrive32(shared_storage.pipelines.mainloop.ring.empty_barrier_[rel.index()]);
+#else
+              ring_pipeline.consumer_release(rel);
+#endif
+              ++rel;
+            }
+          }
+          mma_ran = false;
+        }
+#endif
 #if NVFP4_TW_TIMERS
         unsigned long long const tl_t2 = clock64();
 #endif

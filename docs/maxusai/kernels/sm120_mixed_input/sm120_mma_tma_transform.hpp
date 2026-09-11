@@ -37,6 +37,21 @@
 //                      shared memory; only the exposed transform latency on the MMA critical path shrinks
 //                      from a whole tile's conversion to a quarter's.
 //   NVFP4_TW_CHECK: trap if the hand-computed swizzled store address disagrees with CuTe's layout.
+//   NVFP4_TW_RING_EPI  1 = the (TMA) epilogue stages its output through the ring entry the MMA warps read LAST:
+//                      mma() defers that entry's release, the kernel layer runs the epilogue in it, drains the
+//                      TMA stores and only then releases it to the transform warps. The other entry already
+//                      holds the next tile's k-tile 0, so the prefetch overlap is kept and the kernel carries no
+//                      epilogue shared memory of its own: three TMA stages AND a TMA epilogue fit the budget.
+//   NVFP4_TW_NO_KBAR   1 = drop the per-k-tile named barrier of the dense loop before the stage release (the one in
+//                      the last k-tile of a work tile stays: the epilogue must not write smem another warp still reads).
+//                      Every consumer thread arrives on the empty barriers itself (cluster size 1) and mbarrier.arrive
+//                      is a release over the thread's prior ldmatrix, so per k-tile the barrier only serves multicast
+//                      clusters (where a subset of threads signals for all).
+//   NVFP4_TW_WARP_ARRIVE 1 = one elected lane per warp arrives with count 32 (after __syncwarp) instead of 32
+//                      per-thread arrives, on every mainloop/ring barrier: 32x fewer SYNCS operations per k-tile.
+//   NVFP4_TW_SKIP_TMA_WAIT 1 = the MMA warps do not poll the TMA full barrier: the ring-full barrier is
+//                      published by the transform warps only after they observed that stage's TMA completion,
+//                      and mbarrier release/acquire is cumulative, so the A tile is visible through it.
 
 #pragma once
 
@@ -48,6 +63,18 @@
 #endif
 #ifndef NVFP4_TW_TIMERS
 #define NVFP4_TW_TIMERS 0
+#endif
+#ifndef NVFP4_TW_RING_EPI
+#define NVFP4_TW_RING_EPI 0
+#endif
+#ifndef NVFP4_TW_NO_KBAR
+#define NVFP4_TW_NO_KBAR 0
+#endif
+#ifndef NVFP4_TW_WARP_ARRIVE
+#define NVFP4_TW_WARP_ARRIVE 0
+#endif
+#ifndef NVFP4_TW_SKIP_TMA_WAIT
+#define NVFP4_TW_SKIP_TMA_WAIT 0
 #endif
 #define NVFP4_TW_DEP  (NVFP4_TW_MODE == 1 || NVFP4_TW_MODE == 2)
 #define NVFP4_TW_CONV (NVFP4_TW_MODE == 0 || NVFP4_TW_MODE == 2)
@@ -113,6 +140,17 @@ CUTLASS_DEVICE __nv_bfloat162 as_bf162(uint32_t u) { __nv_bfloat162 r; *reinterp
 CUTLASS_DEVICE uint32_t as_u32(__nv_bfloat162 v) { return *reinterpret_cast<uint32_t*>(&v); }
 CUTLASS_DEVICE uint32_t dup_lo16(uint32_t x) { return __byte_perm(x, x, 0x1010); }
 CUTLASS_DEVICE uint32_t dup_hi16(uint32_t x) { return __byte_perm(x, x, 0x3232); }
+
+// One arrival of count 32 by an elected lane, after a warp barrier that orders every lane's prior smem
+// accesses before it (bar.warp.sync orders memory among the participants; the arrive is a cumulative release).
+// The mbarrier's expected count is unchanged: 8 MMA warps x 32 = 256, 2 transform warps x 32 = 64.
+CUTLASS_DEVICE void warp_arrive32(cutlass::arch::ClusterBarrier const& bar) {
+  __syncwarp();
+  if ((threadIdx.x & 31) == 0) {
+    uint32_t const a = cute::cast_smem_ptr_to_uint(reinterpret_cast<void const*>(&bar));
+    asm volatile("{\n\t.reg .b64 st;\n\tmbarrier.arrive.release.cta.shared::cta.b64 st, [%0], 32;\n\t}" :: "r"(a) : "memory");
+  }
+}
 
 // 8 e2m1 nibbles (element i at bits 4i..4i+3) -> 4 bf16x2 words in element order, times a bf16 scale
 // (exact: e2m1 x e4m3 needs <= 6 significant bits). CUTLASS's prmt-LUT converter: 13 instructions per 4 values.
@@ -210,6 +248,9 @@ struct CollectiveMma<
   using PipelineState  = cutlass::PipelineState<Stages>;
   using RingPipeline = cutlass::PipelineAsync<RingStages * RingSub>;
   using RingPipelineState = typename RingPipeline::PipelineState;
+  // what mma() hands back: the ring entry its last k-tile came from and the ring state of that entry's first
+  // sub-entry (with NVFP4_TW_RING_EPI the kernel layer releases it after the epilogue)
+  struct MmaTail { int last_entry = 0; RingPipelineState last_rel{}; };
 
   static constexpr int NumProducerThreadEvents = 1;
 
@@ -455,8 +496,26 @@ struct CollectiveMma<
       RingPipelineState ring_write,
       int k_tile_count,
       int transform_thread_idx,
-      TensorStorage& shared_tensors) {
+      TensorStorage& shared_tensors,
+      PipelineStorage& pipes) {
     using namespace nvfp4_tw_detail;
+    (void) pipes;
+    auto commit_ring = [&]() {      // publish ring_write
+      if constexpr (kDep) {
+#if NVFP4_TW_WARP_ARRIVE
+        warp_arrive32(pipes.ring.full_barrier_[ring_write.index()]);
+#else
+        ring.producer_commit(ring_write);
+#endif
+      }
+    };
+    auto release_stage = [&]() {    // done reading Bp/S of smem_pipe_read
+#if NVFP4_TW_WARP_ARRIVE
+      warp_arrive32(pipes.tma.empty_barrier_[smem_pipe_read.index()]);
+#else
+      pipeline.consumer_release(smem_pipe_read);
+#endif
+    };
 
     uint8_t* bb_base = reinterpret_cast<uint8_t*>(shared_tensors.smem_BB.data());
 #ifdef NVFP4_TW_CHECK
@@ -520,7 +579,7 @@ struct CollectiveMma<
           store8(bb, n, 32 * h + 24, w4.w, s1, we);
         }
         tick(t_conv);
-        if constexpr (kDep) { ring.producer_commit(ring_write); }
+        commit_ring();
         ++ring_write;
       }
       else {
@@ -544,7 +603,7 @@ struct CollectiveMma<
             }
           }
           tick(t_conv);
-          if constexpr (kDep) { ring.producer_commit(ring_write); }
+          commit_ring();
           ++ring_write;
           if constexpr (kDep) { ring.producer_acquire(ring_write); }
           tick(t_wait_ring);
@@ -558,12 +617,12 @@ struct CollectiveMma<
             }
           }
           tick(t_conv);
-          if constexpr (kDep) { ring.producer_commit(ring_write); }
+          commit_ring();
           ++ring_write;
         }
       }
 
-      pipeline.consumer_release(smem_pipe_read);
+      release_stage();
       ++smem_pipe_read;
     }
 #if NVFP4_TW_TIMERS
@@ -583,7 +642,7 @@ struct CollectiveMma<
 
   // ---- MMA warps: the dense sm120 loop, B from the ring instead of the TMA stage ----
   template <class FrgTensorC>
-  CUTLASS_DEVICE void
+  CUTLASS_DEVICE MmaTail
   mma(MainloopPipeline pipeline,
       PipelineState smem_pipe_read,
       RingPipeline ring,
@@ -591,9 +650,12 @@ struct CollectiveMma<
       FrgTensorC& accum,
       int k_tile_count,
       int thread_idx,
-      TensorStorage& shared_tensors) {
+      TensorStorage& shared_tensors,
+      PipelineStorage& pipes) {
     using namespace cute;
+    using namespace nvfp4_tw_detail;
     static_assert(is_rmem<FrgTensorC>::value, "C tensor must be rmem resident.");
+    (void) pipes;
 
     clear(accum);
 
@@ -643,8 +705,37 @@ struct CollectiveMma<
       cute::gemm(tiled_mma, tCrA(_,_,k_block), tCrB(_,_,k_block), accum);
     };
 
+    // the synchronisation primitives, each behind its knob (see the header comment)
+    auto kbar = [&]() {
+#if !NVFP4_TW_NO_KBAR
+      cutlass::arch::NamedBarrier::sync(thr_size(tiled_mma), cutlass::arch::ReservedNamedBarriers::Sm120MainloopBarrier);
+#endif
+    };
+    auto wait_stage = [&]() {
+      if constexpr (!(NVFP4_TW_SKIP_TMA_WAIT && kDep)) { pipeline.consumer_wait(smem_pipe_read); }
+    };
+    auto wait_ring = [&]() {
+      if constexpr (kDep) { ring.consumer_wait(ring_wait); }
+    };
+    auto release_stage = [&]() {    // done reading A of smem_pipe_read
+#if NVFP4_TW_WARP_ARRIVE
+      warp_arrive32(pipes.tma.empty_barrier_[smem_pipe_read.index()]);
+#else
+      pipeline.consumer_release(smem_pipe_read);
+#endif
+    };
+    auto release_ring = [&]() {     // release ring_rel (an entry, or a quarter) and advance it
+      if constexpr (kDep) {
+#if NVFP4_TW_WARP_ARRIVE
+        warp_arrive32(pipes.ring.empty_barrier_[ring_rel.index()]);
+#else
+        ring.consumer_release(ring_rel);
+#endif
+      }
+      ++ring_rel;
+    };
+
 #if NVFP4_TW_TIMERS
-    using namespace nvfp4_tw_detail;
     unsigned long long m_wait_tma = 0, m_wait_ring = 0, m_mark = 0;
     int const m_tiles = k_tile_count;
     unsigned long long const m_start = clock64();
@@ -656,9 +747,9 @@ struct CollectiveMma<
     [[maybe_unused]] unsigned long long m_wait_tma = 0, m_wait_ring = 0;
 #endif
     mmark();
-    pipeline.consumer_wait(smem_pipe_read);
+    wait_stage();
     mtick(m_wait_tma);
-    if constexpr (kDep) { ring.consumer_wait(ring_wait); }
+    wait_ring();
     mtick(m_wait_ring);
 
     copy_kblock(_0{});
@@ -667,51 +758,56 @@ struct CollectiveMma<
       for_each(make_int_sequence<K_BLOCK_MAX>{}, [&] (auto k_block) {
         auto k_block_next = ((k_block + 1) == K_BLOCK_MAX) ? 0 : (k_block + 1);
         if constexpr (decltype(k_block)::value == KBLOCKS - 1) {
-          cutlass::arch::NamedBarrier::sync(thr_size(tiled_mma), cutlass::arch::ReservedNamedBarriers::Sm120MainloopBarrier);
-          pipeline.consumer_release(smem_pipe_read);
+          kbar();
+          release_stage();
           ++smem_pipe_read;
           read_stage = smem_pipe_read.index();
           tCsA_stage = tCsA(_,_,_,read_stage);
-          if constexpr (RingSub == 1 && kDep) { ring.consumer_release(ring_rel); ++ring_rel; }
+          if constexpr (RingSub == 1) { release_ring(); }
           ++ring_wait;
           read_entry = ring_wait.index() / RingSub;
           tCsB_stage = tCsB(_,_,_,read_entry);
           mmark();
-          pipeline.consumer_wait(smem_pipe_read);
+          wait_stage();
           mtick(m_wait_tma);
-          if constexpr (kDep) { ring.consumer_wait(ring_wait); }
+          wait_ring();
           mtick(m_wait_ring);
         }
         else if constexpr (RingSub > 1) {
           ++ring_wait;
           mmark();
-          if constexpr (kDep) { ring.consumer_wait(ring_wait); }
+          wait_ring();
           mtick(m_wait_ring);
         }
         copy_kblock(k_block_next);
         // quarter mode: the quarter read by the previous copy_kblock is in registers; free it for the transform warps
-        if constexpr (RingSub > 1 && kDep) { ring.consumer_release(ring_rel); ++ring_rel; }
+        if constexpr (RingSub > 1) { release_ring(); }
         gemm_kblock(k_block);
       });
     }
 
+    // last k-tile: with NVFP4_TW_RING_EPI its ring entry stays ours until the kernel layer releases it after the epilogue
+    MmaTail const tail{read_entry, ring_rel};
     for_each(make_int_sequence<K_BLOCK_MAX>{}, [&] (auto k_block) {
       auto k_block_next = ((k_block + 1) == K_BLOCK_MAX) ? 0 : (k_block + 1);
       if constexpr (decltype(k_block)::value == KBLOCKS - 1) {
+        // always a block barrier here, NVFP4_TW_NO_KBAR notwithstanding: every warp's reads of the last stage and ring
+        // entry are performed before any warp's epilogue writes (with NVFP4_TW_RING_EPI the epilogue stores INTO that entry,
+        // and its first STS has no block-level sync of its own). Once per tile, not per k-tile.
         cutlass::arch::NamedBarrier::sync(thr_size(tiled_mma), cutlass::arch::ReservedNamedBarriers::Sm120MainloopBarrier);
-        pipeline.consumer_release(smem_pipe_read);
+        release_stage();
         ++smem_pipe_read;
-        if constexpr (kDep) { ring.consumer_release(ring_rel); ++ring_rel; }   // the entry, or its last quarter
+        if constexpr (!NVFP4_TW_RING_EPI) { release_ring(); }   // the entry, or its last quarter
       }
       else {
         if constexpr (RingSub > 1) {
           ++ring_wait;
           mmark();
-          if constexpr (kDep) { ring.consumer_wait(ring_wait); }
+          wait_ring();
           mtick(m_wait_ring);
         }
         copy_kblock(k_block_next);
-        if constexpr (RingSub > 1 && kDep) { ring.consumer_release(ring_rel); ++ring_rel; }
+        if constexpr (RingSub > 1 && !NVFP4_TW_RING_EPI) { release_ring(); }
       }
       gemm_kblock(k_block);
     });
@@ -723,6 +819,7 @@ struct CollectiveMma<
       atomicAdd(&g_tw_timers[7], static_cast<unsigned long long>(m_tiles));
     }
 #endif
+    return tail;
   }
 
   CUTLASS_DEVICE void

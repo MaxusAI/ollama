@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Compile one kernel source into a self-contained shared library, inside a container that has nvcc 12.8
-# (no CUDA toolchain on the host). No GPU is needed to compile. Usage: ./build.sh src.cu out.so [extra nvcc flags]
+# Compile one kernel source into a self-contained shared library, inside a container that has nvcc 12.8.61
+# (the host has /usr/local/cuda-12.8 and -13.0 too; /usr/local/cuda is 12.1, which cannot target sm_120 - the
+# container pins the toolchain every build was measured with). No GPU is needed to compile.
+# Usage: ./build.sh src.cu out.so [extra nvcc flags]   (out.so must be a name inside this directory: it is the container mount)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 CUTLASS=${CUTLASS:-/mnt/8TB_SN850X_RAID1_BTRFS/claude-scratch/cutlass}

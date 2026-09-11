@@ -143,6 +143,10 @@ class Lib:
             tw = [ctypes.c_int() for _ in range(7)]
             self.lib.sm120_nvfp4_tw_info(*[ctypes.byref(i) for i in tw])
             self.tw = dict(zip(["transform_warps", "ring", "mode", "static_sched", "load_regs", "mma_regs", "ring_k16"], [i.value for i in tw]))
+            if hasattr(self.lib, "sm120_nvfp4_tw_flags"):   # bit mask: 1 RING_K16, 2 NOSMEM_EPI, 4 RING_EPI, 8 NO_KBAR, 16 WARP_ARRIVE, 32 SKIP_TMA_WAIT, 64 TIMERS
+                f = int(self.lib.sm120_nvfp4_tw_flags())
+                names = ["ring_k16", "nosmem_epi", "ring_epi", "no_kbar", "warp_arrive", "skip_tma_wait", "timers"]
+                self.tw["flags"] = "+".join(n for i, n in enumerate(names) if f >> i & 1) or "none"
 
     def desc(self):
         d = f"{self.kind}: stages={self.stages} tile={self.tm}x{self.tn}x{self.tk} smem={self.smem} B" + (" scales=bf16" if self.scale_bf16 else "")

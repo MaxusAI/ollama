@@ -8,7 +8,9 @@
 // -DNVFP4_TRANSFORM_WARPS=T (T = 1..3) selects the transform-warp variant instead
 // (sm120_mma_tma_transform.hpp + sm120_gemm_tma_ws_cooperative_transform.hpp): Bp is then the MLX-native
 // uint32 [N][K/8] tensor and Sp the row-pair bf16 scale tensor [N/2][K/8]; sm120_nvfp4_layout() returns 1.
-// Further knobs: NVFP4_TW_STAGES (2), NVFP4_TW_RING (2), NVFP4_TW_STATIC_SCHED (0), NVFP4_TW_MODE (2).
+// Further knobs: NVFP4_TW_STAGES (2), NVFP4_TW_RING (2), NVFP4_TW_STATIC_SCHED (0), NVFP4_TW_MODE (2),
+// NVFP4_TW_NOSMEM_EPI (0), NVFP4_TW_RING_EPI (0), NVFP4_TW_NO_KBAR (0), NVFP4_TW_WARP_ARRIVE (0),
+// NVFP4_TW_SKIP_TMA_WAIT (0); sm120_nvfp4_tw_flags() reports them as a bit mask (see below).
 
 #include <cuda_runtime.h>
 #include <cstdint>
@@ -74,6 +76,15 @@ using ClusterShape = Shape<_1,_1,_1>;
 
 #ifndef NVFP4_TW_NOSMEM_EPI
 #define NVFP4_TW_NOSMEM_EPI 0
+#endif
+#ifndef NVFP4_TW_RING_EPI
+#define NVFP4_TW_RING_EPI 0
+#endif
+#if NVFP4_TW_RING_EPI && NVFP4_TW_NOSMEM_EPI
+#error "NVFP4_TW_RING_EPI stages the TMA epilogue through the ring; it excludes NVFP4_TW_NOSMEM_EPI"
+#endif
+#if NVFP4_TW_RING_EPI && !NVFP4_TRANSFORM_WARPS
+#error "NVFP4_TW_RING_EPI needs the transform-warp variant"
 #endif
 #if NVFP4_TW_NOSMEM_EPI
 // Smem-free epilogue (register -> gmem stores, what CUTLASS's sm90 builder emits for NoSmemWarpSpecialized;
@@ -222,6 +233,11 @@ int sm120_nvfp4_tw_timers(unsigned long long* out, int reset) {
 #else
   (void) out; (void) reset; return 3;
 #endif
+}
+// knob bit mask: 1 RING_K16, 2 NOSMEM_EPI, 4 RING_EPI, 8 NO_KBAR, 16 WARP_ARRIVE, 32 SKIP_TMA_WAIT, 64 TIMERS
+int sm120_nvfp4_tw_flags() {
+  return NVFP4_TW_RING_K16 | (NVFP4_TW_NOSMEM_EPI << 1) | (NVFP4_TW_RING_EPI << 2) | (NVFP4_TW_NO_KBAR << 3)
+       | (NVFP4_TW_WARP_ARRIVE << 4) | (NVFP4_TW_SKIP_TMA_WAIT << 5) | (NVFP4_TW_TIMERS << 6);
 }
 int sm120_nvfp4_scale_format() { return 1; }   // transform variant: bf16 scales always
 int sm120_nvfp4_layout() { return 1; }         // 1: MLX-native Bp[N][K/8] + row-pair bf16 Sp[N/2][K/8]
