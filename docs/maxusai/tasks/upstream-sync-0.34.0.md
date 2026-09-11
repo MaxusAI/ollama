@@ -94,8 +94,26 @@ The swap-validity check that passed this listed native paths by hand and omitted
 names the shim and defers to the Dockerfile's `COPY` lines. The first-look section of the sync
 doc carries the same correction.
 
-## Decision needed
+## Decision: rebuild, with the MLX bump (Glenn, 2026-09-11 23:30)
 
-A native image build, about 3 hours on the `bigdisk` builder, is needed to test the MLX half:
-structured output, speculative decoding under a grammar, and the MLX think-off campaign. The same
-build is the natural place for the MLX bump past #4452, so both cost one build and one MLX gate.
+The image is being rebuilt from `fbedf506` on the `bigdisk` builder (`claude-scratch/build-034.sh`,
+tag `maxusai/ollama:sync-0.34.0`), with MLX pinned to `ce916dbb`: ml-explore/mlx#4452, which stops
+the CUDA completion worker spinning a core after its first batch.
+
+**The pin stops at that commit, not at MLX main.** The next CUDA-relevant commit, #4458, inserts a
+`global_scale` parameter into `gather_qmm`'s C++ signature ahead of `sorted_indices`. MLX-C at our
+pin (`c74db530`) passes `sorted_indices` and the stream positionally, so every MLX past #4458 needs
+an MLX-C bump and a regenerated binding, and MLX-C has not adapted yet. The ten commits to
+`ce916dbb` are the fix plus Metal, CPU and Python fixes and additive core APIs, so
+`MLX_C_VERSION` is unchanged. Upstream ollama's main has moved neither pin.
+
+**The build is long.** Every llama-server stage misses the cache, because the Dockerfile copies
+all of `llama/compat` and its README changed since the `sync-0.33.3` build, and the `mlx` stage
+rebuilds for the new pin and the new xgrammar shim.
+
+**After the build, on the real image** (`claude-scratch/gate-sync034c.sh`):
+
+1. The live format check, including what the fold answers to `"yaml"`.
+2. The idle-CPU probe, against main's one core held at 100 %.
+3. The five-model MLX think-off against `main276_`.
+4. The preflight again, on the deploy candidate.
