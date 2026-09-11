@@ -86,11 +86,12 @@ It was rendered with the ADR 0012 generators (`claude-scratch/render-ggml034.sh`
 
 The MLX, MLX-C and llama.cpp pins are byte-identical to v0.33.3. But upstream changed the xgrammar
 shim that this repo builds itself: `x/mlxrunner/xgrammar/native`, which ships in the MLX payload
-as `libollama_xgrammar.so`. The 0.34.0 loader requires five symbols the 0.33.3 library lacks,
-all for speculative decoding under a grammar:
-
-- `ollama_xgrammar_matcher_rollback` and `ollama_xgrammar_matcher_is_terminated`;
-- `ollama_xgrammar_dynamic_matcher_new`, `_rollback` and `_is_terminated`.
+as `libollama_xgrammar.so`. The 0.34.0 loader (`x/mlxrunner/xgrammar/dynamic.c`) looks up ten
+symbols in that library. Two are missing from the 0.33.3 build, both for speculative decoding
+under a grammar: `ollama_xgrammar_matcher_rollback` and `ollama_xgrammar_matcher_is_terminated`.
+The rebuilt payload has all ten. An earlier version of this section said five. The other three
+names it listed, `ollama_xgrammar_dynamic_matcher_*`, are the loader's own wrapper functions,
+defined in `dynamic.c`, not symbols it needs from the library.
 
 On the swapped image the runner logs "Structured output is unavailable". It then answers every
 MLX request that carries a format with HTTP 501. The vision suite sends formats, so an MLX
