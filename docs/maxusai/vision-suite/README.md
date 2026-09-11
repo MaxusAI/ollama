@@ -619,7 +619,13 @@ JIT, the MLX library dir on the loader path) plus a persistent PTX cache so the 
 
 It prints a markdown table per shape and appends one JSON line per cell. Wall times beside
 other GPU work measure the contention, not the kernels: run it on a quiet GPU and record the
-`nvidia-smi` state next to the result. Without `MLX_PTX_CACHE_DIR` every fresh container
+`nvidia-smi` state next to the result. Each JSON line also carries `start_unix_ms` and
+`end_unix_ms`, the wall-clock window of the calls behind its timings, and each shape's header
+in the text log prints the time it started, so a run on the shared GPU can be audited
+afterwards against another process's log to see which cells a burst overlapped. When that log
+is read with `docker logs --since`/`--until`, pass UTC times with a trailing `Z`: docker reads a
+bare timestamp as local time, which on an AEST host shifts the window by ten hours. Without
+`MLX_PTX_CACHE_DIR` every fresh container
 recompiles MLX's JIT kernels (the 10–15 min cold first request); the runner containers pay
 that too. Keep one cache directory per GPU architecture: the entries are named by kernel and
 shape only, and a directory shared between a 2080 Ti and the Blackwell handed the latter a
