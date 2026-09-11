@@ -311,9 +311,9 @@ configurations per shape. Log: `preflight/runs/triton-mixed-input-2026-09-10.log
 | qwen3.8 down | 2048 | 52.0 | 191.8 | 0.27× | 3.2e-03 |
 | qwen3.8 down | 4096 | 51.1 | 187.9 | 0.27× | 3.2e-03 |
 
-**Rerun pending:** the GPU was shared with production throughout. Re-run
-`kernels/triton_mixed_input_gemm.py` on a quiet Blackwell before quoting these as final; the
-ratios should hold but the absolute figures will move.
+**Rerun done (2026-09-11):** on a quiet GPU with median timing the prototype reached 74–88 TF/s,
+0.23–0.26× cuBLAS. The ratios held; the absolute figures rose 1.6–2×, from the end of contention
+and the switch from mean to median timing. See the quiet-GPU rerun section below.
 
 **Is it the CUDA 12.8 toolchain?** (Glenn, 2026-09-10: 12.8 was the first release with sm_120.)
 It splits by component:
@@ -321,13 +321,13 @@ It splits by component:
 | component | toolchain that compiled it | could 12.8 explain it? |
 |---|---|---|
 | MLX, production (the slow kernel) | CUDA **13.0** (NVRTC 13.0.88, cudart 13.0.96, cuBLAS 13.1.1.3), JIT flag `--gpu-architecture=sm_120a` from `jit_module.cpp` | **no** — not 12.8, and it targets sm_120a natively; the Ampere-era `SM80_16x8x16` MMA and `cp.async` are chosen in MLX's *source*, which no toolkit version changes |
-| this Triton prototype | Triton 3.3.1's bundled `ptxas-blackwell`, **CUDA 12.8.61** | **plausibly** — early sm_120 code generation could schedule worse |
+| this Triton prototype | Triton 3.3.1's bundled `ptxas-blackwell`, **CUDA 12.8.61** | **no, measured 2026-09-11**: the same PTX assembled by ptxas 13.0 runs at 0.97–1.00 of 12.8's speed (quiet-GPU rerun section) |
 | bf16 cuBLAS reference | torch 2.7.1+cu128, cuBLAS 12.8 | no — it reaches 117–219 TF/s on the same card, so 12.8 drives sm_120 tensor cores well |
 
 The Triton half is testable with one variable: the host has `/usr/local/cuda-13.0/bin/ptxas`, and
 Triton reads `TRITON_PTXAS-BLACKWELL_PATH` (a hyphenated name, so it has to go through `env`, not
 `export`). `claude-scratch/ab-triton-ptxas.sh` runs the prototype with both, in separate Triton
-caches so each recompiles; it is staged for the quiet-GPU rerun, not run.
+caches so each recompiles; it ran on 2026-09-11, with the result in the quiet-GPU rerun section.
 
 The error is bf16 rounding against the dequantised reference, i.e. the kernel is correct.
 
@@ -350,7 +350,8 @@ tensor cores need both operands in 4-bit — so even a perfect kernel here buys 
 MLX today, for days of kernel work, on the one shape class that is matmul-bound. The 4-bit path
 already exists for this chip (CUTLASS ships `sm120_blockscaled_mma_tma` collectives and worked
 nvfp4 examples) and is worth 2–4×, but its blocker is the accuracy question, not kernels. **The
-kernel work is not where the leverage is.**
+kernel work is not where the leverage is.** *(Withdrawn 2026-09-11: see the sm120 kernel sections
+below.)*
 
 ## What the Metal path does differently, and what is worth borrowing
 
@@ -550,9 +551,23 @@ Prototype limits unchanged: N % 128, K % 64, TN, batch 1, synthetic weights, not
 
 ## Quiet-GPU rerun and stall attribution (2026-09-11 16:45–17:12)
 
-GPU0 idle at 0 % with production unloaded; runs strictly sequential; per-step GPU state logged
-(`claude-scratch/quiet-rerun.log`). All three harnesses now agree on cuBLAS within 0–13 %, so the
-twofold gaps between earlier tables were contention and Triton's default *mean*, not harnesses.
+GPU0 idle at 0 % with production unloaded when the chain started; runs strictly sequential;
+per-step GPU state logged (`claude-scratch/quiet-rerun.log`). All three harnesses now agree on
+cuBLAS within 0–13 %, so the twofold gaps between earlier tables were contention and Triton's
+default *mean*, not harnesses.
+
+**Audited afterwards against production's request log** (its `[GIN]` request lines and model-load
+events; production places every model on this GPU). "Idle when the chain started" did not hold
+throughout:
+
+| window (AEST) | production activity on this GPU | step running |
+|---|---|---|
+| 16:45:27–16:45:45 | model load, one 17.7 s request | none; step 1 began 16:45:50 |
+| 16:47:25–16:47:58 | model reload, one 20.5 s request, four of 1–2 s, one of 6.7 s | step 2, the MLX bench |
+| 17:14:59–17:16:02 | model reload, one 63 s request | phase A of the ptxas A/B, after the chain |
+
+Step 1, step 3 and the Nsight profiles fall in the gaps and stand as measured. The effect on
+step 2 and on phase A is assessed where their numbers appear.
 
 **The sm120 kernels** (`preflight-runs/sm120-quiet-ab.log`, 5 rounds, spread 0–1 % on 7 of 8 rows,
 40/40 validations with zero elements >5 % off):
@@ -588,13 +603,47 @@ So tw2s3 is **~1.8× MLX's `qmm`** (1.6–2.0× by ratio to cuBLAS within each h
 (0.06–0.08 ms vs dequant 0.58–0.86, `qqmm` 0.12–0.15), so any new path belongs above a row
 threshold.
 
+**Caveat from the audit.** The 16:47:25–16:47:58 burst fell inside this bench. The bench ran in
+a `--rm` container and its JSONL carries no per-row timestamps, so the rows it touched cannot be
+recovered exactly. It began 23 s into a 346 s run and ended 56 s in; the first two shapes,
+gemma4-31b `q_proj` and `o_proj`, hold 16 % of the bench's weight bytes, about 54 s if time
+scales with size, and this table quotes neither. The quoted M=2048 bf16 rows sit below step 1's
+cuBLAS by 11–13 % for gemma4-31b and 6–9 % for qwen3.8. The gemma4-31b rows ran nearer the
+burst, but they are also different shapes, so this cannot separate contention from shape. If the
+gemma4-31b `qmm` rows lost a few percent to contention, their ÷ `qmm` ratios are inflated by the
+same few percent; ~1.8× stands either way. Veto: a quiet rerun of step 2 alone.
+
 **Triton prototype, ptxas 12.8, median timing:** 74–88 TF/s = 0.23–0.26× cuBLAS on all 8 rows —
 the contended ratios held. The CUDA 13.0 half **did not run**: Triton 3.3.1's
 `ptx_get_version()` has no branch for CUDA 13 and raises. The script now accepts
 `TRITON_FORCE_PTX_VERSION` (passes `ptx_version` to the kernel, skipping the check) and the rerun
-pins PTX 87 for *both* halves, so they differ only in the assembler. Inference meanwhile: the
-sm120 kernels were built with the same 12.8.61 compiler and reach 0.9× cuBLAS, so 12.8 is not
-what limits the Triton prototype.
+pins PTX 87 for *both* halves, so they differ only in the assembler.
+
+**The assembler A/B (17:12–17:50): ptxas 13.0 changes nothing.** Triton TF/s with the ratio to
+each run's own cuBLAS, rendered by a script from `preflight-runs/triton-ptxas-12.8.log`,
+`triton-ptxas-12.8-p87.log` and `triton-ptxas-13.0-p87.log`:
+
+| shape | M | ptxas 12.8, default PTX, clean run 16:52 | ptxas 12.8, PTX 8.7, phase A | ptxas 13.0, PTX 8.7, phase B | B ÷ A |
+|---|---|---|---|---|---|
+| gemma4-31b gate | 2048 | 82.4 TF/s, 0.24× | 84.6 TF/s, 0.25× | 82.3 TF/s, 0.24× | 0.97 |
+| gemma4-31b gate | 4096 | 87.5 TF/s, 0.26× | 88.6 TF/s, 0.27× | 86.8 TF/s, 0.26× | 0.98 |
+| gemma4-31b down | 2048 | 83.3 TF/s, 0.25× | 83.9 TF/s, 0.26× | 82.3 TF/s, 0.25× | 0.98 |
+| gemma4-31b down | 4096 | 79.4 TF/s, 0.25× | 80.7 TF/s, 0.26× | 78.8 TF/s, 0.25× | 0.98 |
+| qwen3.8 gate | 2048 | 80.2 TF/s, 0.23× | 80.4 TF/s, 0.24× | 79.1 TF/s, 0.24× | 0.98 |
+| qwen3.8 gate | 4096 | 80.9 TF/s, 0.24× | 81.1 TF/s, 0.24× | 79.7 TF/s, 0.24× | 0.98 |
+| qwen3.8 down | 2048 | 78.7 TF/s, 0.24× | 79.4 TF/s, 0.25× | 78.1 TF/s, 0.24× | 0.98 |
+| qwen3.8 down | 4096 | 74.2 TF/s, 0.23× | 75.5 TF/s, 0.25× | 74.2 TF/s, 0.24× | 0.98 |
+
+- **Same input, different assembler.** Phases A and B compiled byte-identical PTX 8.7 for
+  `sm_120a`. The 13.0 assembler produced different machine code (`cuobjdump -sass` over all 24
+  autotune configurations), and it runs at 0.97–0.98 of phase A and 0.99–1.00 of the clean run.
+- **Phase A stands despite the overlap.** Its machine code is identical to the clean run's; their
+  PTX differs only in debug line numbers, because the script gained four lines in between. Its
+  Triton rows landed within 3 % of the clean run. Its cuBLAS rows ran 3–4 % lower, but so did
+  phase B's, and phase B had no production traffic at all (no requests or model loads from
+  17:31 to 17:50), so that shift is not the overlap.
+- **So CUDA 12.8 is not what limits the Triton prototype; its design is.** That agrees with the
+  sm120 kernels, which reach 0.9× cuBLAS with the same 12.8.61 compiler.
 
 **Stall attribution** (Nsight Compute 2025.3.1 under sudo, `--clock-control none`, one launch
 each, gemma4:31b gate M=2048; reports `preflight-runs/ncu-*-gemmagate2048.ncu-rep`):
