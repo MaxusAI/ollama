@@ -34,6 +34,20 @@
 
 using namespace cute;
 
+// -DDENSE_STATIC_SCHED=1: use the static persistent tile scheduler (CUTLASS maps it for Sm100/Sm107 only);
+// the like-for-like reference for the transform-warp T=3 build, which needs the CLC scheduler warp.
+#ifndef DENSE_STATIC_SCHED
+#define DENSE_STATIC_SCHED 0
+#endif
+#if DENSE_STATIC_SCHED
+namespace cutlass::gemm::kernel::detail {
+template <class TileShape, class ClusterShape, uint32_t SchedulerPipelineStageCount>
+struct TileSchedulerSelector<StaticPersistentScheduler, arch::Sm120, TileShape, ClusterShape, SchedulerPipelineStageCount> {
+  using Scheduler = StaticPersistentTileScheduler100;
+};
+}
+#endif
+
 namespace {
 
 using ElementA   = cutlass::bfloat16_t;
@@ -106,7 +120,8 @@ using CollectiveMainloop = cutlass::gemm::collective::CollectiveMma<
     GmemTiledCopyA, SmemLayoutAtomA, SmemCopyAtomA, cute::identity,
     GmemTiledCopyB, SmemLayoutAtomB, SmemCopyAtomB, cute::identity>;
 
-using GemmKernel = cutlass::gemm::kernel::GemmUniversal<Shape<int,int,int,int>, CollectiveMainloop, CollectiveEpilogue, void>;
+using SchedulerTag = cute::conditional_t<(DENSE_STATIC_SCHED != 0), cutlass::gemm::StaticPersistentScheduler, void>;
+using GemmKernel = cutlass::gemm::kernel::GemmUniversal<Shape<int,int,int,int>, CollectiveMainloop, CollectiveEpilogue, SchedulerTag>;
 using Gemm       = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 
 using StrideA = typename Gemm::GemmKernel::StrideA;

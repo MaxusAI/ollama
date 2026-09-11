@@ -194,9 +194,9 @@ int sm120_nvfp4_gemm(const void* A, const void* Bp, const void* Sp, void* D, int
 #if NVFP4_TRANSFORM_WARPS > 0
 int sm120_nvfp4_scale_format() { return 1; }   // transform variant: bf16 scales always
 int sm120_nvfp4_layout() { return 1; }         // 1: MLX-native Bp[N][K/8] + row-pair bf16 Sp[N/2][K/8]
-int sm120_nvfp4_tw_info(int* transform_warps, int* ring, int* mode, int* static_sched, int* load_regs, int* mma_regs) {
+int sm120_nvfp4_tw_info(int* transform_warps, int* ring, int* mode, int* static_sched, int* load_regs, int* mma_regs, int* ring_k16) {
   *transform_warps = NVFP4_TRANSFORM_WARPS; *ring = NVFP4_TW_RING; *mode = NVFP4_TW_MODE; *static_sched = NVFP4_TW_STATIC_SCHED;
-  *load_regs = NVFP4_TW_LOAD_REGS; *mma_regs = NVFP4_TW_MMA_REGS;
+  *load_regs = NVFP4_TW_LOAD_REGS; *mma_regs = NVFP4_TW_MMA_REGS; *ring_k16 = NVFP4_TW_RING_K16;
   return 0;
 }
 #else

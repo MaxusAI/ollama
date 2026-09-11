@@ -20,6 +20,7 @@ def main():
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--rep", type=int, default=200)
     ap.add_argument("--swizzle", type=int, default=4)
+    ap.add_argument("--force-time", action="store_true", help="time even if a version fails numerics (timing-probe builds whose output is wrong by construction)")
     args = ap.parse_args()
     B.RASTER, B.SWIZZLE = 0, args.swizzle
     dev = torch.device("cuda:0")
@@ -50,8 +51,10 @@ def main():
                 fns.append((n, fn))
             fns.append(("cuBLAS bf16", lambda: torch.matmul(A, W.T, out=D)))
             fns.append(("dense sm120 bf16", lambda: dense.bf16(A, W, D)))
-            if not ok:
+            if not ok and not args.force_time:
                 print("    numerics FAILED for a version; skipping timing"); continue
+            if not ok:
+                print("    numerics FAILED for a version; timing anyway (--force-time: probe builds)")
             times = {n: [] for n, _ in fns}
             for _ in range(args.rounds):
                 for n, fn in fns:

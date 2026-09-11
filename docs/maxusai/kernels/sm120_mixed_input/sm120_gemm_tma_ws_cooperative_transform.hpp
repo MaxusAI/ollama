@@ -638,7 +638,7 @@ public:
             shared_storage.tensors.mainloop
           );
           mainloop_pipe_transform_state.advance(work_k_tile_count);
-          ring_pipe_producer_state.advance(work_k_tile_count);
+          ring_pipe_producer_state.advance(work_k_tile_count * CollectiveMainloop::RingSub);   // TW: one (or KBLOCKS) ring barrier(s) per k-tile
 
           auto [next_work_tile_info, increment_pipe] = scheduler.fetch_next_work(work_tile_info,
                                                                             scheduler_pipeline,
@@ -855,7 +855,7 @@ public:
 
           // Update starting mainloop pipeline state for the next tile
           mainloop_pipe_consumer_state.advance(work_k_tile_count);
-          ring_pipe_consumer_state.advance(work_k_tile_count);   // TW
+          ring_pipe_consumer_state.advance(work_k_tile_count * CollectiveMainloop::RingSub);   // TW: one (or KBLOCKS) ring barrier(s) per k-tile
         }
 
         if constexpr (!IsSm120Family) {

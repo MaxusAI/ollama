@@ -140,9 +140,9 @@ class Lib:
         self.layout = int(self.lib.sm120_nvfp4_layout()) if kind == "nvfp4" and hasattr(self.lib, "sm120_nvfp4_layout") else 0
         self.tw = None
         if kind == "nvfp4" and hasattr(self.lib, "sm120_nvfp4_tw_info"):
-            tw = [ctypes.c_int() for _ in range(6)]
+            tw = [ctypes.c_int() for _ in range(7)]
             self.lib.sm120_nvfp4_tw_info(*[ctypes.byref(i) for i in tw])
-            self.tw = dict(zip(["transform_warps", "ring", "mode", "static_sched", "load_regs", "mma_regs"], [i.value for i in tw]))
+            self.tw = dict(zip(["transform_warps", "ring", "mode", "static_sched", "load_regs", "mma_regs", "ring_k16"], [i.value for i in tw]))
 
     def desc(self):
         d = f"{self.kind}: stages={self.stages} tile={self.tm}x{self.tn}x{self.tk} smem={self.smem} B" + (" scales=bf16" if self.scale_bf16 else "")

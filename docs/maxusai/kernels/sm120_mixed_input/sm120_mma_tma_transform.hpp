@@ -23,10 +23,19 @@
 //       Sp[p][8*kt + (n%2)*4 + gg] = scale(n = 2p + n%2, group g = 4*kt + gg),  g = k/16.
 //     i.e. per row pair and k-tile the 8 scales are one 16 B TMA row (8 B would be below the TMA minimum).
 //
-// Knobs (-D): NVFP4_TW_MODE 2 = real (default), 1 = transform warps skip the conversion (wrong numerics,
-//   timing probe: same loads/stores/barriers), 0 = MMA warps do not wait for the ring AND the transform
-//   warps do not wait for ring entries to be free (wrong numerics: measures pure issue-slot/smem
-//   interference of the conversion ALU on the MMA warps, without any pipeline dependency).
+// Knobs (-D):
+//   NVFP4_TW_MODE  2 = real (default);
+//                  1 = transform warps skip the conversion (wrong numerics; timing probe: same loads, stores,
+//                      barriers and ring dependency);
+//                  0 = full conversion but NO ring dependency: the MMA warps never wait for the ring and the
+//                      transform warps never wait for free entries (wrong numerics; measures the pure
+//                      issue-slot / smem interference of the conversion ALU on the MMA warps);
+//                  3 = neither conversion nor dependency (wrong numerics; the "idle transform warps" floor).
+//   NVFP4_TW_RING_K16  1 = hand the ring over per k16 quarter: each 16 KB ring entry keeps 4 full/empty
+//                      barrier pairs, the MMA warps wait per k_block and release a quarter as soon as its
+//                      ldmatrix is in registers, and the transform warps arrive after each quarter. Same
+//                      shared memory; only the exposed transform latency on the MMA critical path shrinks
+//                      from a whole tile's conversion to a quarter's.
 //   NVFP4_TW_CHECK: trap if the hand-computed swizzled store address disagrees with CuTe's layout.
 
 #pragma once
@@ -34,6 +43,11 @@
 #ifndef NVFP4_TW_MODE
 #define NVFP4_TW_MODE 2
 #endif
+#ifndef NVFP4_TW_RING_K16
+#define NVFP4_TW_RING_K16 0
+#endif
+#define NVFP4_TW_DEP  (NVFP4_TW_MODE == 1 || NVFP4_TW_MODE == 2)
+#define NVFP4_TW_CONV (NVFP4_TW_MODE == 0 || NVFP4_TW_MODE == 2)
 
 #include <cuda_bf16.h>
 
@@ -92,7 +106,7 @@ CUTLASS_DEVICE uint32_t dup_hi16(uint32_t x) { return __byte_perm(x, x, 0x3232);
 // 8 e2m1 nibbles (element i at bits 4i..4i+3) -> 4 bf16x2 words in element order, times a bf16 scale
 // (exact: e2m1 x e4m3 needs <= 6 significant bits). CUTLASS's prmt-LUT converter: 13 instructions per 4 values.
 CUTLASS_DEVICE void dequant8(uint32_t w, __nv_bfloat162 scale, uint32_t& o0, uint32_t& o1, uint32_t& o2, uint32_t& o3) {
-#if NVFP4_TW_MODE == 1
+#if !NVFP4_TW_CONV
   // timing probe: no conversion, wrong numerics
   o0 = w; o1 = w ^ as_u32(scale); o2 = w + 1; o3 = w ^ 0x5555u;
 #else
@@ -166,14 +180,6 @@ struct CollectiveMma<
   static constexpr int NumTransformThreads = NumTransformWarps * NumThreadsPerWarp;
   static_assert(NumTransformWarps >= 1 && NumTransformWarps <= 3, "transform warps live in the producer warpgroup (warps 1..3)");
 
-  using MainloopPipeline = cutlass::PipelineTmaAsync<Stages>;
-  using PipelineParams = typename MainloopPipeline::Params;
-  using PipelineState  = cutlass::PipelineState<Stages>;
-  using RingPipeline = cutlass::PipelineAsync<RingStages>;
-  using RingPipelineState = typename RingPipeline::PipelineState;
-
-  static constexpr int NumProducerThreadEvents = 1;
-
   static constexpr int BLK_M = size<0>(TileShape{});
   static constexpr int BLK_N = size<1>(TileShape{});
   static constexpr int BLK_K = size<2>(TileShape{});
@@ -183,6 +189,18 @@ struct CollectiveMma<
   static constexpr int SPR   = BLK_K / 16;     // scales per row per k-tile (4)
   static constexpr int SROW2 = 2 * SPR;        // scale elements per row pair per k-tile (8 = 16 B)
   static constexpr int ITEMS = BLK_N * 2;      // transform work items per k-tile: (row, k32 half) = 4 words = 32 values
+  static constexpr int KBLOCKS = BLK_K / 16;   // k16 steps per k-tile (4)
+  // ring hand-over granularity: 1 = whole 16 KB entry, KBLOCKS = one barrier pair per k16 quarter of the entry
+  static constexpr int RingSub = NVFP4_TW_RING_K16 ? KBLOCKS : 1;
+  static constexpr bool kDep = NVFP4_TW_DEP;
+
+  using MainloopPipeline = cutlass::PipelineTmaAsync<Stages>;
+  using PipelineParams = typename MainloopPipeline::Params;
+  using PipelineState  = cutlass::PipelineState<Stages>;
+  using RingPipeline = cutlass::PipelineAsync<RingStages * RingSub>;
+  using RingPipelineState = typename RingPipeline::PipelineState;
+
+  static constexpr int NumProducerThreadEvents = 1;
 
   static_assert(cute::is_same_v<ElementB, uint32_t>, "ElementB must be the packed uint32 word type");
   static_assert(cute::is_same_v<ElementBMma, cutlass::bfloat16_t>, "MMA B type must be bf16");
@@ -416,6 +434,8 @@ struct CollectiveMma<
   // bf16 scales for those 32 k, 4 x (LUT convert + 4 HMUL2), 4 STS.128 into the SW128 K-major bf16 tile.
   // Bank conflicts: the LDS addresses are 16 B / 4 B contiguous across lanes; the STS.128 addresses of the
   // 8 lanes in a phase land in 8 distinct 16 B chunks because rows 0..3 XOR chunk bits {0..3} with h in bit 2.
+  // With NVFP4_TW_RING_K16 the lanes take consecutive rows at the same half instead (2-way LDS.128 conflicts,
+  // 4 loads per tile) so that a quarter of the tile is complete after a quarter of the work.
   CUTLASS_DEVICE void
   transform(
       MainloopPipeline pipeline,
@@ -433,62 +453,94 @@ struct CollectiveMma<
     Tensor sBB_pi = as_position_independent_swizzle_tensor(sBB);
 #endif
 
+    // convert packed word `w` (8 consecutive k starting at k0 of row n) into ring entry `bb`
+    auto store8 = [&](uint8_t* bb, int n, int k0, uint32_t w, __nv_bfloat162 scale, [[maybe_unused]] int we) {
+      uint32_t o0, o1, o2, o3;
+      dequant8(w, scale, o0, o1, o2, o3);
+      // byte offset of (n, k0) in the K-major tile; Swizzle<3,4,3>: 16 B chunk index (bits 4..6) ^= row % 8
+      uint32_t const off = (static_cast<uint32_t>(n) * (BLK_K * 2) + k0 * 2) ^ (static_cast<uint32_t>(n & 7) << 4);
+#ifdef NVFP4_TW_CHECK
+      {
+        ElementBMma* want = &sBB_pi(n, k0, we);
+        if (reinterpret_cast<uint8_t*>(want) != bb + off) { __trap(); }
+      }
+#endif
+      *reinterpret_cast<uint4*>(bb + off) = make_uint4(o0, o1, o2, o3);
+    };
+
     CUTLASS_PRAGMA_NO_UNROLL
     for ( ; k_tile_count > 0; --k_tile_count) {
       pipeline.consumer_wait(smem_pipe_read);
-#if NVFP4_TW_MODE != 0
-      ring.producer_acquire(ring_write);
-#endif
       int const rs = smem_pipe_read.index();
-      int const we = ring_write.index();
+      int const we = ring_write.index() / RingSub;
       uint32_t const*     wp = shared_tensors.smem_Bp.data() + rs * (BLK_N * WPR);
       ElementScale const* sp = shared_tensors.smem_S.data()  + rs * ((BLK_N / 2) * SROW2);
       uint8_t* bb = bb_base + we * RingEntryBytes;
 
-      CUTLASS_PRAGMA_UNROLL
-      for (int it = 0; it < (ITEMS + NumTransformThreads - 1) / NumTransformThreads; ++it) {
-        int const item = transform_thread_idx + it * NumTransformThreads;
-        if (ITEMS % NumTransformThreads != 0 && item >= ITEMS) { break; }
-        int const n = item >> 1;
-        int const h = item & 1;
-        uint4 const w4 = *reinterpret_cast<uint4 const*>(wp + n * WPR + h * 4);
-        uint32_t const sc2 = *reinterpret_cast<uint32_t const*>(sp + (n >> 1) * SROW2 + (n & 1) * SPR + h * 2);
-        __nv_bfloat162 const s0 = as_bf162(dup_lo16(sc2));   // k = 32h + 0..15
-        __nv_bfloat162 const s1 = as_bf162(dup_hi16(sc2));   // k = 32h + 16..31
-        uint32_t const words[4] = {w4.x, w4.y, w4.z, w4.w};
-        // byte offset of (n, k = 32h) in the K-major tile; Swizzle<3,4,3>: 16 B chunk index (bits 4..6) ^= row % 8
-        uint32_t const base = static_cast<uint32_t>(n) * (BLK_K * 2) + h * 64;
-        uint32_t const swz  = static_cast<uint32_t>(n & 7) << 4;
+      if constexpr (RingSub == 1) {
+        if constexpr (kDep) { ring.producer_acquire(ring_write); }
         CUTLASS_PRAGMA_UNROLL
-        for (int j = 0; j < 4; ++j) {
-          uint32_t o0, o1, o2, o3;
-          dequant8(words[j], (j < 2) ? s0 : s1, o0, o1, o2, o3);
-          uint32_t const off = (base + j * 16) ^ swz;
-#ifdef NVFP4_TW_CHECK
-          {
-            ElementBMma* want = &sBB_pi(n, 32 * h + 8 * j, we);
-            uint8_t* got = bb + off;
-            if (reinterpret_cast<uint8_t*>(want) != got) { __trap(); }
+        for (int it = 0; it < (ITEMS + NumTransformThreads - 1) / NumTransformThreads; ++it) {
+          int const item = transform_thread_idx + it * NumTransformThreads;
+          if (ITEMS % NumTransformThreads != 0 && item >= ITEMS) { break; }
+          int const n = item >> 1;
+          int const h = item & 1;
+          uint4 const w4 = *reinterpret_cast<uint4 const*>(wp + n * WPR + h * 4);
+          uint32_t const sc2 = *reinterpret_cast<uint32_t const*>(sp + (n >> 1) * SROW2 + (n & 1) * SPR + h * 2);
+          __nv_bfloat162 const s0 = as_bf162(dup_lo16(sc2));   // k = 32h + 0..15
+          __nv_bfloat162 const s1 = as_bf162(dup_hi16(sc2));   // k = 32h + 16..31
+          store8(bb, n, 32 * h +  0, w4.x, s0, we);
+          store8(bb, n, 32 * h +  8, w4.y, s0, we);
+          store8(bb, n, 32 * h + 16, w4.z, s1, we);
+          store8(bb, n, 32 * h + 24, w4.w, s1, we);
+        }
+        if constexpr (kDep) { ring.producer_commit(ring_write); }
+        ++ring_write;
+      }
+      else {
+        // quarter hand-over: per k32 half, quarter 2h (words x,y) is finished and published before quarter 2h+1 (z,w)
+        constexpr int RPT = (BLK_N + NumTransformThreads - 1) / NumTransformThreads;   // rows per thread
+        CUTLASS_PRAGMA_UNROLL
+        for (int h = 0; h < BLK_K / 32; ++h) {
+          uint4 w4[RPT];
+          uint32_t sc2[RPT];
+          if constexpr (kDep) { ring.producer_acquire(ring_write); }
+          CUTLASS_PRAGMA_UNROLL
+          for (int it = 0; it < RPT; ++it) {
+            int const n = transform_thread_idx + it * NumTransformThreads;
+            if (BLK_N % NumTransformThreads == 0 || n < BLK_N) {
+              w4[it]  = *reinterpret_cast<uint4 const*>(wp + n * WPR + h * 4);
+              sc2[it] = *reinterpret_cast<uint32_t const*>(sp + (n >> 1) * SROW2 + (n & 1) * SPR + h * 2);
+              __nv_bfloat162 const s0 = as_bf162(dup_lo16(sc2[it]));
+              store8(bb, n, 32 * h + 0, w4[it].x, s0, we);
+              store8(bb, n, 32 * h + 8, w4[it].y, s0, we);
+            }
           }
-#endif
-          *reinterpret_cast<uint4*>(bb + off) = make_uint4(o0, o1, o2, o3);
+          if constexpr (kDep) { ring.producer_commit(ring_write); }
+          ++ring_write;
+          if constexpr (kDep) { ring.producer_acquire(ring_write); }
+          CUTLASS_PRAGMA_UNROLL
+          for (int it = 0; it < RPT; ++it) {
+            int const n = transform_thread_idx + it * NumTransformThreads;
+            if (BLK_N % NumTransformThreads == 0 || n < BLK_N) {
+              __nv_bfloat162 const s1 = as_bf162(dup_hi16(sc2[it]));
+              store8(bb, n, 32 * h + 16, w4[it].z, s1, we);
+              store8(bb, n, 32 * h + 24, w4[it].w, s1, we);
+            }
+          }
+          if constexpr (kDep) { ring.producer_commit(ring_write); }
+          ++ring_write;
         }
       }
 
-#if NVFP4_TW_MODE != 0
-      ring.producer_commit(ring_write);
-#endif
       pipeline.consumer_release(smem_pipe_read);
       ++smem_pipe_read;
-      ++ring_write;
     }
   }
 
   CUTLASS_DEVICE void
   transform_tail(RingPipeline ring, RingPipelineState ring_write) {
-#if NVFP4_TW_MODE != 0
-    ring.producer_tail(ring_write);
-#endif
+    if constexpr (kDep) { ring.producer_tail(ring_write); }
   }
 
   // ---- MMA warps: the dense sm120 loop, B from the ring instead of the TMA stage ----
@@ -535,9 +587,13 @@ struct CollectiveMma<
     CUTE_STATIC_ASSERT_V(Int<RingStages>{} == size<2>(sB));
 
     auto K_BLOCK_MAX = size<2>(tCrA);
+    static_assert(decltype(K_BLOCK_MAX)::value == KBLOCKS, "one k_block per m16n8k16 step");
 
+    // ring cursors: ring_wait = the entry (or quarter) copy_kblock reads next; ring_rel = the next one to release
+    auto ring_wait = ring_read;
+    auto ring_rel  = ring_read;
     int read_stage = smem_pipe_read.index();
-    int read_entry = ring_read.index();
+    int read_entry = ring_wait.index() / RingSub;
     auto tCsA_stage = tCsA(_,_,_,read_stage);
     auto tCsB_stage = tCsB(_,_,_,read_entry);
 
@@ -550,50 +606,52 @@ struct CollectiveMma<
     };
 
     pipeline.consumer_wait(smem_pipe_read);
-#if NVFP4_TW_MODE != 0
-    ring.consumer_wait(ring_read);
-#endif
+    if constexpr (kDep) { ring.consumer_wait(ring_wait); }
 
     copy_kblock(_0{});
     CUTLASS_PRAGMA_NO_UNROLL
     for ( ; k_tile_count > 1; --k_tile_count) {
       for_each(make_int_sequence<K_BLOCK_MAX>{}, [&] (auto k_block) {
         auto k_block_next = ((k_block + 1) == K_BLOCK_MAX) ? 0 : (k_block + 1);
-        if (k_block == K_BLOCK_MAX - 1) {
+        if constexpr (decltype(k_block)::value == KBLOCKS - 1) {
           cutlass::arch::NamedBarrier::sync(thr_size(tiled_mma), cutlass::arch::ReservedNamedBarriers::Sm120MainloopBarrier);
           pipeline.consumer_release(smem_pipe_read);
-#if NVFP4_TW_MODE != 0
-          ring.consumer_release(ring_read);
-#endif
           ++smem_pipe_read;
-          ++ring_read;
           read_stage = smem_pipe_read.index();
-          read_entry = ring_read.index();
           tCsA_stage = tCsA(_,_,_,read_stage);
+          if constexpr (RingSub == 1 && kDep) { ring.consumer_release(ring_rel); ++ring_rel; }
+          ++ring_wait;
+          read_entry = ring_wait.index() / RingSub;
           tCsB_stage = tCsB(_,_,_,read_entry);
           pipeline.consumer_wait(smem_pipe_read);
-#if NVFP4_TW_MODE != 0
-          ring.consumer_wait(ring_read);
-#endif
+          if constexpr (kDep) { ring.consumer_wait(ring_wait); }
+        }
+        else if constexpr (RingSub > 1) {
+          ++ring_wait;
+          if constexpr (kDep) { ring.consumer_wait(ring_wait); }
         }
         copy_kblock(k_block_next);
+        // quarter mode: the quarter read by the previous copy_kblock is in registers; free it for the transform warps
+        if constexpr (RingSub > 1 && kDep) { ring.consumer_release(ring_rel); ++ring_rel; }
         gemm_kblock(k_block);
       });
     }
 
     for_each(make_int_sequence<K_BLOCK_MAX>{}, [&] (auto k_block) {
       auto k_block_next = ((k_block + 1) == K_BLOCK_MAX) ? 0 : (k_block + 1);
-      if (k_block == K_BLOCK_MAX - 1) {
+      if constexpr (decltype(k_block)::value == KBLOCKS - 1) {
         cutlass::arch::NamedBarrier::sync(thr_size(tiled_mma), cutlass::arch::ReservedNamedBarriers::Sm120MainloopBarrier);
         pipeline.consumer_release(smem_pipe_read);
-#if NVFP4_TW_MODE != 0
-        ring.consumer_release(ring_read);
-#endif
         ++smem_pipe_read;
-        ++ring_read;
+        if constexpr (kDep) { ring.consumer_release(ring_rel); ++ring_rel; }   // the entry, or its last quarter
       }
-      if (k_block_next > 0) {
+      else {
+        if constexpr (RingSub > 1) {
+          ++ring_wait;
+          if constexpr (kDep) { ring.consumer_wait(ring_wait); }
+        }
         copy_kblock(k_block_next);
+        if constexpr (RingSub > 1 && kDep) { ring.consumer_release(ring_rel); ++ring_rel; }
       }
       gemm_kblock(k_block);
     });
