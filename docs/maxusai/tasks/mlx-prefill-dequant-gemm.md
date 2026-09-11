@@ -679,6 +679,101 @@ Findings, and what they change:
 stages — smaller epilogue tile, or K=32 tiles with four stages; (2) cut ring synchronisation —
 fewer arrive/phase-check operations per tile; (3) only then the conversion loop.
 
+## Third iteration (2026-09-11): the epilogue moves into the ring — **+1.6–6.5 % on every row**
+
+A third agent took the revised priorities. Commit `556c2115` on `feat/sm120-mixed-input-gemm`; logs
+`claude-scratch/wt-sm120mi-{screen,confirm,extras}-*.log`, summary `wt-sm120mi-a3-summary.log`.
+Spot-checked: the reference build's md5, every ratio of the gemma4-31b confirmation run against its
+raw rounds, the Nsight durations against the reports, and the synchronisation logic of the diff.
+
+**What changed.**
+
+- **The epilogue borrows a ring entry** (`NVFP4_TW_RING_EPI`). The kernel is persistent and the TMA
+  producer prefetches the next tile during the epilogue, so stage memory is never free. But the bf16
+  ring entry the MMA warps read last is, if its release is deferred: the other entry already holds
+  the next tile's first k-tile. The epilogue runs CUTLASS's TMA store path inside that entry (64×32
+  subtiles, 3 × 4 KB), drains its stores, and only then releases it. Three stages and a TMA epilogue
+  now fit in 98,304 B with no epilogue memory of their own; 128 scattered 2-byte global stores per
+  thread become 8 shared-memory stores and 16 TMA stores.
+- **The MMA warps stop polling the TMA barrier** (`NVFP4_TW_SKIP_TMA_WAIT`). The transform warps
+  publish a ring entry only after observing that stage's TMA completion, and mbarrier
+  release/acquire is cumulative, so the A tile is visible through the ring barrier alone. Worth
+  0.5–1 % on top of the epilogue.
+- **Tried and not kept:** one elected lane arriving per warp (neutral); dropping the per-k-tile
+  barrier (0.7–1.4 % slower, and its first form was wrong — a fast warp's epilogue overwrote an entry
+  a slow warp was still reading — which the numerics check caught); three transform warps with a
+  static scheduler, and an nvcc 13.0 build (both below).
+
+**The new kernel against the previous best**, speed ratios within each run, over the three quiet runs
+that contain both (no foreign GPU load by `nvidia-smi pmon` in any of them), rendered by a script
+from the logs:
+
+| shape | M | new ÷ previous best, three quiet runs | new ÷ cuBLAS | new ÷ dense sm120 | worst round spread |
+|---|---|---|---|---|---|
+| qwen3.8 gate | 2048 | 1.064, 1.065, 1.061 | 0.93–0.94 | 0.99–0.99 | 9.1 % |
+| qwen3.8 gate | 4096 | 1.053, 1.055, 1.052 | 0.92–0.92 | 0.96–0.97 | 1.8 % |
+| qwen3.8 down | 2048 | 1.023, 1.026, 1.026 | 0.92–0.92 | 0.99–0.99 | 2.3 % |
+| qwen3.8 down | 4096 | 1.021, 1.022, 1.021 | 0.91–0.91 | 0.95–0.95 | 1.3 % |
+| gemma4-31b gate | 2048 | 1.053, 1.056, 1.053 | 0.95–0.95 | 0.98–0.98 | 8.8 % |
+| gemma4-31b gate | 4096 | 1.052, 1.052, 1.051 | 0.93–0.93 | 0.96–0.96 | 2.1 % |
+| gemma4-31b down | 2048 | 1.021, 1.021, 1.022 | 0.92–0.92 | 1.00–1.01 | 2.2 % |
+| gemma4-31b down | 4096 | 1.016, 1.016, 1.017 | 0.87–0.87 | 0.94–0.94 | 0.8 % |
+
+The 9 % spread on the two gate M=2048 rows is the previous kernel's: on those rows it still
+alternates between a fast and a slow speed on a quiet card (gemma4-31b: one round of seven at
+1.45 ms, six near 1.57 ms), while the new kernel's rounds stay within about 3 %. On those two rows
+part of the gain is the slow speed going away; on the other six it is uniform. Every build is exact
+on every shape (max|err|/max|ref| 2.6–3.2e-3, zero elements over 5 %).
+
+**Nsight before and after** (gemma4:31b gate, M=2048, one launch each; durations checked against
+the reports):
+
+| metric | previous best | new | dense sm120 |
+|---|---|---|---|
+| duration | 1.51 ms | 1.39 ms | 1.37 ms |
+| tensor pipe active, % of peak | 80.5 | 86.4 | 91.8 |
+| stall: lg_throttle | 0.34 | 0 | 0 |
+| stall: long_scoreboard | 0.48 | 0.32 | 0.54 |
+| stall: barrier | 0.48 | 0.50 | 0.18 |
+
+The in-kernel timers put the epilogue at 13,857 cycles per work tile before and about 3,230 after,
+out of roughly 200,000. The output-stage loss is gone; the barrier stalls are not.
+
+**Extras, one quiet run each**, speed ratios against the new kernel:
+
+| shape | M | nvcc 13.0 build ÷ nvcc 12.8 build | three transform warps ÷ two |
+|---|---|---|---|
+| qwen3.8 gate | 2048 | 1.007 | 0.999 |
+| qwen3.8 gate | 4096 | 1.005 | 1.000 |
+| qwen3.8 down | 2048 | 1.001 | 1.005 |
+| qwen3.8 down | 4096 | 1.002 | 1.000 |
+| gemma4-31b gate | 2048 | 1.006 | 1.003 |
+| gemma4-31b gate | 4096 | 1.004 | 1.001 |
+| gemma4-31b down | 2048 | 1.003 | 0.976 |
+| gemma4-31b down | 4096 | 1.001 | 0.982 |
+
+The nvcc 13.0 build is 0.1–0.7 % faster, inside the round spread, so the compiler is not the lever
+here either. A third transform warp is neutral on the gate shapes and about 2 % slower on
+gemma4-31b down.
+
+The agent also checked the candidate beyond the eight timing shapes: exact at small shapes, at an
+odd M = 77 (the TMA store's residue predication through the borrowed entry) and with alpha = 0.5.
+
+**Not verified.** The `SKIP_TMA_WAIT` step rests on the PTX memory model's cumulativity of the
+mbarrier release/acquire chain, backed by exactness on 11 shape and alpha configurations; there is
+no formal argument or racecheck run. If it is ever in doubt, the epilogue change alone keeps
++1.1–5.9 %. Absolute TFLOP/s comparable with the 16:45 baseline need a quiet window;
+`claude-scratch/sm120-quiet-confirm.sh` is staged for it.
+
+**Where that leaves it.** The new kernel is 0.94–1.01× the dense sm120 kernel and 0.87–0.95×
+cuBLAS within its runs, so at most about 5 % remains, and what remains is warp skew at the
+per-k-tile barrier (barrier stalls still 2.8× dense). The agent recommends integration into
+MLX-CUDA over more kernel work: register the op, permute the scales to row-pair bf16 once at
+load, dispatch it above a row threshold (around M ≥ 256; `qmm` stays best at M = 1), and put it
+through the vision suite as a numerics change, since any change of accumulation order changes
+output bit-for-bit. Its estimate is 2–4 days. The kernel levers left are small: re-synchronising
+every 2–4 k-tiles (≤ 1 %) or trimming the conversion sequence (1–2 %).
+
 ## Acceptance criteria
 
 1. ☑ **Bench after the campaign** (two runs, production still on the card): ratios repeatable
