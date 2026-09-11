@@ -1,6 +1,7 @@
 package mlxrunner
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -118,7 +119,7 @@ func (s *speculation) open(request Request, layout []any) *speculationSession {
 	// Logprobs are not yet supported, so a logprobs request keeps a speculationSession
 	// only to maintain a draft cache in lockstep (permanently parked).
 	opts := request.SamplerOpts
-	enabled := request.Grammar == nil && !opts.Logprobs && opts.TopLogprobs == 0
+	enabled := !opts.Logprobs && opts.TopLogprobs == 0
 
 	spec := &speculationSession{spec: s, drafter: d, layout: layout, enabled: enabled, prevDrafts: -1, roundDrafts: -1}
 	if enabled {
@@ -129,8 +130,8 @@ func (s *speculation) open(request Request, layout []any) *speculationSession {
 
 // beginRound records the previous round's cost sample (its wall time runs to
 // this round's start) and starts timing the new one. A session that cannot
-// draft records nothing: its parked rounds carry grammar or logprobs work
-// that would skew the shared depth-0 cost.
+// draft records nothing: its parked rounds carry logprobs work that would
+// skew the shared depth-0 cost.
 func (s *speculationSession) beginRound() {
 	if !s.enabled {
 		return
@@ -199,14 +200,12 @@ type speculativeDecoder struct {
 	position int
 	current  sampler.Result    // emitted (or the seed), not yet forwarded
 	inner    *pipelinedDecoder // pipelines plain tokens while parked; nil while drafting
-	// grammar reaches sampling through the parked inner decoder; a
-	// constrained session never drafts.
-	grammar *grammar
+	grammar  *grammar
 }
 
 // decoder returns the decoder for this engine's session. A speculationSession that
-// cannot draft (a grammar, logprobs) has no depth controller and permanently
-// parks, running the inner pipelined decoder whose reports keep the draft KV level.
+// cannot draft (logprobs) has no depth controller and permanently parks,
+// running the inner pipelined decoder whose reports keep the draft KV level.
 func (s *speculationSession) decoder(seed *mlx.Array, position int, grammar *grammar) decoder {
 	current := sampler.Result{Token: seed}
 	mlx.Pin(current.Arrays()...)
@@ -218,7 +217,11 @@ func (st *speculativeDecoder) next(remaining int) ([]sampler.Result, error) {
 	// positive length and a primed drafter, else decode parked.
 	var results []sampler.Result
 	if s := st.s; st.inner != nil && s.limit > 0 {
-		results = st.resume()
+		var err error
+		results, err = st.resume()
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		s.beginRound()
 		var candidates *draftCandidates
@@ -238,7 +241,7 @@ func (st *speculativeDecoder) next(remaining int) ([]sampler.Result, error) {
 			// draft-count read below; accept pins only its own intermediates.
 			mlx.Pin(candidates.tokens)
 			defer mlx.Unpin(candidates.tokens)
-			results, accepted, observed, err = st.s.accept(&st.position, st.current, candidates)
+			results, accepted, observed, err = st.s.accept(&st.position, st.current, candidates, st.grammar)
 		}
 		if err != nil {
 			return nil, err
@@ -265,8 +268,11 @@ func (st *speculativeDecoder) advance(next sampler.Result) {
 // resume ends a parked stretch: the inner decoder's in-flight sample (sampled
 // but never forwarded) is exactly the current token a drafting round expects,
 // so emit it and let the next call draft from it.
-func (st *speculativeDecoder) resume() []sampler.Result {
-	next, position := st.inner.drain()
+func (st *speculativeDecoder) resume() ([]sampler.Result, error) {
+	next, position, err := st.inner.drain()
+	if err != nil {
+		return nil, err
+	}
 	st.position = position
 	// close unpins exactly the array drain handed back; the caller's advance
 	// re-pins it, and nothing sweeps in between.
@@ -277,7 +283,7 @@ func (st *speculativeDecoder) resume() []sampler.Result {
 	st.s.stats.recordRound(0)
 	st.s.stats.iterations++
 	st.s.roundDrafts = -1
-	return next
+	return next, nil
 }
 
 // park decodes one token while the engine cannot draft. Each is a depth-0
@@ -285,12 +291,13 @@ func (st *speculativeDecoder) resume() []sampler.Result {
 // the drafter primed and maintained.
 //
 // UNDER A GRAMMAR THE PARKED STEP MUST BE MASKED, which is why st.grammar is
-// threaded into the inner decoder. A constrained session never drafts, so every
-// one of its rounds parks here, and a parked round is not a detour around the
-// format: its tokens are emitted output. Parking onto an unmasked decoder
-// produced a request whose output was entirely unconstrained -- measured on
-// gemma4:31b-nvfp4 as an eval_count identical to the same request with no
-// format at all.
+// threaded into the inner decoder. Since v0.34.0 a constrained session drafts
+// too (accept runs the grammar over each drafted run), but every round it
+// spends parked still emits output, so a parked round is not a detour around
+// the format. Parking onto an unmasked decoder produced a request whose output
+// was entirely unconstrained -- measured on gemma4:31b-nvfp4, when a
+// constrained session still parked every round, as an eval_count identical to
+// the same request with no format at all.
 func (st *speculativeDecoder) park(remaining int) ([]sampler.Result, error) {
 	s := st.s
 	if st.inner == nil {
@@ -301,11 +308,11 @@ func (st *speculativeDecoder) park(remaining int) ([]sampler.Result, error) {
 
 // drain surrenders the inner decoder's undelivered sample while parked; a
 // drafting decoder has already delivered everything it sampled.
-func (st *speculativeDecoder) drain() ([]sampler.Result, int) {
+func (st *speculativeDecoder) drain() ([]sampler.Result, int, error) {
 	if st.inner != nil {
 		return st.inner.drain()
 	}
-	return nil, st.position
+	return nil, st.position, nil
 }
 
 func (st *speculativeDecoder) close() {
@@ -396,7 +403,7 @@ func commitSpeculation(caches []cache.Cache, accepted, draftCount, before int) {
 // The caller keeps current and the candidate tokens pinned across the call,
 // since accept sweeps before its eval and reads both afterward; accept pins
 // only the intermediates it produces.
-func (s *speculationSession) accept(position *int, current sampler.Result, candidates *draftCandidates) (results []sampler.Result, accepted, observed int, err error) {
+func (s *speculationSession) accept(position *int, current sampler.Result, candidates *draftCandidates, g *grammar) (results []sampler.Result, accepted, observed int, err error) {
 	r := s.spec.r
 	before := *position
 	draftCount := candidates.tokens.Dim(1)
@@ -417,6 +424,12 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 	}
 	defer commit(0)
 
+	dist := candidates.dist.Arrays()
+	mlx.Pin(dist...)
+	mlx.Sweep()
+	mlx.AsyncEval(candidates.tokens)
+	mlx.Unpin(dist...)
+
 	hiddenSeq, auxHiddenSeq := r.Model.Forward(&batch.Batch{
 		InputIDs:     current.Token.ExpandDims(-1).Concatenate(1, candidates.tokens),
 		SeqOffsets:   []int32{int32(before)},
@@ -428,7 +441,19 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 	// the rows already line up with the drafts: row 0 (current's state)
 	// predicts draft 0, and the row after the last accepted draft is the
 	// bonus row. No separate base-logits forward exists on this path.
-	targetDist := r.Sampler.Distribution(pipelineSlot, r.Model.Unembed(hiddenSeq), candidates.tokens)
+	logits := r.Model.Unembed(hiddenSeq)
+
+	draftIDs := candidates.tokens.Ints()
+	constrained := g.constraining()
+	if constrained {
+		var errs []error
+		logits, errs = r.grammarEngine.mask([]*grammar{g}, logits, [][]int32{draftIDs})
+		if err := errors.Join(errs...); err != nil {
+			return nil, 0, 0, err
+		}
+	}
+
+	targetDist := r.Sampler.Distribution(pipelineSlot, logits, candidates.tokens)
 	draftDist := candidates.dist
 	acceptedMask := r.sampleAcceptedMask(targetDist.SliceRows(0, draftCount), draftDist, candidates.tokens)
 
@@ -440,17 +465,14 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 	residualTokens := r.Sampler.SampleDistribution(pipelineSlot, targetDist.SliceRows(0, draftCount).ResidualAgainst(draftDist))
 	bonusToken := r.sampleTokenAt(targetDist, draftCount)
 
-	// Pin the arrays read after the eval, then sweep so the draft proposal
-	// chain and this validation forward's intermediates are freed as the eval
-	// consumes them, the way the plain decode dispatch sweeps before its eval.
-	// current and the candidate tokens stay pinned by the caller across the call.
+	// Pin the arrays read after the eval; current and the candidate tokens
+	// stay pinned by the caller across the call.
 	live := []*mlx.Array{hiddenSeq, auxHiddenSeq, acceptedMask, residualTokens, bonusToken}
 	mlx.Pin(live...)
 	defer mlx.Unpin(live...)
 	mlx.Sweep()
 	mlx.Eval(candidates.tokens, acceptedMask, residualTokens, bonusToken)
 
-	draftIDs := candidates.tokens.Ints()
 	acceptedFlags := acceptedMask.Ints()
 	for _, ok := range acceptedFlags {
 		if ok == 0 {
@@ -484,6 +506,28 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 		}
 	}
 
+	var nextID int32
+	if !done {
+		if accepted < draftCount {
+			nextID = residualTokens.Ints()[accepted]
+		} else {
+			nextID = bonusToken.Int()
+		}
+		// The token that replaces a rejected draft, or follows a full run, is
+		// returned to the caller and becomes the next round's current.
+		commitIDs = append(commitIDs, nextID)
+	}
+	if constrained {
+		// The grammar accepts the run the way it accepts every emitted token,
+		// before the caches commit it: on a rejection the deferred rollback
+		// keeps them level with the tokens decode has recorded.
+		for _, id := range commitIDs {
+			if err := errors.Join(r.grammarEngine.accept([]*grammar{g}, []int32{id})...); err != nil {
+				return nil, 0, 0, err
+			}
+		}
+	}
+
 	commit(keep)
 	*position = before + 1 + keep
 
@@ -497,23 +541,10 @@ func (s *speculationSession) accept(position *int, current sampler.Result, candi
 		before, nil)
 
 	results = draftResults(draftIDs[:accepted])
-	if done {
-		r.Sampler.Commit(pipelineSlot, commitIDs)
-		return results, accepted, observed, nil
+	if !done {
+		results = append(results, sampler.Result{Token: mlx.FromValues([]int32{nextID}, 1)})
 	}
-
-	var nextID int32
-	if accepted < draftCount {
-		nextID = residualTokens.Ints()[accepted]
-	} else {
-		nextID = bonusToken.Int()
-	}
-	// The token that replaces a rejected draft, or follows a full run, is
-	// returned to the caller and becomes the next round's current.
-	commitIDs = append(commitIDs, nextID)
 	r.Sampler.Commit(pipelineSlot, commitIDs)
-
-	results = append(results, sampler.Result{Token: mlx.FromValues([]int32{nextID}, 1)})
 	return results, accepted, observed, nil
 }
 

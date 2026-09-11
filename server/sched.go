@@ -1559,6 +1559,9 @@ func (s *Scheduler) waitForVRAMRecovery(runner *runnerRef, runners []ml.Filtered
 	return finished
 }
 
+// LogValue may run from goroutines that already hold refMu (see the scheduler
+// debug logs), so the unload-mutable fields are read only under TryLock and
+// omitted when the lock is contended.
 func (runner *runnerRef) LogValue() slog.Value {
 	if runner == nil {
 		return slog.StringValue("nil")
@@ -1574,7 +1577,7 @@ func (runner *runnerRef) LogValue() slog.Value {
 	if hasModel {
 		name = runner.model.Name
 	}
-	gpus := runner.gpus
+	gpus := slices.Clone(runner.gpus)
 	numCtx, hasOptions := 0, runner.Options != nil
 	if hasOptions {
 		numCtx = runner.Options.NumCtx
@@ -1594,7 +1597,6 @@ func (runner *runnerRef) LogValue() slog.Value {
 		slog.String("size", format.HumanBytes2(runner.totalSize)),
 		slog.String("vram", format.HumanBytes2(runner.vramSize)),
 		slog.Int("parallel", runner.numParallel),
-		slog.Int("pid", runner.pid),
 		slog.String("model", modelID),
 	)
 	if hasOptions {
