@@ -21,6 +21,8 @@
 #include "cutlass/gemm/collective/collective_builder.hpp"
 #include "cutlass/gemm/collective/collective_mma.hpp"
 #include "cutlass/epilogue/collective/collective_builder.hpp"
+#include "cutlass/epilogue/collective/default_epilogue.hpp"
+#include "cutlass/epilogue/thread/linear_combination.h"
 #include "cutlass/gemm/kernel/gemm_universal.hpp"
 #include "cutlass/gemm/device/gemm_universal_adapter.h"
 #include "cutlass/util/packed_stride.hpp"
@@ -70,6 +72,21 @@ constexpr int AlignC = 8, AlignD = 8;
 using TileShape    = Shape<Int<TILE_M>, Int<TILE_N>, Int<TILE_K>>;
 using ClusterShape = Shape<_1,_1,_1>;
 
+#ifndef NVFP4_TW_NOSMEM_EPI
+#define NVFP4_TW_NOSMEM_EPI 0
+#endif
+#if NVFP4_TW_NOSMEM_EPI
+// Smem-free epilogue (register -> gmem stores, what CUTLASS's sm90 builder emits for NoSmemWarpSpecialized;
+// the sm120 builder does not offer it): frees the TMA epilogue's 12 KB so a THIRD TMA stage fits next to the ring.
+using CollectiveEpilogue = cutlass::epilogue::collective::detail::Sm90TmaWarpSpecializedAdapter<
+    cutlass::epilogue::collective::DefaultEpilogue<
+      ElementC,
+      cutlass::gemm::TagToStrideC_t<LayoutCTag>,
+      cutlass::gemm::TagToStrideC_t<LayoutDTag>,
+      cutlass::epilogue::thread::LinearCombination<ElementD, 1, ElementAcc, ElementAcc,
+          cutlass::epilogue::thread::ScaleType::Default, cutlass::FloatRoundStyle::round_to_nearest, ElementC>,
+      cutlass::gemm::EpilogueDefault>>;
+#else
 using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
     cutlass::arch::Sm120, cutlass::arch::OpClassTensorOp,
     TileShape, ClusterShape,
@@ -79,6 +96,7 @@ using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBui
     ElementD, LayoutDTag, AlignD,
     cutlass::epilogue::collective::EpilogueScheduleAuto
   >::CollectiveOp;
+#endif
 
 using PermTileM     = decltype(cute::min(size<0>(TileShape{}), _128{}));
 using PermTileN     = decltype(cute::min(size<1>(TileShape{}),  _32{}));
@@ -192,11 +210,24 @@ int sm120_nvfp4_gemm(const void* A, const void* Bp, const void* Sp, void* D, int
 }
 
 #if NVFP4_TRANSFORM_WARPS > 0
+// per-warp-role cycle counters (NVFP4_TW_TIMERS=1 builds only): out[8] as documented in the collective; reset zeroes them
+int sm120_nvfp4_tw_timers(unsigned long long* out, int reset) {
+#if NVFP4_TW_TIMERS
+  if (cudaMemcpyFromSymbol(out, cutlass::gemm::collective::nvfp4_tw_detail::g_tw_timers, 8 * sizeof(unsigned long long)) != cudaSuccess) return 1;
+  if (reset) {
+    unsigned long long z[8] = {0,0,0,0,0,0,0,0};
+    if (cudaMemcpyToSymbol(cutlass::gemm::collective::nvfp4_tw_detail::g_tw_timers, z, sizeof(z)) != cudaSuccess) return 2;
+  }
+  return 0;
+#else
+  (void) out; (void) reset; return 3;
+#endif
+}
 int sm120_nvfp4_scale_format() { return 1; }   // transform variant: bf16 scales always
 int sm120_nvfp4_layout() { return 1; }         // 1: MLX-native Bp[N][K/8] + row-pair bf16 Sp[N/2][K/8]
 int sm120_nvfp4_tw_info(int* transform_warps, int* ring, int* mode, int* static_sched, int* load_regs, int* mma_regs, int* ring_k16) {
   *transform_warps = NVFP4_TRANSFORM_WARPS; *ring = NVFP4_TW_RING; *mode = NVFP4_TW_MODE; *static_sched = NVFP4_TW_STATIC_SCHED;
-  *load_regs = NVFP4_TW_LOAD_REGS; *mma_regs = NVFP4_TW_MMA_REGS; *ring_k16 = NVFP4_TW_RING_K16;
+  *load_regs = NVFP4_TW_LOAD_REGS; *mma_regs = NVFP4_TW_MMA_REGS; *ring_k16 = NVFP4_TW_RING_K16 + 2 * NVFP4_TW_NOSMEM_EPI;   // bit 1: smem-free epilogue
   return 0;
 }
 #else

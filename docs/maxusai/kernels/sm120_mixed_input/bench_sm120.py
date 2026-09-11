@@ -193,6 +193,7 @@ def main():
     ap.add_argument("--rounds", type=int, default=1, help="round-robin repetitions of (kernel, cuBLAS, dense) per shape; median of medians")
     ap.add_argument("--force-time", action="store_true", help="time even if numerics fail (for timing-probe builds)")
     ap.add_argument("--shapes", default="", help="comma-separated substrings; only matching shape names run")
+    ap.add_argument("--timers", action="store_true", help="NVFP4_TW_TIMERS builds: print per-warp-role cycle accounting per k-tile (one run per shape, no timing)")
     args = ap.parse_args()
     global RASTER, SWIZZLE
     RASTER, SWIZZLE = args.raster, args.swizzle
@@ -233,6 +234,21 @@ def main():
                 run_k = lambda: lib.nvfp4(A, Bp, Sp, D, N, args.alpha)
             run_k(); torch.cuda.synchronize()
             e_k = check(D, ref, f"sm120 {args.kind} kernel")
+            if args.timers:
+                t = (ctypes.c_ulonglong * 8)()
+                lib.lib.sm120_nvfp4_tw_timers(t, 1)          # discard the validation run's counters
+                for _ in range(3):
+                    run_k()
+                torch.cuda.synchronize()
+                rc = lib.lib.sm120_nvfp4_tw_timers(t, 1)
+                if rc != 0:
+                    print(f"    timers unavailable (rc={rc}; build with -DNVFP4_TW_TIMERS=1)")
+                else:
+                    tt_, tr_, tc_, tn_, mt_, mr_, mtot_, mn_ = [int(x) for x in t]
+                    if tn_ and mn_:
+                        print(f"    transform warp, per k-tile: wait TMA {tt_/tn_:8.0f} cyc | wait ring {tr_/tn_:8.0f} | convert {tc_/tn_:8.0f}   (sum {(tt_+tr_+tc_)/tn_:8.0f})")
+                        print(f"    MMA warp,       per k-tile: wait TMA {mt_/mn_:8.0f} cyc | wait ring {mr_/mn_:8.0f} | compute {(mtot_-mt_-mr_)/mn_:8.0f}   (total {mtot_/mn_:8.0f})")
+                continue
             e_c = check(args.alpha * (A @ B.T), ref, "cuBLAS bf16 (dequant W)")
             if e_k > 2e-2 and not args.force_time:
                 print("    FAILED numerics; not timing"); rows.append((name, M, K, N, None, None, None)); continue

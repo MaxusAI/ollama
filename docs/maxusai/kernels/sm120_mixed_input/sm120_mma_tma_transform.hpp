@@ -46,6 +46,9 @@
 #ifndef NVFP4_TW_RING_K16
 #define NVFP4_TW_RING_K16 0
 #endif
+#ifndef NVFP4_TW_TIMERS
+#define NVFP4_TW_TIMERS 0
+#endif
 #define NVFP4_TW_DEP  (NVFP4_TW_MODE == 1 || NVFP4_TW_MODE == 2)
 #define NVFP4_TW_CONV (NVFP4_TW_MODE == 0 || NVFP4_TW_MODE == 2)
 
@@ -97,6 +100,13 @@ namespace cutlass::gemm::collective {
 using namespace cute;
 
 namespace nvfp4_tw_detail {
+
+#if NVFP4_TW_TIMERS
+// cycle accounting per warp role (lane 0 of each warp adds its totals once per work tile):
+// [0] transform: wait for the TMA stage  [1] transform: wait for a free ring entry  [2] transform: convert  [3] transform: k-tiles
+// [4] mma: wait for the TMA stage        [5] mma: wait for the ring                  [6] mma: total          [7] mma: k-tiles
+__device__ unsigned long long g_tw_timers[8];
+#endif
 
 CUTLASS_DEVICE __nv_bfloat162 as_bf162(uint32_t u) { __nv_bfloat162 r; *reinterpret_cast<uint32_t*>(&r) = u; return r; }
 CUTLASS_DEVICE uint32_t as_u32(__nv_bfloat162 v) { return *reinterpret_cast<uint32_t*>(&v); }
@@ -468,9 +478,22 @@ struct CollectiveMma<
       *reinterpret_cast<uint4*>(bb + off) = make_uint4(o0, o1, o2, o3);
     };
 
+#if NVFP4_TW_TIMERS
+    unsigned long long t_wait_tma = 0, t_wait_ring = 0, t_conv = 0, t_mark = 0;
+    int const n_tiles = k_tile_count;
+    auto tick = [&](unsigned long long& acc) { unsigned long long now = clock64(); acc += now - t_mark; t_mark = now; };
+    t_mark = clock64();
+#else
+    auto tick = [](auto&) {};
+    [[maybe_unused]] unsigned long long t_wait_tma = 0, t_wait_ring = 0, t_conv = 0;
+#endif
     CUTLASS_PRAGMA_NO_UNROLL
     for ( ; k_tile_count > 0; --k_tile_count) {
+#if NVFP4_TW_TIMERS
+      t_mark = clock64();
+#endif
       pipeline.consumer_wait(smem_pipe_read);
+      tick(t_wait_tma);
       int const rs = smem_pipe_read.index();
       int const we = ring_write.index() / RingSub;
       uint32_t const*     wp = shared_tensors.smem_Bp.data() + rs * (BLK_N * WPR);
@@ -479,6 +502,7 @@ struct CollectiveMma<
 
       if constexpr (RingSub == 1) {
         if constexpr (kDep) { ring.producer_acquire(ring_write); }
+        tick(t_wait_ring);
         CUTLASS_PRAGMA_UNROLL
         for (int it = 0; it < (ITEMS + NumTransformThreads - 1) / NumTransformThreads; ++it) {
           int const item = transform_thread_idx + it * NumTransformThreads;
@@ -494,6 +518,7 @@ struct CollectiveMma<
           store8(bb, n, 32 * h + 16, w4.z, s1, we);
           store8(bb, n, 32 * h + 24, w4.w, s1, we);
         }
+        tick(t_conv);
         if constexpr (kDep) { ring.producer_commit(ring_write); }
         ++ring_write;
       }
@@ -505,6 +530,7 @@ struct CollectiveMma<
           uint4 w4[RPT];
           uint32_t sc2[RPT];
           if constexpr (kDep) { ring.producer_acquire(ring_write); }
+          tick(t_wait_ring);
           CUTLASS_PRAGMA_UNROLL
           for (int it = 0; it < RPT; ++it) {
             int const n = transform_thread_idx + it * NumTransformThreads;
@@ -516,9 +542,11 @@ struct CollectiveMma<
               store8(bb, n, 32 * h + 8, w4[it].y, s0, we);
             }
           }
+          tick(t_conv);
           if constexpr (kDep) { ring.producer_commit(ring_write); }
           ++ring_write;
           if constexpr (kDep) { ring.producer_acquire(ring_write); }
+          tick(t_wait_ring);
           CUTLASS_PRAGMA_UNROLL
           for (int it = 0; it < RPT; ++it) {
             int const n = transform_thread_idx + it * NumTransformThreads;
@@ -528,6 +556,7 @@ struct CollectiveMma<
               store8(bb, n, 32 * h + 24, w4[it].w, s1, we);
             }
           }
+          tick(t_conv);
           if constexpr (kDep) { ring.producer_commit(ring_write); }
           ++ring_write;
         }
@@ -536,6 +565,14 @@ struct CollectiveMma<
       pipeline.consumer_release(smem_pipe_read);
       ++smem_pipe_read;
     }
+#if NVFP4_TW_TIMERS
+    if ((transform_thread_idx & 31) == 0) {
+      atomicAdd(&g_tw_timers[0], t_wait_tma);
+      atomicAdd(&g_tw_timers[1], t_wait_ring);
+      atomicAdd(&g_tw_timers[2], t_conv);
+      atomicAdd(&g_tw_timers[3], static_cast<unsigned long long>(n_tiles));
+    }
+#endif
   }
 
   CUTLASS_DEVICE void
@@ -605,8 +642,23 @@ struct CollectiveMma<
       cute::gemm(tiled_mma, tCrA(_,_,k_block), tCrB(_,_,k_block), accum);
     };
 
+#if NVFP4_TW_TIMERS
+    using namespace nvfp4_tw_detail;
+    unsigned long long m_wait_tma = 0, m_wait_ring = 0, m_mark = 0;
+    int const m_tiles = k_tile_count;
+    unsigned long long const m_start = clock64();
+    auto mtick = [&](unsigned long long& acc) { unsigned long long now = clock64(); acc += now - m_mark; m_mark = now; };
+    auto mmark = [&]() { m_mark = clock64(); };
+#else
+    auto mtick = [](auto&) {};
+    auto mmark = []() {};
+    [[maybe_unused]] unsigned long long m_wait_tma = 0, m_wait_ring = 0;
+#endif
+    mmark();
     pipeline.consumer_wait(smem_pipe_read);
+    mtick(m_wait_tma);
     if constexpr (kDep) { ring.consumer_wait(ring_wait); }
+    mtick(m_wait_ring);
 
     copy_kblock(_0{});
     CUTLASS_PRAGMA_NO_UNROLL
@@ -623,12 +675,17 @@ struct CollectiveMma<
           ++ring_wait;
           read_entry = ring_wait.index() / RingSub;
           tCsB_stage = tCsB(_,_,_,read_entry);
+          mmark();
           pipeline.consumer_wait(smem_pipe_read);
+          mtick(m_wait_tma);
           if constexpr (kDep) { ring.consumer_wait(ring_wait); }
+          mtick(m_wait_ring);
         }
         else if constexpr (RingSub > 1) {
           ++ring_wait;
+          mmark();
           if constexpr (kDep) { ring.consumer_wait(ring_wait); }
+          mtick(m_wait_ring);
         }
         copy_kblock(k_block_next);
         // quarter mode: the quarter read by the previous copy_kblock is in registers; free it for the transform warps
@@ -648,13 +705,23 @@ struct CollectiveMma<
       else {
         if constexpr (RingSub > 1) {
           ++ring_wait;
+          mmark();
           if constexpr (kDep) { ring.consumer_wait(ring_wait); }
+          mtick(m_wait_ring);
         }
         copy_kblock(k_block_next);
         if constexpr (RingSub > 1 && kDep) { ring.consumer_release(ring_rel); ++ring_rel; }
       }
       gemm_kblock(k_block);
     });
+#if NVFP4_TW_TIMERS
+    if ((thread_idx & 31) == 0) {
+      atomicAdd(&g_tw_timers[4], m_wait_tma);
+      atomicAdd(&g_tw_timers[5], m_wait_ring);
+      atomicAdd(&g_tw_timers[6], clock64() - m_start);
+      atomicAdd(&g_tw_timers[7], static_cast<unsigned long long>(m_tiles));
+    }
+#endif
   }
 
   CUTLASS_DEVICE void
