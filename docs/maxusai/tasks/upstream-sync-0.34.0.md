@@ -9,16 +9,16 @@ First look: [upstream-sync-2026-09-04.md](upstream-sync-2026-09-04.md), section 
 **Not in this fold yet:** the MLX bump past ml-explore/mlx#4452, the fix for the idle runner that
 pins a CPU core. It needs a native rebuild, and "don't rebuild yet" still stands.
 
-## Status (2026-09-11, 23:15)
+## Status (2026-09-12, 00:45)
 
 | gate | state |
 |---|---|
 | 1, merge | done, `ca3ff1db`, three conflicts resolved |
 | 2, no-GPU tests | green after two fixes in `ba2eb4f1`; one upstream flake, two findings already on main |
 | 3, image | Go-only swap `maxusai/ollama:sync-0.34.0-swap` (`0.33.3-dynres-26-gba2eb4f`), **valid for the GGUF half only** |
-| 4, preflight `cuda-dynres-903` | running |
-| 5, GGUF think-off against `ggmlmain_1_` | queued behind the preflight |
-| 5, MLX think-off against `main276_` | **blocked: needs a native rebuild** |
+| 4, preflight `cuda-dynres-903` | PASS 20, SKIP 8 on the swap image, the same as main; repeated on the rebuilt image |
+| 5, GGUF think-off against `ggmlmain_1_` | **green**: 8 suites, no OOM, no error; every quality row identical to main |
+| 5, MLX think-off against `main276_` | waiting for the rebuilt image, which is building |
 
 ## Conflicts and their resolution
 
@@ -59,6 +59,28 @@ pins a CPU core. It needs a native rebuild, and "don't rebuild yet" still stands
 - **Already on main, unchanged by the merge:** `go vet`'s unused `slices.Collect` result in
   `tokenizer/bytepairencoding_test.go`, and gofumpt diffs in two `integration/` test files. Those
   files carry the build tag `integration && release`, which keeps them outside CI's lint.
+
+## Gates 4 and 5, GGUF half: identical to main on quality
+
+The GGUF (llama-server) path runs on llama.cpp's own grammar, so the swap image measures it
+validly. Both gates ran on it on 2026-09-11 (`claude-scratch/gate-sync034b.sh`):
+
+- **Preflight** `cuda-dynres-903`, 23:16 to 23:31: passed 20 checks and skipped 8, the same
+  counts as main's run on 2026-09-06 (`preflight/runs/full-sync034.json`).
+- **GGUF think-off campaign**, eight models, 23:31 to 00:41
+  (`preflight-runs/ggml034_1_thinkfalse.log`): 8 suites, no OOM, no error, every cell converged at
+  8192.
+
+It was rendered with the ADR 0012 generators (`claude-scratch/render-ggml034.sh`, output in
+`preflight-runs/ggml034-render-thinkfalse.md`), comparing main's `ggmlmain_1_1_` with the fold's
+`ggml034_1_1_`:
+
+- Every quality row of the eight head-to-head tables matches main: 56 rows, no differences.
+- The contract matrices are identical.
+- The T1 quality columns match, answer-token counts included. Only throughput and latency
+  differ. The fold's campaign shared the host with a teacher leg on GPU 0 and, from 23:45, with
+  the image build, at a load average of about 100 on 32 cores. Those columns measure the host,
+  not the fold.
 
 ## Gate 3: why the Go-only swap covers only the GGUF half
 
