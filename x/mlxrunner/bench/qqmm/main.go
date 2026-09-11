@@ -20,6 +20,11 @@
 // so qqmm's activation-quantization cost shows next to the
 // weight-quantization cost the two quantized paths share.
 //
+// Each JSON line also carries the wall-clock window of the calls behind its
+// timings (start_unix_ms, end_unix_ms), and each shape's header line in the
+// text log prints the time the shape started, so a run on a shared GPU can
+// be matched afterwards against another process's activity log.
+//
 // The tool is standalone: it needs only the MLX library the binding finds
 // next to the executable (../lib/ollama/mlx_*), so run it from the ollama
 // image with the binary mounted under /usr/bin:
@@ -91,6 +96,14 @@ type result struct {
 	MaxAbs   float64 `json:"max_abs_err"`
 	PeakGiB  float64 `json:"peak_gib"` // MLX's device peak so far (weights, operands, outputs, cache)
 	Error    string  `json:"error,omitempty"`
+
+	// The wall-clock window of the calls behind this row's timings, in Unix
+	// milliseconds: just before the first measured call (the cold one reported
+	// as first_ms) and just after the last timed one. On a shared GPU it shows
+	// which rows another process's burst overlapped. Appended after the
+	// original fields so their order is unchanged for existing readers.
+	StartUnixMs int64 `json:"start_unix_ms"`
+	EndUnixMs   int64 `json:"end_unix_ms"`
 }
 
 func main() {
@@ -142,7 +155,7 @@ func main() {
 	rng := rand.New(rand.NewPCG(*seed, *seed^0x9e3779b97f4a7c15))
 	var results []result
 	for _, sh := range shapes {
-		fmt.Printf("\n## %s %s  K=%d N=%d  (w %d x %d, nvfp4 group %d)\n", sh.preset, sh.name, sh.k, sh.n, sh.n, sh.k, groupSize)
+		fmt.Print(shapeHeader(sh, time.Now()))
 		w32 := mlx.FromValues(randn(rng, sh.n*sh.k, 0.02), sh.n, sh.k)
 		wbf := w32.AsType(mlx.DTypeBFloat16)
 		wq, ws, wb := mlx.Quantize(wbf, groupSize, bits, mode)
@@ -209,6 +222,9 @@ func measure(r *result, f func() *mlx.Array, ref *mlx.Array, warmup, iters int) 
 	defer func() {
 		if e := recover(); e != nil {
 			r.Error = fmt.Sprint(e)
+			if r.EndUnixMs == 0 { // the window ends where the failing call did
+				r.EndUnixMs = time.Now().UnixMilli()
+			}
 			mlx.Sweep()
 		}
 	}()
@@ -220,16 +236,7 @@ func measure(r *result, f func() *mlx.Array, ref *mlx.Array, warmup, iters int) 
 		mlx.Sweep()
 		return float64(d.Nanoseconds()) / 1e6
 	}
-	for i := range warmup {
-		d := call()
-		if i == 0 {
-			r.FirstMs = d
-		}
-	}
-	ts := make([]float64, iters)
-	for i := range ts {
-		ts[i] = call()
-	}
+	ts := timeCalls(r, call, warmup, iters, time.Now)
 	sort.Float64s(ts)
 	r.MedianMs = ts[len(ts)/2]
 	r.P10Ms = ts[len(ts)/10]
@@ -244,6 +251,33 @@ func measure(r *result, f func() *mlx.Array, ref *mlx.Array, warmup, iters int) 
 	r.RelRMS = math.Sqrt(float64(num) / math.Max(float64(den), 1e-30))
 	r.MaxAbs = float64(mlx.Reshape(diff.Abs(), -1).MaxAxis(0, false).Float())
 	mlx.Sweep()
+}
+
+// timeCalls makes warmup untimed calls, the first reported as FirstMs, then
+// iters timed ones, and returns the timed durations. It stamps r with the
+// wall-clock window of all of them, read from now.
+func timeCalls(r *result, call func() float64, warmup, iters int, now func() time.Time) []float64 {
+	r.StartUnixMs = now().UnixMilli()
+	for i := range warmup {
+		d := call()
+		if i == 0 {
+			r.FirstMs = d
+		}
+	}
+	ts := make([]float64, iters)
+	for i := range ts {
+		ts[i] = call()
+	}
+	r.EndUnixMs = now().UnixMilli()
+	return ts
+}
+
+// shapeHeader is the text log's line that opens a shape, stamped with the
+// local time it started. The zone is printed too: in a container without TZ,
+// local time is UTC.
+func shapeHeader(sh shape, t time.Time) string {
+	return fmt.Sprintf("\n## %s %s  K=%d N=%d  (w %d x %d, nvfp4 group %d)  at %s\n",
+		sh.preset, sh.name, sh.k, sh.n, sh.n, sh.k, groupSize, t.Format("15:04:05 MST"))
 }
 
 func printRow(r result) {
