@@ -494,6 +494,58 @@ PR's two failed criteria (+6.8 GiB peak; deterministic output change) applies to
 need measuring once integrated. Prototype limits: N % 128 = 0, K % 64 = 0, TN, batch 1,
 synthetic weights, not integrated into MLX.
 
+## The producer-warp version (2026-09-11) — 0.92–0.95× the dense kernel
+
+A second agent moved the e2m1→bf16 conversion off the eight MMA warps onto producer warps that
+were idle, writing bf16 B tiles to shared memory so the MMA warps run the dense loop unmodified.
+Branch `feat/sm120-mixed-input-gemm` head `946dd83a` (4 commits on `bfa3da0e`, no PR), files
+`sm120_mma_tma_transform.hpp` and `sm120_gemm_tma_ws_cooperative_transform.hpp`; selectable
+beside v3 by `-DNVFP4_TRANSFORM_WARPS=T`. Verified: repository state, two table rows against
+`claude-scratch/wt-sm120mi-ab-final3.log` to the decimal, and zero elements >5 % off across all
+40 validations in that log.
+
+**Numerically exact** on every build: max|err|/max|ref| 2.5–3.7e-3, the cuBLAS bf16 profile.
+**No weight repack at all**: it reads MLX's native `uint32 [N][K/8]` words; only the scales need
+a host permutation, to bf16 in a row-pair interleave, because a TMA box row must be ≥16 B.
+
+Interleaved, `do_bench` median of 3 rounds, GPU shared at 66–100 % foreign utilisation, TFLOP/s:
+
+| shape | M | tw2s3 | v3 | dense sm120 | cuBLAS | tw2s3/dense | tw2s3/cuBLAS |
+|---|---|---|---|---|---|---|---|
+| gemma4-31b gate | 2048 | 264 | 243 | 282 | 287 | 0.93 | 0.92 |
+| gemma4-31b gate | 4096 | 266 | 246 | 289 | 325 | 0.92 | 0.82 |
+| gemma4-31b down | 2048 | 260 | 232 | 272 | 290 | 0.95 | 0.90 |
+| gemma4-31b down | 4096 | 246 | 221 | 262 | 290 | 0.94 | 0.85 |
+| qwen3.8 gate | 2048 | 249 | 231 | 328 | 282 | 0.76 | 0.88 |
+| qwen3.8 gate | 4096 | 271 | 248 | 294 | 306 | 0.92 | 0.88 |
+| qwen3.8 down | 2048 | 238 | 216 | 259 | 337 | 0.92 | 0.71 |
+| qwen3.8 down | 4096 | 263 | 231 | 282 | 288 | 0.93 | 0.91 |
+
+Every row beats v3, by 8–14 %. The 0.76 row is against an outlier dense round. The gemma M=2048
+rows are **bimodal for the transform variants only** — the same binary at 1.50 or 1.80 ms across
+rounds while v3, cuBLAS and dense stay within 1 % — unattributed; treat those rows' medians with
+care.
+
+**The hypothesis, answered by in-kernel cycle accounting.** Producer-side conversion does overlap
+with MMA, **mostly**: running the full conversion on otherwise-idle warps with the dependency
+removed costs the MMA warps 0–7 %, and a third converting warp left the MMA compute phase
+unchanged. **The dominant loss was pipeline latency, not ALU:** with two TMA stages the MMA warps
+waited 570–724 cycles per k-tile for converted tiles (16–21 %); a third stage cuts that to 72–83,
+but fits the 101,376 B budget only with a shared-memory-free epilogue, which gives back 3–5 %,
+netting +3–4 %. MMA-loop SASS is 1.97 non-MMA instructions per HMMA, against 1.78 for dense and
+10.73 for v3: the conversion really has left the MMA warps.
+
+**A correction to this doc.** It said mixed input "tops out at bf16-dense speed by construction".
+The ceiling is bf16 tensor-core throughput, not a real dense kernel's speed: with the conversion
+compiled out, this design ran **above** the dense sm120 kernel on three of four shapes, because an
+NVFP4 k-tile streams 21.5 KB against 32 KB for bf16. A well-hidden conversion could therefore match
+or edge past an actual bf16 kernel.
+
+**Next step (agent):** software-pipeline the transform's item loop, whose four load→store chains
+are serialised in the SASS, and trim the lookup sequence, for an estimated ~30 % cut in the
+1700–2000-cycle convert phase; then a smaller-tile TMA epilogue that fits beside three stages.
+Prototype limits unchanged: N % 128, K % 64, TN, batch 1, synthetic weights, not in MLX.
+
 ## Acceptance criteria
 
 1. ☑ **Bench after the campaign** (two runs, production still on the card): ratios repeatable
