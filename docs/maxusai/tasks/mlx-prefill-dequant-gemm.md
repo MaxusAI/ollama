@@ -548,6 +548,88 @@ are serialised in the SASS, and trim the lookup sequence, for an estimated ~30 %
 1700–2000-cycle convert phase; then a smaller-tile TMA epilogue that fits beside three stages.
 Prototype limits unchanged: N % 128, K % 64, TN, batch 1, synthetic weights, not in MLX.
 
+## Quiet-GPU rerun and stall attribution (2026-09-11 16:45–17:12)
+
+GPU0 idle at 0 % with production unloaded; runs strictly sequential; per-step GPU state logged
+(`claude-scratch/quiet-rerun.log`). All three harnesses now agree on cuBLAS within 0–13 %, so the
+twofold gaps between earlier tables were contention and Triton's default *mean*, not harnesses.
+
+**The sm120 kernels** (`preflight-runs/sm120-quiet-ab.log`, 5 rounds, spread 0–1 % on 7 of 8 rows,
+40/40 validations with zero elements >5 % off):
+
+| shape | M | tw2s3 | v3 | dense sm120 | cuBLAS | tw2s3/cuBLAS | tw2s3/dense | tw2s3/v3 |
+|---|---|---|---|---|---|---|---|---|
+| gemma4:31b gate | 2048 | 309 | 280 | 335 | 341 | 0.91 | 0.92 | 1.11 |
+| gemma4:31b gate | 4096 | 310 | 279 | 338 | 348 | 0.89 | 0.92 | 1.11 |
+| gemma4:31b down | 2048 | 303 | 266 | 309 | 336 | 0.90 | 0.98 | 1.14 |
+| gemma4:31b down | 4096 | 280 | 247 | 302 | 327 | 0.86 | 0.93 | 1.14 |
+| qwen3.8 gate | 2048 | 300 | 272 | 320 | 340 | 0.88 | 0.94 | 1.10 |
+| qwen3.8 gate | 4096 | 299 | 268 | 326 | 340 | 0.88 | 0.92 | 1.11 |
+| qwen3.8 down | 2048 | 288 | 254 | 298 | 322 | 0.89 | 0.96 | 1.13 |
+| qwen3.8 down | 4096 | 280 | 246 | 300 | 312 | 0.90 | 0.93 | 1.14 |
+
+The contended 0.71 row and the gemma "bimodality" were contention.
+
+**MLX's own kernels** in the #286 harness (`preflight-runs/qqmm-quiet-final.jsonl`), TFLOP/s:
+
+| shape | M | MLX `qmm` | dequant+bf16 | native FP4 `qqmm` | MLX bf16 | tw2s3 ÷ `qmm` |
+|---|---|---|---|---|---|---|
+| gemma4:31b gate | 2048 | 169 | 242 | 654 | 298 | 1.83 |
+| gemma4:31b gate | 4096 | 176 | 298 | 876 | 342 | 1.76 |
+| gemma4:31b down | 2048 | 152 | 239 | 579 | 301 | 1.99 |
+| gemma4:31b down | 4096 | 151 | 292 | 651 | 334 | 1.85 |
+| qwen3.8 gate | 2048 | 157 | 240 | 633 | 310 | 1.91 |
+| qwen3.8 gate | 4096 | 163 | 291 | 783 | 334 | 1.83 |
+| qwen3.8 down | 2048 | 156 | 228 | 564 | 304 | 1.85 |
+| qwen3.8 down | 4096 | 151 | 290 | 720 | 335 | 1.85 |
+
+So tw2s3 is **~1.8× MLX's `qmm`** (1.6–2.0× by ratio to cuBLAS within each harness; the agent's
+"~3×" was contention). MLX `qmm` is 0.45–0.57 of its bf16. At M=1 `qmm` stays best
+(0.06–0.08 ms vs dequant 0.58–0.86, `qqmm` 0.12–0.15), so any new path belongs above a row
+threshold.
+
+**Triton prototype, ptxas 12.8, median timing:** 74–88 TF/s = 0.23–0.26× cuBLAS on all 8 rows —
+the contended ratios held. The CUDA 13.0 half **did not run**: Triton 3.3.1's
+`ptx_get_version()` has no branch for CUDA 13 and raises. The script now accepts
+`TRITON_FORCE_PTX_VERSION` (passes `ptx_version` to the kernel, skipping the check) and the rerun
+pins PTX 87 for *both* halves, so they differ only in the assembler. Inference meanwhile: the
+sm120 kernels were built with the same 12.8.61 compiler and reach 0.9× cuBLAS, so 12.8 is not
+what limits the Triton prototype.
+
+**Stall attribution** (Nsight Compute 2025.3.1 under sudo, `--clock-control none`, one launch
+each, gemma4:31b gate M=2048; reports `preflight-runs/ncu-*-gemmagate2048.ncu-rep`):
+
+| metric | tw2s3 | v3 | dense |
+|---|---|---|---|
+| duration | 1.51 ms | 1.64 ms | 1.37 ms |
+| tensor pipe active, % of peak | 80.5 | 74.9 | 91.8 |
+| issue slots used, % | 29.0 | 56.2 | 17.4 |
+| instructions executed | 664 M | 1,387 M | 349 M |
+| LSU pipe, % of peak | 19.4 | 42.4 | 17.6 |
+| stall: barrier (warps per issued inst.) | 0.48 | 0.23 | 0.18 |
+| stall: lg_throttle | 0.34 | 0 | 0 |
+| stall share: SYNCS / WARPSYNC | 16.9 % / 5.5 % | 13.9 % / 5.9 % | 12.9 % / 6.4 % |
+| stall share: conversion ops (PRMT, LOP3, HMUL2, LDS, STS) | 7.3 % | 29.5 % | ~0.6 % |
+| stall share: STG | 4.1 % | 0 | 0 |
+
+Findings, and what they change:
+
+- **Not issue-bound.** 29 % of issue slots are used, so trimming the conversion's lookup
+  sequence (the previous agent's proposal, and the H100 worklog's main lesson) buys little.
+- **The conversion is off the critical path.** Its stall share fell from ~30 % to ~7 %, and with
+  three stages the transform warps already wait 788–1020 cycles per tile for ring space: faster
+  conversion would not move wall-clock time much.
+- **The measurable losses against dense are the output stage and synchronisation.** `STG` and
+  `lg_throttle` exist only in tw2s3 — the register-to-global epilogue it needs to fit three
+  stages — and barrier stalls are ~2.7× dense. Tensor-pipe activity is 80.5 % against 91.8 %.
+- **`UIADD3` is a red herring.** It is 14.7 % of tw2s3's samples, but 21.2 % of dense's: the
+  instructions are predicated-off padding (`@!UPT UIADD3 URZ, …`) whose "wait" stall is the HMMA
+  dependency latency attributed to the next slot. Intrinsic to the mainloop; ignore it.
+
+**Revised priorities for the next iteration:** (1) recover a TMA epilogue that fits beside three
+stages — smaller epilogue tile, or K=32 tiles with four stages; (2) cut ring synchronisation —
+fewer arrive/phase-check operations per tile; (3) only then the conversion loop.
+
 ## Acceptance criteria
 
 1. ☑ **Bench after the campaign** (two runs, production still on the card): ratios repeatable

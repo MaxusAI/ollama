@@ -14,7 +14,11 @@ Deviations from a production kernel, both noted in the report:
   * weights are packed with the two nibbles K/2 apart, so both halves of the
     K loop load contiguously. A real kernel pre-shuffles similarly (Marlin does).
 """
-import sys, torch, triton, triton.language as tl
+import os, sys, torch, triton, triton.language as tl
+
+# Pin the PTX ISA level (e.g. 87 for CUDA 12.8) so a newer ptxas can be A/B'd on identical PTX:
+# Triton 3.3.1 cannot derive a PTX version from a CUDA 13 ptxas and raises instead.
+PTX_VERSION = int(os.environ.get("TRITON_FORCE_PTX_VERSION", "0")) or None
 
 E2M1 = torch.tensor([0., .5, 1., 1.5, 2., 3., 4., 6.])          # magnitudes by (e,m)
 BOUNDS = torch.tensor([.25, .75, 1.25, 1.75, 2.5, 3.5, 5.])      # round-to-nearest midpoints
@@ -102,9 +106,10 @@ def run(a, packed, scale, k, group=16):
     m, n = a.shape[0], packed.shape[0]
     c = torch.empty((m, n), device="cuda", dtype=torch.bfloat16)
     grid = lambda META: (triton.cdiv(m, META["BM"]), triton.cdiv(n, META["BN"]))
+    extra = {"ptx_version": PTX_VERSION} if PTX_VERSION else {}
     mixed_gemm[grid](a, packed, scale, c, m, n, k,
                      a.stride(0), a.stride(1), packed.stride(0), packed.stride(1),
-                     scale.stride(0), scale.stride(1), c.stride(0), c.stride(1), GROUP=group)
+                     scale.stride(0), scale.stride(1), c.stride(0), c.stride(1), GROUP=group, **extra)
     return c
 
 
