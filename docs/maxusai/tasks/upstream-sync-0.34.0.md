@@ -6,20 +6,21 @@ Branch `task/upstream-sync-0.34.0` (worktree `claude-scratch/wt-sync034`), cut f
 structured output compiled as xgrammar structural tags and speculative decoding under a grammar.
 First look: [upstream-sync-2026-09-04.md](upstream-sync-2026-09-04.md), section "Next fold".
 
-**Not in this fold yet:** the MLX bump past ml-explore/mlx#4452, the fix for the idle runner that
-pins a CPU core. It needs a native rebuild, and "don't rebuild yet" still stands.
+**The MLX bump is in.** `fbedf506` pins MLX to `ce916dbb`, which is ml-explore/mlx#4452, the fix
+for the idle runner that pins a CPU core. The decision is below (2026-09-11 23:30).
 
-## Status (2026-09-12, 01:35)
+## Status (2026-09-12, 03:25)
 
 | gate | state |
 |---|---|
 | 1, merge | done, `ca3ff1db`, three conflicts resolved |
 | 2, no-GPU tests | green after two fixes in `ba2eb4f1`; one upstream flake, two findings already on main |
-| 3, image | Go-only swap `maxusai/ollama:sync-0.34.0-swap` (`0.33.3-dynres-26-gba2eb4f`), **valid for the GGUF half only** |
+| 3, image | Go-only swap `maxusai/ollama:sync-0.34.0-swap` (`0.33.3-dynres-26-gba2eb4f`), **valid for the GGUF half only**; payload swap `sync-0.34.0-mlxswap` for the MLX half; the full image `sync-0.34.0` is still building |
 | 4, preflight `cuda-dynres-903` | PASS 20, SKIP 8 on the swap image, the same as main; repeated on the rebuilt image |
 | 5, GGUF think-off against `ggmlmain_1_` | **green**: 8 suites, no OOM, no error; every quality row identical to main |
 | MLX format check and idle-CPU probe | **passed** on the rebuilt MLX payload (below) |
-| 5, MLX think-off against `main276_` | running on the payload-swap image since 01:33 |
+| 5, MLX think-off against `main276_` | done on the payload-swap image, 01:33 to 02:58: 5 suites, no OOM, no error. Identical to main except a few cells, and the fold drafts under a grammar where main never did (below) |
+| MLX attribution A/B, `gate-sync034e` | running since 03:13: does drafting under a grammar explain those cells? |
 
 ## Conflicts and their resolution
 
@@ -118,7 +119,7 @@ token, but is tr…`. The gate script truncates log lines at 200 characters and 
 gone, so the rest of the line is lost. It suggests one token was offered to a matcher that had
 already terminated, near the new rollback path for speculative decoding under a grammar. The
 campaign's runner log is captured in full (`preflight-runs/sync034_thinkfalse-runner.log`) to see
-whether it recurs.
+whether it recurs. It does, and it is benign. See the next section.
 
 **The idle core is fixed.** `claude-scratch/probe-idle-cpu.sh` sends one 8-token request, then no
 traffic, and reads runner CPU from `/proc` deltas:
@@ -133,6 +134,103 @@ traffic, and reads runner CPU from `/proc` deltas:
 | +60 s | 100.1 % | 1.4 % |
 
 The GPU column in the fold's log shows the teacher leg on the same card, not the idle runner.
+
+## MLX think-off against `main276_`: a few cells moved, and the fold now drafts
+
+The five-model campaign (tag `sync034_1_`, 01:33 to 02:58) finished with no OOM, no error and no
+cell left capped. Main's generators rendered it in `preflight-runs/sync034-render.md`
+(`claude-scratch/render-sync034.sh`).
+
+`claude-scratch/diff-sync034.sh` diffs the fold's tables against main's mechanically; its output
+is `preflight-runs/sync034-diff.txt`. Every cell of T1, T2 and the contract matrix is identical
+except these:
+
+- **gemma4:12b-nvfp4, bcadvnorm1.** The contract went from ✅ to ❌.
+- **qwen3.6:35b-a3b-nvfp4.**
+  - document name_bbox IoU: 0.506 to 0.613;
+  - fine text: 4/4/4/2/1 to 4/4/4/2/2;
+  - T1 Answer tok (the length of the scene request): 537 to 549;
+  - scene bbox IoU: 0.964 to 0.965.
+- **gemma4:31b-nvfp4, document name_bbox IoU.** 0.751 to 0.750.
+
+gemma4:26b and qwen3.8:27b match main in every cell.
+
+**name_bbox is a knife-edge arm.** #287's control is acceptance criterion 2 in
+`docs/maxusai/tasks/mlx-prefill-dequant-gemm.md` on `feat/mlx-prefill-dequant-gemm`, rendered with
+`summarize_reps.py`. It found each numeric path bit-reproducible on this arm, and different paths
+far apart: qwen3.6 scored 0.504 in three runs with that PR's flag off and 0.613 in three with it
+on. The fold's 0.613 is one of the answers another path already produces, so on its own it says
+nothing about quality.
+
+**Every suite request carries a grammar, and only the fold drafts under one.** The suite's client
+sends `format: "json"` by default, so every request is structured output. Main's
+`speculation.open` refused to draft under a grammar (`enabled := request.Grammar == nil && …`).
+Upstream `4986e923` ("mlxrunner: enable speculative decoding under structured output", Jesse Gross,
+2026-08-28) dropped that condition and masks each draft position during verification instead, to
+recover what the commit calls "roughly half the speculative throughput on a dense 27B MTP model".
+
+The drafts come from each model's own head. gemma4 uses its bundled assistant model, and the qwen3.5
+family (qwen3.6:35b-a3b included) uses its MTP head. The runner logs show the change:
+
+- main's think-off log (`main276dq_1_`) has no speculative-stats line in 112 completions;
+- the fold's log has one for every one of its 139.
+
+An inspection script over the runner logs, `claude-scratch/draftstats.py`, puts numbers on it. It
+is not a vision-suite generator, so these are inspection-grade:
+
+- the four larger models commit 3.2 to 5.4 tokens per target forward: qwen3.8:27b 5.4,
+  gemma4:26b 4.9, gemma4:31b 4.2, qwen3.6:35b-a3b 3.2;
+- gemma4:12b commits 1.36, because its assistant is rarely worth running (0.44 drafted tokens per
+  round).
+
+At temperature 0 the verification is greedy, so drafting can change a token only where the
+batched verification forward and the one-token forward pick a different argmax: a near-tie.
+
+Scored cells understate how often the text changes. A second inspection script,
+`claude-scratch/evaldiff.py`, compares each test's `eval_count` and `answer_chars` between the two
+campaigns. Between main and the fold, the lengths differ in 2 to 7 of 27 tests on every model:
+
+- qwen3.8:27b 2;
+- gemma4:31b 3;
+- gemma4:12b 4;
+- gemma4:26b 6;
+- qwen3.6:35b-a3b 7.
+
+Equal lengths do not prove equal text, so these counts are a floor. Nor do they say whether
+drafting or the MLX bump did it. The A/B below attributes the three arms whose scores moved, not
+the rest.
+
+**Throughput is why upstream made the change, and T1 points the same way here.** In
+`preflight-runs/sync034-render.md`, T1's Gen tok/s rises from main to the fold on the four models
+that draft well:
+
+- gemma4:26b 32 to 57;
+- gemma4:31b 23 to 34;
+- qwen3.8:27b 16 to 42;
+- qwen3.6:35b-a3b 19 to 40.
+
+It falls on gemma4:12b, from 31 to 27. Both runs shared GPU0 with production, and the MLX pins
+differ, so these figures are context, not a measurement.
+
+**The xgrammar warning recurs and is benign.** 84 of the fold's 139 completions log "The matcher
+has terminated after accepting the stop token, but is trying to accept new token". `grammarEngine.fill`
+builds the per-position masks by accepting each draft into the matcher and rolling the walk back
+afterwards. When a draft chain holds the stop token followed by more drafts, the terminated matcher
+refuses the next one and xgrammar logs the warning. `accept` cuts the run at an accepted stop
+token, so no position past it is ever committed.
+
+**Attribution: `claude-scratch/gate-sync034e.sh`, running since 03:13.** It runs three images over
+the three arms that moved, 5 repeats each:
+
+- fold: `sync-0.34.0-mlxswap`;
+- nodraft: `sync-0.34.0-nodraft`, the fold with main's gate restored. That is one line in
+  `speculate.go`, built from a detached worktree at `2b5478ab` and never committed;
+- main: `main-a523d60b`.
+
+The arms are gemma4:12b-nvfp4 on `bbox_contract_adv_norm1`, and qwen3.6:35b-a3b-nvfp4 on
+`document_single` and `finetext`. nodraft against the fold isolates drafting. nodraft against main
+isolates the MLX bump and the rest of the fold. `claude-scratch/render-specab.sh` renders the result
+once the gate is done.
 
 ## Gate 3: why the Go-only swap covers only the GGUF half
 
