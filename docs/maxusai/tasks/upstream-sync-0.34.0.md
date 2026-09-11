@@ -16,7 +16,7 @@ for the idle runner that pins a CPU core. The decision is below (2026-09-11 23:3
 | 1, merge | done, `ca3ff1db`, three conflicts resolved |
 | 2, no-GPU tests | green after two fixes in `ba2eb4f1`; one upstream flake, two findings already on main |
 | 3, image | **built**: `maxusai/ollama:sync-0.34.0` (`0.33.3-dynres-28-gfbedf50`, 05:05). Its MLX payload is byte-identical to the payload-swap image's (2,648 files), and its Go code matches, so the MLX gates measured there cover it |
-| 4, preflight `cuda-dynres-903` | PASS 20, SKIP 8 on the swap image, the same as main; on the real image: gate-sync034h, running |
+| 4, preflight `cuda-dynres-903` | PASS 20, SKIP 8 on the swap image, the same as main; on the real image, gate-sync034h: **PASS (exit 0)**, PASS 20, SKIP 8 |
 | 5, GGUF think-off against `ggmlmain_1_` | **green**: 8 suites, no OOM, no error; every quality row identical to main |
 | MLX format check and idle-CPU probe | **passed** on the rebuilt MLX payload (below) |
 | 5, MLX think-off against `main276_` | done on the payload-swap image, 01:33 to 02:58: 5 suites, no OOM, no error. The few moved cells are knife-edge flips that drafting under a grammar adds (attribution below) |
@@ -476,6 +476,24 @@ status, can only be seen on a rebuilt payload. It is the first MLX check after t
 The swap-validity check that passed this listed native paths by hand and omitted the shim. It now
 names the shim and defers to the Dockerfile's `COPY` lines. The first-look section of the sync
 doc carries the same correction.
+
+## The deploy candidate: `maxusai/ollama:sync-0.34.0` (gate-sync034h)
+
+Built from `fbedf506` at 05:05 (`0.33.3-dynres-28-gfbedf50`, 5.46 GB). Two proofs tie it to the payload-swap image
+the MLX gates ran on:
+
+- **P1:** its MLX payload is byte-identical, file by file (2,648 files, sha256).
+- **P2:** `fbedf506` and `5404bec2`, the swap image's binary, differ only under `docs/`.
+
+So everything measured on the swap image holds for it: structured output, the idle core, the think-off campaign and
+the attribution above. The live checks repeat on the real image:
+
+- **Formats:** `"json"` gives 200 with the same object; a JSON Schema gives 200, matching; `"yaml"` gives 400 with
+  xgrammar's structural-tag error; `""` gives 200.
+- **Idle core:** the idle runner holds 0.0 to 0.2 % CPU.
+- **Preflight `cuda-dynres-903`:** PASS (exit 0), PASS 20, SKIP 8 (`vision-suite/preflight/runs/full-sync034-real.json`).
+
+The deploy stays held for Glenn. It also carries the decision below on drafting under a grammar.
 
 ## Decision needed: drafting under a grammar (Glenn)
 
