@@ -613,6 +613,35 @@ burst, but they are also different shapes, so this cannot separate contention fr
 gemma4-31b `qmm` rows lost a few percent to contention, their ÷ `qmm` ratios are inflated by the
 same few percent; ~1.8× stands either way. Veto: a quiet rerun of step 2 alone.
 
+**Resolved by a clean rerun (18:42–18:45).** Production had no model loaded and no requests in the
+window by its log, and `nvidia-smi pmon` shows no other process on the GPU. The rerun
+(`preflight-runs/qqmm-quiet-step2-rerun.jsonl`) against the 16:47 run, rendered by a script:
+
+| shape | M | MLX bf16 TF/s, rerun | rerun ÷ 16:47 | MLX qmm TF/s, rerun | rerun ÷ 16:47 |
+|---|---|---|---|---|---|
+| gemma4-31b q_proj | 2048 | 265 | 0.92 | 154 | 0.96 |
+| gemma4-31b q_proj | 4096 | 282 | 1.00 | 160 | 0.99 |
+| gemma4-31b o_proj | 2048 | 238 | 0.90 | 141 | 0.99 |
+| gemma4-31b o_proj | 4096 | 312 | 1.02 | 151 | 0.98 |
+| gemma4-31b gate_proj | 2048 | 288 | 0.97 | 169 | 1.00 |
+| gemma4-31b gate_proj | 4096 | 340 | 0.99 | 173 | 0.98 |
+| gemma4-31b down_proj | 2048 | 293 | 0.97 | 146 | 0.96 |
+| gemma4-31b down_proj | 4096 | 325 | 0.97 | 146 | 0.97 |
+| qwen3.8-27b q_proj | 2048 | 210 | 0.99 | 129 | 1.04 |
+| qwen3.8-27b q_proj | 4096 | 256 | 0.99 | 152 | 1.00 |
+| qwen3.8-27b o_proj | 2048 | 245 | 1.03 | 134 | 1.04 |
+| qwen3.8-27b o_proj | 4096 | 277 | 1.05 | 143 | 1.01 |
+| qwen3.8-27b gate_proj | 2048 | 307 | 0.99 | 152 | 0.96 |
+| qwen3.8-27b gate_proj | 4096 | 333 | 1.00 | 161 | 0.99 |
+| qwen3.8-27b down_proj | 2048 | 293 | 0.96 | 149 | 0.95 |
+| qwen3.8-27b down_proj | 4096 | 327 | 0.98 | 154 | 1.02 |
+
+Every row lands within 10 % of the 16:47 run, and the MLP rows quoted above within 5 % (`qmm`
+0.95–1.02). The shapes nearest the burst came out no higher in the clean run (gemma4-31b `q_proj`
+and `o_proj` bf16 at M=2048: 0.92 and 0.90), so the burst left no measurable mark and the 16:47
+table stands. The M=2048 bf16 shortfall against the sm120 harness's cuBLAS persists in the clean
+run too (gemma4-31b gate: 288 against 338 TF/s), so it is the harness, not contention.
+
 **Triton prototype, ptxas 12.8, median timing:** 74–88 TF/s = 0.23–0.26× cuBLAS on all 8 rows —
 the contended ratios held. The CUDA 13.0 half **did not run**: Triton 3.3.1's
 `ptx_get_version()` has no branch for CUDA 13 and raises. The script now accepts
@@ -719,11 +748,18 @@ from the logs:
 | gemma4-31b down | 2048 | 1.021, 1.021, 1.022 | 0.92–0.92 | 1.00–1.01 | 2.2 % |
 | gemma4-31b down | 4096 | 1.016, 1.016, 1.017 | 0.87–0.87 | 0.94–0.94 | 0.8 % |
 
-The 9 % spread on the two gate M=2048 rows is the previous kernel's: on those rows it still
-alternates between a fast and a slow speed on a quiet card (gemma4-31b: one round of seven at
-1.45 ms, six near 1.57 ms), while the new kernel's rounds stay within about 3 %. On those two rows
-part of the gain is the slow speed going away; on the other six it is uniform. Every build is exact
-on every shape (max|err|/max|ref| 2.6–3.2e-3, zero elements over 5 %).
+The 9 % spread on the two gate M=2048 rows is the first round of each run. Gate M=2048 is the
+first shape measured after an idle GPU, and the first kernel measured runs 7–8 % fast (the previous
+best at 1.45 ms against six rounds near 1.57 ms on gemma4-31b); later rounds slow slightly as the
+card warms, most likely boost clock, not measured directly. Whichever kernel goes first gets it:
+the previous best here, the new kernel in the quiet confirmation below. The medians compare like
+with like. Every build is exact on every shape (max|err|/max|ref| 2.6–3.2e-3, zero elements over
+5 %).
+
+The agent's run logs also report 2–4 production requests per window. Those counts are wrong: its
+runner passed docker a timestamp without a `Z`, which docker reads as local time, so it counted a
+window 10 hours earlier. Read correctly, production's log shows no requests or model loads after
+18:22:13, before the first of the quiet runs began at 18:22:28.
 
 **Nsight before and after** (gemma4:31b gate, M=2048, one launch each; durations checked against
 the reports):
@@ -762,8 +798,46 @@ odd M = 77 (the TMA store's residue predication through the borrowed entry) and 
 **Not verified.** The `SKIP_TMA_WAIT` step rests on the PTX memory model's cumulativity of the
 mbarrier release/acquire chain, backed by exactness on 11 shape and alpha configurations; there is
 no formal argument or racecheck run. If it is ever in doubt, the epilogue change alone keeps
-+1.1–5.9 %. Absolute TFLOP/s comparable with the 16:45 baseline need a quiet window;
-`claude-scratch/sm120-quiet-confirm.sh` is staged for it.
++1.1–5.9 %.
+
+**Quiet confirmation (18:41–18:42).** Production unloaded its model at 18:22 and stayed idle, so
+the staged script ran in a clean window: the new kernel beside the previous best, v3, dense and
+cuBLAS, 5 rounds, all 8 rows. Production's log shows only the script's own two model-list polls in
+the window, `nvidia-smi pmon` shows no other process using the GPU, and every build is exact (worst
+3.4e-3, zero elements over 5 %). Rendered from `claude-scratch/sm120-a3/sm120-quiet-confirm.log`:
+
+| shape | M | new kernel TF/s | previous best TF/s (at 16:45) | cuBLAS TF/s | new ÷ previous best | new ÷ cuBLAS | new ÷ dense sm120 | worst round spread |
+|---|---|---|---|---|---|---|---|---|
+| gemma4-31b gate | 2048 | 324 | 305 (309) | 338 | 1.064 | 0.96 | 0.98 | 7.7 % |
+| gemma4-31b gate | 4096 | 324 | 307 (310) | 346 | 1.055 | 0.94 | 0.97 | 1.4 % |
+| gemma4-31b down | 2048 | 308 | 300 (303) | 334 | 1.024 | 0.92 | 1.00 | 2.1 % |
+| gemma4-31b down | 4096 | 285 | 279 (280) | 326 | 1.021 | 0.87 | 0.95 | 0.8 % |
+| qwen3.8 gate | 2048 | 318 | 298 (300) | 340 | 1.068 | 0.93 | 0.99 | 1.0 % |
+| qwen3.8 gate | 4096 | 315 | 298 (299) | 340 | 1.055 | 0.93 | 0.97 | 1.0 % |
+| qwen3.8 down | 2048 | 295 | 288 (288) | 322 | 1.027 | 0.92 | 0.99 | 1.0 % |
+| qwen3.8 down | 4096 | 286 | 280 (280) | 312 | 1.023 | 0.92 | 0.96 | 1.0 % |
+
+The previous best reproduces its 16:45 figures within 1.3 % (in brackets), so the two quiet windows
+agree. The new kernel runs at 285–324 TF/s: 2.1–6.8 % ahead of the previous best, 0.87–0.96×
+cuBLAS and 0.95–1.00× the dense kernel. The 7.7 % spread is the new kernel's first round (1.36 ms
+against 1.45–1.47 ms), the warm-up effect above.
+
+**Against MLX's own kernel**, using MLX `qmm` from the clean rerun of the #286 bench recorded in the
+quiet-GPU rerun section. The two harnesses time differently, so both comparisons are shown:
+
+| shape | M | new kernel ÷ MLX qmm, absolute | by ratio to each harness's own cuBLAS |
+|---|---|---|---|
+| gemma4-31b gate | 2048 | 1.92 | 1.64 |
+| gemma4-31b gate | 4096 | 1.87 | 1.84 |
+| gemma4-31b down | 2048 | 2.11 | 1.85 |
+| gemma4-31b down | 4096 | 1.95 | 1.95 |
+| qwen3.8 gate | 2048 | 2.10 | 1.89 |
+| qwen3.8 gate | 4096 | 1.96 | 1.92 |
+| qwen3.8 down | 2048 | 1.99 | 1.81 |
+| qwen3.8 down | 4096 | 1.87 | 1.95 |
+
+The new kernel is 1.6–1.95× MLX's `qmm` by ratio to each harness's own cuBLAS, and 1.9–2.1× in
+absolute TF/s; the previous best was about 1.8×.
 
 **Where that leaves it.** The new kernel is 0.94–1.01× the dense sm120 kernel and 0.87–0.95×
 cuBLAS within its runs, so at most about 5 % remains, and what remains is warp skew at the
