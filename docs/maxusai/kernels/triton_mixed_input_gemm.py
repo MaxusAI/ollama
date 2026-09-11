@@ -126,8 +126,8 @@ if __name__ == "__main__":
             got = run(a, packed, scale, k)
             ref = a @ wdq.T                                   # same weights, cuBLAS bf16
             err = ((got.float() - ref.float()).norm() / ref.float().norm()).item()
-            t_tri = triton.testing.do_bench(lambda: run(a, packed, scale, k), warmup=50, rep=200)
-            t_ref = triton.testing.do_bench(lambda: a @ wdq.T, warmup=50, rep=200)
+            t_tri = triton.testing.do_bench(lambda: run(a, packed, scale, k), warmup=50, rep=200, return_mode="median")
+            t_ref = triton.testing.do_bench(lambda: a @ wdq.T, warmup=50, rep=200, return_mode="median")
             f = lambda t: 2 * m * n * k / (t * 1e-3) / 1e12
             print(f"{name:18} {m:5} {f(t_tri):8.1f} TF/s {f(t_ref):8.1f} TF/s {f(t_tri)/f(t_ref):9.2f}x {err:9.2e}")
         del w, packed, scale, wdq; torch.cuda.empty_cache()
