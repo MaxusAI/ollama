@@ -795,10 +795,27 @@ gemma4-31b down.
 The agent also checked the candidate beyond the eight timing shapes: exact at small shapes, at an
 odd M = 77 (the TMA store's residue predication through the borrowed entry) and with alpha = 0.5.
 
-**Not verified.** The `SKIP_TMA_WAIT` step rests on the PTX memory model's cumulativity of the
-mbarrier release/acquire chain, backed by exactness on 11 shape and alpha configurations; there is
-no formal argument or racecheck run. If it is ever in doubt, the epilogue change alone keeps
-+1.1–5.9 %.
+**Not verified, and the race checker cannot verify it.** The `SKIP_TMA_WAIT` step rests on the PTX
+memory model's cumulativity of the mbarrier release/acquire chain, backed by exactness on 11 shape
+and alpha configurations. compute-sanitizer 2025.3.1's racecheck ran on 2026-09-11 (driver
+`claude-scratch/rc-controls/rc_driver.py`, one launch per run, M×N×K of 128×256×640 and
+2048×4096×384, the second giving some blocks two or three tiles; logs beside it):
+
+| build | racecheck | numerics |
+|---|---|---|
+| previous best | 0 hazards on both shapes | exact |
+| epilogue change only | 0 hazards on both shapes | exact |
+| new kernel, with the skipped wait | 0 hazards on both shapes | exact |
+| control: MMA warps wait on neither the TMA nor the ring | 30 errors, every one a ring store against an MMA-warp load | wrong by construction |
+| control: per-k-tile and tail barriers both removed | 0 hazards, both shapes | exact on the small shape; 4 % of elements wrong at two production shapes, 11 % on the multi-tile one |
+
+The first control shows what racecheck sees: all 30 reports pair a transform-warp `STS.128` into the
+ring with an MMA-warp `LDSM`, so the ring hand-off in the real builds is checked and clean. It also
+shows what racecheck does not see: that build reads TMA-written A tiles with no wait at all, and no
+report involves the TMA loads (`UTMALDG`). The second control is a real race, confirming the agent's
+finding that the tail barrier is load-bearing, and racecheck misses it entirely. So a clean racecheck
+is evidence for the ring hand-off and says nothing about the skipped TMA wait, which still rests on
+the memory-model argument. If it is ever in doubt, the epilogue change alone keeps +1.1–5.9 %.
 
 **Quiet confirmation (18:41–18:42).** Production unloaded its model at 18:22 and stayed idle, so
 the staged script ran in a clean window: the new kernel beside the previous best, v3, dense and
