@@ -489,9 +489,11 @@ warps idle today. The constraint is shared memory: a bf16 B tile is 16 KB per st
 drawn from a naive Triton prototype at 0.25× cuBLAS; a CUTLASS-mainloop derivative reaches 0.65–
 0.84×, and the structural cap (mixed input tops out at bf16-dense speed) still holds but is now
 within reach rather than theoretical. Unlike the dequant-to-bf16 opt-in in this PR, this path
-needs **no full-size weight copy** and keeps MLX's output unchanged in kind, so neither of this
-PR's two failed criteria (+6.8 GiB peak; deterministic output change) applies to it — both still
-need measuring once integrated. Prototype limits: N % 128 = 0, K % 64 = 0, TN, batch 1,
+needs **no full-size weight copy**, so the +6.8 GiB failure does not apply. **The deterministic
+output change does apply** (corrected 2026-09-11; an earlier version of this paragraph said
+otherwise): any kernel that accumulates in a different order from MLX's `qmm` changes model output
+bit-for-bit, exactly as the `document_single` control showed for this PR's path, so it has to be
+judged against the vision suite the same way, as a numerics change. Prototype limits: N % 128 = 0, K % 64 = 0, TN, batch 1,
 synthetic weights, not integrated into MLX.
 
 ## The producer-warp version (2026-09-11) — 0.92–0.95× the dense kernel
