@@ -235,7 +235,7 @@ def main():
             run_k(); torch.cuda.synchronize()
             e_k = check(D, ref, f"sm120 {args.kind} kernel")
             if args.timers:
-                t = (ctypes.c_ulonglong * 8)()
+                t = (ctypes.c_ulonglong * 12)()
                 lib.lib.sm120_nvfp4_tw_timers(t, 1)          # discard the validation run's counters
                 for _ in range(3):
                     run_k()
@@ -244,10 +244,12 @@ def main():
                 if rc != 0:
                     print(f"    timers unavailable (rc={rc}; build with -DNVFP4_TW_TIMERS=1)")
                 else:
-                    tt_, tr_, tc_, tn_, mt_, mr_, mtot_, mn_ = [int(x) for x in t]
+                    tt_, tr_, tc_, tn_, mt_, mr_, mtot_, mn_, tb_, tw_, te_, tf_ = [int(x) for x in t]
                     if tn_ and mn_:
                         print(f"    transform warp, per k-tile: wait TMA {tt_/tn_:8.0f} cyc | wait ring {tr_/tn_:8.0f} | convert {tc_/tn_:8.0f}   (sum {(tt_+tr_+tc_)/tn_:8.0f})")
                         print(f"    MMA warp,       per k-tile: wait TMA {mt_/mn_:8.0f} cyc | wait ring {mr_/mn_:8.0f} | compute {(mtot_-mt_-mr_)/mn_:8.0f}   (total {mtot_/mn_:8.0f})")
+                    if tw_:
+                        print(f"    MMA warp,       per work tile: body {tb_/tw_:9.0f} cyc = mainloop {mtot_/tw_:9.0f} + epilogue {te_/tw_:8.0f} + fetch_next_work {tf_/tw_:8.0f} + other {(tb_-mtot_-te_-tf_)/tw_:7.0f}   ({mn_/tw_:.0f} k-tiles/tile)")
                 continue
             e_c = check(args.alpha * (A @ B.T), ref, "cuBLAS bf16 (dequant W)")
             if e_k > 2e-2 and not args.force_time:

@@ -213,9 +213,9 @@ int sm120_nvfp4_gemm(const void* A, const void* Bp, const void* Sp, void* D, int
 // per-warp-role cycle counters (NVFP4_TW_TIMERS=1 builds only): out[8] as documented in the collective; reset zeroes them
 int sm120_nvfp4_tw_timers(unsigned long long* out, int reset) {
 #if NVFP4_TW_TIMERS
-  if (cudaMemcpyFromSymbol(out, cutlass::gemm::collective::nvfp4_tw_detail::g_tw_timers, 8 * sizeof(unsigned long long)) != cudaSuccess) return 1;
+  if (cudaMemcpyFromSymbol(out, cutlass::gemm::collective::nvfp4_tw_detail::g_tw_timers, 12 * sizeof(unsigned long long)) != cudaSuccess) return 1;
   if (reset) {
-    unsigned long long z[8] = {0,0,0,0,0,0,0,0};
+    unsigned long long z[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
     if (cudaMemcpyToSymbol(cutlass::gemm::collective::nvfp4_tw_detail::g_tw_timers, z, sizeof(z)) != cudaSuccess) return 2;
   }
   return 0;

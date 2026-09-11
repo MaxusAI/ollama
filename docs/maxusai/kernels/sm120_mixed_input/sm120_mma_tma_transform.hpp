@@ -105,7 +105,8 @@ namespace nvfp4_tw_detail {
 // cycle accounting per warp role (lane 0 of each warp adds its totals once per work tile):
 // [0] transform: wait for the TMA stage  [1] transform: wait for a free ring entry  [2] transform: convert  [3] transform: k-tiles
 // [4] mma: wait for the TMA stage        [5] mma: wait for the ring                  [6] mma: total          [7] mma: k-tiles
-__device__ unsigned long long g_tw_timers[8];
+// [8] mma: whole tile-loop body (mainloop + epilogue + scheduler fetch)  [9] mma: work tiles  [10] mma: epilogue  [11] mma: fetch_next_work
+__device__ unsigned long long g_tw_timers[12];
 #endif
 
 CUTLASS_DEVICE __nv_bfloat162 as_bf162(uint32_t u) { __nv_bfloat162 r; *reinterpret_cast<uint32_t*>(&r) = u; return r; }

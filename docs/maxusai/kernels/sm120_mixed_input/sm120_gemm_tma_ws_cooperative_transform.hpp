@@ -823,7 +823,13 @@ public:
 
       // Do we potentially issue tail arrives for TMA stores, if epilogue load is waiting for it
       bool do_store_tail = false;
+#if NVFP4_TW_TIMERS
+      unsigned long long tl_body = 0, tl_epi = 0, tl_fetch = 0, tl_tiles = 0;   // TW: per-tile accounting
+#endif
       while (work_tile_info.is_valid()) {
+#if NVFP4_TW_TIMERS
+        unsigned long long const tl_t0 = clock64();
+#endif
         // Compute m_coord, n_coord, l_coord with the post-tiled m-shape and n-shape
         auto m_coord = idx2crd(work_tile_info.M_idx, shape<2>(gA_mkl));
         auto n_coord = idx2crd(work_tile_info.N_idx, shape<2>(gB_nkl));
@@ -875,6 +881,9 @@ public:
         TileScheduler::fixup(
           params.scheduler, work_tile_info, accumulators, NumMmaWarpGroups, consumer_warp_group_idx);
 
+#if NVFP4_TW_TIMERS
+        unsigned long long const tl_t1 = clock64();
+#endif
         if (TileScheduler::compute_epilogue(work_tile_info, params.scheduler)) {
           // Epilogue and write to gD
           auto [epi_load_pipe_consumer_state_next, epi_store_pipe_producer_state_next] =
@@ -896,6 +905,9 @@ public:
           epi_store_pipe_producer_state = epi_store_pipe_producer_state_next;
           do_store_tail = true;
         }
+#if NVFP4_TW_TIMERS
+        unsigned long long const tl_t2 = clock64();
+#endif
 
         // Get next work tile
         auto [next_work_tile_info, increment_pipe] = scheduler.fetch_next_work(work_tile_info,
@@ -908,7 +920,20 @@ public:
             ++scheduler_pipe_consumer_state;
           }
         }
+#if NVFP4_TW_TIMERS
+        {
+          unsigned long long const tl_t3 = clock64();
+          tl_body += tl_t3 - tl_t0; tl_epi += tl_t2 - tl_t1; tl_fetch += tl_t3 - tl_t2; ++tl_tiles;
+        }
+#endif
       } // Scheduler work fetch loop
+#if NVFP4_TW_TIMERS
+      if (lane_idx == 0) {
+        using cutlass::gemm::collective::nvfp4_tw_detail::g_tw_timers;
+        atomicAdd(&g_tw_timers[8], tl_body); atomicAdd(&g_tw_timers[9], tl_tiles);
+        atomicAdd(&g_tw_timers[10], tl_epi); atomicAdd(&g_tw_timers[11], tl_fetch);
+      }
+#endif
 
       if (do_store_tail) {
         collective_epilogue.store_tail(
