@@ -42,8 +42,8 @@ def main():
             fns = []
             ok = True
             for l, n in zip(libs, args.libs.split(",")):
-                Sp = Sp16 if l.scale_bf16 else Sp8
-                fn = (lambda l=l, Sp=Sp: l.nvfp4(A, Bp, Sp, D, N, 1.0))
+                Bp_l, Sp_l = B.pack_for_lib(l, sc_bits, native, Bp, Sp16 if l.scale_bf16 else Sp8)
+                fn = (lambda l=l, Bp=Bp_l, Sp=Sp_l: l.nvfp4(A, Bp, Sp, D, N, 1.0))
                 fn(); torch.cuda.synchronize()
                 e = B.check(D, ref, n.replace("libsm120_nvfp4_", "").replace(".so", ""))
                 ok &= e < 2e-2

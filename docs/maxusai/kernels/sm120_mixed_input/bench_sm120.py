@@ -92,6 +92,22 @@ def preshuffle_scales(scale_bits, as_bf16=False):
     return s.contiguous()
 
 
+def pack_scales_rowpair(scale_bits):
+    """e4m3 scale bits [N, K/16] -> Sp2 [N/2, K/8] int16 (bf16 bits), the transform-warp kernel's layout:
+    Sp2[p][8*kt + (n%2)*4 + gg] = bf16(scale[2p + n%2][4*kt + gg]); one 16 B TMA row per row pair and k-tile."""
+    N, G = scale_bits.shape
+    bf = scale_bits.view(torch.float8_e4m3fn).to(torch.bfloat16).view(torch.int16)
+    return bf.view(N // 2, 2, G // 4, 4).permute(0, 2, 1, 3).reshape(N // 2, 2 * G).contiguous()
+
+
+def pack_for_lib(lib, sc_bits, native, Bp_frag, Sp_frag):
+    """Choose the (Bp, Sp) pair a kernel build expects: layout 1 = MLX-native words + row-pair bf16 scales (no
+    weight repack at all); layout 0 = the fragment-native pre-shuffle (v3)."""
+    if lib.layout == 1:
+        return native, pack_scales_rowpair(sc_bits)
+    return Bp_frag, Sp_frag
+
+
 def make_nvfp4(N, K, dev, seed=0, scale_bf16=False):
     """Random NVFP4 weight: codes, e4m3 scale bits, exact bf16 dequantised weight, and both packed layouts."""
     g = torch.Generator(device=dev); g.manual_seed(seed)
@@ -121,9 +137,18 @@ class Lib:
         getattr(self.lib, f"sm120_{kind}_gemm_info")(*[ctypes.byref(i) for i in info])
         self.stages, self.tm, self.tn, self.tk, self.smem = [i.value for i in info]
         self.scale_bf16 = bool(self.lib.sm120_nvfp4_scale_format()) if kind == "nvfp4" and hasattr(self.lib, "sm120_nvfp4_scale_format") else False
+        self.layout = int(self.lib.sm120_nvfp4_layout()) if kind == "nvfp4" and hasattr(self.lib, "sm120_nvfp4_layout") else 0
+        self.tw = None
+        if kind == "nvfp4" and hasattr(self.lib, "sm120_nvfp4_tw_info"):
+            tw = [ctypes.c_int() for _ in range(6)]
+            self.lib.sm120_nvfp4_tw_info(*[ctypes.byref(i) for i in tw])
+            self.tw = dict(zip(["transform_warps", "ring", "mode", "static_sched", "load_regs", "mma_regs"], [i.value for i in tw]))
 
     def desc(self):
-        return f"{self.kind}: stages={self.stages} tile={self.tm}x{self.tn}x{self.tk} smem={self.smem} B" + (" scales=bf16" if self.scale_bf16 else "")
+        d = f"{self.kind}: stages={self.stages} tile={self.tm}x{self.tn}x{self.tk} smem={self.smem} B" + (" scales=bf16" if self.scale_bf16 else "")
+        if self.tw is not None:
+            d += " transform-warps: " + " ".join(f"{k}={v}" for k, v in self.tw.items())
+        return d
 
     def bf16(self, A, B, D):
         err = ctypes.create_string_buffer(256)
@@ -203,6 +228,7 @@ def main():
                 run_k = lambda: lib.bf16(A, B, D)
             else:
                 codes, sc_bits, B, native, Bp, Sp = make_nvfp4(N, K, dev, scale_bf16=lib.scale_bf16)
+                Bp, Sp = pack_for_lib(lib, sc_bits, native, Bp, Sp)
                 ref = args.alpha * (A.float() @ B.float().T)
                 run_k = lambda: lib.nvfp4(A, Bp, Sp, D, N, args.alpha)
             run_k(); torch.cuda.synchronize()

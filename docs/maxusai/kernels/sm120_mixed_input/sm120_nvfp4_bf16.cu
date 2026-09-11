@@ -4,6 +4,11 @@
 //   D[M][N] (bf16) = alpha * A[M][K] (bf16) * dequant(Bp, Sp)[N][K]^T
 // with Bp/Sp the fragment-native packed NVFP4 weight and e4m3 scale tensors described in the header,
 // and alpha the optional per-tensor global scale (applied in the epilogue, fp32).
+//
+// -DNVFP4_TRANSFORM_WARPS=T (T = 1..3) selects the transform-warp variant instead
+// (sm120_mma_tma_transform.hpp + sm120_gemm_tma_ws_cooperative_transform.hpp): Bp is then the MLX-native
+// uint32 [N][K/8] tensor and Sp the row-pair bf16 scale tensor [N/2][K/8]; sm120_nvfp4_layout() returns 1.
+// Further knobs: NVFP4_TW_STAGES (2), NVFP4_TW_RING (2), NVFP4_TW_STATIC_SCHED (0), NVFP4_TW_MODE (2).
 
 #include <cuda_runtime.h>
 #include <cstdint>
@@ -24,7 +29,15 @@
 #include "cute/atom/copy_traits_sm75.hpp"
 #include "cute/atom/mma_traits_sm100.hpp"
 
+#ifndef NVFP4_TRANSFORM_WARPS
+#define NVFP4_TRANSFORM_WARPS 0
+#endif
+#if NVFP4_TRANSFORM_WARPS > 0
+#include "sm120_mma_tma_transform.hpp"
+#include "sm120_gemm_tma_ws_cooperative_transform.hpp"
+#else
 #include "sm120_mma_tma_mixed_input.hpp"
+#endif
 
 using namespace cute;
 
@@ -79,9 +92,15 @@ using TiledMma = decltype(make_tiled_mma(
 using SmemLayoutAtomA = cute::conditional_t<(TILE_K % 64 == 0), UMMA::Layout_K_SW128_Atom<ElementA>, UMMA::Layout_K_SW64_Atom<ElementA>>;
 using SmemCopyAtomA   = Copy_Atom<SM75_U32x4_LDSM_N, ElementA>;
 using GmemTiledCopyA  = SM90_TMA_LOAD;
+#if NVFP4_TRANSFORM_WARPS > 0
+// B-side atoms describe the bf16 B RING the transform warps fill: the dense kernel's SW128 K-major atom + ldmatrix.
+using SmemLayoutAtomB = UMMA::Layout_K_SW128_Atom<cutlass::bfloat16_t>;
+using SmemCopyAtomB   = Copy_Atom<SM75_U32x4_LDSM_N, cutlass::bfloat16_t>;
+#else
 // B-side atoms are not used by the mixed-input collective (it owns the packed B and scale paths).
 using SmemLayoutAtomB = Layout<Shape<_8,_64>, Stride<_64,_1>>;
 using SmemCopyAtomB   = Copy_Atom<DefaultCopy, ElementB>;
+#endif
 using GmemTiledCopyB  = SM90_TMA_LOAD;
 
 // Stage budget: A bf16 tile + packed B words + scale bytes per stage; epilogue smem carved out.
@@ -97,8 +116,24 @@ constexpr int Stages = STAGES_OVERRIDE > 0 ? STAGES_OVERRIDE : StagesAuto;
 static_assert(Stages >= 2, "not enough smem for 2 stages at this tile shape");
 
 constexpr uint32_t SchedulerPipelineStageCount = 2;
+#if NVFP4_TRANSFORM_WARPS > 0
+#ifndef NVFP4_TW_STAGES
+#define NVFP4_TW_STAGES 2
+#endif
+#ifndef NVFP4_TW_RING
+#define NVFP4_TW_RING 2
+#endif
+#ifndef NVFP4_TW_STATIC_SCHED
+#define NVFP4_TW_STATIC_SCHED 0
+#endif
+using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecializedCooperativeTransformSm120<SchedulerPipelineStageCount>;
+using DispatchPolicy = cutlass::gemm::MainloopSm120TmaWarpSpecializedTransform<NVFP4_TW_STAGES, NVFP4_TW_RING, NVFP4_TRANSFORM_WARPS, SchedulerPipelineStageCount, ClusterShape, KernelSchedule>;
+using SchedulerTag   = cute::conditional_t<(NVFP4_TW_STATIC_SCHED != 0), cutlass::gemm::StaticPersistentScheduler, void>;
+#else
 using KernelSchedule = cutlass::gemm::KernelTmaWarpSpecializedCooperativeSm120<SchedulerPipelineStageCount>;
 using DispatchPolicy = cutlass::gemm::MainloopSm120TmaWarpSpecializedMixedInput<Stages, SchedulerPipelineStageCount, ClusterShape, KernelSchedule>;
+using SchedulerTag   = void;
+#endif
 
 using CollectiveMainloop = cutlass::gemm::collective::CollectiveMma<
     DispatchPolicy, TileShape,
@@ -108,7 +143,7 @@ using CollectiveMainloop = cutlass::gemm::collective::CollectiveMma<
     GmemTiledCopyA, SmemLayoutAtomA, SmemCopyAtomA, cute::identity,
     GmemTiledCopyB, SmemLayoutAtomB, SmemCopyAtomB, cute::identity>;
 
-using GemmKernel = cutlass::gemm::kernel::GemmUniversal<Shape<int,int,int,int>, CollectiveMainloop, CollectiveEpilogue, void>;
+using GemmKernel = cutlass::gemm::kernel::GemmUniversal<Shape<int,int,int,int>, CollectiveMainloop, CollectiveEpilogue, SchedulerTag>;
 using Gemm       = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 static_assert(sizeof(typename GemmKernel::SharedStorage) <= cutlass::gemm::collective::detail::sm120_smem_capacity_bytes, "smem budget exceeded");
 
@@ -156,10 +191,26 @@ int sm120_nvfp4_gemm(const void* A, const void* Bp, const void* Sp, void* D, int
   return 0;
 }
 
+#if NVFP4_TRANSFORM_WARPS > 0
+int sm120_nvfp4_scale_format() { return 1; }   // transform variant: bf16 scales always
+int sm120_nvfp4_layout() { return 1; }         // 1: MLX-native Bp[N][K/8] + row-pair bf16 Sp[N/2][K/8]
+int sm120_nvfp4_tw_info(int* transform_warps, int* ring, int* mode, int* static_sched, int* load_regs, int* mma_regs) {
+  *transform_warps = NVFP4_TRANSFORM_WARPS; *ring = NVFP4_TW_RING; *mode = NVFP4_TW_MODE; *static_sched = NVFP4_TW_STATIC_SCHED;
+  *load_regs = NVFP4_TW_LOAD_REGS; *mma_regs = NVFP4_TW_MMA_REGS;
+  return 0;
+}
+#else
 int sm120_nvfp4_scale_format() { return NVFP4_SCALE_BF16; }   // 0: e4m3 bytes, 1: bf16
+int sm120_nvfp4_layout() { return 0; }         // 0: fragment-native Bp[N/8][K] + Sp[N/8][K/2]
+#endif
 
 int sm120_nvfp4_gemm_info(int* stages, int* tile_m, int* tile_n, int* tile_k, int* smem_bytes) {
-  *stages = Stages; *tile_m = TILE_M; *tile_n = TILE_N; *tile_k = TILE_K;
+#if NVFP4_TRANSFORM_WARPS > 0
+  *stages = NVFP4_TW_STAGES;
+#else
+  *stages = Stages;
+#endif
+  *tile_m = TILE_M; *tile_n = TILE_N; *tile_k = TILE_K;
   *smem_bytes = static_cast<int>(sizeof(typename GemmKernel::SharedStorage));
   return 0;
 }
