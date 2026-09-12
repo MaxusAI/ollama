@@ -444,6 +444,37 @@ def mlx_build(container, since_epoch, log_cmd=None):
     return newest, seen
 
 
+MLX_PAYLOAD_SO = "/usr/lib/ollama/mlx*/libmlx.so"
+MLX_PAYLOAD_VERSION_RE = re.compile(r"\b(\d[\d.]*-\d+-g[0-9a-f]{7,40})\b")
+
+
+def mlx_build_payload(container, path=MLX_PAYLOAD_SO, exec_cmd=None):
+    """The MLX version string the SHIPPED payload carries, read from its own libmlx.so.
+
+    The engine-init line stays the first source and this is only the fallback, because just the line names the MLX
+    the running binary actually dlopen'd — the binary/payload skew case check_mlx_payload_pin was written for. But
+    that line exists only if something loaded on the MLX path during the run, and a CUDA profile's preflight loads
+    llama.cpp models. Measured 2026-09-12: pinning mlx_build on cuda-dynres-903 turned the check's SKIP into "no MLX
+    engine-init line in the log window" and failed the whole run on a payload that was in fact correct.
+
+    Reading the library is the move llama_cpp_build already makes for llama-server: the payload's own identity,
+    rather than the version string of whatever is checked out. `grep -a` is the only tool these images carry.
+
+    Returns the version string, or None when there is no MLX payload to read — a CPU or ROCm image legitimately has
+    none, and that must read as "nothing to assert here", never as a pass.
+    """
+    pattern = "[0-9][0-9.]*-[0-9][0-9]*-g[0-9a-f][0-9a-f]*"
+    cmd = ([exec_cmd.format(container=container)] if exec_cmd else
+           ["docker", "exec", container, "sh", "-c",
+            f'for f in {path}; do [ -f "$f" ] && grep -a -o -m1 "{pattern}" "$f" && break; done || true'])
+    try:
+        proc = subprocess.run(cmd, shell=bool(exec_cmd), capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = MLX_PAYLOAD_VERSION_RE.search((proc.stdout or "") + (proc.stderr or ""))
+    return m.group(1) if m else None
+
+
 def llama_cpp_build(container, path="/usr/lib/ollama/llama-server", exec_cmd=None):
     """The llama.cpp source SHA the *running payload* was compiled from, read
     from `llama-server --version` (e.g. "version: 1 (f8def7fe1)" -> "f8def7fe1").
