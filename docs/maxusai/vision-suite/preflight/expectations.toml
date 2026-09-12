@@ -118,6 +118,17 @@ arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # reported clean over 33 nodes, so the fp16-accumulate class is now asserted at
 # v.blk.31.ffn_down itself rather than inferred from the decoded text.
 llama_cpp_build = "0f3a71be1"   # b10760, v0.33.3 fold 2026-09-04; ladders re-measured first, byte-identical to the b10630 rows
+# The MLX payload identity. These CUDA images ship `mlx_cuda_v13` beside the
+# llama.cpp payload, so this profile serves BOTH stacks even though its platform
+# is "cuda" — and it carried no MLX pin until 2026-09-12, so mlx_payload_pin
+# skipped on every CUDA run and the v0.34.0 fold's MLX bump
+# (37c26e57 -> ce916dbb) went unasserted. The value is MLX_VERSION at main
+# a523d60b, the payload the expectations here were measured on.
+#
+# Same discipline as the llama_cpp_build re-baselines above: when the MLX pin
+# moves, re-measure first and move this identity in the same change. Until then
+# a bumped payload fails this check loudly, which is the point.
+mlx_build = "37c26e5755da637255d57ea34b4879196a485301"
 
 [profiles.rocm-0-32-1-dynres]
 platform = "rocm"

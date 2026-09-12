@@ -683,12 +683,18 @@ class TestExpectationsFile(unittest.TestCase):
     # in the file — silently exempt from both.
     KNOWN_UNPINNED = {"mlx-cuda"}
 
+    # A profile can serve the MLX payload without an "mlx" platform: the CUDA
+    # dynres images ship mlx_cuda_v13 beside llama.cpp's payload. cuda-dynres-903
+    # therefore needs a pin too, and had none until 2026-09-12 — which is how the
+    # v0.34.0 MLX bump reached a preflight PASS with mlx_payload_pin skipped.
+    ALSO_SERVES_MLX = {"cuda-dynres-903"}
+
     def test_every_measured_mlx_profile_pins_its_mlx_build(self):
         """A profile serving the MLX payload must record which MLX it was
         measured on, or mlx_payload_pin has nothing to assert and a future MLX
         bump inherits its ladders silently."""
         for pid, prof in self.exp["profiles"].items():
-            if not str(prof.get("platform", "")).startswith("mlx"):
+            if not str(prof.get("platform", "")).startswith("mlx") and pid not in self.ALSO_SERVES_MLX:
                 continue
             if pid in self.KNOWN_UNPINNED:
                 self.assertIsNone(prof.get("mlx_build"),
