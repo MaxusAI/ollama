@@ -4,7 +4,9 @@
   same day as proposal). Amended 2026-08-20: templates T4 (geometry sweep) and
   T5 (factor matrix) added with their generators; shared convention 9 (capped
   cells) added, then extended to T2 rendering the same day; convention 10
-  (mixed provenance) added. Validated in practice before acceptance: the
+  (mixed provenance) added. Amended 2026-09-12: convention 4's determinism note
+  carved out for MLX, which is not bit-reproducible. Validated in practice
+  before acceptance: the
   2026-08-08 power campaign (PR #61/#62) was rendered exclusively through T1/T2
   with the latency pair and powermode provenance. Existing docs stay
   grandfathered; new reports use the templates.
@@ -62,6 +64,31 @@ Shared conventions, binding for all five:
    SPEC H14). The two generations also SCORED differently: same cell, same
    window, qwen3.8 recall_9px 1/4 against 2/4, with thinking 1,563 against
    731 chars. A think-on quality cell is one draw, not a constant.
+
+   **Amended 2026-09-12: on MLX, think-off is not bit-reproducible either.** The
+   claim above was measured on the llama.cpp path and holds there. Three things
+   move an MLX think-off cell, all measured during the v0.34.0 fold
+   (`../tasks/upstream-sync-0.34.0.md`):
+
+   * **Prefix-cache state.** A test that restores a cached prompt prefix and the
+     same test run cold are different numeric paths. gemma4:12b
+     `bbox_contract_adv_norm1` on main answers ✅ in 3 of 3 full suites and ❌ in
+     5 of 5 cold runs — deterministic within each context, opposite between them.
+   * **Cold loads.** Knife-edge cells flip between restarts of one image:
+     qwen3.6's document `name_bbox` came back 0.504 or 0.613 across five cold
+     runs of main.
+   * **Speculative drafting.** The depth controller is timing-driven, so where a
+     run drafts changes, and with it which near-ties flip.
+
+   Two full-suite runs of ONE image already differ in answer length on 2 of 27
+   tests (gemma4:12b) to 7 of 27 (qwen3.6). So a single-run MLX comparison
+   cannot separate a near-tie flip from a real change: **an MLX cross-build
+   claim needs three or more repeats on both builds, in the same context**, and
+   "identical n/27" remains reproducibility, never quality.
+   `../vision-lowtemp-thinkon-negative-result.md` already called MLX temperature
+   0 non-reproducible across model loads in August; this convention was never
+   amended to match, and a fold gate duly read six single-run differences as a
+   regression.
 6. **Quality cells carry their `num_ctx` in brackets: `value (num_ctx)`.**
    `num_ctx` is per **model and per test**, not per campaign — measured maxima
    for a valid think-on run span 3,258 (gemma4 fine-text) to 16,421 (nemotron3

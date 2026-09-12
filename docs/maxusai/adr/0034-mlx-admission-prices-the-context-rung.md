@@ -1,6 +1,7 @@
 # ADR 0034: MLX admission prices the context rung
 
-- **Status:** accepted (2026-09-05), code landed, **not yet GPU-verified**
+- **Status:** accepted (2026-09-05), code landed, **not yet GPU-verified**; amended 2026-09-12 (the headroom
+  prices only memory the runner can see)
 - **Date:** 2026-09-05
 - **Deciders:** Glenn; work item
   [`tasks/mlx-admission-price-the-rung.md`](../tasks/mlx-admission-price-the-rung.md),
@@ -125,6 +126,26 @@ Fix 2 of the diagnosis — **pre-sizing the KV from `num_ctx`** instead of growi
 it by `Concatenate` — is not done here. Until it is, the estimate is what the
 cache *will* hold, not what it holds now, and the growth moment still transiently
 holds two buffers.
+
+**Amended 2026-09-12: the headroom prices only memory the runner can see.** The
+calibration read the runner's own `peak memory` line, and the rule assumes a
+peak is weights + KV + a prefill transient. Speculative drafting breaks that
+assumption. After a request's teardown — after the sweep and the cache clear —
+MLX's active memory exceeds the sum of every array the runner tracks, and the
+gap grows request after request: +6.8 GiB by request 28 on qwen3.8:27b with no
+plateau, against a no-drafting control that stays within 0.14 GiB
+(`../tasks/upstream-sync-0.34.0.md`). Nothing here can price that, because
+nothing in the runner accounts for it.
+
+Two consequences. The per-architecture constants above were measured on cold
+loads that never drafted — `gate-gpu-276b.sh` unloads per rung, and the depth
+controller starts at depth 0 after every load — so they are a lower bound for
+any server that drafts. And admission's real question, whether another model
+fits beside this one, is answered against a figure a long-running MLX server
+outgrows. This is not specific to v0.34.0: drafting under a grammar extends it
+to structured output, and main's own drafting does the same on think-on and
+format-less requests. The fix belongs in the speculation path, not in the
+headroom.
 
 ## Consequences
 
