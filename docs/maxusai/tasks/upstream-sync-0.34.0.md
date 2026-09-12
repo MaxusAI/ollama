@@ -19,7 +19,7 @@ for the idle runner that pins a CPU core. The decision is below (2026-09-11 23:3
 | 4, preflight `cuda-dynres-903` | PASS 20, SKIP 8 on the swap image, the same as main; on the real image **PASS**, and 21/7 once the MLX pin was added and made assertable (below) |
 | 5, GGUF think-off against `ggmlmain_1_` | **green**: 8 suites, no OOM, no error; every quality row identical to main |
 | MLX format check and idle-CPU probe | **passed** on the rebuilt MLX payload (below) |
-| 5, MLX think-off against `main276_` | done on the payload-swap image, 01:33 to 02:58: 5 suites, no OOM, no error. The few moved cells are knife-edge flips that drafting under a grammar adds (attribution below) |
+| 5, MLX think-off against `main276_` | done on the payload-swap image, 01:33 to 02:58: 5 suites, no OOM, no error. The few moved cells are knife-edge flips that drafting under a grammar adds (attribution below). **Repeated on the real image** 23:28 to 00:12 (`cand034_`): contract matrix identical to main, 2 of 70 quality cells differ |
 | MLX attribution, gates 034e to 034i | **done**. Without drafting under a grammar the fold matches main on outputs and memory. With it, knife-edge cells flip between runs and qwen3.5-family memory grows untracked across requests — which main's own drafting does too. **Decided** (below): keep upstream's default, `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` restores ours |
 
 ## Conflicts and their resolution
@@ -522,6 +522,22 @@ the attribution above. The live checks repeat on the real image:
   (`vision-suite/preflight/runs/full-sync034-real.json`). Re-run at 21:36 with the pin in place: **21 pass, 7 skip**,
   `mlx_payload_pin: MLX build ce916db matches the measured payload (0.32.2-37-gce916db), from the shipped libmlx.so`
   (`preflight-runs/full-sync034-pinned.json`).
+
+**Its own think-off campaign** ran 2026-09-12 23:28 to 00:12 (`claude-scratch/gate-sync034j.sh`, tag `cand034_`,
+rendered to `preflight-runs/cand034-render.md`). Until then the real image was covered by P1 and P2 rather than by a
+campaign of its own. Five models, no OOM, no error, nothing left unconverged:
+
+- **Contract matrix: identical to main, 50 of 50 cells**, `bbox_contract_adv_norm1` included — the knife-edge cell
+  that came back ❌ on the swap image's run and ✅ here, which is what a knife-edge does.
+- **T1 quality: 2 of 70 cells differ from either baseline.** Against the swap image: gemma4:26b's scene IoU 0.972 to
+  0.969, and qwen3.6's 7 px tier 2 to 1. Against main: that same IoU, and qwen3.6's scene IoU 0.964 to 0.965.
+- **Answer lengths** differ from the swap image on 2 to 8 of 27 tests per model, and from main on 1 to 9 — inside
+  the spread two runs of one image already show (`summarize_output_lengths.py`).
+- **It drafts as upstream intends:** every one of 28 completions per model, 3.2 to 4.7 tokens per target forward on
+  the four larger models. gemma4:12b drafted almost nothing this time, 0.003 per round against 0.443 on the earlier
+  campaign, which is the timing-driven controller rather than a build difference.
+
+So the artifact that would ship behaves like the image the fold was measured on, and like main.
 
 The deploy stays held for Glenn. It also carries the decision below on drafting under a grammar.
 
