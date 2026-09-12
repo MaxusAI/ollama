@@ -491,6 +491,9 @@ the attribution above. The live checks repeat on the real image:
 - **Formats:** `"json"` gives 200 with the same object; a JSON Schema gives 200, matching; `"yaml"` gives 400 with
   xgrammar's structural-tag error; `""` gives 200.
 - **Idle core:** the idle runner holds 0.0 to 0.2 % CPU.
+- **MLX pin:** the profile now records `mlx_build = ce916dbb`, this fold's `MLX_VERSION`. It recorded none until
+  2026-09-12, so `mlx_payload_pin` skipped on every CUDA run and the bump went unasserted; PR #294 adds the same key
+  on main with `37c26e57`.
 - **Preflight `cuda-dynres-903`:** PASS (exit 0), PASS 20, SKIP 8 (`vision-suite/preflight/runs/full-sync034-real.json`).
 
 The deploy stays held for Glenn. It also carries the decision below on drafting under a grammar.
