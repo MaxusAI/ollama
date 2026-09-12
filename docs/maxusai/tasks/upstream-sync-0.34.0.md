@@ -288,8 +288,8 @@ with it give ✅ in 1 of 3. That is weak evidence on its own (Fisher's exact tes
 
 **Memory: drafting under a grammar leaves untracked MLX memory behind on qwen3.8.** Gate 034i ran the qwen3.8 full
 suite at trace level on nodraft and on the fold. After each request's teardown the runner lists every live array it
-tracks, next to MLX's own active-memory figure. These are inspection-grade numbers, from `claude-scratch/tracemem.py`
-and `peakdiff.py`.
+tracks, next to MLX's own active-memory figure. The numbers come from `summarize_retained_memory.py` and
+`summarize_peak_memory.py`, promoted into the suite in #295.
 
 - **The prefix-cache trie holds the same content on both, request for request.** The recurrent snapshots grow by 144
   arrays (48 layers × 3 snapshots) per request up to the 8 GiB cap, and the paged-out bytes match.
@@ -298,15 +298,32 @@ and `peakdiff.py`.
   after 13, +5.8 after 22, +6.8 after 28, with no plateau. The memory survives the teardown's sweep and cache clear
   but belongs to no array the runner tracks, so neither the admission headroom nor the trie's cap sees it.
 - **Per-request peaks:** nodraft matches main (median +0.00 GiB), so the MLX bump and the other v0.34.0 changes cost
-  nothing. The fold runs a median 2.9 GiB above nodraft, and up to 7.0 GiB, at a maximum draft depth of 6. The 01:33
+  nothing. The fold runs a median 2.7 GiB above nodraft, and up to 7.0 GiB, at a maximum draft depth of 6. The 01:33
   run drafted up to 16 deep and ran up to 14 GiB above main.
 - **gemma4's peaks match main's** at every draft depth.
 
-The mechanism is not pinned down. `KVCache`'s lazy snapshots hold no handle on the live buffer by design, so they are
-not it. The likely candidates are lazily built arrays that the speculation path keeps across rounds, for example the
-draft side holding slices of the verification forward's hidden states. Until it is fixed, drafting under a grammar
-lets memory creep on a long-running server beyond what admission prices. That is a blocker for keeping it on the
-qwen3.5 family.
+**Main leaks too, so this is not new in v0.34.0.** `claude-scratch/probe-mainleak.sh` sent the same 18 text
+requests to `main-a523d60b` twice on qwen3.8: once without a format, where main drafts, and once with one, where it
+does not. Drafting followed the format exactly — 18 of 18 completions drafted without it, 0 of 18 with it — and only
+the drafting arm grows:
+
+| request | main drafting | main not drafting |
+|---|---|---|
+| 1 | −0.14 GiB | −0.14 GiB |
+| 10 | +0.02 | −0.13 |
+| 13 | +0.44 | −0.13 |
+| 17 | +0.72 | −0.11 |
+
+Peaks: median +0.58 GiB, largest +1.26, at shallow depth on short answers. Smaller than the fold's figures because
+this workload drafts shallow and the prompts are short, not because the path differs.
+
+So the leak lives in the speculation path main already ships, and production meets it today on think-on and
+format-less requests. What v0.34.0 changes is reach: drafting under a grammar extends it to structured output, which
+is nearly all of this suite's traffic. **Restoring main's gate limits the leak; it does not remove it.**
+
+The mechanism is not pinned down, so the fix is not ours to propose yet. `KVCache`'s lazy snapshots hold no handle on
+the live buffer by design, so they are not it. The likely candidates are lazily built arrays that the speculation
+path keeps across rounds, for example the draft side holding slices of the verification forward's hidden states.
 
 **Rendered evidence.** These are generator tables from `preflight-runs/specab-render.md`, pasted verbatim. The
 render also holds every cold run's contract matrix and the T2 pivots.
@@ -513,6 +530,8 @@ one line restored, matches main on outputs and on memory. So the choice comes do
     plateau.
   - Admission cannot see that memory, so a long-running server can climb past what it priced.
   - Knife-edge cells flip between runs more than on main.
+  - It widens an existing leak rather than creating one: main's own drafting leaks too, on think-on and format-less
+    requests.
 
 **Restore main's gate: one line in `speculate.go`, with a test** (recommended until the memory growth is understood
 or fixed upstream).
@@ -520,12 +539,14 @@ or fixed upstream).
 - For: outputs and memory stay exactly as on main. The fold keeps everything else, including the structural-tag
   grammars and the idle-core fix.
 - Against: structured-output requests decode one token at a time again, as they do on main today.
+- Note: this does not fix the leak, which main has as well. It holds the fold's exposure to what production already
+  runs with, instead of extending it to every structured-output request.
 
 The patch exists only in the detached worktree `claude-scratch/wt-sync034-nodraft`, uncommitted.
 
-**Still open whichever way this goes.** Main already drafts on think-on and format-less requests, so whether main's
-own drafting leaks the same way matters to production today. Answering it takes a trace-level run of main's think-on
-drafting, like 034i's, about 30 minutes of GPU time.
+**Still open whichever way this goes.** The leak itself. It is upstream's speculation path, it is in main today,
+and the mechanism is not pinned down, so there is nothing to file upstream yet beyond a symptom. Glenn's call was to
+hold the report until we can propose a fix.
 
 ## Decision: rebuild, with the MLX bump (Glenn, 2026-09-11 23:30)
 
