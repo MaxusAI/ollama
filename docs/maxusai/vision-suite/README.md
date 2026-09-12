@@ -171,6 +171,27 @@ first is image accounting and the second is generation length.
   the model), partial campaigns render as INCOMPLETE with the missing cells
   named, and a final trustable-configs table answers "which arm can this model
   actually ship" — uncapped everywhere, highest mean, smallest spread.
+- `runnerlog.py` — one parser for `docker logs` of an ollama container, shared by the three summarizers below
+  (ADR 0028 rule 3). The admission line attributes each request to a model, the `peak memory` line ends the record,
+  and trace level (`OLLAMA_DEBUG=2`) adds the live-array totals and the prefix-cache trie line. A field the log did
+  not carry reads as missing, never zero: "did not draft" is not "drafted nothing".
+- `summarize_drafting.py <runner.log…>` — how much a build actually drafted, per model: completions beside the
+  count that logged draft stats, drafted per round, acceptance, tokens per round and the deepest chain. Whether a
+  request drafts is decided at runtime, and by a controller that starts at depth 0 after every load, so this is a
+  measurement and not a setting you can read off the build.
+- `summarize_peak_memory.py <base.log> <other.log> [model…]` — per-request peak memory, one run against another,
+  paired by position (same suite, same order). Per request rather than by maximum, because a build can raise every
+  small request's peak while the maximum, which belongs to the largest request, barely moves. Differences are split
+  by the other log's draft depth.
+- `summarize_retained_memory.py <runner.log> [model] [--unnamed] [--shape 'F32 [1 48 128 128]']` — what each
+  request leaves behind at teardown, trace level only: the arrays the runner tracks against MLX's own active
+  figure. The `untracked` column is the one to read — memory MLX holds that no tracked array accounts for is
+  invisible to the admission headroom and to the trie's byte cap, so a figure that grows request after request is a
+  leak in everything that prices memory.
+- `summarize_output_lengths.py [--dir RUNDIR] <prefix-a> <prefix-b> <model…>` — which tests answered differently
+  between two campaigns, by `eval_count` and `answer_chars`. Read in one direction only: equal lengths do not prove
+  equal text, different lengths do prove different text. That makes it a noise floor — two runs of one build
+  already differ on a few tests, and a cross-build difference inside that band is not evidence.
 - `run_engine_compare.sh <host>` — **engine-parity campaign** (MLX safetensors vs
   llama-server GGUF): cold server per model via `RESTART_CMD`, then the three-suite
   run and the fine-text probe per model. `CTX_START` / `CTX_START_THINKON` set the
