@@ -552,6 +552,24 @@ load: its memory climbs past what admission priced, so a co-resident load can be
 will need. The knob is the mitigation until the leak is fixed upstream. ADR 0033 records the divergence and ADR 0034
 records that the headroom cannot price it.
 
+**The knob is verified on a real image** (`claude-scratch/probe-knob.sh`, 22:43). `maxusai/ollama:sync-0.34.0-knob`
+is the deploy candidate with this branch's Go binary layered on — `0.33.3-dynres-41-gfbe18d0`, MLX payload
+byte-identical to the candidate's, binary sha checked against the build. A parked session logs no draft-stats line,
+so counting those lines per request type is the signal:
+
+| `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR` | 4 requests carrying a format | 2 requests without one |
+|---|---|---|
+| unset, upstream's default | 4 drafted | 2 drafted |
+| `0` | **0 drafted** | 2 drafted |
+| `maybe`, unrecognised | 4 drafted, and the runner warns | not run |
+
+So it gates structured output only, leaves ordinary requests drafting, and an unrecognised value keeps upstream's
+default while saying so. Every request answered 200.
+
+**The clean candidate does not carry it.** `maxusai/ollama:sync-0.34.0` was built before the knob, so it has
+upstream's default and no way to turn it off; `-knob` is a binary swap for testing and for an operator who needs the
+switch now. The knob belongs in the next full build.
+
 ## Decision: rebuild, with the MLX bump (Glenn, 2026-09-11 23:30)
 
 The image is being rebuilt from `fbedf506` on the `bigdisk` builder (`claude-scratch/build-034.sh`,
