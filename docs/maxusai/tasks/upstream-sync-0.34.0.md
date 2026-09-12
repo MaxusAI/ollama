@@ -20,7 +20,7 @@ for the idle runner that pins a CPU core. The decision is below (2026-09-11 23:3
 | 5, GGUF think-off against `ggmlmain_1_` | **green**: 8 suites, no OOM, no error; every quality row identical to main |
 | MLX format check and idle-CPU probe | **passed** on the rebuilt MLX payload (below) |
 | 5, MLX think-off against `main276_` | done on the payload-swap image, 01:33 to 02:58: 5 suites, no OOM, no error. The few moved cells are knife-edge flips that drafting under a grammar adds (attribution below) |
-| MLX attribution, gates 034e to 034i | **done**. Without drafting under a grammar the fold matches main on outputs and memory. With it, knife-edge cells flip between runs and qwen3.5-family memory grows untracked across requests. **Decision needed** (below) |
+| MLX attribution, gates 034e to 034i | **done**. Without drafting under a grammar the fold matches main on outputs and memory. With it, knife-edge cells flip between runs and qwen3.5-family memory grows untracked across requests — which main's own drafting does too. **Decided** (below): keep upstream's default, `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` restores ours |
 
 ## Conflicts and their resolution
 
@@ -525,38 +525,32 @@ the attribution above. The live checks repeat on the real image:
 
 The deploy stays held for Glenn. It also carries the decision below on drafting under a grammar.
 
-## Decision needed: drafting under a grammar (Glenn)
+## Decision: drafting under a grammar stays on, ours is a knob (Glenn, 2026-09-12)
 
-Upstream `4986e923` lets a structured-output request draft; main's `speculation.open` refused to. The fold carries
-upstream's version. Everything else in the fold matches main on these gates: nodraft, which is the fold with main's
-one line restored, matches main on outputs and on memory. So the choice comes down to that one line.
+Upstream `4986e923` lets a structured-output request draft; main's `speculation.open` refused to. Everything else in
+the fold matches main on these gates — nodraft, the fold with main's one line restored, matches main on outputs and
+on memory — so the choice came down to that one line.
 
-**Keep upstream's drafting under a grammar.**
+**Decided: align with upstream.** The fold keeps upstream's behaviour as the default, and
+`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` restores main's gate for an operator who wants it. `speculate.go` reads the knob
+once at startup through `draftingEnabled`; an unrecognised value keeps the default and warns, so a typo cannot
+quietly halve structured-output throughput. Nothing goes to `ollama/ollama`.
 
-- For: generation speed on the four larger models. In the full-suite context T1's gen tok/s rose from main to the fold
-  by 1.5 to 2.6 times. Both runs were beside production and confounded by the MLX bump, and gemma4:12b got slower.
-- Against:
-  - Untracked MLX memory grows across requests on the qwen3.5 family: +6.8 GiB by request 28 in one run, with no
-    plateau.
-  - Admission cannot see that memory, so a long-running server can climb past what it priced.
-  - Knife-edge cells flip between runs more than on main.
-  - It widens an existing leak rather than creating one: main's own drafting leaks too, on think-on and format-less
-    requests.
+What that buys and costs, measured:
 
-**Restore main's gate: one line in `speculate.go`, with a test** (recommended until the memory growth is understood
-or fixed upstream).
+- **For:** 1.5 to 2.6 times the generation rate on structured output for the four larger models, in the full-suite
+  context. Both runs sat beside production and the MLX pins differed, so read the ratio as context, not a number.
+- **Against, outputs:** knife-edge answers flip between runs. They sit inside the spread MLX already has — two runs
+  of main differ in answer length on 2 of 27 gemma4 tests and 7 of 27 qwen3.6 tests — and no quality row moved.
+- **Against, memory:** drafting leaves MLX memory that no tracked array accounts for, growing across requests
+  (+6.8 GiB by request 28 on qwen3.8), which the admission headroom cannot see. **Not new in v0.34.0:** main's own
+  drafting does the same on think-on and format-less requests; drafting under a grammar widens the reach to
+  structured output.
 
-- For: outputs and memory stay exactly as on main. The fold keeps everything else, including the structural-tag
-  grammars and the idle-core fix.
-- Against: structured-output requests decode one token at a time again, as they do on main today.
-- Note: this does not fix the leak, which main has as well. It holds the fold's exposure to what production already
-  runs with, instead of extending it to every structured-output request.
-
-The patch exists only in the detached worktree `claude-scratch/wt-sync034-nodraft`, uncommitted.
-
-**Still open whichever way this goes.** The leak itself. It is upstream's speculation path, it is in main today,
-and the mechanism is not pinned down, so there is nothing to file upstream yet beyond a symptom. Glenn's call was to
-hold the report until we can propose a fix.
+**What to watch after a deploy.** A long-running MLX server on the qwen3.5 family under sustained structured-output
+load: its memory climbs past what admission priced, so a co-resident load can be admitted into memory the runner
+will need. The knob is the mitigation until the leak is fixed upstream. ADR 0033 records the divergence and ADR 0034
+records that the headroom cannot price it.
 
 ## Decision: rebuild, with the MLX bump (Glenn, 2026-09-11 23:30)
 

@@ -3,6 +3,9 @@ package mlxrunner
 import (
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/ollama/ollama/x/mlxrunner/batch"
@@ -108,6 +111,48 @@ type speculationSession struct {
 	roundDrafts    int
 }
 
+// draftUnderGrammar decides whether a structured-output request may draft.
+//
+// Upstream 4986e923 (v0.34.0) lets it. The grammar is enforced during verification instead of blocking the draft
+// chain, and on this fork's models that is worth 1.5-2.6x generation speed on structured output. Main refused, and
+// the two differ in more than speed (docs/maxusai/tasks/upstream-sync-0.34.0.md):
+//
+//   - drafting flips knife-edge answers between runs, within the run-to-run spread MLX already has;
+//   - it leaves MLX memory that no tracked array accounts for, growing across requests, which the admission
+//     headroom cannot see.
+//
+// The leak is not new here: main's own drafting does the same on think-on and format-less requests. Drafting under
+// a grammar widens its reach to structured output. So the default follows upstream, and
+// OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0 restores main's gate for an operator who would rather keep the memory behaviour
+// production runs today.
+var draftUnderGrammar = draftUnderGrammarFromEnv(os.Getenv("OLLAMA_MLX_DRAFT_UNDER_GRAMMAR"))
+
+// draftUnderGrammarFromEnv reads the knob. An unrecognised value keeps upstream's default and says so: a typo that
+// silently disabled drafting would surface later as "the fold is slow", with nothing pointing back here.
+func draftUnderGrammarFromEnv(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		slog.Warn("ignoring unrecognised OLLAMA_MLX_DRAFT_UNDER_GRAMMAR, drafting under a grammar stays on",
+			"value", value)
+		return true
+	}
+}
+
+// draftingEnabled reports whether this request may draft at all. A request that may not still opens a session, so
+// the draft cache stays in lockstep with the target's; it is parked rather than absent.
+func draftingEnabled(request Request) bool {
+	opts := request.SamplerOpts
+	if opts.Logprobs || opts.TopLogprobs != 0 {
+		// Logprobs are not yet supported on the speculative path.
+		return false
+	}
+	return request.Grammar == nil || draftUnderGrammar
+}
+
 // open returns the speculation cursor for this request or nil when the model ships
 // no draft head (a nil receiver), which decodes plainly.
 func (s *speculation) open(request Request, layout []any) *speculationSession {
@@ -116,10 +161,10 @@ func (s *speculation) open(request Request, layout []any) *speculationSession {
 	}
 	d := s.drafter.open(layout)
 
-	// Logprobs are not yet supported, so a logprobs request keeps a speculationSession
-	// only to maintain a draft cache in lockstep (permanently parked).
-	opts := request.SamplerOpts
-	enabled := !opts.Logprobs && opts.TopLogprobs == 0
+	// A request that may not draft keeps a speculationSession anyway, to maintain a draft
+	// cache in lockstep (permanently parked): logprobs, or a grammar when the operator has
+	// turned OLLAMA_MLX_DRAFT_UNDER_GRAMMAR off.
+	enabled := draftingEnabled(request)
 
 	spec := &speculationSession{spec: s, drafter: d, layout: layout, enabled: enabled, prevDrafts: -1, roundDrafts: -1}
 	if enabled {
