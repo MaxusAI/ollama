@@ -620,7 +620,9 @@ class TestLineageProfilesTrackOneVersionFamily(unittest.TestCase):
         """Widening must not be applied to a profile pinned at a baseline."""
         for pid in ("mlx-metal", "metal-0-32-14", "cpu", "rocm-0-32-1-dynres"):
             pat = self.exp["profiles"][pid]["version_pattern"]
-            self.assertNotIn("[23]", pat,
+            # Any character class after "0\.3" means the pattern was swept wide. Testing for the
+        # literal "[23]" stopped guarding the moment the lineage class became "[234]".
+        self.assertNotIn(r"0\.3[", pat,
                              f"{pid} is baseline-pinned; a new version needs a "
                              f"new profile with re-measured expectations (ADR 0011)")
 
@@ -636,9 +638,10 @@ class TestLineageProfilesTrackOneVersionFamily(unittest.TestCase):
         "0.33.2-dynres-5-g2b95b4a",     # the same deployed build, pre-point-tag stamp
         "0.33.0-dynres-0-g5171887",     # a fold tag stamp
         "0.33.2-dynres-0f3a71be1",      # bare-sha form
+        "0.34.0-dynres-0-gcf2ad41",     # the v0.34.0 fold tag; both lineage profiles widened with it
     )
     FOREIGN_STAMPS = (
-        "0.34.0-dynres-0-gabcdef0",     # next family: needs its own fold + widening
+        "0.35.0-dynres-0-gabcdef0",     # next family: needs its own fold + widening
         "0.33.2-maxusai-2b95b4a5",      # the native Metal stamp is not this lineage
         "0.33.2-dynres.1",              # a tag name is not a build stamp
         "0.33.2-dynres.x-0-g2b95b4a",   # point tags are numeric

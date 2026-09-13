@@ -76,7 +76,14 @@ platform = "cuda"
 # so the 0.32.x and 0.33.x version families deliberately share this profile and
 # these measured values; the payload_pin below is what actually identifies the
 # numbers' provenance.
-version_pattern = '^0\.3[23]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
+#
+# Widened 0.3[23] -> 0.3[234] on 2026-09-13: the v0.34.0-dynres tag (at cf2ad41f,
+# the #297 fold of upstream v0.34.0) makes describe yield 0.34.0-dynres-0-g...
+# The llama.cpp pin did NOT move (llama_cpp_build stays 0f3a71be1, b10760), so
+# the llama.cpp values measured here still apply. MLX did move, to ce916dbb, and
+# mlx_build records that. Preflight on the fold's deploy candidate passed 21,
+# skipped 7, with both pins asserted.
+version_pattern = '^0\.3[234]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
 patchset = ["001", "002", "004", "005", "903"]
 arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # The real payload identity. Was b10434 = 7e4c0a96880d (upstream v0.32.14-rc0's
@@ -382,7 +389,12 @@ platform = "mlx-cuda"
 # resolve a profile at all, and the gate was unreachable. Measured server:
 # 0.32.14-rc0-dynres-20-geb0ad43. Same shape as cuda-dynres-903, which is the
 # other profile served from a container on this host.
-version_pattern = '^0\.3[23]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
+#
+# Widened with cuda-dynres-903 on 2026-09-13 for v0.34.0-dynres; the two lineage
+# patterns must stay identical (test_lineage_profiles_share_a_version_pattern).
+# This profile carries no mlx_build pin, so a 0.34.0 run resolves it without
+# asserting which MLX build its numbers were measured on.
+version_pattern = '^0\.3[234]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
 patchset = []                     # llama.cpp compat patches do not apply to MLX
 reference_image = "maxusai/ollama:0.32.14-rc0-dynres-mlxfix"
 expect_patch_marker = 1
