@@ -1729,5 +1729,165 @@ class TestT1OptionsInAnyOrder(unittest.TestCase):
             self.render_argv(["--dir", rundir, "m:1b", "--think", "false"])
 
 
+# --- the runner-log summarizers -------------------------------------------------------------------------------
+#
+# These read `docker logs` of an ollama container rather than scores files, but the failure mode is the one this
+# file exists for: a right number under a wrong name. "tokens/round" that forgets the round's own token, an
+# "untracked" figure that is really the tracked total, or a request attributed to the model that ran before it all
+# survive review, because the table looks exactly as it should.
+
+import runnerlog  # noqa: E402
+import summarize_drafting  # noqa: E402
+import summarize_output_lengths  # noqa: E402
+import summarize_peak_memory  # noqa: E402
+import summarize_retained_memory  # noqa: E402
+
+_ADMIT = 'time=T level=INFO source=client.go:541 msg="MLX admission priced the context rung" model=%s num_ctx=8192\n'
+_COMPLETION = 'time=T level=INFO source=server.go:235 msg=ServeHTTP method=POST path=/v1/completions took=1s status="200 OK"\n'
+_SPEC = ('time=T level=INFO source=speculate_stats.go:62 msg="speculative decode stats" iterations=%d drafted=%d '
+         'accepted=%d acceptance=0.80 avg_draft=%s max_draft=%d avg_accepted=0.4 depth_over_time="0.1/1"\n')
+_TENSOR = 'time=T level=TRACE source=array.go:304 msg="tensor %-40s %s %s pinned=%d [%s]"\n'
+_TOTALS = 'time=T level=TRACE source=array.go:307 msg="tensors total: %d, size: %s, active: %s"\n'
+_TRIE = ('time=T level=TRACE source=prefix_cache.go:748 msg="prefix cache active_tokens: %d, active_size: 1.00 GiB, '
+         'paged_out: %s, trie: nodes=%d, snapshots=%d"\n')
+_PEAK = 'time=T level=INFO source=pipeline.go:116 msg="peak memory" size="%s"\n'
+
+
+def _log(path, text):
+    with open(path, "w") as fh:
+        fh.write(text)
+    return path
+
+
+def _request(spec=None, tensors=(), totals=None, trie=None, peak="8.00 GiB"):
+    out = _COMPLETION
+    if spec:
+        out += _SPEC % spec
+    for name, dtype, size, pinned, dims in tensors:
+        out += _TENSOR % (name, dtype, size, pinned, dims)
+    if totals:
+        out += _TOTALS % totals
+    if trie:
+        out += _TRIE % trie
+    return out + _PEAK % peak
+
+
+class TestRunnerLogParser(unittest.TestCase):
+    """What a runner log says, and what it does not."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def test_a_load_ends_the_request_in_flight(self):
+        """The regression this parser shipped with: an admission line for a second model, while a record was open,
+        kept the open record and gave the next model's first request to the previous model. One request vanished
+        from the second model and every later pairing shifted by one."""
+        text = (_ADMIT % "alpha:1b" + _request(peak="1.00 GiB")
+                + 'time=T level=INFO source=sched.go:1 msg="unloading"\n'
+                + _ADMIT % "beta:2b" + _request(peak="2.00 GiB") + _request(peak="3.00 GiB"))
+        rs = list(runnerlog.iter_requests(_log(os.path.join(self.dir, "r.log"), text)))
+        self.assertEqual([(r.model, r.index, round(runnerlog.gib(r.peak), 2)) for r in rs],
+                         [("alpha:1b", 1, 1.0), ("beta:2b", 1, 2.0), ("beta:2b", 2, 3.0)])
+
+    def test_a_request_without_draft_stats_reads_as_none_not_zero(self):
+        text = _ADMIT % "alpha:1b" + _request()
+        r = next(runnerlog.iter_requests(_log(os.path.join(self.dir, "r.log"), text)))
+        self.assertIsNone(r.rounds)
+        self.assertIsNone(r.tokens_per_round,
+                          "a request that never drafted has no tokens-per-round; 1.0 would be a measurement the "
+                          "log does not carry")
+
+    def test_tokens_per_round_counts_the_rounds_own_token(self):
+        text = _ADMIT % "alpha:1b" + _request(spec=(100, 50, 40, "0.50", 3))
+        r = next(runnerlog.iter_requests(_log(os.path.join(self.dir, "r.log"), text)))
+        self.assertAlmostEqual(r.tokens_per_round, 1.4)
+        self.assertAlmostEqual(r.drafted_per_round, 0.5)
+        self.assertAlmostEqual(r.acceptance, 0.8)
+
+    def test_untracked_is_active_minus_tracked(self):
+        text = _ADMIT % "alpha:1b" + _request(
+            tensors=[("model.layers.0.weight", "BF16", "1.00 GiB", 1, "1 2"),
+                     ("", "F32", "2.00 GiB", 0, "1 48 128 128")],
+            totals=(2, "3.00 GiB", "4.50 GiB"), trie=(10, "2.00 GiB", 3, 2))
+        r = next(runnerlog.iter_requests(_log(os.path.join(self.dir, "r.log"), text), shapes=True))
+        self.assertAlmostEqual(runnerlog.gib(r.untracked), 1.5)
+        self.assertAlmostEqual(runnerlog.gib(r.paged_out), 2.0)
+        self.assertEqual(r.trie_snapshots, 2)
+
+    def test_unnamed_grouping_drops_the_weights(self):
+        text = _ADMIT % "alpha:1b" + _request(
+            tensors=[("model.layers.0.weight", "BF16", "1.00 GiB", 1, "1 2"),
+                     ("", "F32", "2.00 GiB", 0, "1 48 128 128")], totals=(2, "3.00 GiB", "3.00 GiB"))
+        path = _log(os.path.join(self.dir, "r.log"), text)
+        named = next(runnerlog.iter_requests(path, shapes=True)).shapes
+        unnamed = next(runnerlog.iter_requests(path, shapes=True, named=False)).shapes
+        self.assertEqual(len(named), 2)
+        self.assertEqual(list(unnamed), [("F32", "1 48 128 128")],
+                         "--unnamed exists to show what accumulates, not the fixed weights")
+
+
+class TestRunnerLogSummarizers(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def _run(self, module, argv):
+        buf = io.StringIO()
+        with mock.patch.object(sys, "argv", ["prog"] + argv), contextlib.redirect_stdout(buf):
+            module.main()
+        return buf.getvalue()
+
+    def test_drafting_reports_completions_beside_the_stats_count(self):
+        """0 of 28 means the build refused to draft; it must not render as an empty row that reads like no data."""
+        text = _ADMIT % "alpha:1b" + _request() + _request()
+        out = self._run(summarize_drafting, [_log(os.path.join(self.dir, "r.log"), text)])
+        self.assertIn("| alpha:1b | 2 | 0 |", out)
+        self.assertNotIn("1.000", out, "no tokens-per-round may be invented for requests that never drafted")
+
+    def test_peak_memory_pairs_by_position_and_splits_by_the_other_logs_depth(self):
+        base = _ADMIT % "alpha:1b" + _request(peak="10.00 GiB") + _request(peak="20.00 GiB")
+        other = (_ADMIT % "alpha:1b" + _request(spec=(10, 1, 1, "0.10", 1), peak="11.00 GiB")
+                 + _request(spec=(10, 60, 50, "6.00", 8), peak="26.00 GiB"))
+        out = self._run(summarize_peak_memory, [_log(os.path.join(self.dir, "a.log"), base),
+                                                _log(os.path.join(self.dir, "b.log"), other)])
+        self.assertIn("| alpha:1b | 2 | 20.00 → 26.00 GiB | +3.50 GiB | +6.00 GiB | 1 |", out)
+        self.assertIn("avg_draft < 1: median +1.00 GiB (n=1)", out)
+        self.assertIn("avg_draft ≥ 4: median +6.00 GiB (n=1)", out)
+
+    def test_retained_memory_reports_the_gap_with_its_sign(self):
+        text = _ADMIT % "alpha:1b" + _request(totals=(2, "3.00 GiB", "4.50 GiB"), peak="9.00 GiB")
+        out = self._run(summarize_retained_memory, [_log(os.path.join(self.dir, "r.log"), text), "--top", "0"])
+        self.assertIn("tracked 3.00 GiB, active 4.50 GiB, untracked +1.50 GiB", out)
+
+
+class TestOutputLengths(unittest.TestCase):
+    """Answer length between two campaigns: a floor on how much the text moved, in one direction only."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def _scores(self, tag, blocks):
+        with open(os.path.join(self.dir, f"scores_{tag}.json"), "w") as fh:
+            json.dump(blocks, fh)
+
+    def _run(self, argv):
+        buf = io.StringIO()
+        with mock.patch.object(sys, "argv", ["prog", "--dir", self.dir] + argv), contextlib.redirect_stdout(buf):
+            summarize_output_lengths.main()
+        return buf.getvalue()
+
+    def test_equal_lengths_count_as_same_and_a_changed_field_as_differ(self):
+        self._scores("a_1_alpha_1b_thinkfalse", {"scene_single": {"eval_count": 10, "answer_chars": 40},
+                                                 "document_single": {"eval_count": 20, "answer_chars": 80}})
+        self._scores("b_1_alpha_1b_thinkfalse", {"scene_single": {"eval_count": 10, "answer_chars": 40},
+                                                 "document_single": {"eval_count": 20, "answer_chars": 81}})
+        out = self._run(["a_1_", "b_1_", "alpha:1b"])
+        self.assertIn("| alpha:1b | 2 | 1 | 1 | document_single |", out,
+                      "a changed answer_chars is a changed answer even when eval_count matches")
+
+    def test_a_missing_campaign_is_named_not_silently_empty(self):
+        self._scores("a_1_alpha_1b_thinkfalse", {"scene_single": {"eval_count": 10, "answer_chars": 40}})
+        out = self._run(["a_1_", "gone_1_", "alpha:1b"])
+        self.assertIn("missing `scores_gone_1_alpha_1b_thinkfalse.json`", out)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
