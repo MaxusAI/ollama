@@ -5,6 +5,7 @@ Branch `task/upstream-sync-0.34.0` (worktree `claude-scratch/wt-sync034`), cut f
 88 files. They are mostly `app/`, `cmd/`, `server/` and `x/mlxrunner`, where the changes are
 structured output compiled as xgrammar structural tags and speculative decoding under a grammar.
 First look: [upstream-sync-2026-09-04.md](upstream-sync-2026-09-04.md), section "Next fold".
+**PR #297**, opened 2026-09-13 against `main`. Not merged; the deploy stays held.
 
 **The MLX bump is in.** `fbedf506` pins MLX to `ce916dbb`, which is ml-explore/mlx#4452, the fix
 for the idle runner that pins a CPU core. The decision is below (2026-09-11 23:30).
