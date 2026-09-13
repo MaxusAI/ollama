@@ -421,6 +421,23 @@ class TestLabelsMatchWhatIsGated(unittest.TestCase):
         self.assertIn("name_bbox in-band", out)
         self.assertNotIn("name_bbox hits", out)
 
+    def test_name_bbox_carries_its_denominator(self):
+        """A bare count read as a rate: 4 looks like a score out of nothing in
+        particular, and only the invoice column beside it revealed that five
+        line items were on offer. Render the scale with the value."""
+        out = self.render_with({})
+        self.assertIn("| 4/5 |", out)
+
+    def test_name_bbox_denominator_follows_the_ground_truth(self):
+        """It comes from the score file, not a hard-coded 5, so a ground truth
+        with a different item count still reports its own scale."""
+        d = tempfile.mkdtemp()
+        scores = json.loads(json.dumps(THINKOFF))
+        scores["document_single"] = dict(scores["document_single"],
+                                         items_found=3, items_total=7, name_bbox_hits=3)
+        write(d, self.MODEL, "false", scores)
+        self.assertIn("| 3/7 |", render(d, self.MODEL, "false"))
+
     def test_ctx_prefers_the_requested_window(self):
         """Pre-#153 files recorded the SUITE default in num_ctx for finetext
         while req_num_ctx kept what was asked, so served-first reports a block

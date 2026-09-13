@@ -517,9 +517,16 @@ def main():
         inv = (f"{dc.get('items_found', '—')}/{dc.get('items_total', '—')} · "
                f"{dc.get('qty_price_right', '—')}/{dc.get('items_total', '—')} · "
                f"{fmt_bool(dc.get('total_right'))}")
+        # Same denominator as the invoice column beside it: score_doc counts one
+        # hit per ground-truth line item, so a bare count left the reader to
+        # guess the scale -- 4 read as a rate, not as 4 of 5. The 5 comes from
+        # the score file rather than the header, so it follows the ground truth
+        # if that ever changes. It is still capped by items_found: a model that
+        # matches one item cannot score more than one, however well it places it.
+        nbb = f"{dc.get('name_bbox_hits', '—')}/{dc.get('items_total', '—')}"
         t1.append(f"| {model} | {eng_cell} | {ctx_cell} | {q(sc, iou_cell)} | {q(sc, blc)} | "
                   f"{q(sc, fmt_bool(sc.get('serial_found')))} | {q(dc, inv)} | "
-                  f"{q(dc, str(dc.get('name_bbox_hits', '—')))} |")
+                  f"{q(dc, nbb)} |")
 
         tiers = [q(ft, str(ft.get(f"recall_{px}px", "—"))) for px in (22, 16, 12, 9, 7)]
 

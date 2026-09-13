@@ -168,6 +168,24 @@ Shared conventions, binding for all five:
     `num_ctx` 131072 against 16384 everywhere else — two campaigns and two
     windows presented as one table.
 
+11. **A counted cell states its scale, and takes it from the data.** A bare
+    count is read as a rate against a denominator the reader supplies, and the
+    reader guesses. `name_bbox in-band` rendered `4` for four models and `5`
+    for one, and nothing in the row said the ceiling was five — only the
+    invoice column beside it, `5/5 · 5/5 · ✅`, betrayed how many line items
+    were on offer; the question "what is 100% here?" was asked of a table that
+    had been published a dozen times. Either the value carries the scale
+    (`4/5`) or the heading does (T1's OCR tiers are bare counts under
+    "exact-match recall per size tier, /4"), and a column may not rely on its
+    neighbour to imply it. Where the denominator exists in the score files, the
+    generator reads it there — `name_bbox in-band` takes `items_total`, the
+    same field the invoice column uses — rather than hard-coding it in a
+    header, so the scale follows the ground truth instead of rotting when it
+    changes. A scale does not make the metric sound: `name_bbox in-band` is
+    capped by `items_found`, so gemma4:e2b's `0/5` is one matched item, not
+    five misplaced boxes, and the coarse band test behind it still cannot see a
+    5 % scale error — that is what T2's `name_bbox IoU` is for.
+
 ## Alternatives considered
 
 - **One universal table.** Rejected: the campaign matrix and the pivot answer
