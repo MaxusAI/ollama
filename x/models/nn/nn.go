@@ -1,6 +1,13 @@
 package nn
 
-import "github.com/ollama/ollama/x/mlxrunner/mlx"
+import (
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/ollama/ollama/x/mlxrunner/mlx"
+)
 
 // Layer is the interface for neural network layers with a Forward method.
 type Layer interface {
@@ -120,8 +127,80 @@ var quantizedLinearOutputScale = mlx.Compile2(
 	mlx.Shapeless(),
 )
 
+// PrefillDequantRows is the row count at or above which a nvfp4 QuantizedLinear
+// on a CUDA device dequantises its weights to the activation dtype and runs the
+// dense GEMM (cuBLASLt) instead of MLX's mixed-input kernel. On the RTX PRO 6000
+// the mixed-input kernel wins below ~512 rows (decode, small chunks) and loses
+// 1.4-2x to the dense path from ~2048 rows, the prefill chunk; a real image
+// prefill gains 1.2-2.1x (docs/maxusai/tasks/mlx-prefill-dequant-gemm.md).
+//
+// It costs memory: MLX evaluates a chunk's forward pass as one graph, so the
+// dequantised copies of many layers are live at once -- measured at up to
+// +6.8 GiB on gemma4:31b. Admission does not price that, so this stays off by
+// default and must not be enabled on a shared card until the copies are
+// bounded. 0, the default, keeps the mixed-input kernel everywhere. Opt in with
+// OLLAMA_MLX_PREFILL_DEQUANT_ROWS.
+var PrefillDequantRows = prefillDequantRowsFromEnv(os.Getenv("OLLAMA_MLX_PREFILL_DEQUANT_ROWS"))
+
+// prefillDequantRowsFromEnv parses the opt-in; anything that is not a
+// non-negative integer means off.
+func prefillDequantRowsFromEnv(v string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+var cudaAvailable = sync.OnceValue(func() bool { return mlx.CUDAIsAvailable() })
+
+// useDequantGEMM is the policy behind PrefillDequantRows: only when opted in,
+// only nvfp4 (the measured mode), only on CUDA (Metal's kernels were not
+// measured), only at or above the row threshold.
+func useDequantGEMM(rows, threshold int, mode string, cuda bool) bool {
+	return threshold > 0 && cuda && mode == "nvfp4" && rows >= threshold
+}
+
+// rows is the number of activation rows x carries: everything but the last dim.
+func rows(x *mlx.Array) int {
+	k := x.Dim(x.NumDims() - 1)
+	if k <= 0 {
+		return 0
+	}
+	return x.Size() / k
+}
+
+// denseGEMM dequantises the layer to x's dtype and multiplies on the dense
+// path: the same weights and bf16 math as the mixed-input kernel with a
+// different accumulation order, and a transient [N, K] copy of the layer.
+//
+// The copy is released as soon as the matmul node holds it. Without that, every
+// layer's copy stays live until the chunk's Sweep -- the prefill loop evaluates
+// a whole chunk as one graph, and a live handle retains its buffer through the
+// eval -- which measured +6.8 GiB on gemma4:31b. Released, the buffer returns to
+// MLX's allocator once that layer's matmul has run and the next layer reuses it,
+// which is what llama.cpp gets from a pool-allocated scratch buffer in
+// ggml_cuda_mul_mat_cublas_impl.
+func (ql *QuantizedLinear) denseGEMM(x *mlx.Array) *mlx.Array {
+	w := mlx.Dequantize(ql.Weight, ql.Scales, ql.QBiases, ql.GroupSize, ql.Bits, ql.Mode, nil)
+	if w.DType() != x.DType() {
+		converted := w.AsType(x.DType())
+		mlx.Release(w)
+		w = converted
+	}
+	wT := w.Transpose(1, 0)
+	out := x.Matmul(wT)
+	mlx.Release(wT, w)
+	return out
+}
+
 func (ql *QuantizedLinear) Forward(x *mlx.Array) *mlx.Array {
-	out := mlx.QuantizedMatmul(x, ql.Weight, ql.Scales, ql.QBiases, true, ql.GroupSize, ql.Bits, ql.Mode)
+	var out *mlx.Array
+	if useDequantGEMM(rows(x), PrefillDequantRows, ql.Mode, cudaAvailable()) {
+		out = ql.denseGEMM(x)
+	} else {
+		out = mlx.QuantizedMatmul(x, ql.Weight, ql.Scales, ql.QBiases, true, ql.GroupSize, ql.Bits, ql.Mode)
+	}
 	if ql.GlobalScale != nil {
 		// Double-scale nvfp4 (e.g., NVIDIA ModelOpt): standard quantized_matmul
 		// followed by global_scale multiply. The global_scale is F32, per-tensor
