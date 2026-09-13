@@ -1,6 +1,7 @@
 # ADR 0033: Adopt upstream's MLX grammar engine; supersede the fork's pure-Go constrained sampling
 
-- **Status:** accepted (2026-08-28). Supersedes
+- **Status:** accepted (2026-08-28); amended 2026-09-12 (upstream drafts under a grammar again; we keep it, with a
+  knob). Supersedes
   [ADR 0009](0009-mlx-pure-go-constrained-sampling.md) as the *implementation*;
   the guarantee ADR 0009 exists to protect is retained and re-tested.
 - **Date:** 2026-08-28
@@ -82,3 +83,30 @@ express a raw grammar to reject.
 - **Not runtime-validated.** This lands on `go build` plus a green unit suite.
   The MLX path needs a structured-output request against a built image before
   deploy; unit tests do not exercise MLX kernels.
+
+## Amendment 2026-09-12: upstream drafts under a grammar again, and we keep it
+
+The consequence above — "grammar-aware speculation is retired with it; if the depth controller is ever fixed, it
+would have to be rebuilt on upstream's engine" — is what upstream then did. `4986e923` (v0.34.0) lets a
+structured-output request draft: the grammar is enforced during verification, each draft position's logits are
+masked before rejection sampling, and the drafts themselves stay unconstrained.
+
+**Decision: align with upstream.** The v0.34.0 fold keeps upstream's behaviour as the default, and
+`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` restores the previous gate for an operator who wants it. Nothing is offered to
+`ollama/ollama`; this divergence is ours to carry.
+
+**What the fold measured** (`tasks/upstream-sync-0.34.0.md`, four images over roughly thirty suite runs):
+
+- **Speed.** 1.5 to 2.6 times the generation rate on structured output for the four larger models, which is the
+  reason upstream made the change. Both runs shared the card with production and the MLX pins differed, so that
+  ratio is context rather than a measurement.
+- **Outputs.** Drafting flips knife-edge answers between runs. It does not move quality: without it the fold
+  reproduces main's answers on every test, and the flips sit inside the run-to-run spread MLX already has
+  ([ADR 0012](0012-benchmark-report-templates.md) §4, amended the same day).
+- **Memory.** Drafting leaves MLX memory that no tracked array accounts for, and it grows across requests. This is
+  not new in v0.34.0: main's own drafting does the same on think-on and format-less requests. Drafting under a
+  grammar widens its reach to structured output, and the admission headroom cannot see any of it
+  ([ADR 0034](0034-mlx-admission-prices-the-context-rung.md), amended the same day).
+
+**Consequence.** The knob is the mitigation while the leak stands, not a fix. The fix belongs upstream in the
+speculation path, and there is nothing to file there yet beyond a symptom.

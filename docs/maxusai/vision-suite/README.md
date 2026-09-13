@@ -152,6 +152,15 @@ first is image accounting and the second is generation length.
   behind it); the same arms completed under 56 GiB. Sets `OLLAMA_MAX_LOADED_MODELS=1`,
   without which a sweep holds every model it has served resident; measured
   106 GB used and 53.9 GB swap on a 128 GB host before this existed.
+- `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` — **turns speculative drafting off for structured-output requests** on the MLX
+  runner, restoring the gate this fork carried before the v0.34.0 fold. It is ON by default, following upstream
+  `4986e923`, because drafting is worth 1.5 to 2.6 times the generation rate on the larger models. Turn it off for a
+  long-running server on the qwen3.5 family that serves structured output all day: drafting leaves MLX memory that no
+  tracked array accounts for, growing across requests, and admission cannot price it
+  ([ADR 0034](../adr/0034-mlx-admission-prices-the-context-rung.md), amended 2026-09-12). The knob limits the leak's
+  reach rather than removing it — main's own drafting leaks the same way on think-on and format-less requests. The
+  evidence and the decision are in [ADR 0033](../adr/0033-mlx-constrained-sampling-adopts-upstreams-engine.md) and
+  [tasks/upstream-sync-0.34.0.md](../tasks/upstream-sync-0.34.0.md). Unrecognised values keep drafting on and warn.
 - `summarize_contract_matrix.py --think <mode> [--log <runner log>] <model…>` —
   the bbox-contract matrix plus per-model power-mode provenance. Capped cells
   render as `cap` and errored arms (OOM, transport, HTTP 500) as `error`, never

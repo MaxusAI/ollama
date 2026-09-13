@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 
-from probes import (ProbeError, container_logs, grep_binary_marker,
+from probes import (ProbeError, container_logs, grep_binary_marker, mlx_build_payload,
                     ladder_image_b64, llama_cpp_build, mlx_build,
                     mlx_describe_commit, parse_load_segments,
                     parse_pixel_lines, poison_image_b64)
@@ -334,9 +334,23 @@ def check_mlx_payload_pin(profile, container, since, log_cmd=None):
         return result(name, ERROR, f"could not read logs: {exc}",
                       expected=expected)
 
+    # A CUDA profile pins the MLX payload too — these images ship mlx_cuda_v13
+    # beside llama.cpp's — but its preflight loads llama.cpp models, so no MLX
+    # runner starts and no engine-init line appears. Measured 2026-09-12: that
+    # turned the pin into "no MLX engine-init line" and failed a correct
+    # payload. Fall back to the shipped library's own version string, the way
+    # llama_cpp_build reads llama-server. It cannot see binary/payload skew,
+    # only a live load can, so the summary says which source answered.
+    source = "the runner's engine-init line"
+    if actual is None and not seen and container and not log_cmd:
+        actual = mlx_build_payload(container)
+        if actual:
+            source = ("the shipped libmlx.so — no MLX request ran in this "
+                      "window, so binary/payload skew is not covered")
+
     # FAIL, not SKIP, for the reason check_payload_proof already FAILs here:
-    # this check only runs where a pin is declared, i.e. an MLX platform where a
-    # load must have happened during the run. SKIP is not counted against the
+    # this check only runs where a pin is declared, so the payload is one the
+    # profile claims to have been measured on. SKIP is not counted against the
     # exit code, so a deploy gated on it goes green with the pin unasserted.
     if actual is None:
         if seen:
@@ -350,12 +364,15 @@ def check_mlx_payload_pin(profile, container, since, log_cmd=None):
                           "an accumulating file produces. Truncate or rotate "
                           "the serve log before the run.")
         return result(
-            name, FAIL, "no MLX engine-init line in the log window",
+            name, FAIL, "no MLX engine-init line in the log window, and no MLX "
+                        "payload to read",
             expected=expected,
             diagnosis='The runner logs "MLX engine initialized" when the MLX '
-                      "runner starts. None appeared: either nothing loaded on "
-                      "the MLX path during this run, or --log-cmd points at the "
-                      "wrong file. Nothing was verified — this is not a pass.")
+                      "runner starts. None appeared, and libmlx.so could not be "
+                      "read from the container either: either nothing loaded on "
+                      "the MLX path and the image ships no MLX payload, or "
+                      "--log-cmd points at the wrong file. Nothing was "
+                      "verified — this is not a pass.")
 
     short, dirty = mlx_describe_commit(actual)
     if dirty:
@@ -384,7 +401,8 @@ def check_mlx_payload_pin(profile, container, since, log_cmd=None):
                       "deliberately and add a new profile with provenance (ADR "
                       "0011) — do NOT edit values to go green.")
     return result(name, PASS,
-                  f"MLX build {short} matches the measured payload ({actual})",
+                  f"MLX build {short} matches the measured payload ({actual}), "
+                  f"from {source}",
                   expected=expected, actual=actual)
 
 

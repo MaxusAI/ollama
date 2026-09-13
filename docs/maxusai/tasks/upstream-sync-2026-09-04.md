@@ -602,6 +602,14 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
   `LLAMA_CPP_VERSION` `b10760` are byte-identical to v0.33.3, so 0.34.0 is a Go- and app-side
   release. **Every regression result in this fold's write-ups stays valid across the sync**, and a
   Go-only binary swap (see the memory note) measures 0.34.0 without a CUDA rebuild.
+  **Corrected 2026-09-11, at the fold's first GPU gate: the MLX half does need a native rebuild.**
+  The three version pins are unchanged, but upstream changed the xgrammar shim this repo builds
+  itself (`x/mlxrunner/xgrammar/native`), which ships in the MLX payload as
+  `libollama_xgrammar.so`. The 0.34.0 loader needs two symbols the 0.33.3 library lacks,
+  `ollama_xgrammar_matcher_rollback` and `ollama_xgrammar_matcher_is_terminated`, both for
+  speculative decoding under a grammar. On a Go-only swap the runner logs "Structured output is
+  unavailable" and answers every MLX request that carries a format with HTTP 501. The GGUF half
+  is unaffected. The check that missed it listed native paths by hand and omitted this one.
 - Scope: 88 files, 21 commits. Mostly `app/` (36), `x/mlxrunner` (14, largely `xgrammar` and
   `speculate`), `cmd/` (11), `server/` (8). Headline features are ChatGPT Desktop integration,
   OpenAI-compatible tool search and response compaction, and Apple-silicon structured output.

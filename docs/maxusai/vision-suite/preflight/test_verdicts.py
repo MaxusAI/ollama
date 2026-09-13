@@ -683,12 +683,18 @@ class TestExpectationsFile(unittest.TestCase):
     # in the file — silently exempt from both.
     KNOWN_UNPINNED = {"mlx-cuda"}
 
+    # A profile can serve the MLX payload without an "mlx" platform: the CUDA
+    # dynres images ship mlx_cuda_v13 beside llama.cpp's payload. cuda-dynres-903
+    # therefore needs a pin too, and had none until 2026-09-12 — which is how this
+    # fold's MLX bump reached a preflight PASS with mlx_payload_pin skipped.
+    ALSO_SERVES_MLX = {"cuda-dynres-903"}
+
     def test_every_measured_mlx_profile_pins_its_mlx_build(self):
         """A profile serving the MLX payload must record which MLX it was
         measured on, or mlx_payload_pin has nothing to assert and a future MLX
         bump inherits its ladders silently."""
         for pid, prof in self.exp["profiles"].items():
-            if not str(prof.get("platform", "")).startswith("mlx"):
+            if not str(prof.get("platform", "")).startswith("mlx") and pid not in self.ALSO_SERVES_MLX:
                 continue
             if pid in self.KNOWN_UNPINNED:
                 self.assertIsNone(prof.get("mlx_build"),
@@ -1009,6 +1015,41 @@ class TestMlxPayloadPin(unittest.TestCase):
         """No engine-init line in the window means nothing was verified."""
         r = self.pin({"mlx_build": self.PIN}, "some unrelated log\n")
         self.assertNotEqual(r["status"], PASS)
+
+    def container_pin(self, profile, log, payload):
+        """The container path: no --log-cmd, so the shipped-library fallback is available. The native path keeps
+        only the log, because there is no container to read a library out of."""
+        with mock.patch.object(probes, "container_logs", return_value=log), \
+                mock.patch.object(checks, "mlx_build_payload", return_value=payload):
+            return checks.check_mlx_payload_pin(profile, "ollama-canary", 0, log_cmd=None)
+
+    def test_a_run_that_never_touched_mlx_asserts_from_the_shipped_library(self):
+        """A CUDA profile pins the MLX payload its image ships, but its preflight loads llama.cpp models, so no
+        engine-init line appears. Measured 2026-09-12: that turned the pin into "no MLX engine-init line in the log
+        window" and failed a run whose payload was exactly the pinned one."""
+        r = self.container_pin({"mlx_build": self.PIN}, "no mlx here\n", "0.32.1-37-gc793734")
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertIn("libmlx.so", r["summary"])
+        self.assertIn("skew", r["summary"],
+                      "a library read cannot see binary/payload skew, and the summary must say which source "
+                      "answered")
+
+    def test_the_library_fallback_still_catches_a_different_build(self):
+        r = self.container_pin({"mlx_build": self.PIN}, "no mlx here\n", "0.32.0-12-g27fec90")
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("27fec90", r.get("actual", ""))
+
+    def test_no_line_and_no_library_still_fails(self):
+        """An image with no MLX payload and no MLX load verifies nothing, and nothing is not a pass."""
+        r = self.container_pin({"mlx_build": self.PIN}, "no mlx here\n", None)
+        self.assertEqual(r["status"], FAIL)
+
+    def test_a_live_line_wins_over_the_library(self):
+        """Only the line names the MLX the binary actually dlopen'd, so it stays the first source: here the library
+        would have failed the check and the line passes it."""
+        r = self.container_pin({"mlx_build": self.PIN}, self.LINE % "0.32.1-37-gc793734", "0.32.0-12-g27fec90")
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertIn("engine-init", r["summary"])
 
 
 
