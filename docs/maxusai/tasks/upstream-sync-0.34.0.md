@@ -322,9 +322,35 @@ So the leak lives in the speculation path main already ships, and production mee
 format-less requests. What v0.34.0 changes is reach: drafting under a grammar extends it to structured output, which
 is nearly all of this suite's traffic. **Restoring main's gate limits the leak; it does not remove it.**
 
-The mechanism is not pinned down, so the fix is not ours to propose yet. `KVCache`'s lazy snapshots hold no handle on
-the live buffer by design, so they are not it. The likely candidates are lazily built arrays that the speculation
-path keeps across rounds, for example the draft side holding slices of the verification forward's hidden states.
+**The mechanism, narrowed (2026-09-13).** Re-reading the same four trace logs — `specmem_fold-runner.log`,
+`specmem_nodraft-runner.log` and the `mainleak_noformat`/`mainleak_format` pair, with no new runs and no GPU —
+turns "memory grows" into a unit and a cadence. `summarize_retained_memory.py` prints the per-request gap; the
+step counts below are that column differenced, from a scratch parse.
+
+- **The unit is one whole recurrent state:** 144 MiB, the 48 layers' `F32 [1 48 128 128]` delta state at 3 MiB
+  each. Per request the gap moves by a whole multiple of it, or by nothing. Over the fold's 28 requests: 15 steps
+  of exactly 3 units, one of 4, and 11 of zero — +6.91 GiB in total. Main's drafting arm: 6 steps of exactly 1
+  unit in 17 requests, +0.86 GiB. Main's gated arm: 16 zeros, +0.03 GiB. Every residue is under 10 MiB.
+- **It is not proportional to the drafting work.** Requests that drafted 276 and 1,120 tokens leak the same 0.42
+  GiB, and others that drafted just as hard leak nothing. So this is not a per-round bug but a fixed object
+  retained on some requests, which points at a per-request exit path rather than the round loop.
+- **The trie is exonerated more firmly than before.** Between the arms, the tracked total, the snapshot bytes, the
+  paged-out bytes and the trie's snapshot count agree request for request; only MLX's active memory diverges. And
+  the gap keeps growing after the trie reaches `maxPagedOutBytes` and the tracked total goes flat, so the retained
+  bytes were never the trie's.
+- **It is not driver-side either.** Read against the pinned MLX `ce916dbb`: the CUDA backend makes no raw
+  allocation outside `event.cu` (4 bytes per event), and its CUDA graph cache is an LRU capped at 400 entries
+  (`MLX_CUDA_GRAPH_CACHE_SIZE`). The bytes sit inside MLX's allocator; they simply belong to no array the runner
+  tracks.
+
+That leaves one shape of explanation: a full recurrent state whose Go handle is released while MLX still holds a
+reference. `mlx.Sweep`'s own contract is that MLX frees an array "when there are no other references, including
+dependencies in the graph", so an unevaluated graph rooted at a discarded state would behave exactly like this.
+`KVCache`'s lazy snapshots hold no handle on the live buffer by design, so they stay ruled out.
+
+**The next probe needs a GPU**, which is why it is not run here: log `mlx.ActiveMemory()` around each speculation
+round and around every exit path in `commitSpeculation` on qwen3.8, and see which exit leaves a unit behind. Until
+that names a fix, the upstream report stays held (Glenn, 2026-09-12).
 
 **Rendered evidence.** These are generator tables from `preflight-runs/specab-render.md`, pasted verbatim. The
 render also holds every cold run's contract matrix and the T2 pivots.

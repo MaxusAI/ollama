@@ -13,9 +13,17 @@ func TestDraftUnderGrammarFromEnv(t *testing.T) {
 		value string
 		want  bool
 	}{
-		{"", true}, {"1", true}, {"true", true}, {"ON", true}, {"yes", true},
-		{"0", false}, {"false", false}, {" off ", false}, {"No", false},
-		{"maybe", true}, {"2", true},
+		{"", true},
+		{"1", true},
+		{"true", true},
+		{"ON", true},
+		{"yes", true},
+		{"0", false},
+		{"false", false},
+		{" off ", false},
+		{"No", false},
+		{"maybe", true},
+		{"2", true},
 	} {
 		if got := draftUnderGrammarFromEnv(tc.value); got != tc.want {
 			t.Errorf("draftUnderGrammarFromEnv(%q) = %v, want %v", tc.value, got, tc.want)
