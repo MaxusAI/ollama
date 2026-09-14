@@ -69,7 +69,9 @@ func testIntPtr(v int) *int {
 
 func TestRequestGrammar(t *testing.T) {
 	schema := `{"type":"object","properties":{"answer":{"type":"string"}}}`
-	tag := `{"type":"structural_tag","format":{"type":"json_schema","json_schema":` + schema + `}}`
+	// The tag carries max_whitespace_cnt so a stalled decode cannot spend the whole
+	// generation budget on indentation; see maxWhitespaceRun.
+	tag := `{"type":"structural_tag","format":{"type":"json_schema","max_whitespace_cnt":32,"json_schema":` + schema + `}}`
 	for _, tt := range []struct {
 		name string
 		req  llm.CompletionRequest
@@ -81,7 +83,7 @@ func TestRequestGrammar(t *testing.T) {
 		{
 			name: "json",
 			req:  llm.CompletionRequest{Format: json.RawMessage(`"json"`)},
-			want: `{"type":"structural_tag","format":{"type":"json_schema","json_schema":{"type":"object"}}}`,
+			want: `{"type":"structural_tag","format":{"type":"json_schema","max_whitespace_cnt":32,"json_schema":{"type":"object"}}}`,
 		},
 		{name: "schema", req: llm.CompletionRequest{Format: json.RawMessage(schema)}, want: tag},
 	} {
