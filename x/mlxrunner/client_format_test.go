@@ -38,7 +38,7 @@ func TestCompletionForwardsFormatAsStructuralTag(t *testing.T) {
 	}
 	// Since v0.34.0 structured output is compiled as an xgrammar structural
 	// tag: the request's schema must reach the runner inside one.
-	want := `{"type":"structural_tag","format":{"type":"json_schema","json_schema":{"type":"object"}}}`
+	want := `{"type":"structural_tag","format":{"type":"json_schema","max_whitespace_cnt":32,"json_schema":{"type":"object"}}}`
 	if string(got.Format) != want {
 		t.Errorf("wire Format = %q, want the request's schema forwarded as %s", got.Format, want)
 	}
@@ -99,5 +99,43 @@ func TestFormatNeverSilentlyDropsAConstraint(t *testing.T) {
 		if _, err := parseGrammar(json.RawMessage(raw)); err == nil {
 			t.Errorf("parseGrammar(%s): expected an error for an unwrapped format", raw)
 		}
+	}
+}
+
+func TestStructuralTagBoundsTheWhitespaceBetweenTokens(t *testing.T) {
+	// Without max_whitespace_cnt xgrammar compiles every separator to "[ \n\t]*",
+	// so a stalled model can spend a whole generation budget on indentation and
+	// return an answer that is never closed. The bound is what ends that run.
+	var tag struct {
+		Format struct {
+			MaxWhitespaceCnt *int `json:"max_whitespace_cnt"`
+		} `json:"format"`
+	}
+	raw := requestGrammar(llm.CompletionRequest{Format: json.RawMessage(`{"type":"object"}`)})
+	if err := json.Unmarshal(raw, &tag); err != nil {
+		t.Fatalf("structural tag is not valid JSON: %v (%s)", err, raw)
+	}
+	if tag.Format.MaxWhitespaceCnt == nil {
+		t.Fatal("structural tag leaves max_whitespace_cnt unset: whitespace is unbounded again")
+	}
+	if got := *tag.Format.MaxWhitespaceCnt; got <= 0 {
+		t.Errorf("max_whitespace_cnt = %d, want a positive bound", got)
+	}
+}
+
+func TestBoundedWhitespaceKeepsTheSchemaIntact(t *testing.T) {
+	// The bound is added beside the schema, never inside it.
+	schema := `{"type":"object","properties":{"a":{"type":"string"}}}`
+	var tag struct {
+		Format struct {
+			JSONSchema json.RawMessage `json:"json_schema"`
+		} `json:"format"`
+	}
+	raw := requestGrammar(llm.CompletionRequest{Format: json.RawMessage(schema)})
+	if err := json.Unmarshal(raw, &tag); err != nil {
+		t.Fatalf("structural tag is not valid JSON: %v (%s)", err, raw)
+	}
+	if string(tag.Format.JSONSchema) != schema {
+		t.Errorf("json_schema = %s, want the request's schema unchanged %s", tag.Format.JSONSchema, schema)
 	}
 }
