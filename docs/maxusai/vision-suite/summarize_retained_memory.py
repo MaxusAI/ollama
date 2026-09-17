@@ -55,11 +55,14 @@ def main():
             if r.trie_active is not None:
                 # With the trie's own accounting line (trace level) the residual held − trie is the weights plus
                 # whatever nothing tracks; its step between requests is the leak rate with the trie's growth removed.
-                resid = held - runnerlog.gib(r.trie_active)
+                # The trie's footprint is its active cache plus what it has paged out of the live cache into
+                # snapshots — both device memory, both in `held`.
+                size = runnerlog.gib(r.trie_active) + runnerlog.gib(r.paged_out or 0)
+                resid = held - size
                 rprev = last_resid.get(r.model)
                 last_resid[r.model] = resid
                 rstep = f", step {resid - rprev:+.2f} GiB" if rprev is not None else ""
-                trie = f" | trie {runnerlog.gib(r.trie_active):.2f} GiB | held−trie {resid:.2f} GiB{rstep}"
+                trie = f" | trie {size:.2f} GiB | held−trie {resid:.2f} GiB{rstep}"
             print(f"{r.model} req {r.index:2d}: peak {peak:.2f} GiB | held {held:.2f} GiB{step}{trie}")
             continue
         if shape:

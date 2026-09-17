@@ -14,7 +14,7 @@ Dry-run conflict list: `claude-scratch/sync0341-dryrun-conflicts.txt`.
 | 3, image | built 15:31 (4 h 00 m, second attempt) as `maxusai/ollama:sync-0.34.1`, stamp `0.34.0-dynres-6-gfb18f5c`; the first attempt failed at 3.5 min on patch 004 (below) |
 | 4, preflight `cuda-dynres-903` | **PASS 21 / SKIP 7** from the fold worktree, same as the deployed image |
 | 5, campaigns | GGUF: no quality cell regressed, e2b and e4b recovered (e2b at n = 4), e2b's anchored-cell loop and 26b-a4b's two contract flips reproduce 4/4; qwen2.5vl: every quality cell identical; MLX (re-run on a free GPU): every scored cell equal; the one 35b-a3b cell that moved is bimodal across cold loads on the new image (0.504/0.613, n = 4) with the deployed value one of the modes — no regression |
-| memory re-measure | `held` bounded on gemma4 12b/26b/31b and released on 27b; **grows +0.60 GiB per request on 35b-a3b with no eviction** — trie fill or leak, undecidable without the trie line; trace probe queued (below) |
+| memory re-measure | trace probe: `held − trie` grows +0.23 GiB/request on 35b-a3b and ~1 GiB/request on 27b (then releases) — not the trie; **control with `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` is flat**, so the 0.34.0 drafting finding stands on this build and the knob removes it; 0.34.0-baseline and `ec3cc2307` probes running (below) |
 
 ## What v0.34.1 changes for the fork
 
@@ -161,8 +161,21 @@ test (133 tests). What the series says:
   before the cap bound) and a leak on the one recurrent-state model in the set. The split needs the trie's
   accounting line (`prefix cache active_tokens … active_size … paged_out … snapshots`, `prefix_cache.go:793`,
   trace level, still present in the 0.34.1 runner): a probe with `OLLAMA_DEBUG=2`, same suite, 35b-a3b and 27b
-  (`gate-sync0341-trace.sh`, prefix `sync0341t_`) is queued behind the repeats; `held − weights − active_size` is
-  the untracked figure. **Until it lands, the 0.34.0 leak finding is neither confirmed nor cleared on this build.**
+  (`gate-sync0341-trace.sh`, prefix `sync0341t_`) ran after the repeats, and the summariser now subtracts the
+  trie's active and paged-out bytes from `held` (one test).
+- **Trace probe (09:09–09:25, `preflight-runs/vsuite-sync0341t-runner.log`): the growth is not the trie.**
+  35b-a3b: `held − trie` grows +0.23 GiB per request in 24 of 27 steps, 21.9 → 27.2 GiB over 28 requests, while
+  the trie grows 0.24 → 5.6 GiB. 27b: `held − trie` grows +0.6 to +1.1 GiB per request from request 3 to 20
+  (16.8 → 32.8 GiB), then falls ~1.0 GiB per request for six requests with the trie flat at 7.9 GiB / 46
+  snapshots, ending +10.6 GiB above request 1 — retention that outlives requests and is released in 1 GiB steps
+  by something the log does not name.
+- **Control (09:27–09:42, `sync0341n_`, same suite, `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`): flat.** 35b-a3b's
+  `held − trie` is 21.91–22.04 GiB for all 28 requests (+0.13 GiB total); `held` is the weights plus the trie and
+  nothing else. **The 0.34.0 finding stands on this build: drafting under a grammar retains memory outside the
+  trie's books, +0.23 GiB per request on 35b-a3b, and the fork's knob (ADR 0033, D5) removes it entirely.**
+  Two more probes decide what to carry: the same trace suite on the deployed 0.34.0 image (is this new to
+  0.34.1?) and on a Go-only swap of the fold plus upstream's `ec3cc2307` (does upstream's pool-release fix cover
+  it, or is the knob still the mitigation?).
 
 **Gate 5c, Qwen2.5-VL six cells, `q25vl0341_1_` against `q25vl_1_`** — render `preflight-runs/q25vl0341-render.md`:
 every quality cell identical across all six models, contract matrices identical, 0 errors, 0 OOMs. Throughput
