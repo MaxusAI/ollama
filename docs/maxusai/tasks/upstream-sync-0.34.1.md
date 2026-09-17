@@ -133,6 +133,14 @@ is the change that broke patch 004's context. The same commit also touched the t
   fill hunks apply there at offsets. `pinned_image_token_budget` and `token_ladder` will show whether the served
   grids still land on the ladder.
 
+## Retirement candidates (Glenn, 2026-09-17)
+
+`x/structured` stays until upstream's engine is tested against it; if no regression, it is deleted. That decision,
+the parity test it needs, and every other item the fork carries with its retiring condition and gate are in
+[`docs/maxusai/retirement-register.md`](../retirement-register.md), reviewed at each fold. Two rows moved in this
+one: upstream 0.34.1 has its own transition-based `format` deferral with pass-one metrics (ours is now a superset,
+README row corrected), and `extendChunk` from ADR 0014 turns out to be upstream's already.
+
 ## Not in this fold
 
 - The Metal half: MLX and MLX-C moved, so the Metal payload changes too; held by Glenn.
