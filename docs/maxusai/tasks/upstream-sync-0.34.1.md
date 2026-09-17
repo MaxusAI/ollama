@@ -13,7 +13,7 @@ Dry-run conflict list: `claude-scratch/sync0341-dryrun-conflicts.txt`.
 | 2, no-GPU tests | green locally and on CI (13 jobs, race on both platforms) at `b1db10efc` |
 | 3, image | built 15:31 (4 h 00 m, second attempt) as `maxusai/ollama:sync-0.34.1`, stamp `0.34.0-dynres-6-gfb18f5c`; the first attempt failed at 3.5 min on patch 004 (below) |
 | 4, preflight `cuda-dynres-903` | **PASS 21 / SKIP 7** from the fold worktree, same as the deployed image |
-| 5, campaigns | GGUF: no quality cell regressed, e2b and e4b recovered (e2b at n = 4), e2b's anchored-cell loop and 26b-a4b's two contract flips reproduce 4/4; qwen2.5vl: every quality cell identical; MLX (re-run on a free GPU): every scored cell equal, one 35b-a3b name_bbox cell moved at n = 1, repeats running (below) |
+| 5, campaigns | GGUF: no quality cell regressed, e2b and e4b recovered (e2b at n = 4), e2b's anchored-cell loop and 26b-a4b's two contract flips reproduce 4/4; qwen2.5vl: every quality cell identical; MLX (re-run on a free GPU): every scored cell equal; the one 35b-a3b cell that moved is bimodal across cold loads on the new image (0.504/0.613, n = 4) with the deployed value one of the modes — no regression |
 | memory re-measure | `held` bounded on gemma4 12b/26b/31b and released on 27b; **grows +0.60 GiB per request on 35b-a3b with no eviction** — trie fill or leak, undecidable without the trie line; trace probe queued (below) |
 
 ## What v0.34.1 changes for the fork
@@ -129,9 +129,13 @@ image. `gate-sync0341-c.sh` re-ran the leg alone (`wait-gpu0-then-c.sh` waited f
 
 - Every scored cell equal within 0.003 IoU on all five models; contract matrices identical row for row; every
   multi-image and fine-text cell identical.
-- One cell moved: qwen3.6:35b-a3b name_bbox IoU 0.613 → 0.504 (in-band 4/5 both). MLX think-off is not
-  bit-reproducible across cold loads (memory note; ADR 0012 §4 does not cover it), so n = 1 says nothing yet:
-  repeats `sync0341r_{1,2,3}_` (35b-a3b, full suite) ran after the gate; rendered below when done.
+- One cell moved at n = 1: qwen3.6:35b-a3b name_bbox IoU 0.613 → 0.504 (in-band 4/5 both). Repeats
+  `sync0341r_{1,2,3}_` (35b-a3b, full suite, 08:48–09:08, GPU0 otherwise idle; render
+  `preflight-runs/sync0341-reps-render.md`) put the four reps on the new image at **0.504, 0.504, 0.613, 0.613** —
+  the deployed build's value is one of the cell's two modes, and the fold reproduces it in 2 of 4. Fine text 7 px
+  (1 → 2 in one rep) and the `bc`/`bcreasoning` contract flags flip between reps the same way. That is the known
+  MLX think-off non-reproducibility across cold loads (memory note; ADR 0012 §4 does not cover MLX), not a build
+  change: no MLX cell regressed.
 - Throughput is not read: 12b ran first into the fresh `d9add9d1` PTX cache and paid the JIT (prefill 952 → 75
   tok/s, s/req 21.8 → 51.4); the later models move both ways (27b gen 34 → 58, 26b 65 → 35).
 - The runner log carries six `custom GPU kernel backend disabled … backend=cuda reason="no source"` warnings
