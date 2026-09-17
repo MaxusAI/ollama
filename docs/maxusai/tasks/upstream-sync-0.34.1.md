@@ -100,6 +100,9 @@ Three files of ours used it; everything else was upstream-owned and came rewritt
 - **D4 — the memory measurement moves to `held`.** `runnerlog.py` reads the new `memory` line as a request boundary;
   `summarize_retained_memory.py` prints `held` and its step between requests on such logs (two tests). The
   drafting-leak finding of the v0.34.0 fold was of the old model and is re-measured on this build, not carried.
+- **D6 — `x/structured` deleted (Glenn, 2026-09-17).** The parity gate found 0 regressions in 108 verdicts; the
+  package had no importers. Its findings are in ADR 0033's amendment and pinned by
+  `x/mlxrunner/xgrammar/engine_behaviour_test.go`; the register moves it to retired.
 - **D5 — the knob stays.** Upstream still drafts under a grammar; ADR 0033 is unchanged.
 
 ## Fork against upstream v0.34.1

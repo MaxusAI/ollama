@@ -7,9 +7,7 @@ Reviewed at every fold; last against upstream v0.34.1 / llama.cpp b10864 (2026-0
 
 ## Retire now, once tested
 
-| item | record | retires when | test that gates deletion | status |
-|---|---|---|---|---|
-| **`x/structured`** — the pure-Go constrained sampler, 3,829 lines | ADR 0009, 0013 → 0033 | it has had no importers since ADR 0033 adopted upstream's xgrammar engine; ADR 0033 already names deletion as its follow-up | **Parity against upstream's engine, then delete if no regression (Glenn, 2026-09-17).** (1) Compile parity: every schema `x/structured`'s tests accept compiles on `x/mlxrunner/xgrammar`. (2) Bounded work: every schema ADR 0013 rejects for unbounded repetition (`maxRepetitionThreshold = 2000`, the cumulative product guard) either fails to compile on xgrammar or compiles inside a fixed time and memory budget — the property, not the rejection, is what ADR 0013 protects. (3) Acceptance parity: the JSON its tests accept is accepted by the xgrammar matcher, the malformed and incomplete inputs are rejected, and whitespace parity holds (`TestJSONWhitespaceParity`; see ADR 0035). (4) Live: the campaign's format and contract cells unchanged against the last run — those have measured upstream's engine on every fold since ADR 0033. Runs on CPU inside the built image, where `libollama_xgrammar.so` lives | **Gate written and run** (2026-09-17): `x/mlxrunner/xgrammar/structured_parity_test.go`, both engines driven live over a byte-level vocabulary, xgrammar v0.2.5 via the shim from the deployed image. **108 agreements, 0 regressions.** Differences, all classified in the test's report: whitespace policy (xgrammar admits space before a colon; expected), `-0` refused by xgrammar's integer grammar (its number grammar takes it; semantically zero), `prefixItems` supported by xgrammar only, and **`allOf` with more than one branch degrades to a permissive object on xgrammar** — `required`, per-branch types and property order are not enforced, per its own converter warning. ADR 0013's bound holds on xgrammar without the guard: all five unbounded schemas compile in 3–30 ms within 1 MiB. The test skips without the shim (CI ubuntu) and runs against the Darwin payload (CI macOS). **Recommendation: delete `x/structured`; before that, record the `allOf` limitation in ADR 0033 and pin it with an xgrammar-only test so an xgrammar bump that fixes it is noticed. Decision: Glenn.** |
+_Nothing pending. `x/structured` moved to "Already retired" below on 2026-09-17._
 
 ## Carried until upstream converges
 
@@ -39,6 +37,10 @@ Reviewed at every fold; last against upstream v0.34.1 / llama.cpp b10864 (2026-0
 
 ## Already retired
 
+- **`x/structured`** (ADR 0009/0013), deleted 2026-09-17 in the v0.34.1 fold on Glenn's word, after the parity gate
+  found 0 regressions against xgrammar v0.2.5 in 108 verdicts. Its one finding — `allOf` with several branches is
+  permissive on xgrammar — is recorded in ADR 0033's amendment and pinned by
+  `x/mlxrunner/xgrammar/engine_behaviour_test.go`, with the ADR 0013 bound kept there as a budget test.
 - ADR 0017's mechanism (`mlx.ClaimOSThread`) — upstream's `mlxthread.Start` carries the guarantee since the 0.33.3 fold.
 - ADR 0007 (gemma4 default budget 560) — superseded by ADR 0008.
 - The integrated-GPU admission bound — upstream's, absorbed into `admit()` in the 0.34.1 fold.
