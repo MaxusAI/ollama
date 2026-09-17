@@ -1,4 +1,4 @@
-# ADR 0034: Structured output bounds the whitespace between tokens
+# ADR 0035: Structured output bounds the whitespace between tokens
 
 - **Status:** proposed 2026-09-14 (PR #301). Extends the structural-tag path
   adopted in [ADR 0033](0033-mlx-constrained-sampling-adopts-upstreams-engine.md);
