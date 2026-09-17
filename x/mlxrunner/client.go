@@ -192,8 +192,25 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// maxWhitespaceRun bounds the whitespace a structured-output grammar will accept
+// between two JSON tokens. xgrammar leaves this unset by default, which compiles
+// every separator to "[ \n\t]*" — unbounded — so a model that stalls mid-object can
+// emit newlines and indentation until the token budget or the request timeout is
+// gone, having produced an answer that is never closed.
+//
+// Measured 2026-09-14 (gemma4:31b-nvfp4, a 4.5 KB document, a 15-field schema): the
+// decode filled its 1500-token budget with 82% whitespace, the tail being "\n  "
+// repeated to the end, and stopped mid-value. Six documents in a 174-document run
+// were lost this way — four to the token cap and two to a 900-second timeout — while
+// other documents of the same kind and size decoded in under a minute.
+//
+// 32 is well above any indentation a model would emit (a newline plus ten levels of
+// two-space indent is 21 characters) and far below a stall, which runs to thousands.
+const maxWhitespaceRun = 32
+
 // requestGrammar returns the structural tag the runner decodes under: the
-// API's format wrapped into a json_schema tag.
+// API's format wrapped into a json_schema tag, with the whitespace between
+// tokens bounded (see maxWhitespaceRun).
 func requestGrammar(req llm.CompletionRequest) json.RawMessage {
 	schema := req.Format
 	switch string(schema) {
@@ -204,7 +221,9 @@ func requestGrammar(req llm.CompletionRequest) json.RawMessage {
 		schema = json.RawMessage(`{"type":"object"}`)
 	}
 	tag := make(json.RawMessage, 0, len(schema)+64)
-	tag = append(tag, `{"type":"structural_tag","format":{"type":"json_schema","json_schema":`...)
+	tag = append(tag, `{"type":"structural_tag","format":{"type":"json_schema","max_whitespace_cnt":`...)
+	tag = strconv.AppendInt(tag, maxWhitespaceRun, 10)
+	tag = append(tag, `,"json_schema":`...)
 	tag = append(tag, schema...)
 	return append(tag, `}}`...)
 }
