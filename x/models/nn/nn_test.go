@@ -216,3 +216,69 @@ func TestQuantizedEmbeddingAsLinearPreservesGlobalScale(t *testing.T) {
 		t.Fatalf("AsLinear quant params = (%d, %d, %q), want (16, 4, %q)", linear.GroupSize, linear.Bits, linear.Mode, "nvfp4")
 	}
 }
+
+func TestPrefillDequantRowsFromEnv(t *testing.T) {
+	for in, want := range map[string]int{"": 0, "abc": 0, "-5": 0, "0": 0, " 1024 ": 1024, "2048": 2048} {
+		if got := prefillDequantRowsFromEnv(in); got != want {
+			t.Errorf("%q: got %d, want %d", in, got, want)
+		}
+	}
+}
+
+func TestUseDequantGEMMPolicy(t *testing.T) {
+	cases := []struct {
+		name            string
+		rows, threshold int
+		mode            string
+		cuda, want      bool
+	}{
+		{"off by default", 2048, 0, "nvfp4", true, false},
+		{"prefill chunk on cuda", 2048, 1024, "nvfp4", true, true},
+		{"at the threshold", 1024, 1024, "nvfp4", true, true},
+		{"decode row", 1, 1024, "nvfp4", true, false},
+		{"small chunk", 512, 1024, "nvfp4", true, false},
+		{"metal is not measured", 2048, 1024, "nvfp4", false, false},
+		{"affine is not measured", 2048, 1024, "affine", true, false},
+		{"mxfp4 is not measured", 2048, 1024, "mxfp4", true, false},
+	}
+	for _, c := range cases {
+		if got := useDequantGEMM(c.rows, c.threshold, c.mode, c.cuda); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// TestQuantizedLinearNVFP4DenseGEMMMatchesMixedInput checks the opt-in's branch
+// body against today's kernel on the same nvfp4 weights: same math, different
+// accumulation order, so a small tolerance.
+func TestQuantizedLinearNVFP4DenseGEMMMatchesMixedInput(t *testing.T) {
+	mlxtest.Run(t, func(t *mlxtest.T) {
+		weightVals := make([]float32, 8*64)
+		for i := range weightVals {
+			weightVals[i] = float32((i%13)-6) / 9
+		}
+		inputVals := make([]float32, 4*64)
+		for i := range inputVals {
+			inputVals[i] = float32((i%7)-3) / 5
+		}
+		weight := mlx.FromValues(weightVals, 8, 64).AsType(mlx.DTypeBFloat16)
+		input := mlx.FromValues(inputVals, 4, 64).AsType(mlx.DTypeBFloat16)
+		mlx.Eval(weight, input)
+		ql := NewQuantizedLinear(weight, nil, 16, 4, "nvfp4")
+		if got := rows(input); got != 4 {
+			t.Fatalf("rows = %d, want 4", got)
+		}
+		dense := ql.denseGEMM(input).AsType(mlx.DTypeFloat32)
+		mixed := mlx.QuantizedMatmul(input, ql.Weight, ql.Scales, ql.QBiases, true, 16, 4, "nvfp4").AsType(mlx.DTypeFloat32)
+		mlx.Eval(dense, mixed)
+		got, want := dense.Floats(), mixed.Floats()
+		if len(got) != len(want) || len(got) != 4*8 {
+			t.Fatalf("output length = %d, want %d", len(got), 4*8)
+		}
+		for i := range got {
+			if !approxEqual(got[i], want[i], 2e-2) {
+				t.Fatalf("output[%d] = %.6f, want %.6f", i, got[i], want[i])
+			}
+		}
+	})
+}

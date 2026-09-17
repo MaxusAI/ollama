@@ -98,3 +98,40 @@ func TestEmptyArrayData(t *testing.T) {
 		}
 	})
 }
+
+// TestReleaseFreesTheHandleAndTheGraphSurvives checks the contract denseGEMM
+// relies on: releasing a handle a node already consumes invalidates the handle
+// without disturbing the node's own reference, so the result still evaluates.
+func TestReleaseFreesTheHandleAndTheGraphSurvives(t *testing.T) {
+	withMLXThread(t, func(t *mlxthreadtest.T) {
+		a := FromValues([]float32{1, 2, 3, 4}, 2, 2)
+		b := FromValues([]float32{1, 0, 0, 1}, 2, 2)
+		out := a.Matmul(b)
+		Release(b)
+		if b.Valid() {
+			t.Fatal("Release left the handle valid")
+		}
+		Release(b) // idempotent
+		Eval(out)
+		got := out.Floats()
+		for i, want := range []float32{1, 2, 3, 4} {
+			if got[i] != want {
+				t.Fatalf("out[%d] = %v, want %v (graph lost its reference)", i, got[i], want)
+			}
+		}
+	})
+}
+
+func TestReleasePanicsOnPinned(t *testing.T) {
+	withMLXThread(t, func(t *mlxthreadtest.T) {
+		a := FromValues([]float32{1}, 1)
+		Pin(a)
+		defer Unpin(a)
+		defer func() {
+			if recover() == nil {
+				t.Fatal("Release of a pinned array did not panic")
+			}
+		}()
+		Release(a)
+	})
+}
