@@ -1,5 +1,5 @@
 diff --git a/tools/mtmd/clip-model.h b/tools/mtmd/clip-model.h
-index 761aabf..2a9b887 100644
+index f737ccc..1873a76 100644
 --- a/tools/mtmd/clip-model.h
 +++ b/tools/mtmd/clip-model.h
 @@ -66,6 +66,12 @@ struct clip_hparams {
@@ -16,12 +16,12 @@ index 761aabf..2a9b887 100644
      // (preprocessor) for llava-uhd style models
      std::vector<clip_image_size> image_res_candidates;
 diff --git a/tools/mtmd/clip.cpp b/tools/mtmd/clip.cpp
-index d8db384..f50254c 100644
+index fa51036..6456222 100644
 --- a/tools/mtmd/clip.cpp
 +++ b/tools/mtmd/clip.cpp
-@@ -1553,6 +1553,18 @@ struct clip_model_loader {
-                         // @ngxson : the model performs quite poor with small images, we need to bump minimum image tokens to 40 to avoid that
-                         hparams.set_limit_image_tokens(40, 280);
+@@ -1653,6 +1653,18 @@ struct clip_model_loader {
+                         }
+                         hparams.set_limit_image_tokens(70, 1120);
                          hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
 +                        // Gemma 4's reference preprocessor (HF transformers
 +                        // image_processing_gemma4.py) always scales the image -- up or
@@ -39,10 +39,10 @@ index d8db384..f50254c 100644
  
                  case PROJECTOR_TYPE_GEMMA3NV:
 diff --git a/tools/mtmd/mtmd-image.cpp b/tools/mtmd/mtmd-image.cpp
-index 813fe49..7a1c4dd 100644
+index c11d35c..829464b 100644
 --- a/tools/mtmd/mtmd-image.cpp
 +++ b/tools/mtmd/mtmd-image.cpp
-@@ -186,6 +186,45 @@ struct img_tool {
+@@ -156,6 +156,45 @@ struct img_tool {
          return {w_bar, h_bar};
      }
  
@@ -88,7 +88,7 @@ index 813fe49..7a1c4dd 100644
      // draw src image into dst image at offset (offset_x, offset_y)
      static void composite(clip_image_u8 & dst, const clip_image_u8 & src, int offset_x, int offset_y) {
          if (src.is_placeholder()) {
-@@ -931,14 +970,17 @@ mtmd_image_preproc_out mtmd_image_preprocessor_dyn_size::preprocess(const clip_i
+@@ -769,14 +808,17 @@ mtmd_image_preproc_out mtmd_image_preprocessor_dyn_size::preprocess(const clip_i
      const clip_image_size original_size = img.get_size();
      // the original pixtral model doesn't have n_merge
      const int cur_merge = hparams.n_merge;

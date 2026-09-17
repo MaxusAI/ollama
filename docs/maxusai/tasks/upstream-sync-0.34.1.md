@@ -11,7 +11,7 @@ Dry-run conflict list: `claude-scratch/sync0341-dryrun-conflicts.txt`.
 |---|---|
 | 1, merge | conflicts resolved (10 files, below); not yet committed |
 | 2, no-GPU tests | in progress: build clean after the bench port; vet, tidy, `x/mlxrunner`, `llm`, `server` tests running |
-| 3, image | not started. A native rebuild is required: llama.cpp, MLX and MLX-C all moved, so no binary swap is valid |
+| 3, image | **first attempt failed at 3.5 min** — patch 004 no longer applied to b10864 (below); re-cut, second build running. A native rebuild is required: llama.cpp, MLX and MLX-C all moved, so no binary swap is valid |
 | 4, preflight `cuda-dynres-903` | pins updated below; run pending the image |
 | 5, campaigns | pending the image: GGUF think-off vs `ggml034_1_1_`, MLX think-off vs `cand034_`, and the qwen2.5vl six-cell run as a second GGUF reference |
 | memory re-measure | pending the image: the Pin/Sweep trace method is gone; `held` per request replaces it (below) |
@@ -58,6 +58,27 @@ Dry-run conflict list: `claude-scratch/sync0341-dryrun-conflicts.txt`.
 Auto-merged and to be proven by tests rather than read: `speculate.go` (knob intact), `prefix_cache.go`, `sched.go`
 (our `logMu` hunks and upstream's killed-runner wait do not overlap), `Dockerfile`, `test.yaml` (our Darwin cache
 key survived), `media.go`, `images.go`.
+
+## Gate 3: the patch series against b10864
+
+The first build died at 3.5 minutes in the vulkan llama-server stage: `004-llama-cpp-gemma4-budget-fill.patch`
+no longer applied. Between b10760 and b10864 upstream changed the gemma4 projector case's
+`set_limit_image_tokens(40, 280)` to `(70, 1120)` and dropped the comment above it — both were context lines of our
+`clip.cpp` hunk. The insertion point itself (after the case's warmup line) had not moved.
+
+Checked the whole series on a real b10864 checkout (`claude-scratch/llama.cpp-src`, blobless clone), applied in build
+order with plain `git apply`: 001, 002, 005, 801 and 903 apply at offsets; only that one hunk of 004 failed. Re-cut
+it by anchor and regenerated 004 from `git diff`: the added and removed lines are identical to before (+67/−8), only
+context and offsets differ, and the six-patch series then applies clean from a clean checkout.
+
+**Lesson, recorded so the next fold does not repeat it:** when a pin moves, the patch series must be applied to a
+checkout of the new pin before the build. The fork's own patch files being unchanged between two tags — which this
+fold checked and even published for 0.34.0 — says nothing about whether they still apply. The 0.33.3 fold did the
+checkout check; this one skipped it and paid 3.5 minutes, which is cheap only because the vulkan stage runs first.
+
+**To watch in gate 4:** upstream's new gemma4 limits, 70 and 1120, are exactly the endpoints of the budget ladder
+our `image_budget_fill` was written for. `pinned_image_token_budget` and `token_ladder` will say what the served
+budgets do under the two together.
 
 ## Ports off the removed lifetime API
 
