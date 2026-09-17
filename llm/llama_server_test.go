@@ -2620,6 +2620,31 @@ func TestAppendLoadModeArgs(t *testing.T) {
 	}
 }
 
+// OLLAMA_IGPU_DIRECT_IO=0 must remove the forced dio and nothing else: the
+// mmap preference still applies, and discrete or Metal devices are unaffected.
+func TestAppendLoadModeArgsIntegratedDirectIOOptOut(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("direct I/O is only forced on linux")
+	}
+	integratedROCm := []ml.DeviceInfo{{DeviceID: ml.DeviceID{Library: "rocm"}, Integrated: true}}
+	off := false
+	mmapOff := api.DefaultOptions()
+	mmapOff.UseMMap = &off
+
+	t.Setenv("OLLAMA_IGPU_DIRECT_IO", "0")
+	if got := appendLoadModeArgs([]string{"base"}, api.DefaultOptions(), integratedROCm); !slices.Equal(got, []string{"base"}) {
+		t.Fatalf("opt-out on integrated ROCm = %v, want no load-mode flag", got)
+	}
+	if got := appendLoadModeArgs([]string{"base"}, mmapOff, integratedROCm); !slices.Equal(got, []string{"base", "--load-mode", "none"}) {
+		t.Fatalf("opt-out with mmap disabled = %v, want none", got)
+	}
+
+	t.Setenv("OLLAMA_IGPU_DIRECT_IO", "1")
+	if got := appendLoadModeArgs([]string{"base"}, api.DefaultOptions(), integratedROCm); !slices.Equal(got, []string{"base", "--load-mode", "dio"}) {
+		t.Fatalf("explicitly enabled = %v, want dio", got)
+	}
+}
+
 func TestAppendMMProjArgs(t *testing.T) {
 	defaultOpts := api.DefaultOptions()
 	partialOpts := api.DefaultOptions()
