@@ -193,6 +193,12 @@ Three files of ours used it; everything else was upstream-owned and came rewritt
   `x/mlxrunner/xgrammar/engine_behaviour_test.go`; the register moves it to retired.
 - **D5 — the knob stays.** Upstream still drafts under a grammar; ADR 0033 is unchanged.
 
+- **D7 — v0.34.2 is its own fold; only `ec3cc2307` may come forward, and only on evidence (Glenn, 2026-09-18).**
+  Upstream v0.34.2 (15 commits, 365 files, +3.7k/−70k) moves the MLX engine out of `x/`, re-lays out the models
+  and bumps llama.cpp to b10969 — every fork path under `x/mlxrunner` re-homes, a structural fold, not widened into
+  this one. Its 5-line "Release freed KV buffers during speculative decode" (`ec3cc2307`, the pool release firing on
+  crossing a 256-token boundary instead of landing on one) is cherry-picked into this fold if the two memory probes
+  below say it is the residual, and left to the 0.34.2 fold otherwise.
 ## Fork against upstream v0.34.1
 
 The capability-level table — what the fork does that upstream does not, one row per capability, measured against
