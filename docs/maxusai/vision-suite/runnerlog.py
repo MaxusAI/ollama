@@ -23,6 +23,9 @@ import re
 
 ADMISSION = re.compile(r'msg="MLX admission priced the context rung" model=(\S+)')
 PEAK = re.compile(r'msg="peak memory" size="([^"]+)"')
+# Runners from v0.34.1 (scoped array lifetimes) log one line per request instead: its peak, and `held`, MLX's active
+# memory after the request's scope ended and the cache was cleared. The per-array listing and its totals are gone.
+MEMORY = re.compile(r'msg="memory" peak="([^"]+)" held="([^"]+)"')
 SPEC = re.compile(r'speculative decode stats" iterations=(\d+) drafted=(\d+) accepted=(\d+) .*?avg_draft=([\d.]+) max_draft=(\d+)')
 TOTALS = re.compile(r'msg="tensors total: (\d+), size: ([^,]+), active: ([^"]+)"')
 TENSOR = re.compile(r'msg="tensor (?P<name>.*?)\s+(?P<dtype>\S+)\s+(?P<size>[\d.]+ ?[KMGT]?i?B)\s+pinned=(?P<pinned>\d+) \[(?P<dims>[^\]]*)\]')
@@ -51,6 +54,8 @@ class Request:
         self.model = model
         self.index = index
         self.peak = None            # bytes, the request's own peak (MLX peak is reset per request)
+        self.held = None            # bytes MLX holds once the request's scope ended and the cache was cleared:
+                                    # weights, live caches, trie snapshots (runners from v0.34.1; None before)
         self.rounds = None          # decode rounds, from the draft-stats line
         self.drafted = None
         self.accepted = None
@@ -87,7 +92,7 @@ class Request:
 
 
 def iter_requests(path, model=None, shapes=False, named=True):
-    """Yield a Request per `peak memory` line, in log order.
+    """Yield a Request per `peak memory` line (runners before v0.34.1) or `memory` line (from v0.34.1), in log order.
 
     `model` keeps only that model's requests. `shapes` collects the per-(dtype, dims) live-array groups, which costs
     a dict per request and is only useful on a trace-level log. `named=False` drops arrays whose name contains a dot
@@ -136,6 +141,13 @@ def iter_requests(path, model=None, shapes=False, named=True):
             m = PEAK.search(line)
             if m:
                 req.peak = bytes_of(m.group(1))
+                yield req
+                req = None
+                continue
+            m = MEMORY.search(line)
+            if m:
+                req.peak = bytes_of(m.group(1))
+                req.held = bytes_of(m.group(2))
                 yield req
                 req = None
 

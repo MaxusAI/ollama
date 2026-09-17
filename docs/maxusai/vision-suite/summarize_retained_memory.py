@@ -12,6 +12,12 @@ trie's byte cap, so a figure that grows request after request is a leak in every
 v0.34.0 fold, drafting under a grammar took it to +6.8 GiB by request 28 on qwen3.8 while the no-drafting control
 stayed within 0.14 GiB.
 
+**Runners from v0.34.1 log none of that.** Array lifetimes are scoped, the per-array listing and its totals are gone,
+and the runner logs one `memory` line per request: its peak and `held`, MLX's active memory once the request's scope
+ended and the cache was cleared — the same "what survives between requests", with no tracked side to subtract. So
+on those logs this prints `held` and its step from the previous request of the same model; a step that keeps coming
+is the signal `untracked` used to carry. The array-shape options have nothing to read there.
+
 `--unnamed` groups only arrays without a dotted name — caches and trie snapshots, not the fixed weights — which is
 how an accumulating shape shows itself. `--shape` prints one compact line per request for a single (dtype, dims)
 group, for setting two runs side by side.
@@ -36,8 +42,16 @@ def main():
     path = args[0]
     model = args[1] if len(args) > 1 else None
     top, shape, unnamed = int(flag("--top", 4)), flag("--shape"), "--unnamed" in sys.argv
+    last_held = {}
     for r in runnerlog.iter_requests(path, model=model, shapes=bool(shape) or top > 0, named=not unnamed):
         peak = runnerlog.gib(r.peak)
+        if r.held is not None:
+            held = runnerlog.gib(r.held)
+            prev = last_held.get(r.model)
+            last_held[r.model] = held
+            step = f", step {held - prev:+.2f} GiB" if prev is not None else ""
+            print(f"{r.model} req {r.index:2d}: peak {peak:.2f} GiB | held {held:.2f} GiB{step}")
+            continue
         if shape:
             dt, _, dims = shape.partition(" ")
             count, size = r.shapes.get((dt, dims.strip("[]")), (0, 0.0))

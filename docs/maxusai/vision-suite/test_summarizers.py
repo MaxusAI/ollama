@@ -1768,6 +1768,7 @@ _TOTALS = 'time=T level=TRACE source=array.go:307 msg="tensors total: %d, size: 
 _TRIE = ('time=T level=TRACE source=prefix_cache.go:748 msg="prefix cache active_tokens: %d, active_size: 1.00 GiB, '
          'paged_out: %s, trie: nodes=%d, snapshots=%d"\n')
 _PEAK = 'time=T level=INFO source=pipeline.go:116 msg="peak memory" size="%s"\n'
+_MEMORY = 'time=T level=INFO source=pipeline.go:110 msg="memory" peak="%s" held="%s"\n'
 
 
 def _log(path, text):
@@ -1776,7 +1777,8 @@ def _log(path, text):
     return path
 
 
-def _request(spec=None, tensors=(), totals=None, trie=None, peak="8.00 GiB"):
+def _request(spec=None, tensors=(), totals=None, trie=None, peak="8.00 GiB", held=None):
+    """A request's lines. `held` switches to the v0.34.1 runner's one-line `memory` teardown."""
     out = _COMPLETION
     if spec:
         out += _SPEC % spec
@@ -1786,6 +1788,8 @@ def _request(spec=None, tensors=(), totals=None, trie=None, peak="8.00 GiB"):
         out += _TOTALS % totals
     if trie:
         out += _TRIE % trie
+    if held is not None:
+        return out + _MEMORY % (peak, held)
     return out + _PEAK % peak
 
 
@@ -1831,6 +1835,16 @@ class TestRunnerLogParser(unittest.TestCase):
         self.assertAlmostEqual(runnerlog.gib(r.paged_out), 2.0)
         self.assertEqual(r.trie_snapshots, 2)
 
+    def test_a_scoped_runner_log_yields_peak_and_held(self):
+        """From v0.34.1 the runner logs one `memory` line per request. It must still delimit a request, carry the
+        peak the pairing generators read, and expose `held` — with no tracked side, `untracked` stays None rather
+        than pretending to be zero."""
+        text = _ADMIT % "alpha:1b" + _request(peak="9.00 GiB", held="20.00 GiB") + _request(peak="9.50 GiB", held="20.42 GiB")
+        rs = list(runnerlog.iter_requests(_log(os.path.join(self.dir, "r.log"), text)))
+        self.assertEqual([(r.index, round(runnerlog.gib(r.peak), 2), round(runnerlog.gib(r.held), 2)) for r in rs],
+                         [(1, 9.0, 20.0), (2, 9.5, 20.42)])
+        self.assertIsNone(rs[0].untracked)
+
     def test_unnamed_grouping_drops_the_weights(self):
         text = _ADMIT % "alpha:1b" + _request(
             tensors=[("model.layers.0.weight", "BF16", "1.00 GiB", 1, "1 2"),
@@ -1869,6 +1883,14 @@ class TestRunnerLogSummarizers(unittest.TestCase):
         self.assertIn("| alpha:1b | 2 | 20.00 → 26.00 GiB | +3.50 GiB | +6.00 GiB | 1 |", out)
         self.assertIn("avg_draft < 1: median +1.00 GiB (n=1)", out)
         self.assertIn("avg_draft ≥ 4: median +6.00 GiB (n=1)", out)
+
+    def test_retained_memory_reports_held_and_its_step_on_scoped_logs(self):
+        """The v0.34.1 log has no tracked side to subtract; the leak signal is the step in `held` between requests."""
+        text = _ADMIT % "alpha:1b" + _request(peak="9.00 GiB", held="20.00 GiB") + _request(peak="9.50 GiB", held="20.42 GiB")
+        out = self._run(summarize_retained_memory, [_log(os.path.join(self.dir, "r.log"), text), "--top", "0"])
+        self.assertIn("req  1: peak 9.00 GiB | held 20.00 GiB", out)
+        self.assertIn("req  2: peak 9.50 GiB | held 20.42 GiB, step +0.42 GiB", out)
+        self.assertNotIn("untracked", out)
 
     def test_retained_memory_reports_the_gap_with_its_sign(self):
         text = _ADMIT % "alpha:1b" + _request(totals=(2, "3.00 GiB", "4.50 GiB"), peak="9.00 GiB")
