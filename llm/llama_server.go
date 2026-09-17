@@ -1106,15 +1106,15 @@ func visionServerArgs(modelArch string, opts api.Options) []string {
 		// compatClipArches that llama-server never heard the floor for.
 		return []string{"--image-min-tokens", strconv.Itoa(qwenVLImageMinTokens)}
 	case "gemma4":
-		// Gemma 4 vision (gemma4v projector) image-token budget. llama.cpp
-		// defaults to set_limit_image_tokens(40, 280); we expose both bounds as
-		// api.Options so they can be tuned per request (defaults in
-		// api.DefaultImageMin/MaxTokens, ADR 0008). With the fork's
-		// 004-llama-cpp-gemma4-budget-fill.patch the payload snaps max down to
-		// the supported ladder and fills to it, and min is a no-op; the flags
-		// are still passed verbatim so an unpatched payload degrades to the old
-		// behavior rather than failing. These are Runner options, so changing
-		// them reloads the runner.
+		// Gemma 4 vision (gemma4v projector) image-token budget. llama.cpp's
+		// own defaults are set_limit_image_tokens(70, 1120) since b10864, and
+		// (40, 280) before; we expose both bounds as api.Options so they can
+		// be tuned per request (defaults in api.DefaultImageMin/MaxTokens,
+		// ADR 0008). With the fork's 004-llama-cpp-gemma4-budget-fill.patch
+		// the payload snaps max down to the supported ladder and fills to it,
+		// and min is a no-op; the flags are still passed verbatim so an
+		// unpatched payload degrades to the old behavior rather than failing.
+		// These are Runner options, so changing them reloads the runner.
 		minTok, maxTok := gemma4ImageTokenBudget(opts)
 		return []string{
 			"--image-min-tokens", strconv.Itoa(minTok),

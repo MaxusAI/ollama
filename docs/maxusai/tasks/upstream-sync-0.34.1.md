@@ -9,12 +9,12 @@ Dry-run conflict list: `claude-scratch/sync0341-dryrun-conflicts.txt`.
 
 | gate | state |
 |---|---|
-| 1, merge | conflicts resolved (10 files, below); not yet committed |
-| 2, no-GPU tests | in progress: build clean after the bench port; vet, tidy, `x/mlxrunner`, `llm`, `server` tests running |
-| 3, image | **first attempt failed at 3.5 min** — patch 004 no longer applied to b10864 (below); re-cut, second build running. A native rebuild is required: llama.cpp, MLX and MLX-C all moved, so no binary swap is valid |
-| 4, preflight `cuda-dynres-903` | pins updated below; run pending the image |
-| 5, campaigns | pending the image: GGUF think-off vs `ggml034_1_1_`, MLX think-off vs `cand034_`, and the qwen2.5vl six-cell run as a second GGUF reference |
-| memory re-measure | pending the image: the Pin/Sweep trace method is gone; `held` per request replaces it (below) |
+| 1, merge | done: `f33d1888d`, 10 conflicted files resolved (below) |
+| 2, no-GPU tests | green locally and on CI (13 jobs, race on both platforms) at `b1db10efc` |
+| 3, image | built 15:31 (4 h 00 m, second attempt) as `maxusai/ollama:sync-0.34.1`, stamp `0.34.0-dynres-6-gfb18f5c`; the first attempt failed at 3.5 min on patch 004 (below) |
+| 4, preflight `cuda-dynres-903` | **PASS 21 / SKIP 7** from the fold worktree, same as the deployed image |
+| 5, campaigns | GGUF: no quality cell regressed, e2b and e4b recovered (e2b at n = 4), e2b's anchored-cell loop and 26b-a4b's two contract flips reproduce 4/4; qwen2.5vl: every quality cell identical; **MLX: invalid under foreign GPU0 occupancy, re-run armed** (below) |
+| memory re-measure | pending the MLX re-run's runner log: the Pin/Sweep trace method is gone; `held` per request replaces it (below) |
 
 ## What v0.34.1 changes for the fork
 
@@ -80,6 +80,57 @@ checkout check; this one skipped it and paid 3.5 minutes, which is cheap only be
 our `image_budget_fill` was written for. `pinned_image_token_budget` and `token_ladder` will say what the served
 budgets do under the two together.
 
+## Gates 4 and 5: the image on GPU0 (2026-09-17)
+
+Image `maxusai/ollama:sync-0.34.1`, stamp `0.34.0-dynres-6-gfb18f5c`, built in 4 h 00 m on the `bigdisk` builder
+(state on the array; only the final `--load` touches the Docker root). Chain `claude-scratch/gate-sync0341.sh`,
+15:31–18:08: one container at a time on GPU0 beside production, 16 GiB overhead, cold restart per cell, never
+`:11497`. GPU0 was shared for the whole chain with two foreign LoRA benchmarks (19 GB each, ~50 GB used in total,
+60–90 % utilisation); that decides two things below.
+
+**Gate 4, preflight from the fold worktree:** PASS 21, SKIP 7 — the same as the deployed 0.34.0 image. Version
+matches the `cuda-dynres-903` profile, the measured llama.cpp payload is `5d806aa25`, the marker is in the binary.
+Gate 3's watch item answered: under upstream's new (70, 1120) defaults and our flags together,
+`token_ladder [gemma4]` is 5/5 geometries within ±2 and `pinned_image_token_budget [gemma4]` pins 560 → 529 with
+ceiling 1120 — the served budgets are unchanged. (`preflight-runs/full-0341.{log,json}`.)
+
+**Gate 5a, GGUF think-off, eight models, `ggml0341_1_1_` against `ggml034_1_1_`** — render
+`preflight-runs/ggml0341-render-thinkfalse.md`, generators only:
+
+- 31b, 27b, 35b-a3b, nemotron q4 and q8: every quality cell equal within 0.006 IoU; nemotron q8's name_bbox IoU
+  0.044 → 0.165.
+- e4b and e2b, the two the 0.34.0 gate flagged as regressions, recovered. e2b: scene IoU 0.061 → 0.496, invoice
+  1/5 → 5/5, name_bbox in-band 0/5 → 4/5, fine text 0/0/0/0/0 → 4/4/3/1/0. e4b: IoU 0.354 → 0.462, invoice total
+  ❌ → ✅, name_bbox 0.000 → 0.697, 9 px and 7 px 0/0 → 1/1, multi-image q2 ❌ → ✅. The only change on their
+  path is the llama.cpp payload, b10760 → b10864; which upstream change did it is not isolated. The veto on
+  "recovered" is a repeat of the 0.34.0 baseline showing its zeros were not a one-off.
+- One cell errored: e2b `multi_3img_anchored`, HTTP 500 "prediction aborted, token repeat limit reached". That is
+  upstream's 0.34.1 change in `llm/llama_server.go`: the repeat limit went 30 → 100, and a tripped limit now returns
+  an error where it returned `ctx.Err()` — nil — so on 0.34.0 the same loop passed as a silently truncated HTTP
+  200. The baseline passed this cell, so e2b looped on this prompt where it did not before; n = 1.
+- Contract flags (`contract_followed`): +4 / −2. Gains: 31b `bcpinned`, e4b `bcanchored` and `bcadvnorm1`,
+  nemotron q8 `bcreasoning`. Losses: 26b-a4b `bcreasoning` and `bcpinned`. n = 1.
+- The throughput columns are not read: the campaign shared GPU0 with the LoRA jobs, and the numbers move both ways
+  (35b-a3b 27 → 67 tok/s, 27b 44 → 30). A quiet-GPU repeat is the only way to compare them.
+- Repeats for the two n = 1 movers, `ggml0341r_{1,2,3}_` (e2b and 26b-a4b, full suites, same image and settings,
+  20:40–21:03; render `preflight-runs/ggml0341-reps-render.md`): **both reproduce 4/4 and every cell is identical
+  across the four reps** — GGUF think-off is deterministic here, as ADR 0012 §4 says. e2b's recovery holds (IoU
+  0.496, invoice 5/5, fine text 4/4/3/1/0 in all four) and its `multi_3img_anchored` loop trips the repeat limit in
+  all four. 26b-a4b's `bcreasoning` and `bcpinned` are ❌ in all four, its scored cells unchanged from the 0.34.0
+  fold. Both are real, deterministic changes of model output on the b10864 payload, not noise; neither is a
+  regression in a scored cell. Remaining veto on "e2b recovered": the 0.34.0 baseline is n = 1.
+
+**Gate 5b, MLX think-off, `sync0341_`: invalid, re-run pending.** MLX admission refused 31b, 27b and 35b-a3b at
+every rung and 26b's escalation past 8192 — 64 refusals of the form "model requires 31.1–38.2 GiB … but only
+28.6 GiB are available (after 16.4 GiB overhead)". That is the foreign 38 GB, not the image; 12b ran clean and 26b
+at 8192 ran clean. The re-run is `gate-sync0341-c.sh` (prefix `sync0341b_`, same container settings), started by
+`wait-gpu0-then-c.sh` once GPU0 has 60 GB free (35b-a3b prices 38.2 GiB plus the 16 GiB reserve). The `held`
+re-measure reads that run's runner log.
+
+**Gate 5c, Qwen2.5-VL six cells, `q25vl0341_1_` against `q25vl_1_`** — render `preflight-runs/q25vl0341-render.md`:
+every quality cell identical across all six models, contract matrices identical, 0 errors, 0 OOMs. Throughput
+25–45 % lower under the same contention; not read.
+
 ## Ports off the removed lifetime API
 
 Three files of ours used it; everything else was upstream-owned and came rewritten.
@@ -138,8 +189,8 @@ is the change that broke patch 004's context. The same commit also touched the t
 
 ## Retirement candidates (Glenn, 2026-09-17)
 
-`x/structured` stays until upstream's engine is tested against it; if no regression, it is deleted. That decision,
-the parity test it needs, and every other item the fork carries with its retiring condition and gate are in
+`x/structured` was tested against upstream's engine (108 verdicts, 0 regressions) and deleted in this fold on
+Glenn's word (`070580c5e`, `b1db10efc`). That gate, and every other item the fork carries with its retiring condition and gate, are in
 [`docs/maxusai/retirement-register.md`](../retirement-register.md), reviewed at each fold. Two rows moved in this
 one: upstream 0.34.1 has its own transition-based `format` deferral with pass-one metrics (ours is now a superset,
 README row corrected), and `extendChunk` from ADR 0014 turns out to be upstream's already.
