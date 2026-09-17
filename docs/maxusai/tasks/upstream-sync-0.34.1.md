@@ -102,6 +102,52 @@ Three files of ours used it; everything else was upstream-owned and came rewritt
   drafting-leak finding of the v0.34.0 fold was of the old model and is re-measured on this build, not carried.
 - **D5 — the knob stays.** Upstream still drafts under a grammar; ADR 0033 is unchanged.
 
+## Fork against upstream v0.34.1
+
+What the fork carries on top of the tag, from `git diff v0.34.1 task/upstream-sync-0.34.1` (the merge-base with
+`upstream/main` is the tag itself, so every line here is fork-authored). 425 files, +91,641/−2,696; outside
+`docs/maxusai`, 123 files, +21,874/−2,696.
+
+| area | files | +/− | what the fork carries | record |
+|---|---|---|---|---|
+| `llama/compat/` patch series | 6 + README | +451/−14 | 002 nemotron dynres · 004 gemma4 budget fill (re-cut for b10864) · 005 dynres pinned overshoot · 801 clip node-stats meter · 903 MMQ ids padding | dynres task docs, ADR 0021 |
+| `llm/` llama-server launcher | 4 | +1,360/−78 | `applyArchServerEnvs`: f32 cuBLAS gate for qwen25vl · `visionServerArgs`: per-arch image-token flags, the gemma4 ladder · WebP transcode · K/V cache-type syntax · pass-one phase runner · tests | #214, ADR 0008 |
+| `server/` | 11 | +3,494/−238 | pass-one metrics and the second pass pinned to pass one's truncation window · media charged against capabilities up front · `sched`: leaf `logMu`, head-of-line and evict-all-wait fixes · capability rules for MLX arches · tests | ADR 0004, 0010 |
+| `api/` | 1 | +33 | `ImageMinTokens` / `ImageMaxTokens`, defaults 70 / 1120 | ADR 0008 |
+| `x/mlxrunner/` core | 23 | +2,776/−69 | admission prices the rung · MLX memory-limit and cache-limit knobs · `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR` · stop sequences · `unwind.go` / `guardClose` · the media budget on MLX · paged-out snapshot accounting · vision goldens and e2e · recover / cancel / env / format / budget tests | ADR 0033, 0034, 0021 |
+| `x/mlxrunner/kvsize/` | 9 | +3,785 | per-architecture KV pricing at a context rung, with config testdata | ADR 0034 |
+| `x/mlxrunner/mlx/` bindings | 4 | +150/−1 | memory- and cache-limit calls, `ops_extra`, CMake RPATH and git-describe stamp | |
+| `x/mlxrunner/bench/qqmm` | 3 | +653 | NVFP4 × bf16 mixed-input GEMM bench | sm120 work |
+| `x/mlxrunner/testdata` | 5 | +664 | vision goldens (12b, 26b, 26b-bf16, 31b) and their generator | |
+| `x/models/gemma4/` | 10 | +1,523/−2,271 | the fork's gemma4 MLX vision with the per-request image budget; upstream's audio and vision tower excluded | D1-A (0.33.3), ADR 0021 |
+| `x/models/qwen3_5`, `glimmer` | 4 | +70/−15 | image-processing and media tweaks | |
+| `x/structured/` | 11 | +3,829 | pure-Go constrained sampling — **unreferenced since ADR 0033 adopted upstream's engine; dead code, Glenn's call** | ADR 0009, 0013, 0033 |
+| `model/parsers`, `model/renderers`, `x/tokenizer` | 8 | +193 | nemotron3nano and qwen35 parser fixes, qwen3.8 effort test, special-token handling | |
+| build: `Dockerfile` (+21), `Dockerfile.applearm`, `Dockerfile.gemma4budget`, `cmake/mlx`, `x/mlxrunner/mlx/CMakeLists`, `.gitignore` | 6 | ~+250 | the MLX payload's library bundling and `$ORIGIN` RPATH, the MLX version stamp, the ARM and patched-overlay build files | |
+| CI: `.github/workflows` | 5 | +368/−7 | Darwin MLX payload cache keyed on every payload input · UI tests · preflight-expectations workflow · llama.cpp-update test · release and latest tweaks | |
+| docs and harness: `docs/maxusai` (302 files), `docs/design`, `docs/superpowers`, `AGENTS.md`, `README.md`, `.claude/skills` | 310 | ~+72,000 | ADRs 0001–0035, the vision suite, preflight and generators, campaign records, task docs, the gemma4 budget design | ADR 0012, 0028 |
+
+## The gemma4 image-token limits (Glenn's question, 2026-09-17)
+
+llama.cpp `163a40796` — "model, mtmd: fix gemma4 vision handling" (#28335, 2026-09-04, in b10864) — changed the
+gemma4 projector's default `set_limit_image_tokens(40, 280)` to `(70, 1120)` and dropped the comment above it. That
+is the change that broke patch 004's context. The same commit also touched the text side (`llama-hparams.h`,
+`llama-kv-cache.cpp`, `models/gemma4.cpp`).
+
+- **On this fork it is inert.** Every gemma4 llama-server runner receives `--image-min-tokens` and
+  `--image-max-tokens` from `gemma4ImageTokenBudget`, defaulting to `api.DefaultImageMinTokens = 70` and
+  `DefaultImageMaxTokens = 1120` (ADR 0008), and llama.cpp's `set_limit_image_tokens` yields to those
+  (`custom_image_min/max_tokens` win when set). Our served budget was already 70/1120; upstream's default has now
+  converged on it — for stock ollama users the gemma4 default ceiling quadrupled.
+- **What the fork still carries beyond upstream** is 004's `image_budget_fill` and `PAD_NONE`: snap the grid to a
+  ladder rung and fill it, never letterbox. Upstream raised the ceiling; it did not adopt the fill.
+- **Follow-up after the image is gated:** the comment in `llm/llama_server.go`'s gemma4 branch still says
+  "llama.cpp defaults to set_limit_image_tokens(40, 280)". Left for now so the image's Go code stays identical to
+  the branch head while the gates run.
+- **Watch in gate 4:** other commits in the b10760..b10864 window reworked `mtmd-image.cpp` (+204/−32); 004's
+  fill hunks apply there at offsets. `pinned_image_token_budget` and `token_ladder` will show whether the served
+  grids still land on the ladder.
+
 ## Not in this fold
 
 - The Metal half: MLX and MLX-C moved, so the Metal payload changes too; held by Glenn.
