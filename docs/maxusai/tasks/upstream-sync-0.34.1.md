@@ -13,8 +13,8 @@ Dry-run conflict list: `claude-scratch/sync0341-dryrun-conflicts.txt`.
 | 2, no-GPU tests | green locally and on CI (13 jobs, race on both platforms) at `b1db10efc` |
 | 3, image | built 15:31 (4 h 00 m, second attempt) as `maxusai/ollama:sync-0.34.1`, stamp `0.34.0-dynres-6-gfb18f5c`; the first attempt failed at 3.5 min on patch 004 (below) |
 | 4, preflight `cuda-dynres-903` | **PASS 21 / SKIP 7** from the fold worktree, same as the deployed image |
-| 5, campaigns | GGUF: no quality cell regressed, e2b and e4b recovered (e2b at n = 4), e2b's anchored-cell loop and 26b-a4b's two contract flips reproduce 4/4; qwen2.5vl: every quality cell identical; **MLX: invalid under foreign GPU0 occupancy, re-run armed** (below) |
-| memory re-measure | pending the MLX re-run's runner log: the Pin/Sweep trace method is gone; `held` per request replaces it (below) |
+| 5, campaigns | GGUF: no quality cell regressed, e2b and e4b recovered (e2b at n = 4), e2b's anchored-cell loop and 26b-a4b's two contract flips reproduce 4/4; qwen2.5vl: every quality cell identical; MLX (re-run on a free GPU): every scored cell equal, one 35b-a3b name_bbox cell moved at n = 1, repeats running (below) |
+| memory re-measure | `held` bounded on gemma4 12b/26b/31b and released on 27b; **grows +0.60 GiB per request on 35b-a3b with no eviction** — trie fill or leak, undecidable without the trie line; trace probe queued (below) |
 
 ## What v0.34.1 changes for the fork
 
@@ -120,12 +120,45 @@ ceiling 1120 — the served budgets are unchanged. (`preflight-runs/full-0341.{l
   fold. Both are real, deterministic changes of model output on the b10864 payload, not noise; neither is a
   regression in a scored cell. Remaining veto on "e2b recovered": the 0.34.0 baseline is n = 1.
 
-**Gate 5b, MLX think-off, `sync0341_`: invalid, re-run pending.** MLX admission refused 31b, 27b and 35b-a3b at
-every rung and 26b's escalation past 8192 — 64 refusals of the form "model requires 31.1–38.2 GiB … but only
-28.6 GiB are available (after 16.4 GiB overhead)". That is the foreign 38 GB, not the image; 12b ran clean and 26b
-at 8192 ran clean. The re-run is `gate-sync0341-c.sh` (prefix `sync0341b_`, same container settings), started by
-`wait-gpu0-then-c.sh` once GPU0 has 60 GB free (35b-a3b prices 38.2 GiB plus the 16 GiB reserve). The `held`
-re-measure reads that run's runner log.
+**Gate 5b, MLX think-off, five nvfp4 models, `sync0341b_1_` against `cand034_1_` (the deployed 0.34.0 build)** —
+render `preflight-runs/sync0341-render.md`. The chained run (`sync0341_`, 17:03–17:19) was invalid: MLX admission
+refused 31b, 27b and 35b-a3b at every rung and 26b's escalation past 8192 — 64 refusals of the form "model requires
+31.1–38.2 GiB … but only 28.6 GiB are available (after 16.4 GiB overhead)" — which was the foreign 38 GB, not the
+image. `gate-sync0341-c.sh` re-ran the leg alone (`wait-gpu0-then-c.sh` waited for 60 GB free) on 2026-09-18
+07:41–08:47 with GPU0 at 85 GB free: 5 suites, 0 errors, 0 OOMs, 0 not converged.
+
+- Every scored cell equal within 0.003 IoU on all five models; contract matrices identical row for row; every
+  multi-image and fine-text cell identical.
+- One cell moved: qwen3.6:35b-a3b name_bbox IoU 0.613 → 0.504 (in-band 4/5 both). MLX think-off is not
+  bit-reproducible across cold loads (memory note; ADR 0012 §4 does not cover it), so n = 1 says nothing yet:
+  repeats `sync0341r_{1,2,3}_` (35b-a3b, full suite) ran after the gate; rendered below when done.
+- Throughput is not read: 12b ran first into the fresh `d9add9d1` PTX cache and paid the JIT (prefill 952 → 75
+  tok/s, s/req 21.8 → 51.4); the later models move both ways (27b gen 34 → 58, 26b 65 → 35).
+- The runner log carries six `custom GPU kernel backend disabled … backend=cuda reason="no source"` warnings
+  (`gated_delta`, `gated_delta_states`, `depthwise_conv_silu`). That is upstream's own shape: those kernels ship a
+  Metal source only, and `gpu_kernel.go` disables the CUDA path when `k.cuda.source == ""` and falls back to the
+  composed ops; only `gated_delta_recurrence` has a CUDA source. Not a fold gap.
+
+**Memory re-measure, from gate 5b's runner log (`preflight-runs/vsuite-sync0341b-runner.log`, 140 `memory`
+lines):** `summarize_retained_memory.py` prints `held` — MLX's active memory after each request's scope ended and
+the cache was cleared — and its step. The first real log exposed a parser bug: slog writes `msg=memory` unquoted,
+the parser accepted only `msg="memory"` and read nothing; fixed in `runnerlog.py` with the real line pinned as a
+test (133 tests). What the series says:
+
+- gemma4 12b, 26b, 31b: `held` climbs by a fixed per-request amount (+0.95, +0.60, +2.4 GiB — the prefix trie's
+  snapshot of each image request) and then plateaus: 12b flat at 15.1 GiB from request 9 to 27 (drift +0.07 GiB
+  over 18 requests, ≤ 4 MiB per request), 26b flat at 24.3 GiB from request 14, 31b at 25 ± 0.4 GiB. A 144 MiB
+  per-request leak — the 0.34.0 unit — would show as +0.14 GiB per request on those plateaus; it does not.
+- qwen3.8:27b (the model the 0.34.0 leak was measured on): climbs to 36.8 GiB at request 17, then the trie pages
+  out and `held` falls ~1 GiB per request back to 26.6 GiB by request 27. Memory that is released is tracked
+  memory; the untracked residue cannot be read off this log because the trie's own size is not in it.
+- **qwen3.6:35b-a3b: `held` grows +0.60 GiB per request for all 28 requests, 22.15 → 36.85 GiB, with no
+  eviction.** This log cannot split that between the trie filling towards its cap (the run may simply have ended
+  before the cap bound) and a leak on the one recurrent-state model in the set. The split needs the trie's
+  accounting line (`prefix cache active_tokens … active_size … paged_out … snapshots`, `prefix_cache.go:793`,
+  trace level, still present in the 0.34.1 runner): a probe with `OLLAMA_DEBUG=2`, same suite, 35b-a3b and 27b
+  (`gate-sync0341-trace.sh`, prefix `sync0341t_`) is queued behind the repeats; `held − weights − active_size` is
+  the untracked figure. **Until it lands, the 0.34.0 leak finding is neither confirmed nor cleared on this build.**
 
 **Gate 5c, Qwen2.5-VL six cells, `q25vl0341_1_` against `q25vl_1_`** — render `preflight-runs/q25vl0341-render.md`:
 every quality cell identical across all six models, contract matrices identical, 0 errors, 0 OOMs. Throughput

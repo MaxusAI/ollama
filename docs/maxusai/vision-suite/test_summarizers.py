@@ -1810,6 +1810,16 @@ class TestRunnerLogParser(unittest.TestCase):
         self.assertEqual([(r.model, r.index, round(runnerlog.gib(r.peak), 2)) for r in rs],
                          [("alpha:1b", 1, 1.0), ("beta:2b", 1, 2.0), ("beta:2b", 2, 3.0)])
 
+    def test_memory_line_is_read_in_slogs_unquoted_form(self):
+        """The fixture writes msg="memory"; a real runner writes msg=memory, because slog's text handler quotes a
+        value only when it has to. The first real log (gate C of the 0.34.1 fold) went unread until the parser
+        accepted both. This is the line verbatim."""
+        real = ('time=2026-09-17T21:45:02.608Z level=INFO source=pipeline.go:114 msg=memory '
+                'peak="14.27 GiB" held="7.72 GiB"\n')
+        text = _ADMIT % "alpha:1b" + _COMPLETION + real
+        r = next(runnerlog.iter_requests(_log(os.path.join(self.dir, "r.log"), text)))
+        self.assertEqual((round(runnerlog.gib(r.peak), 2), round(runnerlog.gib(r.held), 2)), (14.27, 7.72))
+
     def test_a_request_without_draft_stats_reads_as_none_not_zero(self):
         text = _ADMIT % "alpha:1b" + _request()
         r = next(runnerlog.iter_requests(_log(os.path.join(self.dir, "r.log"), text)))

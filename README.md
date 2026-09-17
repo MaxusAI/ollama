@@ -23,11 +23,12 @@
 > - An experimental MLX runtime for Apple Silicon and CUDA — see the caveats
 >   below before using it for anything that matters.
 >
-> **Current fold:** [`v0.34.0-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.34.0-dynres)
-> — upstream v0.34.0, llama.cpp `b10760`, MLX `ce916dbb`. `main` moves ahead of this between
+> **Current fold:** [`v0.34.1-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.34.1-dynres)
+> — upstream v0.34.1, llama.cpp `b10864`, MLX `d9add9d1`. `main` moves ahead of this between
 > folds; the tag is the fixed point to build and roll back to.
-> **Deployed:** the same tag, stamped `0.34.0-dynres-0-gcf2ad41`, on the CUDA host since
-> 2026-09-14.
+> **Deployed:** [`v0.34.0-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.34.0-dynres),
+> stamped `0.34.0-dynres-0-gcf2ad41`, on the CUDA host since 2026-09-14. The v0.34.1 candidate
+> (`0.34.0-dynres-6-gfb18f5c`) passed its gates on 2026-09-18 and is not deployed yet.
 
 > Fork builds are stamped `<upstream-version>-dynres-<n>-g<sha>`; `dynres`
 > names the change that started the fork, not the company that runs it.
@@ -46,7 +47,7 @@
 
 | surface | Build identity | Image size ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|
-| **cuda** | green | green | green | green | skipped | green | green | `0.34.0-dynres-0-gcf2ad41` |
+| **cuda** | green | green | green | green | skipped | green | green | `0.34.0-dynres-6-gfb18f5c` |
 | **mlx-cuda** | not run | not run | not run | not run | not run | not run | not run | — |
 | **mlx-metal** | not run | not run | not run | not run | not run | not run | not run | — |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | — |

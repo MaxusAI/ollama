@@ -25,7 +25,10 @@ ADMISSION = re.compile(r'msg="MLX admission priced the context rung" model=(\S+)
 PEAK = re.compile(r'msg="peak memory" size="([^"]+)"')
 # Runners from v0.34.1 (scoped array lifetimes) log one line per request instead: its peak, and `held`, MLX's active
 # memory after the request's scope ended and the cache was cleared. The per-array listing and its totals are gone.
-MEMORY = re.compile(r'msg="memory" peak="([^"]+)" held="([^"]+)"')
+# slog's text handler quotes a value only when it needs to: the message is written as msg=memory, the byte
+# figures ("14.27 GiB") carry a space and are quoted. The first real runner log (gate C of the 0.34.1 fold) showed
+# msg=memory unquoted, which the quoted-only form missed; both are accepted.
+MEMORY = re.compile(r'msg="?memory"? peak="([^"]+)" held="([^"]+)"')
 SPEC = re.compile(r'speculative decode stats" iterations=(\d+) drafted=(\d+) accepted=(\d+) .*?avg_draft=([\d.]+) max_draft=(\d+)')
 TOTALS = re.compile(r'msg="tensors total: (\d+), size: ([^,]+), active: ([^"]+)"')
 TENSOR = re.compile(r'msg="tensor (?P<name>.*?)\s+(?P<dtype>\S+)\s+(?P<size>[\d.]+ ?[KMGT]?i?B)\s+pinned=(?P<pinned>\d+) \[(?P<dims>[^\]]*)\]')
