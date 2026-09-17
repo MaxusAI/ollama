@@ -1902,6 +1902,19 @@ class TestRunnerLogSummarizers(unittest.TestCase):
         self.assertIn("req  2: peak 9.50 GiB | held 20.42 GiB, step +0.42 GiB", out)
         self.assertNotIn("untracked", out)
 
+    def test_retained_memory_subtracts_the_trie_when_its_line_is_logged(self):
+        """With OLLAMA_DEBUG=2 the 0.34.1 runner still logs the trie's accounting line, so held − trie is the weights
+        plus whatever nothing tracks, and its step is the leak rate with the trie's growth removed. Here held grows
+        0.60 GiB a request while the trie grows 0.50: the residual step, +0.10 GiB, is the figure that matters."""
+        trie = ('time=T level=TRACE source=prefix_cache.go:793 msg="prefix cache active_tokens: %d, active_size: %s, '
+                'paged_out: 0 B, trie: nodes=%d, snapshots=%d"\n')
+        text = (_ADMIT % "alpha:1b"
+                + _COMPLETION + trie % (100, "1.00 GiB", 2, 1) + _MEMORY % ("9.00 GiB", "20.00 GiB")
+                + _COMPLETION + trie % (200, "1.50 GiB", 3, 2) + _MEMORY % ("9.50 GiB", "20.60 GiB"))
+        out = self._run(summarize_retained_memory, [_log(os.path.join(self.dir, "r.log"), text), "--top", "0"])
+        self.assertIn("req  1: peak 9.00 GiB | held 20.00 GiB | trie 1.00 GiB | held−trie 19.00 GiB", out)
+        self.assertIn("req  2: peak 9.50 GiB | held 20.60 GiB, step +0.60 GiB | trie 1.50 GiB | held−trie 19.10 GiB, step +0.10 GiB", out)
+
     def test_retained_memory_reports_the_gap_with_its_sign(self):
         text = _ADMIT % "alpha:1b" + _request(totals=(2, "3.00 GiB", "4.50 GiB"), peak="9.00 GiB")
         out = self._run(summarize_retained_memory, [_log(os.path.join(self.dir, "r.log"), text), "--top", "0"])

@@ -43,6 +43,7 @@ def main():
     model = args[1] if len(args) > 1 else None
     top, shape, unnamed = int(flag("--top", 4)), flag("--shape"), "--unnamed" in sys.argv
     last_held = {}
+    last_resid = {}
     for r in runnerlog.iter_requests(path, model=model, shapes=bool(shape) or top > 0, named=not unnamed):
         peak = runnerlog.gib(r.peak)
         if r.held is not None:
@@ -50,7 +51,16 @@ def main():
             prev = last_held.get(r.model)
             last_held[r.model] = held
             step = f", step {held - prev:+.2f} GiB" if prev is not None else ""
-            print(f"{r.model} req {r.index:2d}: peak {peak:.2f} GiB | held {held:.2f} GiB{step}")
+            trie = ""
+            if r.trie_active is not None:
+                # With the trie's own accounting line (trace level) the residual held − trie is the weights plus
+                # whatever nothing tracks; its step between requests is the leak rate with the trie's growth removed.
+                resid = held - runnerlog.gib(r.trie_active)
+                rprev = last_resid.get(r.model)
+                last_resid[r.model] = resid
+                rstep = f", step {resid - rprev:+.2f} GiB" if rprev is not None else ""
+                trie = f" | trie {runnerlog.gib(r.trie_active):.2f} GiB | held−trie {resid:.2f} GiB{rstep}"
+            print(f"{r.model} req {r.index:2d}: peak {peak:.2f} GiB | held {held:.2f} GiB{step}{trie}")
             continue
         if shape:
             dt, _, dims = shape.partition(" ")

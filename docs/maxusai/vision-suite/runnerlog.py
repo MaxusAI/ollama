@@ -67,7 +67,8 @@ class Request:
         self.arrays = None          # live tracked arrays at teardown (trace)
         self.tracked = None         # bytes summed over those arrays (trace)
         self.active = None          # bytes MLX reports as active (trace)
-        self.paged_out = None       # bytes the prefix-cache trie holds (trace)
+        self.trie_active = None     # bytes the prefix-cache trie holds in memory (trace)
+        self.paged_out = None       # bytes the prefix-cache trie has paged out (trace)
         self.trie_nodes = None
         self.trie_snapshots = None
         self.active_tokens = None
@@ -138,6 +139,7 @@ def iter_requests(path, model=None, shapes=False, named=True):
             m = TRIE.search(line)
             if m:
                 req.active_tokens = int(m.group(1))
+                req.trie_active = bytes_of(m.group(2))
                 req.paged_out = bytes_of(m.group(3))
                 req.trie_nodes, req.trie_snapshots = int(m.group(4)), int(m.group(5))
                 continue
