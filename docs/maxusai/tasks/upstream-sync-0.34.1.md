@@ -104,28 +104,13 @@ Three files of ours used it; everything else was upstream-owned and came rewritt
 
 ## Fork against upstream v0.34.1
 
-What the fork carries on top of the tag, from `git diff v0.34.1 task/upstream-sync-0.34.1` (the merge-base with
-`upstream/main` is the tag itself, so every line here is fork-authored). 425 files, +91,641/−2,696; outside
-`docs/maxusai`, 123 files, +21,874/−2,696.
-
-| area | files | +/− | what the fork carries | record |
-|---|---|---|---|---|
-| `llama/compat/` patch series | 6 + README | +451/−14 | 002 nemotron dynres · 004 gemma4 budget fill (re-cut for b10864) · 005 dynres pinned overshoot · 801 clip node-stats meter · 903 MMQ ids padding | dynres task docs, ADR 0021 |
-| `llm/` llama-server launcher | 4 | +1,360/−78 | `applyArchServerEnvs`: f32 cuBLAS gate for qwen25vl · `visionServerArgs`: per-arch image-token flags, the gemma4 ladder · WebP transcode · K/V cache-type syntax · pass-one phase runner · tests | #214, ADR 0008 |
-| `server/` | 11 | +3,494/−238 | pass-one metrics and the second pass pinned to pass one's truncation window · media charged against capabilities up front · `sched`: leaf `logMu`, head-of-line and evict-all-wait fixes · capability rules for MLX arches · tests | ADR 0004, 0010 |
-| `api/` | 1 | +33 | `ImageMinTokens` / `ImageMaxTokens`, defaults 70 / 1120 | ADR 0008 |
-| `x/mlxrunner/` core | 23 | +2,776/−69 | admission prices the rung · MLX memory-limit and cache-limit knobs · `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR` · stop sequences · `unwind.go` / `guardClose` · the media budget on MLX · paged-out snapshot accounting · vision goldens and e2e · recover / cancel / env / format / budget tests | ADR 0033, 0034, 0021 |
-| `x/mlxrunner/kvsize/` | 9 | +3,785 | per-architecture KV pricing at a context rung, with config testdata | ADR 0034 |
-| `x/mlxrunner/mlx/` bindings | 4 | +150/−1 | memory- and cache-limit calls, `ops_extra`, CMake RPATH and git-describe stamp | |
-| `x/mlxrunner/bench/qqmm` | 3 | +653 | NVFP4 × bf16 mixed-input GEMM bench | sm120 work |
-| `x/mlxrunner/testdata` | 5 | +664 | vision goldens (12b, 26b, 26b-bf16, 31b) and their generator | |
-| `x/models/gemma4/` | 10 | +1,523/−2,271 | the fork's gemma4 MLX vision with the per-request image budget; upstream's audio and vision tower excluded | D1-A (0.33.3), ADR 0021 |
-| `x/models/qwen3_5`, `glimmer` | 4 | +70/−15 | image-processing and media tweaks | |
-| `x/structured/` | 11 | +3,829 | pure-Go constrained sampling — **unreferenced since ADR 0033 adopted upstream's engine; dead code, Glenn's call** | ADR 0009, 0013, 0033 |
-| `model/parsers`, `model/renderers`, `x/tokenizer` | 8 | +193 | nemotron3nano and qwen35 parser fixes, qwen3.8 effort test, special-token handling | |
-| build: `Dockerfile` (+21), `Dockerfile.applearm`, `Dockerfile.gemma4budget`, `cmake/mlx`, `x/mlxrunner/mlx/CMakeLists`, `.gitignore` | 6 | ~+250 | the MLX payload's library bundling and `$ORIGIN` RPATH, the MLX version stamp, the ARM and patched-overlay build files | |
-| CI: `.github/workflows` | 5 | +368/−7 | Darwin MLX payload cache keyed on every payload input · UI tests · preflight-expectations workflow · llama.cpp-update test · release and latest tweaks | |
-| docs and harness: `docs/maxusai` (302 files), `docs/design`, `docs/superpowers`, `AGENTS.md`, `README.md`, `.claude/skills` | 310 | ~+72,000 | ADRs 0001–0035, the vision suite, preflight and generators, campaign records, task docs, the gemma4 budget design | ADR 0012, 0028 |
+The capability-level table — what the fork does that upstream does not, one row per capability, measured against
+upstream v0.34.1 at llama.cpp b10864 — is the README's "What differs from upstream, concretely", rewritten in this
+fold. This section only sizes the divergence for the merge: `git diff v0.34.1 task/upstream-sync-0.34.1` is 425
+files, +91,641/−2,696; outside `docs/maxusai`, 123 files, +21,874/−2,696. The merge-base with `upstream/main` is the
+tag itself, so all of it is fork-authored. The largest non-docs areas are `x/mlxrunner` (23 files), `server` (11),
+`x/structured` (11, +3,829 — **no importers since ADR 0033; dead code, Glenn's call**), `x/models/gemma4` (10, our
+vision with upstream's tower excluded), `x/mlxrunner/kvsize` (9), `llama/compat` (6 patches), `llm` (4).
 
 ## The gemma4 image-token limits (Glenn's question, 2026-09-17)
 
