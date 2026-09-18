@@ -196,7 +196,9 @@ first is image accounting and the second is generation length.
   request leaves behind at teardown, trace level only: the arrays the runner tracks against MLX's own active
   figure. The `untracked` column is the one to read — memory MLX holds that no tracked array accounts for is
   invisible to the admission headroom and to the trie's byte cap, so a figure that grows request after request is a
-  leak in everything that prices memory.
+  leak in everything that prices memory. Runners from v0.34.1 (scoped array lifetimes) log no per-array listing;
+  there it prints `held` — MLX's active memory once the request's scope ended and the cache was cleared — and its
+  step from the previous request, which carries the same signal.
 - `summarize_output_lengths.py [--dir RUNDIR] <prefix-a> <prefix-b> <model…>` — which tests answered differently
   between two campaigns, by `eval_count` and `answer_chars`. Read in one direction only: equal lengths do not prove
   equal text, different lengths do prove different text. That makes it a noise floor — two runs of one build

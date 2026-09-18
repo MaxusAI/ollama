@@ -90,7 +90,8 @@ func TestVisionGoldenParity(t *testing.T) {
 		t.Skipf("MLX not available: %v", err)
 	}
 	defer worker.Stop(context.Background(), func() {
-		mlx.Sweep()
+		// Scoped lifetimes (v0.34.1): the runner's arrays live in held scopes
+		// that Close releases; only the allocator's free pool is left to clear.
 		mlx.ClearCache()
 	})
 

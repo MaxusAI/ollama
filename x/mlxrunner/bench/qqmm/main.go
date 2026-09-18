@@ -156,59 +156,60 @@ func main() {
 	var results []result
 	for _, sh := range shapes {
 		fmt.Print(shapeHeader(sh, time.Now()))
-		w32 := mlx.FromValues(randn(rng, sh.n*sh.k, 0.02), sh.n, sh.k)
-		wbf := w32.AsType(mlx.DTypeBFloat16)
-		wq, ws, wb := mlx.Quantize(wbf, groupSize, bits, mode)
-		w32T := w32.Transpose(1, 0)
-		wbfT := wbf.Transpose(1, 0)
-		mlx.Eval(w32, wbf, wq, ws)
-		mlx.Pin(w32, wbf, wq, ws, wb, w32T, wbfT)
-		mlx.Sweep()
-		fmt.Printf("   quantized w: %v %v, scales %v %v\n", wq.Dims(), wq.DType(), ws.Dims(), ws.DType())
+		// Scoped lifetimes (v0.34.1): a function scope frees what was built in it
+		// when it ends, so the weights live for this shape and each m's inputs
+		// for their own loop, with nothing pinned or swept by hand. measure's
+		// per-call scopes free what each timed call builds.
+		mlx.Scoped(func() {
+			w32 := mlx.FromValues(randn(rng, sh.n*sh.k, 0.02), sh.n, sh.k)
+			wbf := w32.AsType(mlx.DTypeBFloat16)
+			wq, ws, wb := mlx.Quantize(wbf, groupSize, bits, mode)
+			w32T := w32.Transpose(1, 0)
+			wbfT := wbf.Transpose(1, 0)
+			mlx.Eval(w32, wbf, wq, ws)
+			fmt.Printf("   quantized w: %v %v, scales %v %v\n", wq.Dims(), wq.DType(), ws.Dims(), ws.DType())
 
-		for _, m := range ms {
-			x32 := mlx.FromValues(randn(rng, m*sh.k, 1.0), m, sh.k)
-			xbf := x32.AsType(mlx.DTypeBFloat16)
-			ref := mlx.Matmul(x32, w32T) // fp32 product with the unquantized weights
-			mlx.Eval(x32, xbf, ref)
-			mlx.Pin(x32, xbf, ref)
-			mlx.Sweep()
+			for _, m := range ms {
+				mlx.Scoped(func() {
+					x32 := mlx.FromValues(randn(rng, m*sh.k, 1.0), m, sh.k)
+					xbf := x32.AsType(mlx.DTypeBFloat16)
+					ref := mlx.Matmul(x32, w32T) // fp32 product with the unquantized weights
+					mlx.Eval(x32, xbf, ref)
 
-			for _, method := range methods {
-				var f func() *mlx.Array
-				switch method {
-				case "bf16":
-					f = func() *mlx.Array { return mlx.Matmul(xbf, wbfT) }
-				case "qmm":
-					f = func() *mlx.Array {
-						return mlx.QuantizedMatmul(xbf, wq, ws, wb, true, groupSize, bits, mode)
+					for _, method := range methods {
+						var f func() *mlx.Array
+						switch method {
+						case "bf16":
+							f = func() *mlx.Array { return mlx.Matmul(xbf, wbfT) }
+						case "qmm":
+							f = func() *mlx.Array {
+								// The trailing nil is the global scale MLX-C gained with the qmm carry patch (v0.34.1).
+								return mlx.QuantizedMatmul(xbf, wq, ws, wb, true, groupSize, bits, mode, nil)
+							}
+						case "qqmm":
+							f = func() *mlx.Array { return mlx.QQMM(xbf, wq, ws, groupSize, bits, mode, nil, nil) }
+						case "dequant":
+							f = func() *mlx.Array {
+								w := mlx.Dequantize(wq, ws, wb, groupSize, bits, mode, nil).AsType(mlx.DTypeBFloat16)
+								return mlx.Matmul(xbf, w.Transpose(1, 0))
+							}
+						default:
+							fmt.Fprintln(os.Stderr, "unknown method", method)
+							os.Exit(2)
+						}
+						r := result{Preset: sh.preset, Proj: sh.name, M: m, K: sh.k, N: sh.n, Method: method}
+						measure(&r, f, ref, *warmup, *iters)
+						r.PeakGiB = float64(mlx.PeakMemory()) / (1 << 30)
+						results = append(results, r)
+						printRow(r)
+						if sink != nil {
+							b, _ := json.Marshal(r)
+							fmt.Fprintln(sink, string(b))
+						}
 					}
-				case "qqmm":
-					f = func() *mlx.Array { return mlx.QQMM(xbf, wq, ws, groupSize, bits, mode, nil, nil) }
-				case "dequant":
-					f = func() *mlx.Array {
-						w := mlx.Dequantize(wq, ws, wb, groupSize, bits, mode, nil).AsType(mlx.DTypeBFloat16)
-						return mlx.Matmul(xbf, w.Transpose(1, 0))
-					}
-				default:
-					fmt.Fprintln(os.Stderr, "unknown method", method)
-					os.Exit(2)
-				}
-				r := result{Preset: sh.preset, Proj: sh.name, M: m, K: sh.k, N: sh.n, Method: method}
-				measure(&r, f, ref, *warmup, *iters)
-				r.PeakGiB = float64(mlx.PeakMemory()) / (1 << 30)
-				results = append(results, r)
-				printRow(r)
-				if sink != nil {
-					b, _ := json.Marshal(r)
-					fmt.Fprintln(sink, string(b))
-				}
+				})
 			}
-			mlx.Unpin(x32, xbf, ref)
-			mlx.Sweep()
-		}
-		mlx.Unpin(w32, wbf, wq, ws, wb, w32T, wbfT)
-		mlx.Sweep()
+		})
 		mlx.ClearCache()
 		fmt.Printf("   device peak so far %.2f GiB (active now %.2f GiB)\n", float64(mlx.PeakMemory())/(1<<30), float64(mlx.ActiveMemory())/(1<<30))
 	}
@@ -225,15 +226,16 @@ func measure(r *result, f func() *mlx.Array, ref *mlx.Array, warmup, iters int) 
 			if r.EndUnixMs == 0 { // the window ends where the failing call did
 				r.EndUnixMs = time.Now().UnixMilli()
 			}
-			mlx.Sweep()
 		}
 	}()
 	call := func() float64 {
-		t0 := time.Now()
-		out := f()
-		mlx.Eval(out)
-		d := time.Since(t0)
-		mlx.Sweep()
+		var d time.Duration
+		mlx.Scoped(func() {
+			t0 := time.Now()
+			out := f()
+			mlx.Eval(out)
+			d = time.Since(t0)
+		})
 		return float64(d.Nanoseconds()) / 1e6
 	}
 	ts := timeCalls(r, call, warmup, iters, time.Now)
@@ -244,13 +246,14 @@ func measure(r *result, f func() *mlx.Array, ref *mlx.Array, warmup, iters int) 
 	r.TFLOPS = 2 * float64(r.M) * float64(r.N) * float64(r.K) / (r.MedianMs / 1e3) / 1e12
 
 	// Error against the fp32 reference, computed on the device.
-	out := f().AsType(mlx.DTypeFloat32)
-	diff := out.Subtract(ref)
-	num := mlx.Sum(mlx.Reshape(diff.Multiply(diff), -1), 0, false).Float()
-	den := mlx.Sum(mlx.Reshape(ref.Multiply(ref), -1), 0, false).Float()
-	r.RelRMS = math.Sqrt(float64(num) / math.Max(float64(den), 1e-30))
-	r.MaxAbs = float64(mlx.Reshape(diff.Abs(), -1).MaxAxis(0, false).Float())
-	mlx.Sweep()
+	mlx.Scoped(func() {
+		out := f().AsType(mlx.DTypeFloat32)
+		diff := out.Subtract(ref)
+		num := mlx.Sum(mlx.Reshape(diff.Multiply(diff), -1), 0, false).Float()
+		den := mlx.Sum(mlx.Reshape(ref.Multiply(ref), -1), 0, false).Float()
+		r.RelRMS = math.Sqrt(float64(num) / math.Max(float64(den), 1e-30))
+		r.MaxAbs = float64(mlx.Reshape(diff.Abs(), -1).MaxAxis(0, false).Float())
+	})
 }
 
 // timeCalls makes warmup untimed calls, the first reported as FirstMs, then

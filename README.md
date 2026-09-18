@@ -17,17 +17,19 @@
 >   and env-gated node-level instrumentation, run against every build before
 >   it deploys.
 > - **Fixes carried until upstream takes them**, each tracked against an
->   upstream issue or PR, and deleted from here when it lands there.
+>   upstream issue or PR, and deleted from here when it lands there — the
+>   [retirement register](docs/maxusai/retirement-register.md) lists every
+>   carried item, what retires it, and the test that gates its deletion.
 > - An experimental MLX runtime for Apple Silicon and CUDA — see the caveats
 >   below before using it for anything that matters.
 >
-> **Current fold:** [`v0.33.3-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.33.3-dynres)
-> — upstream v0.33.3, llama.cpp `b10760`, MLX `37c26e57`. `main` moves ahead of this between
+> **Current fold:** [`v0.34.1-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.34.1-dynres)
+> — upstream v0.34.1, llama.cpp `b10864`, MLX `d9add9d1`. `main` moves ahead of this between
 > folds; the tag is the fixed point to build and roll back to.
-> **Deployed:** [`v0.33.2-dynres.1`](https://github.com/MaxusAI/ollama/tree/v0.33.2-dynres.1)
-> (`2b95b4a5`, the fold plus #233/#234/#235/#238, stamped
-> `0.33.2-dynres-5-g2b95b4a` — same payload; ADR 0032 amendment).
->
+> **Deployed:** [`v0.34.0-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.34.0-dynres),
+> stamped `0.34.0-dynres-0-gcf2ad41`, on the CUDA host since 2026-09-14. The v0.34.1 candidate
+> (`0.34.0-dynres-6-gfb18f5c`) passed its gates on 2026-09-18 and is not deployed yet.
+
 > Fork builds are stamped `<upstream-version>-dynres-<n>-g<sha>`; `dynres`
 > names the change that started the fork, not the company that runs it.
 > Fork-specific documentation, ADRs and measurements live in
@@ -45,7 +47,7 @@
 
 | surface | Build identity | Image size ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|
-| **cuda** | green | green | green | green | skipped | green | green | `0.33.3-dynres-0-g0c4f09d` |
+| **cuda** | green | green | green | green | skipped | green | green | `0.34.0-dynres-6-gfb18f5c` |
 | **mlx-cuda** | not run | not run | not run | not run | not run | not run | not run | — |
 | **mlx-metal** | not run | not run | not run | not run | not run | not run | not run | — |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | — |
@@ -60,17 +62,48 @@ deprecated alias for `mlx-metal` and will disappear from the generator with it.
 
 ### What differs from upstream, concretely
 
-Measured against upstream ollama at llama.cpp `b10630`, the pin this fork
-currently builds.
+Measured against upstream ollama v0.34.1 at llama.cpp `b10864`. Every row is a
+capability the fork has and upstream does not; the record column is where the
+decision and its measurements live (`docs/maxusai/`).
 
-| | upstream ollama | this fork |
+**Vision correctness on the llama.cpp path — the deployed engine**
+
+| | upstream ollama | this fork | record |
+|---|---|---|---|
+| **nemotron-3 vision** | fixed 512×512 canvas — **256 tokens per image**, whatever the aspect ratio | native-aspect dynamic resolution, **256–3,328 tokens**, position embeddings interpolated to the patch grid in-graph | patch `002`, ADR 0001 |
+| **gemma4 image budget** | default limits **70–1,120 tokens** (40–280 before b10864); an under-budget image keeps its natural rounded grid and is letterbox-padded | every image scaled to *fill* the requested budget and snapped to gemma4's supported ladder (70/140/280/560/1120), never padded — off-ladder grids measurably break `box_2d` vertical grounding. The budget is a per-request option (`image_min_tokens`/`image_max_tokens`, defaults 70/1120) and the scheduler reloads when the resolved flags change. Upstream has since adopted the same default limits; the fill is still fork-only | patch `004`, ADR 0003/0008/0016 |
+| **qwen2.5-vl on CUDA** | f16 vision matmuls accumulate in fp16; on some ordinary images a few elements of millions reach `inf` at `v.blk.31.ffn_down` and the caption collapses into one repeated glyph | fp32 accumulation forced for every `qwen25vl` runner, keyed on the GGUF architecture. Offered upstream as [ollama#18070](https://github.com/ollama/ollama/pull/18070) | `llm/llama_server.go` |
+| **MoE + MMQ on CUDA** | ids-path tail padding sized from `ne11`; under broadcast `ne11 == 1`, so the buffer gets no padding and the kernel overruns by up to a 512-row tile | padding sized from the flattened row count. Reported as [llama.cpp#27044](https://github.com/ggml-org/llama.cpp/issues/27044) | patch `903` |
+| **transparent images** | pixels as decoded | composited over white before the resize, matching the mlx-vlm reference | ADR 0015 |
+
+**Structured output and generation control**
+
+| | upstream ollama | this fork | record |
+|---|---|---|---|
+| **`think` + `format` in one request** | defers the grammar until the thinking→content transition and folds pass-one metrics into the final response | the same, plus: a model with a known think-close marker stops pass one exactly there and continues textually, so runaway thinking cannot burn the budget; pass-one metrics are reconstructed when a runner does not report them; the second pass is pinned to pass one's truncation window | ADR 0002/0004/0010 |
+| **drafting under a grammar (MLX)** | always on | on by default to match upstream; `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` restores the gate | ADR 0033 |
+| **stop sequences (MLX)** | not honoured by the MLX runner | honoured, with a possible stop prefix held back until it matches or the stream ends | `x/mlxrunner/stopper.go` |
+| **KV cache type** | one global `OLLAMA_KV_CACHE_TYPE` | per model, with K/V pair syntax and a policy for reasoning models | ADR 0005 |
+
+**Serving and scheduling**
+
+| | upstream ollama | this fork | record |
+|---|---|---|---|
+| **MLX admission** | weights against free device memory (and, since v0.34.1, a system-memory bound on integrated GPUs) | weights + KV priced at the requested `num_ctx` + a per-architecture headroom; an explicit rung that does not fit is refused, an automatic one is clamped | ADR 0034 |
+| **MLX memory ceiling** | none | `OLLAMA_MLX_MEMORY_LIMIT` and a cache limit, set per runner from the admitted budget | runner knobs |
+| **gemma4 on MLX** | upstream's own vision and audio tower with a fixed per-checkpoint soft-token set, no per-request budget | vision through upstream's `MediaModel` with a per-request budget seam; audio not shipped | ADR 0021 |
+| **media prompts on MLX** | — | prefill chunks span-aligned around image blocks; a late image is refused | ADR 0014 |
+| **scheduler** | — | log sites never drop fields under contention; head-of-line and evict-all-wait fixes; attached media charged against capabilities before the load; capability advertising corrected for MLX architectures | `server/sched.go`, `images.go` |
+| **panic hygiene (MLX)** | — | a cleanup that fails while a request is unwinding never replaces the panic that caused it | `x/mlxrunner/unwind.go` |
+
+**Measurement — nothing comparable upstream**
+
+| | this fork | record |
 |---|---|---|
-| **nemotron-3 vision** | fixed 512×512 canvas — **256 tokens per image**, whatever the aspect ratio | native-aspect dynamic resolution, **256–3328 tokens**, position embeddings interpolated to the patch grid in-graph (`002`) |
-| **gemma4 image sizing** | **caps at 280 tokens**; an under-budget image keeps its natural rounded grid and is letterbox-padded | every image scaled to *fill* the budget and snapped to gemma4's supported ladder (70/140/280/560/1120), never padded (`004`). Off-ladder grids measurably break `box_2d` vertical grounding |
-| **qwen2.5-vl on CUDA** | f16 vision matmuls accumulate in fp16; on some ordinary images a few elements of millions reach `inf` at `v.blk.31.ffn_down` and the caption collapses into one repeated glyph | fp32 accumulation forced for `qwen25vl` runners. Offered upstream as [ollama#18070](https://github.com/ollama/ollama/pull/18070) |
-| **MoE + MMQ on CUDA** | ids-path tail padding sized from `ne11`; under broadcast `ne11 == 1`, so the buffer gets no padding and the kernel overruns by up to a 512-row tile | padding sized from the flattened row count (`903`). Reported as [llama.cpp#27044](https://github.com/ggml-org/llama.cpp/issues/27044) |
-| **Bounding boxes** | no coordinate contract — a caller must trust whatever frame the model declares, which is what fails: pinned to `real` pixels, qwen3.6 converts **1 of 14** geometries | requests pin **norm-1000** and the space is derived from the response, never from a declared `ref_size`, so the model's internal resize cannot contaminate coordinates. **111 of 112** cells convert cleanly across 14 geometries × 4 models × 2 think modes (ADR 0027/0030, SPEC C13–C18). A protocol and its conformance measurements, not a runtime change |
-| **Vision regression testing** | none in-tree | preflight harness with recorded per-model expectations, generated (public) trigger images, and an env-gated node meter (`801`), run before every deploy |
+| **vision regression suite** | preflight with versioned per-model expectations, generated (public, no-download) trigger images, an env-gated node-level meter, and a generated release matrix — run before every deploy | ADR 0011/0012, patch `801` |
+| **campaigns** | five report templates rendered only by generators; per-request memory and drafting analysis; bbox conformance scoped to image geometry | ADR 0012/0028/0030 |
+| **bounding-box protocol** | requests pin **norm-1000** and carry a self-calibrating anchor, so the model's internal resize cannot contaminate coordinates: **111 of 112** cells convert cleanly across 14 geometries × 4 models × 2 think modes. A protocol and its measurements, not a runtime change | ADR 0027/0030 |
+| **fork identity** | builds stamped `<upstream>-dynres-<n>-g<sha>`, a tag per fold, release notes carrying the generated matrix | ADR 0032 |
 
 ### MLX runtime — experimental, and slower on CUDA
 

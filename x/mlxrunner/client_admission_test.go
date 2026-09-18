@@ -77,7 +77,7 @@ func TestLadderRungsAdmitDifferently(t *testing.T) {
 	gpus := gpuWith((needs[1] + needs[2]) / 2)
 	for i, rung := range admissionLadder {
 		c.softContextLength.Store(int64(rung))
-		_, err := c.admit(gpus, false)
+		_, err := c.admit(ml.SystemInfo{}, gpus, false)
 		if i < 2 {
 			if err != nil {
 				t.Errorf("num_ctx %d needs %s and must still admit: %v", rung, format.HumanBytes2(needs[i]), err)
@@ -104,11 +104,11 @@ func TestExplicitRungThatDoesNotFitIsRefused(t *testing.T) {
 	need, kv, headroom, _ := c.needFor(weights, 65536)
 	gpus := gpuWith(need - 1)
 
-	if _, err := c.admit(gpus, true); !errors.Is(err, llm.ErrLoadRequiredFull) {
+	if _, err := c.admit(ml.SystemInfo{}, gpus, true); !errors.Is(err, llm.ErrLoadRequiredFull) {
 		t.Errorf("requireFull: got %v, want ErrLoadRequiredFull so the scheduler can evict and retry", err)
 	}
 
-	_, err := c.admit(gpus, false)
+	_, err := c.admit(ml.SystemInfo{}, gpus, false)
 	if err == nil {
 		t.Fatal("expected a refusal")
 	}
@@ -142,7 +142,7 @@ func TestAutomaticRungIsClampedNotRefused(t *testing.T) {
 	need64k, _, _, _ := c.needFor(weights, 65536)
 	gpus := gpuWith((need32k + need64k) / 2)
 
-	if _, err := c.admit(gpus, false); err != nil {
+	if _, err := c.admit(ml.SystemInfo{}, gpus, false); err != nil {
 		t.Fatalf("an automatic rung must clamp, not refuse: %v", err)
 	}
 	if got := c.reportedContextLength(0); got != 32768 {
@@ -158,7 +158,7 @@ func TestAutomaticRungAdmitsOnWeightsWhenNothingFits(t *testing.T) {
 	c := admissionClient(weights, fakeEstimate(64<<10), 262144, true)
 
 	// Room for the weights and nothing more.
-	if _, err := c.admit(gpuWith(weights), false); err != nil {
+	if _, err := c.admit(ml.SystemInfo{}, gpuWith(weights), false); err != nil {
 		t.Fatalf("weights fit, so an automatic rung must admit: %v", err)
 	}
 	if got := c.reportedContextLength(0); got != autoContextFloor {
@@ -166,7 +166,7 @@ func TestAutomaticRungAdmitsOnWeightsWhenNothingFits(t *testing.T) {
 	}
 
 	// Weights that genuinely do not fit are still a physical shortfall.
-	if _, err := c.admit(gpuWith(weights-1), true); !errors.Is(err, llm.ErrLoadRequiredFull) {
+	if _, err := c.admit(ml.SystemInfo{}, gpuWith(weights-1), true); !errors.Is(err, llm.ErrLoadRequiredFull) {
 		t.Errorf("weights alone over the card: got %v, want ErrLoadRequiredFull", err)
 	}
 }
@@ -184,7 +184,7 @@ func TestOperatorCapCoversTheContextRung(t *testing.T) {
 	t.Setenv(MemoryLimitEnv, strconv.FormatUint(need-1, 10))
 	gpus := gpuWith(need + (10 << 30))
 
-	_, err := c.admit(gpus, true)
+	_, err := c.admit(ml.SystemInfo{}, gpus, true)
 	if err == nil {
 		t.Fatal("expected a refusal from the operator cap")
 	}
@@ -208,11 +208,11 @@ func TestUnknownArchitectureKeepsWeightsOnlyAdmission(t *testing.T) {
 
 	for _, rung := range admissionLadder {
 		c := admissionClient(weights, unknown, rung, false)
-		if _, err := c.admit(gpuWith(weights), false); err != nil {
+		if _, err := c.admit(ml.SystemInfo{}, gpuWith(weights), false); err != nil {
 			t.Errorf("num_ctx %d: weights fit exactly, so an unpriced arch must admit: %v", rung, err)
 		}
 		c = admissionClient(weights, unknown, rung, false)
-		_, err := c.admit(gpuWith(weights-1), false)
+		_, err := c.admit(ml.SystemInfo{}, gpuWith(weights-1), false)
 		if err == nil {
 			t.Errorf("num_ctx %d: weights over the card must still refuse", rung)
 			continue
@@ -224,7 +224,7 @@ func TestUnknownArchitectureKeepsWeightsOnlyAdmission(t *testing.T) {
 
 	// A client built with no readable config behaves the same way.
 	c := admissionClient(weights, nil, 65536, false)
-	if _, err := c.admit(gpuWith(weights), false); err != nil {
+	if _, err := c.admit(ml.SystemInfo{}, gpuWith(weights), false); err != nil {
 		t.Errorf("no estimator at all must admit exactly as before: %v", err)
 	}
 }

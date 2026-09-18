@@ -18,7 +18,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/ollama/ollama/api"
-	"github.com/ollama/ollama/fs/ggml"
+	"github.com/ollama/ollama/fs/gguf"
+	gguftest "github.com/ollama/ollama/internal/testutil/gguf"
 	"github.com/ollama/ollama/llm"
 	"github.com/ollama/ollama/manifest"
 	"github.com/ollama/ollama/ml"
@@ -104,12 +105,36 @@ func (mockRunner) Tokenize(_ context.Context, s string) (tokens []int, err error
 		tokens = append(tokens, len(tokens))
 	}
 
-	return
+	return tokens, err
 }
 
 func (mockRunner) Ping(_ context.Context) error { return nil }
 
 func (m mockRunner) ContextLength() int { return m.contextLength }
+
+func TestLlamaServerConfigForModelSplitPaths(t *testing.T) {
+	m := &Model{
+		Digest:          strings.Repeat("a", 64),
+		DraftPath:       "draft-00001-of-00002.gguf",
+		DraftShardPaths: []string{"draft-00002-of-00002.gguf"},
+	}
+
+	got := llamaServerConfigForModel(m)
+	if got.ManifestDigest != m.Digest {
+		t.Fatalf("manifest digest = %q, want %q", got.ManifestDigest, m.Digest)
+	}
+	if got.DraftModelPath != m.DraftPath {
+		t.Fatalf("draft model path = %q, want %q", got.DraftModelPath, m.DraftPath)
+	}
+	if !slices.Equal(got.DraftModelShardPaths, m.DraftShardPaths) {
+		t.Fatalf("draft shard paths = %q, want %q", got.DraftModelShardPaths, m.DraftShardPaths)
+	}
+
+	got.DraftModelShardPaths[0] = "changed"
+	if m.DraftShardPaths[0] == "changed" {
+		t.Fatal("llama-server config aliases model shard slices")
+	}
+}
 
 func TestOptionsForPromptUsesEffectiveContextLength(t *testing.T) {
 	opts := &api.Options{Runner: api.Runner{NumCtx: 4096}}
@@ -135,8 +160,8 @@ func TestOptionsForPromptLeavesLargerRunnerContext(t *testing.T) {
 	}
 }
 
-func newMockServer(mock *mockRunner) func(ml.SystemInfo, []ml.DeviceInfo, string, *ggml.GGML, []string, []string, api.Options, int, llm.LlamaServerConfig) (llm.LlamaServer, error) {
-	return func(_ ml.SystemInfo, _ []ml.DeviceInfo, _ string, _ *ggml.GGML, _, _ []string, _ api.Options, _ int, _ llm.LlamaServerConfig) (llm.LlamaServer, error) {
+func newMockServer(mock *mockRunner) func(ml.SystemInfo, []ml.DeviceInfo, string, *gguf.Model, []string, []string, api.Options, int, llm.LlamaServerConfig) (llm.LlamaServer, error) {
+	return func(_ ml.SystemInfo, _ []ml.DeviceInfo, _ string, _ *gguf.Model, _, _ []string, _ api.Options, _ int, _ llm.LlamaServerConfig) (llm.LlamaServer, error) {
 		return mock, nil
 	}
 }
@@ -166,10 +191,10 @@ func newServerWithMockRunner(t *testing.T, mock *mockRunner) *Server {
 	return s
 }
 
-func createMinimalGGUFModel(t *testing.T, s *Server, name string, kv ggml.KV, tmpl string, info map[string]any) {
+func createMinimalGGUFModel(t *testing.T, s *Server, name string, kv gguftest.KV, tmpl string, info map[string]any) {
 	t.Helper()
 
-	base := ggml.KV{
+	base := gguftest.KV{
 		"general.architecture":          "llama",
 		"llama.block_count":             uint32(1),
 		"llama.context_length":          uint32(8192),
@@ -184,7 +209,7 @@ func createMinimalGGUFModel(t *testing.T, s *Server, name string, kv ggml.KV, tm
 		base[k] = v
 	}
 
-	_, digest := createBinFile(t, base, []*ggml.Tensor{
+	_, digest := createBinFile(t, base, []*gguftest.Tensor{
 		{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 	})
 
@@ -197,6 +222,17 @@ func createMinimalGGUFModel(t *testing.T, s *Server, name string, kv ggml.KV, tm
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200 creating model, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestModelOptionsKeepStoredTypicalP(t *testing.T) {
+	s := &Server{}
+	opts, err := s.modelOptions(&Model{Options: map[string]any{"typical_p": 0.5}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.TypicalP != 0.5 {
+		t.Fatalf("typical_p = %v, want 0.5", opts.TypicalP)
 	}
 }
 
@@ -293,7 +329,7 @@ func TestChatHandlerChatTemplateRoute(t *testing.T) {
 		},
 	}
 	s := newServerWithMockRunner(t, &mock)
-	createMinimalGGUFModel(t, s, "chat-template", ggml.KV{
+	createMinimalGGUFModel(t, s, "chat-template", gguftest.KV{
 		"tokenizer.chat_template": "{{ messages[0]['content'] }}",
 	}, "", nil)
 
@@ -354,7 +390,7 @@ func TestChatHandlerChatTemplateRouteTruncatesMessages(t *testing.T) {
 		},
 	}
 	s := newServerWithMockRunner(t, &mock)
-	createMinimalGGUFModel(t, s, "chat-template-truncate", ggml.KV{
+	createMinimalGGUFModel(t, s, "chat-template-truncate", gguftest.KV{
 		"tokenizer.chat_template": "{{ messages[0]['content'] }}",
 	}, "", nil)
 
@@ -400,7 +436,7 @@ func TestChatHandlerTemplateEnvUsesRenderedRoute(t *testing.T) {
 		},
 	}
 	s := newServerWithMockRunner(t, &mock)
-	createMinimalGGUFModel(t, s, "go-template", ggml.KV{
+	createMinimalGGUFModel(t, s, "go-template", gguftest.KV{
 		"tokenizer.chat_template": "{{ messages[0]['content'] }}",
 	}, "{{ range .Messages }}{{ .Role }}: {{ .Content }}\n{{ end }}", nil)
 
@@ -501,7 +537,7 @@ func TestGenerateHandlerChatTemplateRoute(t *testing.T) {
 			},
 		}
 		s := newServerWithMockRunner(t, &mock)
-		createMinimalGGUFModel(t, s, "generate-chat-template", ggml.KV{
+		createMinimalGGUFModel(t, s, "generate-chat-template", gguftest.KV{
 			"tokenizer.chat_template": "{{ messages[0]['content'] }}",
 		}, "", nil)
 
@@ -532,7 +568,7 @@ func TestGenerateHandlerChatTemplateRoute(t *testing.T) {
 			},
 		}
 		s := newServerWithMockRunner(t, &mock)
-		createMinimalGGUFModel(t, s, "generate-preferred-chat-template", ggml.KV{
+		createMinimalGGUFModel(t, s, "generate-preferred-chat-template", gguftest.KV{
 			"tokenizer.chat_template": "{% if tools %}{{ tools }}{% endif %}{{ messages[0]['content'] }}",
 		}, "{{ range .Messages }}go-template: {{ .Content }}{{ end }}", nil)
 
@@ -603,7 +639,7 @@ func TestGenerateHandlerChatTemplateRoute(t *testing.T) {
 			},
 		}
 		s := newServerWithMockRunner(t, &mock)
-		createMinimalGGUFModel(t, s, "generate-chat-template-context", ggml.KV{
+		createMinimalGGUFModel(t, s, "generate-chat-template-context", gguftest.KV{
 			"tokenizer.chat_template": "{{ messages[0]['content'] }}",
 		}, "", nil)
 
@@ -642,7 +678,7 @@ func TestGenerateHandlerChatTemplateRoute(t *testing.T) {
 			},
 		}
 		s := newServerWithMockRunner(t, &mock)
-		createMinimalGGUFModel(t, s, "generate-chat-template-images", ggml.KV{
+		createMinimalGGUFModel(t, s, "generate-chat-template-images", gguftest.KV{
 			"tokenizer.chat_template": "{{ messages[0]['content'] }}",
 			// Image requests require the vision capability; this test is about
 			// marker preservation, not capability policy.
@@ -795,7 +831,7 @@ func TestGenerateChat(t *testing.T) {
 
 	go s.sched.Run(t.Context())
 
-	_, digest := createBinFile(t, ggml.KV{
+	_, digest := createBinFile(t, gguftest.KV{
 		"general.architecture":          "llama",
 		"llama.block_count":             uint32(1),
 		"llama.context_length":          uint32(8192),
@@ -805,7 +841,7 @@ func TestGenerateChat(t *testing.T) {
 		"tokenizer.ggml.tokens":         []string{""},
 		"tokenizer.ggml.scores":         []float32{0},
 		"tokenizer.ggml.token_type":     []int32{0},
-	}, []*ggml.Tensor{
+	}, []*gguftest.Tensor{
 		{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 		{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 		{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
@@ -895,10 +931,10 @@ func TestGenerateChat(t *testing.T) {
 	})
 
 	t.Run("missing capabilities chat", func(t *testing.T) {
-		_, digest := createBinFile(t, ggml.KV{
+		_, digest := createBinFile(t, gguftest.KV{
 			"general.architecture": "bert",
 			"bert.pooling_type":    uint32(0),
-		}, []*ggml.Tensor{})
+		}, []*gguftest.Tensor{})
 		w := createRequest(t, s.CreateHandler, api.CreateRequest{
 			Model:  "bert",
 			Files:  map[string]string{"bert.gguf": digest},
@@ -1515,7 +1551,7 @@ func TestGenerate(t *testing.T) {
 
 	go s.sched.Run(t.Context())
 
-	_, digest := createBinFile(t, ggml.KV{
+	_, digest := createBinFile(t, gguftest.KV{
 		"general.architecture":          "llama",
 		"llama.block_count":             uint32(1),
 		"llama.context_length":          uint32(8192),
@@ -1525,7 +1561,7 @@ func TestGenerate(t *testing.T) {
 		"tokenizer.ggml.tokens":         []string{""},
 		"tokenizer.ggml.scores":         []float32{0},
 		"tokenizer.ggml.token_type":     []int32{0},
-	}, []*ggml.Tensor{
+	}, []*gguftest.Tensor{
 		{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 		{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 		{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
@@ -1577,10 +1613,10 @@ func TestGenerate(t *testing.T) {
 	})
 
 	t.Run("missing capabilities generate", func(t *testing.T) {
-		_, digest := createBinFile(t, ggml.KV{
+		_, digest := createBinFile(t, gguftest.KV{
 			"general.architecture": "bert",
 			"bert.pooling_type":    uint32(0),
-		}, []*ggml.Tensor{})
+		}, []*gguftest.Tensor{})
 
 		w := createRequest(t, s.CreateHandler, api.CreateRequest{
 			Model:  "bert",
@@ -1618,6 +1654,35 @@ func TestGenerate(t *testing.T) {
 
 		if diff := cmp.Diff(w.Body.String(), `{"error":"registry.ollama.ai/library/test:latest does not support insert"}`); diff != "" {
 			t.Errorf("mismatch (-got +want):\n%s", diff)
+		}
+	})
+
+	t.Run("rejected option", func(t *testing.T) {
+		w := createRequest(t, s.GenerateHandler, api.GenerateRequest{
+			Model:   "test",
+			Prompt:  "Hello!",
+			Options: map[string]any{"typical_p": 0.5},
+		})
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected status 400, got %d", w.Code)
+		}
+
+		if diff := cmp.Diff(w.Body.String(), `{"error":"typical_p is no longer supported"}`); diff != "" {
+			t.Errorf("mismatch (-got +want):\n%s", diff)
+		}
+	})
+
+	t.Run("null option is unset", func(t *testing.T) {
+		w := createRequest(t, s.GenerateHandler, api.GenerateRequest{
+			Model:   "test",
+			Prompt:  "Hello!",
+			Options: map[string]any{"typical_p": nil},
+			Stream:  &stream,
+		})
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 
@@ -1995,7 +2060,7 @@ func TestGenerateLogprobs(t *testing.T) {
 
 		go s.sched.Run(t.Context())
 
-		_, digest := createBinFile(t, ggml.KV{
+		_, digest := createBinFile(t, gguftest.KV{
 			"general.architecture":          "llama",
 			"llama.block_count":             uint32(1),
 			"llama.context_length":          uint32(8192),
@@ -2005,7 +2070,7 @@ func TestGenerateLogprobs(t *testing.T) {
 			"tokenizer.ggml.tokens":         []string{""},
 			"tokenizer.ggml.scores":         []float32{0},
 			"tokenizer.ggml.token_type":     []int32{0},
-		}, []*ggml.Tensor{
+		}, []*gguftest.Tensor{
 			{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 			{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 			{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
@@ -2125,7 +2190,7 @@ func TestGenerateLogprobsWithBuiltinParser(t *testing.T) {
 
 	go s.sched.Run(t.Context())
 
-	_, digest := createBinFile(t, ggml.KV{
+	_, digest := createBinFile(t, gguftest.KV{
 		"general.architecture":          "llama",
 		"llama.block_count":             uint32(1),
 		"llama.context_length":          uint32(8192),
@@ -2135,7 +2200,7 @@ func TestGenerateLogprobsWithBuiltinParser(t *testing.T) {
 		"tokenizer.ggml.tokens":         []string{""},
 		"tokenizer.ggml.scores":         []float32{0},
 		"tokenizer.ggml.token_type":     []int32{0},
-	}, []*ggml.Tensor{
+	}, []*gguftest.Tensor{
 		{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 		{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 		{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
@@ -2289,7 +2354,7 @@ func TestChatLogprobs(t *testing.T) {
 
 		go s.sched.Run(t.Context())
 
-		_, digest := createBinFile(t, ggml.KV{
+		_, digest := createBinFile(t, gguftest.KV{
 			"general.architecture":          "llama",
 			"llama.block_count":             uint32(1),
 			"llama.context_length":          uint32(8192),
@@ -2299,7 +2364,7 @@ func TestChatLogprobs(t *testing.T) {
 			"tokenizer.ggml.tokens":         []string{""},
 			"tokenizer.ggml.scores":         []float32{0},
 			"tokenizer.ggml.token_type":     []int32{0},
-		}, []*ggml.Tensor{
+		}, []*gguftest.Tensor{
 			{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 			{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 			{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
@@ -2402,7 +2467,7 @@ func TestChatWithPromptEndingInThinkTag(t *testing.T) {
 		go s.sched.Run(t.Context())
 
 		// Create a model with thinking support
-		_, digest := createBinFile(t, ggml.KV{
+		_, digest := createBinFile(t, gguftest.KV{
 			"general.architecture":          "llama",
 			"llama.block_count":             uint32(1),
 			"llama.context_length":          uint32(8192),
@@ -2412,7 +2477,7 @@ func TestChatWithPromptEndingInThinkTag(t *testing.T) {
 			"tokenizer.ggml.tokens":         []string{""},
 			"tokenizer.ggml.scores":         []float32{0},
 			"tokenizer.ggml.token_type":     []int32{0},
-		}, []*ggml.Tensor{
+		}, []*gguftest.Tensor{
 			{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 			{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 			{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
@@ -3012,7 +3077,7 @@ func TestChatFormatPassthrough(t *testing.T) {
 
 			go s.sched.Run(t.Context())
 
-			_, digest := createBinFile(t, ggml.KV{
+			_, digest := createBinFile(t, gguftest.KV{
 				"general.architecture":          "llama",
 				"llama.block_count":             uint32(1),
 				"llama.context_length":          uint32(8192),
@@ -3022,7 +3087,7 @@ func TestChatFormatPassthrough(t *testing.T) {
 				"tokenizer.ggml.tokens":         []string{""},
 				"tokenizer.ggml.scores":         []float32{0},
 				"tokenizer.ggml.token_type":     []int32{0},
-			}, []*ggml.Tensor{
+			}, []*gguftest.Tensor{
 				{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 				{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 				{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
@@ -3158,7 +3223,7 @@ func TestChatTransitionRequiresDeferring(t *testing.T) {
 
 	go s.sched.Run(t.Context())
 
-	_, digest := createBinFile(t, ggml.KV{
+	_, digest := createBinFile(t, gguftest.KV{
 		"general.architecture":          "llama",
 		"llama.block_count":             uint32(1),
 		"llama.context_length":          uint32(8192),
@@ -3168,7 +3233,7 @@ func TestChatTransitionRequiresDeferring(t *testing.T) {
 		"tokenizer.ggml.tokens":         []string{""},
 		"tokenizer.ggml.scores":         []float32{0},
 		"tokenizer.ggml.token_type":     []int32{0},
-	}, []*ggml.Tensor{
+	}, []*gguftest.Tensor{
 		{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 		{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 		{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
@@ -3262,7 +3327,7 @@ func TestGenerateUnload(t *testing.T) {
 
 	go s.sched.Run(t.Context())
 
-	_, digest := createBinFile(t, ggml.KV{
+	_, digest := createBinFile(t, gguftest.KV{
 		"general.architecture":          "llama",
 		"llama.block_count":             uint32(1),
 		"llama.context_length":          uint32(8192),
@@ -3272,7 +3337,7 @@ func TestGenerateUnload(t *testing.T) {
 		"tokenizer.ggml.tokens":         []string{""},
 		"tokenizer.ggml.scores":         []float32{0},
 		"tokenizer.ggml.token_type":     []int32{0},
-	}, []*ggml.Tensor{
+	}, []*gguftest.Tensor{
 		{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 		{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 		{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
@@ -3368,8 +3433,8 @@ func TestGenerateWithImages(t *testing.T) {
 
 	// Tensor readers are consumed on write, so each createBinFile call needs a
 	// fresh slice.
-	newTensors := func() []*ggml.Tensor {
-		return []*ggml.Tensor{
+	newTensors := func() []*gguftest.Tensor {
+		return []*gguftest.Tensor{
 			{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 			{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 			{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
@@ -3386,7 +3451,7 @@ func TestGenerateWithImages(t *testing.T) {
 
 	// "test" reports the vision capability (vision.block_count set); media
 	// must be forwarded to the completion request for it.
-	_, digest := createBinFile(t, ggml.KV{
+	_, digest := createBinFile(t, gguftest.KV{
 		"general.architecture":          "llama",
 		"llama.block_count":             uint32(1),
 		"llama.context_length":          uint32(8192),
@@ -3416,7 +3481,7 @@ func TestGenerateWithImages(t *testing.T) {
 	// "test-novision" has no image input path; media requests against it must
 	// fail with an explicit capability error instead of silently dropping the
 	// payload.
-	_, novisionDigest := createBinFile(t, ggml.KV{
+	_, novisionDigest := createBinFile(t, gguftest.KV{
 		"general.architecture":          "llama",
 		"llama.block_count":             uint32(1),
 		"llama.context_length":          uint32(8192),
@@ -3856,7 +3921,7 @@ func setupThinkingTestServer(t *testing.T, mock *mockRunner) (*Server, string) {
 
 	go s.sched.Run(t.Context())
 
-	_, digest := createBinFile(t, ggml.KV{
+	_, digest := createBinFile(t, gguftest.KV{
 		"general.architecture":          "llama",
 		"llama.block_count":             uint32(1),
 		"llama.context_length":          uint32(8192),
@@ -3866,7 +3931,7 @@ func setupThinkingTestServer(t *testing.T, mock *mockRunner) (*Server, string) {
 		"tokenizer.ggml.tokens":         []string{""},
 		"tokenizer.ggml.scores":         []float32{0},
 		"tokenizer.ggml.token_type":     []int32{0},
-	}, []*ggml.Tensor{
+	}, []*gguftest.Tensor{
 		{Name: "token_embd.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 		{Name: "blk.0.attn_norm.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},
 		{Name: "blk.0.ffn_down.weight", Shape: []uint64{1}, WriterTo: bytes.NewReader(make([]byte, 4))},

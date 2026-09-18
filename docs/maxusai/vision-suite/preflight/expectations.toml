@@ -124,7 +124,7 @@ arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # corroboration: the meter (llama/compat/801) was enabled on the container and
 # reported clean over 33 nodes, so the fp16-accumulate class is now asserted at
 # v.blk.31.ffn_down itself rather than inferred from the decoded text.
-llama_cpp_build = "0f3a71be1"   # b10760, v0.33.3 fold 2026-09-04; ladders re-measured first, byte-identical to the b10630 rows
+llama_cpp_build = "5d806aa25"   # b10864, v0.34.1 fold 2026-09-17 (b10760 0f3a71be1 before it). Asserted by the fold's preflight before the ladders below are trusted on it
 # The MLX payload identity. These CUDA images ship `mlx_cuda_v13` beside the
 # llama.cpp payload, so this profile serves BOTH stacks even though its platform
 # is "cuda". It carried no MLX pin until 2026-09-12, so mlx_payload_pin skipped
@@ -136,7 +136,9 @@ llama_cpp_build = "0f3a71be1"   # b10760, v0.33.3 fold 2026-09-04; ladders re-me
 # because the payload here is the bumped one. Same discipline as the
 # llama_cpp_build re-baselines above: re-measure first, move the identity in the
 # same change.
-mlx_build = "ce916dbbcaa88e433b6fd1e60a17f766d49c27fe"
+# v0.34.1 fold 2026-09-17: d9add9d1 carries ce916dbb (#4452, the idle-core fix) and adds #4481, matrix
+# kernels for global-scale gather_qqmm, which upstream's MLX-C carry patch (mlx/compat/) exposes.
+mlx_build = "d9add9d11f3154111a4c85f267ec2fd307ecd18e"
 
 [profiles.rocm-0-32-1-dynres]
 platform = "rocm"
