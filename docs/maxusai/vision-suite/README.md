@@ -40,6 +40,18 @@ first is image accounting and the second is generation length.
   `client.generate()`; nothing else builds a payload (SPEC H1 / ADR 0028). Carries
   endpoint choice, sampling, the vision-budget options, the context-overflow 400
   translation, `thinking` normalisation across both envelopes, and persistence.
+- `store_audit.py [--store PATH] [--digests] [match ...]` — does this store still hold
+  what the library serves under that tag? A published tag is mutable: `gemma4:31b-nvfp4`
+  was re-published with a bf16 vision tower while our copy keeps the nvfp4 one, same name
+  and same config blob, and `ollama show` surfaces neither. Prints the tags whose layers
+  moved, which tensor groups they are in, and the size ratio (≈3.55× is nvfp4 → bf16).
+  `--digests` prints the local manifest digest to cite in a record instead of the tag.
+  See [../ocrbench-quantisation-ladder.md](../ocrbench-quantisation-ladder.md).
+- `ocrbench_table.py <label=tag[,tag]> ...` — renders an OCRBench ladder from
+  `extbench.py` score files: the arms, the repeat spread, and every pair compared on the
+  items both answered. A 200-item slice carries a ±0.024 standard error, so the paired
+  discordant counts and the exact McNemar p are what resolve two arms, not the accuracy
+  column.
 - `gen_geometry.py` — renders the SPEC C13–C18 geometry set (14 sizes) into
   `visimgs/geom/`, with per-geometry ground truth scaled from fractional shape
   coordinates. Never writes into `visimgs/`.
