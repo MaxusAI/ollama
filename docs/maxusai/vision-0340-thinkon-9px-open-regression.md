@@ -71,31 +71,43 @@ regardless. See `llama/compat/README.md`.
 non-greedy and moved, so sampling was the sharpest remaining asymmetry.
 Falsified: the gap persists unchanged under forced greedy.
 
-## The better lead: 0.34.0 is nondeterministic under greedy
+## Corrected: greedy spread exists on BOTH builds; drafting amplifies it
 
-The greedy run surfaced something sharper than the tier it was testing:
+An earlier revision of this document claimed 0.34.0 is nondeterministic under
+greedy while 0.33.2 is deterministic, and offered that as the better bisect
+target. **That claim was a three-sample artefact and is withdrawn.** It is kept
+here rather than deleted, because it is the same small-sample error this
+repository has made before and the correction is the useful part.
 
-```
-0.33.2 greedy:  eval=1588 think=2046   x3, bit-identical
-0.34.0 greedy:  eval=1469 think=1809
-                eval=1290 think=1545
-                eval=1363 think=1763
-```
+Pooling every greedy run (`temperature 0`, `top_k 1`, think-on, same prompt):
 
-At `temperature 0` / `top_k 1` the old build reproduces exactly three times; the
-new build produces three different outputs. Greedy decoding should be
-reproducible.
+| build / config | runs | identical |
+|---|---|---|
+| `0.33.2-maxusai-2b95b4a5` | 6 | 5x `eval=1588 think=2046`, 1x `1584/2038` |
+| `0.34.0-maxusai-8a7ba949`, drafting **off** | 3 | 2x `1598/2423`, 1x `1591/2046` |
+| `0.34.0-maxusai-8a7ba949`, drafting **on** | 3 | 0 — three distinct |
 
-**This is a better thing to bisect than the OCR tier.** It reproduces in three
-runs without a scored benchmark, and unlike a one-tier recall difference nobody
-has to argue about whether it matters.
+What this supports:
 
-Two changes in the fold touch memory reuse and are therefore worth testing
-FIRST — as hypotheses to check, not as a conclusion inherited from this document:
-`5844a6cd5` (mlxrunner: release freed KV buffers on crossing a 256-token
-boundary, upstream `ec3cc2307`) and the scoped-array-lifetimes refactor that
-replaced `Pin`/`Unpin`/`Sweep` with function and held scopes
-(`x/mlxrunner/mlx/scope.go`, #302).
+- **MLX greedy decoding has baseline run-to-run spread on both builds.** The
+  fork's own comment at `x/mlxrunner/speculate.go` already said so — "within the
+  run-to-run spread MLX already has".
+- **Drafting under a grammar amplifies it substantially**: zero identical runs
+  out of three with it on, two of three with it off. `draftUnderGrammar` does
+  not exist on 0.33.2 at all; it arrived with `068a98cd0`, which adopted
+  upstream's default and put it behind `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR`. That
+  knob is read once at process init, so it is a server-start setting, not a
+  per-request one.
+
+What this does NOT support: that 0.34.0 introduced nondeterminism. The first
+three 0.33.2 runs came up identical and a headline was built on them; a later
+run in the identical configuration produced an outlier.
+
+**The tier drop is unaffected by any of this.** 9px is 3 on 0.34.0 and 4 on
+0.33.2 in twelve runs each — constrained, unconstrained, greedy, and greedy with
+drafting disabled. 24 runs, perfect separation, no configuration moves it. That
+is the finding to bisect; the determinism question is a separate and much softer
+observation.
 
 ## Next step not taken
 
