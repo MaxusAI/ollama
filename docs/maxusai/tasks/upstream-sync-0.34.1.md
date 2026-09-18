@@ -284,8 +284,25 @@ the only visible move is e4b's 12 px fine-text tier 0 → 3 (n = 1 each), in the
 give. gemma4:e2b's zeros (fine text 0/0/0/0/0, scene IoU 0.061, invoice 1/5) exist on every build from b10488 to
 b10760, bilinear and bicubic alike, and recover only at b10864 — where the one gemma4 commit is `163a40796` "model,
 mtmd: fix gemma4 vision handling (#28335)", the same commit that moved the default limits to (70, 1120). So the
-e2b/e4b recovery this fold measured is attributable to #28335, not to the resize algorithm; the veto stays the
-n = 1 baseline, and a repeat of the four gemma4 cells on the deployed 0.34.0 image (`ggml034main_`) is queued for it.
+e2b/e4b recovery this fold measured is attributable to #28335, not to the resize algorithm. **Veto closed:** the
+four gemma4 cells re-run on the deployed 0.34.0 image on 2026-09-18 (`ggml034main_1_`, b10760) reproduce the baseline
+cell for cell — e2b's zeros, e4b's 0.354 / 0.000, 26b-a4b's `bcreasoning`/`bcpinned` both ✅ — so GGUF think-off is
+deterministic on both payloads and every gemma4 move in this fold is #28335's. Its mechanism for e2b/e4b: the commit
+carves E2B/E4B out of non-causal image decoding (they decode images causally now), which is what unbroke them.
+
+**The same commit is a regression upstream — llama.cpp #28954 (2026-09-15):** raising gemma4's cap to 1120 image
+tokens exceeds llama-server's default `n_ubatch` of 512, and a non-causal image chunk larger than one ubatch trips
+`GGML_ASSERT(cparams.causal_attn || cparams.n_ubatch >= n_tokens_all)` in `llama_context::decode`, which aborts the
+whole llama-server — every image above ~1.2 Mpx on 12b/26b/31b. First bad commit bisected to `163a40796`. **The fork
+does not crash**: our launcher passes `-b N -ub N` (equal, `appendBatchArgs`), and `mtmd_helper_decode_image_chunk`
+splits a chunk into `n_batch`-sized decodes, so every decode fits its ubatch. What that split costs instead: with
+the fork's automatic generation batch of 1024 (ctx > 4096, `automaticGenerationBatch`), a top-rung gemma4 image
+(1117–1121 tokens) is decoded as two non-causal sub-batches, and the first 1024 image tokens never attend to the last
+~95 — one-way bidirectional attention at the top rung, for as long as the fork has served 1120 (ADR 0008), on both
+payloads. Not a fold regression; a latent inconsistency the gates have measured consistently. The clean fork fix is
+a generation batch ≥ the image-token ceiling for gemma4 vision runners (2048), at the compute-buffer cost of the larger
+ubatch; the measurement that decides it is the top-rung bbox cells at `num_batch` 1024 against 2048. Register entry
+added; the upstream ollama launcher (v0.34.2 `llm/server.go`) is checked below for its own exposure.
 
 The fork's `004` fill resizes through `hparams.image_resize_algo`, so it has followed bicubic since 0.33.1; the
 preflight's `token_ladder` (5/5 geometries) and `pinned_image_token_budget` (560 → 529, ceiling 1120) pass on it.

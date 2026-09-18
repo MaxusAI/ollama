@@ -26,6 +26,7 @@ _Nothing pending. `x/structured` moved to "Already retired" below on 2026-09-17.
 | **per-model `kv_cache_type`** | ADR 0005 | upstream adds a per-model option | `llm/kv_cache_type_test.go` | one global env upstream |
 | **scheduler fixes**: `evictAbandoned`, head-of-line, leaf `logMu` | `server/sched.go` | fixed upstream | `sched_test.go`, `sched_headofline_test.go` | fork-only |
 | **capability rules for MLX arches** (nemotron text-only, gemma4 without audio) | `server/images.go` | upstream's `filterUnsupportedCapabilities` handles them | `images_test.go` | fork-only, re-homed in the 0.34.1 fold |
+| **gemma4 image chunk vs. batch**: the launcher's `-b N -ub N` keeps llama.cpp #28954's abort away, at the cost of a split non-causal decode above `num_batch` image tokens; a fork fix (batch ≥ the 1120 ceiling for gemma4 vision) is pending measurement | task doc 0.34.1, 2026-09-18 | upstream fits an image chunk to one ubatch (llama.cpp #28954's fix) or sizes ubatch to the image cap | the top-rung bbox cells at `num_batch` 1024 vs 2048; preflight `token_ladder` | #28954 open; fork unmeasured |
 | **transparent images composited over white** (gemma4) | ADR 0015 | upstream's gemma4 path composites; its qwen3.5 path drops alpha by RGB conversion instead, per that model's reference | gemma4 vision goldens | not converged |
 
 ## Fork tooling with no upstream counterpart
