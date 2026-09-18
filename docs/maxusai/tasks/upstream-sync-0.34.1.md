@@ -368,6 +368,33 @@ a generation batch ≥ the image-token ceiling for gemma4 vision runners (2048),
 ubatch; the measurement that decides it is the top-rung bbox cells at `num_batch` 1024 against 2048. Register entry
 added; the upstream ollama launcher (v0.34.2 `llm/server.go`) is checked below for its own exposure.
 
+**Measured (2026-09-18, 21:24, `claude-scratch/batch-ab-0341.sh`, render `preflight-runs/batchab-0341-render-thinkfalse.md`):**
+the deployed 0.34.1 image, GPU0 beside production, the two gemma4 GGUF models that decode images non-causally, think-off
+at the 8192 rung, two repeats per arm. `batch1024_` is the scheduler's automatic batch at that rung (the runner log shows
+every image chunk, 1064–1100 tokens on these fixtures, decoded as `1/2 n_tokens_batch = 1024` plus a 40–76-token
+`2/2`); `batch2048_` sends `num_batch: 2048` per request (`NUM_BATCH` in `client.py`, branch `vsuite/num-batch-env`),
+and the same chunks decode as `1/1`. Both arms are deterministic: every scored cell is identical between repeats.
+
+| test | metric | 31b, batch 1024 | 31b, batch 2048 | 26b-a4b, batch 1024 | 26b-a4b, batch 2048 |
+|---|---|---|---|---|---|
+| scene | bbox IoU | 0.966 | 0.963 | 0.978 | 0.977 |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.709 | 0.709 | 0.753 | 0.753 |
+| fine text | 22/16/12/9/7 px | 4/4/4/**4**/3 | 4/4/4/**3**/3 | 4/4/4/3/3 | 4/4/4/3/3 |
+| multi (3 img) / anchored | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 | ✅ ✅ ✅ 5/5 | ✅ ✅ ✅ 5/5 | ✅ ✅ ✅ 5/5 |
+| throughput | prefill tok/s | 474 / 508 | 753 / 721 | 1250 / 1369 | 2434 / 2518 |
+| latency | s/req (unique image) | 12.7 / 12.6 | 11.5 / 11.6 | 4.5 / 4.2 | 3.7 / 3.7 |
+
+(T2 rows from `summarize_head_to_head.py`; throughput and latency give both repeats.) So the split costs nothing the
+scored cells can see: IoU within 0.003, every contract identical. Decoding the chunk in one piece is what the batch
+buys — prefill 1.5× on 31b and 1.9× on 26b-a4b, s/req −9 % and −18 % — and it moves one cell: 31b's 9 px fine-text
+tier, 4 with the split and 3 without, deterministic 2/2 on each side. That is the same shape as the Metal finding in
+#312 (the more correct encoder path scores one 9 px tier lower on 31b), and the same caveat applies: a single
+knife-edge tier is not a quality verdict. The decision is Glenn's: batch ≥ the 1120 ceiling for gemma4 vision runners
+is a throughput fix with no measured contract cost; the register row moves from "fork unmeasured" to "measured,
+decision pending".
+
 The fork's `004` fill resizes through `hparams.image_resize_algo`, so it has followed bicubic since 0.33.1; the
 preflight's `token_ladder` (5/5 geometries) and `pinned_image_token_budget` (560 → 529, ceiling 1120) pass on it.
 
