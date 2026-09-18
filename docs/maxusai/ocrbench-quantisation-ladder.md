@@ -184,7 +184,12 @@ same bf16 tower differ on a single item out of 200, at 1.4 s against 1.3 s.
 | q4_K_M (run 2) | llama.cpp | `gemma4:31b-it-q4_K_M` | 171 / 200 | **0.855** | 0.025 | 4.9 | 4.8 | 1115 |
 | q8_0 (run 1) | llama.cpp | `gemma4:31b-it-q8_0` | 170 / 200 | **0.850** | 0.025 | 5.1 | 5.0 | 1115 |
 | q8_0 (run 2) | llama.cpp | `gemma4:31b-it-q8_0` | 170 / 200 | **0.850** | 0.025 | 5.2 | 4.8 | 1115 |
-| bf16 | llama.cpp | `gemma4:31b-it-bf16` | _pending_ | | | | | |
+| bf16 (run 1) | llama.cpp | `gemma4:31b-it-bf16` | 171 / 200 | **0.855** | 0.025 | 5.0 | 4.9 | 1115 |
+| bf16 (run 2) | llama.cpp | `gemma4:31b-it-bf16` | 171 / 200 | **0.855** | 0.025 | 4.8 | 4.8 | 1115 |
+
+All 61 layers of the bf16 model sit on the GPU (58 GiB of weights, 1.8 GiB of KV at
+`num_ctx` 8192 — gemma4's sliding-window layers keep the cache small), leaving 19 GB free
+on a card shared with other tenants, so no arm here ran partly on CPU.
 
 **Repeats — the GGUF path is item-level deterministic**
 
@@ -192,6 +197,7 @@ same bf16 tower differ on a single item out of 200, at 1.4 s against 1.3 s.
 |---|---|---|---|
 | q4_K_M | 2 | 0.855, 0.855 | 0 |
 | q8_0 | 2 | 0.850, 0.850 | 0 |
+| bf16 | 2 | 0.855, 0.855 | 0 |
 
 Not one of 200 items changed verdict between runs on either arm. That is the positive
 control the rest of the ladder needs: on this engine a difference between arms is the
@@ -203,10 +209,15 @@ weights, not run noise.
 |---|---|---|---|---|---|---|---|
 | nvfp4 (mlx-cuda) | q4_K_M (llama.cpp) | 0.860 | 0.855 | 3 | 2 | 1.000 | no |
 | q4_K_M | q8_0 | 0.855 | 0.850 | 1 | 0 | 1.000 | no |
+| q4_K_M | bf16 | 0.855 | 0.855 | 2 | 2 | 1.000 | no |
+| q8_0 | bf16 | 0.850 | 0.855 | 1 | 2 | 1.000 | no |
 
-**q8_0 buys nothing over q4_K_M here.** The two differ on a single item out of 200, in
-q4's favour, at the same seconds per item — the same conclusion the Qwen2.5-VL campaign
-reached at 32B. Against MLX, five items separate the engines, three one way and two the
+**The GGUF ladder is flat from 4 bits to bf16.** `q4_K_M` and `bf16` score the same 171
+of 200 and differ on four items, two each way; `q8_0` sits one item below both. Nothing
+resolves, and the seconds per item are the same across all three — this workload is
+prefill-bound with an eight-token answer, so tripling the weights costs no clock. Whatever
+4-bit quantisation does to this model, it is not visible in text recognition, which is the
+same conclusion the Qwen2.5-VL campaign reached at 32B. Against MLX, five items separate the engines, three one way and two the
 other; where both are right or both are wrong they agree exactly, so the engines are not
 reading these images differently, they differ on a handful of hard ones in both
 directions. MLX answers in 2.3 s against llama.cpp's 5.0 s at an identical mean
@@ -215,12 +226,12 @@ different amount of image.
 
 **By question type** (first run of each arm), from `ocrbench_table.py --categories`:
 
-| question type | n | mlx-cuda nvfp4 | q4_K_M | q8_0 |
-|---|---|---|---|---|
-| Artistic Text Recognition | 50 | 49/50 | 49/50 | 48/50 |
-| Handwriting Recognition | 50 | 34/50 | 33/50 | 33/50 |
-| Irregular Text Recognition | 50 | 40/50 | 40/50 | 40/50 |
-| Regular Text Recognition | 50 | 49/50 | 49/50 | 49/50 |
+| question type | n | mlx-cuda nvfp4 | q4_K_M | q8_0 | bf16 |
+|---|---|---|---|---|---|
+| Artistic Text Recognition | 50 | 49/50 | 49/50 | 48/50 | 48/50 |
+| Handwriting Recognition | 50 | 34/50 | 33/50 | 33/50 | 34/50 |
+| Irregular Text Recognition | 50 | 40/50 | 40/50 | 40/50 | 40/50 |
+| Regular Text Recognition | 50 | 49/50 | 49/50 | 49/50 | 49/50 |
 
 Regular and artistic text are at ceiling for every arm. All the headroom is in
 handwriting (16–17 misses) and irregular text (10 misses, the same count on all three),
