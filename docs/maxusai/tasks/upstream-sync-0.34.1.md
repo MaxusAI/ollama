@@ -278,6 +278,33 @@ Glenn's word (`070580c5e`, `b1db10efc`). That gate, and every other item the for
 one: upstream 0.34.1 has its own transition-based `format` deferral with pass-one metrics (ours is now a superset,
 README row corrected), and `extendChunk` from ADR 0014 turns out to be upstream's already.
 
+## Release and deploy (2026-09-18)
+
+PR #302 merged by Glenn (`8a7ba9498`, 11:56); tag `v0.34.1-dynres` on it; release published with the fold's matrix and
+the memory table. Release image `maxusai/ollama:sync-0.34.1-main` (`e224595df7e0`, stamp `0.34.1-dynres-0-g8a7ba94`)
+built from a worktree at the tag on the `bigdisk` builder — every native stage cached from the candidate build, 2.5 min.
+
+- **Attempt 1 was stopped by the root-disk watchdog** at the image load: the daemon writes the whole image tar to
+  root before it deduplicates layers, ~6 GB transient, which took root from 13 GB to 6.7 GB free, under the 8 GB
+  floor that protects production. Nothing in the fork's own images frees enough (their layers are shared; each old
+  tag is ≤ 80 MB unique). Glenn removed the rotated `syslog.1` (5.2 GB); attempt 2 ran at 18 GB free. Rule for the
+  next fold: **≥ 16 GB free on root before a `--load`.**
+- **Deploy gate** (`gate-v0341-main.sh`, 13:31–13:37): all 57 native payload files hash-identical to the gated
+  candidate `sync-0.34.1`; the Go binary differs as expected (`x/structured` gone, `ec3cc2307`, a comment).
+  Preflight `cuda-dynres-903` from the main checkout on a canary of the release image: **PASS 21 / SKIP 7**
+  (`preflight-runs/full-v0341-main.{log,json}`).
+- **Deployed 14:01:00** by `deploy-0341.sh` (mirrors production by `docker inspect`; Glenn's word 13:5x, with the
+  knob): container `ollama-0.34.1-dynres-0-g8a7ba94` on `0.0.0.0:11497`, image `sync-0.34.1-main`, env
+  `OLLAMA_HOST` + **`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`** (D5: the retention both builds share under drafting +
+  grammar goes to flat; costs drafting speed on grammar requests only), 54 tags before and after, 10 s of no service.
+  `ollama-0.34.0-dynres-0-gcf2ad41` is stopped and kept: rollback is
+  `docker rm -f ollama-0.34.1-dynres-0-g8a7ba94 && docker start ollama-0.34.0-dynres-0-gcf2ad41`. The teacher-v3
+  session confirmed nothing of theirs was on `:11497`.
+- **Post-deploy preflight against `:11497`** (14:01–14:11, `preflight-runs/full-0341-deployed.{log,json}`): **PASS 21 /
+  SKIP 7**; version, both payload pins, budgets, think + format and the poison probe all green on production itself,
+  and the run paid the cold kernel compile so the first real request does not. The README's matrix is regenerated from
+  this run, stamped `0.34.1-dynres-0-g8a7ba94`.
+
 ## Not in this fold
 
 - The Metal half: MLX and MLX-C moved, so the Metal payload changes too; held by Glenn.

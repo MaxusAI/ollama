@@ -26,9 +26,9 @@
 > **Current fold:** [`v0.34.1-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.34.1-dynres)
 > — upstream v0.34.1, llama.cpp `b10864`, MLX `d9add9d1`. `main` moves ahead of this between
 > folds; the tag is the fixed point to build and roll back to.
-> **Deployed:** [`v0.34.0-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.34.0-dynres),
-> stamped `0.34.0-dynres-0-gcf2ad41`, on the CUDA host since 2026-09-14. The v0.34.1 candidate
-> (`0.34.0-dynres-6-gfb18f5c`) passed its gates on 2026-09-18 and is not deployed yet.
+> **Deployed:** the same tag, stamped `0.34.1-dynres-0-g8a7ba94`, on the CUDA host since
+> 2026-09-18, with `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` on the container (ADR 0033; see the fold's
+> memory finding in [`docs/maxusai/tasks/upstream-sync-0.34.1.md`](docs/maxusai/tasks/upstream-sync-0.34.1.md)).
 
 > Fork builds are stamped `<upstream-version>-dynres-<n>-g<sha>`; `dynres`
 > names the change that started the fork, not the company that runs it.
@@ -47,7 +47,7 @@
 
 | surface | Build identity | Image size ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|
-| **cuda** | green | green | green | green | skipped | green | green | `0.34.0-dynres-6-gfb18f5c` |
+| **cuda** | green | green | green | green | skipped | green | green | `0.34.1-dynres-0-g8a7ba94` |
 | **mlx-cuda** | not run | not run | not run | not run | not run | not run | not run | — |
 | **mlx-metal** | not run | not run | not run | not run | not run | not run | not run | — |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | — |
