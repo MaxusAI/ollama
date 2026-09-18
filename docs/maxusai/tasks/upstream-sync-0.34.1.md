@@ -14,7 +14,7 @@ Dry-run conflict list: `claude-scratch/sync0341-dryrun-conflicts.txt`.
 | 3, image | built 15:31 (4 h 00 m, second attempt) as `maxusai/ollama:sync-0.34.1`, stamp `0.34.0-dynres-6-gfb18f5c`; the first attempt failed at 3.5 min on patch 004 (below) |
 | 4, preflight `cuda-dynres-903` | **PASS 21 / SKIP 7** from the fold worktree, same as the deployed image |
 | 5, campaigns | GGUF: no quality cell regressed, e2b and e4b recovered (e2b at n = 4), e2b's anchored-cell loop and 26b-a4b's two contract flips reproduce 4/4; qwen2.5vl: every quality cell identical; MLX (re-run on a free GPU): every scored cell equal; the one 35b-a3b cell that moved is bimodal across cold loads on the new image (0.504/0.613, n = 4) with the deployed value one of the modes — no regression |
-| memory re-measure | trace probe: `held − trie` grows +0.23 GiB/request on 35b-a3b and ~1 GiB/request on 27b (then releases) — not the trie; **control with `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` is flat**, so the 0.34.0 drafting finding stands on this build and the knob removes it; 0.34.0-baseline and `ec3cc2307` probes running (below) |
+| memory re-measure | done: under drafting + grammar the fold retained ~3× the deployed build (35b-a3b +5.3 vs +1.8 GiB over 28 requests, outside the trie); upstream's `ec3cc2307` brings it to +2.4 and is cherry-picked; the knob takes it to +0.1 and stays the mitigation for what both builds share (below) |
 
 ## What v0.34.1 changes for the fork
 
@@ -183,6 +183,7 @@ test (133 tests). What the series says:
   |---|---|---|---|---|---|---|---|---|---|
   | qwen3.6:35b-a3b-nvfp4 | 0.34.0 deployed, drafting on | 22.1 | 25.9 | 27.6 | 29.2 | +7.1 | 5.6 | +1.8 | 39.2 |
   | qwen3.6:35b-a3b-nvfp4 | 0.34.1 fold, drafting on | 22.1 | 27.6 | 29.7 | 32.8 | +10.6 | 5.6 | **+5.3** | 44.8 |
+  | qwen3.6:35b-a3b-nvfp4 | 0.34.1 fold + `ec3cc2307`, drafting on | 22.1 | 26.8 | 28.4 | 29.9 | +7.7 | 5.6 | **+2.4** | 40.0 |
   | qwen3.6:35b-a3b-nvfp4 | 0.34.1 fold, knob off | 22.1 | 25.0 | 26.2 | 27.6 | +5.5 | 5.6 | **+0.1** | 40.1 |
   | qwen3.8:27b-nvfp4 | 0.34.0 deployed, drafting on | 17.4 | 27.2 | 31.1 | 30.9 | +13.5 | 8.1 | +6.1 | 43.1 |
   | qwen3.8:27b-nvfp4 | 0.34.1 fold, drafting on | 17.4 | 34.8 | 41.3 | 35.4 | +18.0 | 8.1 | **+10.6** | 49.0 |
@@ -193,9 +194,15 @@ test (133 tests). What the series says:
   takes the fold to flat. Quality is unchanged either way (gate 5b). This is a memory regression of the MLX path
   for recurrent-state models under drafting + grammar, not a correctness one; the deploy has the knob
   (`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`, kept as our option on 2026-09-12) to remove it, at the cost of drafting
-  speed on grammar requests only. Last probe: the same suite on a Go-only swap of the fold plus upstream's
-  `ec3cc2307` (the v0.34.2 pool-release fix), `sync0341k_` — whether upstream's fix covers this or the knob is
-  the mitigation; D7 hangs on it.
+  speed on grammar requests only.
+- **Upstream's `ec3cc2307` on a Go-only swap (10:00–10:08, `sync0341k_`, image `sync-0.34.1-kvrel`, binary
+  `0.34.0-dynres-18-g4cf8178` on the same payload): +2.4 GiB.** The pool-release cadence — firing only when the
+  generated count lands exactly on a multiple of 256, which a speculative round steps over — is the part of the
+  residual that is new in 0.34.1: with the hunk the fold retains +2.4 GiB against the deployed build's +1.8, without
+  it +5.3. The drafting retention both builds share (+1.8 to +2.4) is not the pool; only the knob removes it.
+  **Carried (D7): the hunk is cherry-picked onto this branch, re-rooted under `x/`, with the probe numbers in its
+  message.** Quality was gated on the image without it; the hunk changes when the allocator's free pool is
+  released, not what is computed, and the memory probe is its gate.
 
 **Gate 5c, Qwen2.5-VL six cells, `q25vl0341_1_` against `q25vl_1_`** — render `preflight-runs/q25vl0341-render.md`:
 every quality cell identical across all six models, contract matrices identical, 0 errors, 0 OOMs. Throughput
@@ -226,7 +233,7 @@ Three files of ours used it; everything else was upstream-owned and came rewritt
   `x/mlxrunner/xgrammar/engine_behaviour_test.go`; the register moves it to retired.
 - **D5 — the knob stays.** Upstream still drafts under a grammar; ADR 0033 is unchanged.
 
-- **D7 — v0.34.2 is its own fold; only `ec3cc2307` may come forward, and only on evidence (Glenn, 2026-09-18).**
+- **D7 — v0.34.2 is its own fold; `ec3cc2307` came forward on evidence (Glenn, 2026-09-18; probe below).**
   Upstream v0.34.2 (15 commits, 365 files, +3.7k/−70k) moves the MLX engine out of `x/`, re-lays out the models
   and bumps llama.cpp to b10969 — every fork path under `x/mlxrunner` re-homes, a structural fold, not widened into
   this one. Its 5-line "Release freed KV buffers during speculative decode" (`ec3cc2307`, the pool release firing on
