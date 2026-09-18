@@ -118,9 +118,30 @@ is nvfp4 too. It is reported as its own row, because it differs from the library
 
 | arm | engine | model | correct / scored | accuracy | ±1 s.e. | mean s/item | median | prompt_eval |
 |---|---|---|---|---|---|---|---|---|
-| q4_K_M | llama.cpp | `gemma4:31b-it-q4_K_M` | _pending_ | | | | | |
+| q4_K_M | llama.cpp | `gemma4:31b-it-q4_K_M` | 171 / 200 | **0.855** | 0.025 | 5.0 | 4.9 | 1115 |
 | q8_0 | llama.cpp | `gemma4:31b-it-q8_0` | _pending_ | | | | | |
 | bf16 | llama.cpp | `gemma4:31b-it-bf16` | _pending_ | | | | | |
+
+**Paired, the two arms measured so far** (same 200 items):
+
+| A | B | A | B | b (A only) | c (B only) | p | resolved |
+|---|---|---|---|---|---|---|---|
+| nvfp4 (mlx-cuda) | q4_K_M (llama.cpp) | 0.860 | 0.855 | 3 | 2 | 1.000 | no |
+
+Five items out of 200 separate the two engines, three one way and two the other. On the
+95 % of items where both are right or both are wrong they agree exactly, so the engines
+are not reading these images differently; they differ on a handful of hard ones, in both
+directions. MLX answers in 2.3 s against llama.cpp's 5.0 s, at an identical mean
+prompt_eval of 1115 tokens — the same image budget, so that gap is engine speed and not
+a different amount of image.
+
+## Harness note (2026-09-19)
+
+Two arms died mid-run when a DNS blip made the row fetch fail, so `extbench.py` now
+caches the row slice under `extimgs/<bench>/rows_<offset>_<limit>.json` and retries HTTP
+with backoff. A slice is a fixed set of items: fetching it once per host, rather than
+once per arm, removes the dependency and makes a re-run answer the same questions.
+`REFRESH_ROWS=1` re-fetches. A partial fetch is never cached.
 
 ## Results — `mlx-metal` (for the Metal session)
 
