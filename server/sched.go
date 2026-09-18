@@ -851,7 +851,8 @@ func (req *LlmRequest) applyAutomaticGenerationBatch(completion bool, effectiveC
 
 	floor := 0
 	if req.model != nil {
-		floor = imageChunkGenerationBatch(req.model.Config.ModelFamily, len(req.model.ProjectorPaths) > 0, req.opts)
+		hasVision := req.model.CheckCapabilities(model.CapabilityVision) == nil
+		floor = imageChunkGenerationBatch(req.model.Config.ModelFamily, hasVision, req.opts)
 	}
 	req.opts.NumBatch = automaticGenerationBatch(effectiveCtx, floor, predictedVRAM, availableMemory, flashAttention, gpus)
 	if floor > 0 && req.opts.NumBatch < floor {
@@ -862,7 +863,10 @@ func (req *LlmRequest) applyAutomaticGenerationBatch(completion bool, effectiveC
 // imageChunkGenerationBatch is the generation batch a vision runner needs to
 // decode one image chunk in a single piece: the smallest rung of the batch
 // ladder at or above the model's resolved image-token ceiling, or 0 for models
-// whose images never need it.
+// whose images never need it. hasVision is the scheduler's own capability
+// check, not a projector layer: the gemma4 GGUFs the fork serves carry the
+// tower inside the main file (vision.block_count), and the launcher passes
+// that file as its own mmproj.
 //
 // gemma4's image tokens attend to each other (non-causal), and llama.cpp's
 // mtmd_helper_decode_image_chunk splits a chunk larger than n_batch into
@@ -875,8 +879,8 @@ func (req *LlmRequest) applyAutomaticGenerationBatch(completion bool, effectiveC
 // BOI/EOI framing. Measured 2026-09-18 (ADR 0036): the split costs no scored
 // cell, the single piece is 1.5-1.9x faster at prefill. nemotron_h_omni's
 // ceiling (3328) exceeds the ladder and stays out of scope.
-func imageChunkGenerationBatch(modelFamily string, hasProjector bool, opts api.Options) int {
-	if !hasProjector || modelFamily != "gemma4" {
+func imageChunkGenerationBatch(modelFamily string, hasVision bool, opts api.Options) int {
+	if !hasVision || modelFamily != "gemma4" {
 		return 0
 	}
 	_, ceiling, derived := llm.ResolvedImageTokenBudget(modelFamily, opts)

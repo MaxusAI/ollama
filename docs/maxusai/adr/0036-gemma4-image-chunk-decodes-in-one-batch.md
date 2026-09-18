@@ -36,7 +36,8 @@ host (#313) the same rung decodes past `n_ubatch` too, and the pixel geometry is
 
 ## Decision
 
-A gemma4 runner with a projector starts its automatic generation batch from the smallest rung at or above its
+A gemma4 runner with the vision capability (the scheduler's own `CheckCapabilities` rule: a projector layer, or the tower
+inside the main GGUF as the fork's gemma4 checkpoints carry it) starts its automatic generation batch from the smallest rung at or above its
 resolved image-token ceiling — 2048 at the default 1120, 1024 at a request pinned to 560, 512 at 280 — instead
 of the context rung, and only steps down when that batch does not fit the memory left after the model
 (`server/sched.go`: `imageChunkGenerationBatch`, `automaticGenerationBatch`'s `floor`). An explicit `num_batch`
@@ -47,7 +48,7 @@ still wins; embedding loads and the constrained-CUDA-without-flash-attention pat
 - **Leave the split.** No measured contract cost, so defensible; but it leaves the 9 px tier on the
   less-faithful path and 1.5–1.9× of prefill on the table for the fork's own default ceiling.
 - **Raise the default to 2048 for every vision runner.** Pays the 2 GiB compute-buffer surcharge on arches that
-  gain nothing from it (qwen-VL and the other causal image decoders), and on every text-only load with a projector.
+  gain nothing from it (qwen-VL and the other causal image decoders), and on every other vision load.
 - **Fit the chunk to the batch upstream's way** (llama.cpp #28954's fix, when it lands): retires this ADR.
 
 ## Consequences
@@ -56,7 +57,7 @@ still wins; embedding loads and the constrained-CUDA-without-flash-attention pat
   budgeted at admission; on a card without that headroom the batch steps down and the split returns, logged as
   "generation batch below the image chunk".
 - gemma4 e2b and e4b decode images causally since llama.cpp #28335, so the split never hurt them; they get the same
-  batch because the family and the projector are what the scheduler can see, and their compute buffers are small.
+  batch because the family and the vision capability are what the scheduler can see, and their compute buffers are small.
 - `nemotron_h_omni`'s ceiling (3328) exceeds the batch ladder; it stays on the context rung, out of scope here.
 - The MLX path is unaffected; it never goes through llama-server.
 - Retirement: llama.cpp fits a non-causal image chunk to one ubatch, or sizes ubatch to the image cap

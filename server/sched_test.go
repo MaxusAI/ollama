@@ -1337,32 +1337,35 @@ func TestImageChunkGenerationBatch(t *testing.T) {
 		return opts
 	}
 	tests := []struct {
-		name      string
-		family    string
-		projector bool
-		opts      api.Options
-		want      int
+		name   string
+		family string
+		vision bool
+		opts   api.Options
+		want   int
 	}{
 		{"gemma4 vision at the default ceiling needs the large rung", "gemma4", true, api.DefaultOptions(), 2048},
 		{"gemma4 vision at 1120 pinned", "gemma4", true, withCeiling(1120), 2048},
 		{"gemma4 vision at 560 fits the medium rung", "gemma4", true, withCeiling(560), 1024},
 		{"gemma4 vision at 280 fits the default rung", "gemma4", true, withCeiling(280), 512},
-		{"gemma4 without a projector has no image chunk", "gemma4", false, api.DefaultOptions(), 0},
+		{"text-only gemma4 has no image chunk", "gemma4", false, api.DefaultOptions(), 0},
 		{"other vision arches are out of scope", "qwen25vl", true, api.DefaultOptions(), 0},
 		{"nemotron_h_omni is out of scope", "nemotron_h_omni", true, api.DefaultOptions(), 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, imageChunkGenerationBatch(tt.family, tt.projector, tt.opts))
+			require.Equal(t, tt.want, imageChunkGenerationBatch(tt.family, tt.vision, tt.opts))
 		})
 	}
 }
 
 func TestApplyAutomaticGenerationBatchRaisesForGemma4Images(t *testing.T) {
-	newReq := func(family string, projector bool, auto bool) *LlmRequest {
-		m := &Model{ModelPath: "m.gguf", Config: model.ConfigV2{ModelFamily: family}}
-		if projector {
-			m.ProjectorPaths = []string{"mmproj.gguf"}
+	// Vision comes from the manifest config here, as it does for the gemma4
+	// GGUFs the fork serves, whose tower sits inside the main file with no
+	// projector layer.
+	newReq := func(family string, vision bool, auto bool) *LlmRequest {
+		m := &Model{Config: model.ConfigV2{ModelFamily: family, Capabilities: []string{"completion"}}}
+		if vision {
+			m.Config.Capabilities = append(m.Config.Capabilities, "vision")
 		}
 		opts := api.DefaultOptions()
 		opts.NumBatch = 512
@@ -1371,7 +1374,7 @@ func TestApplyAutomaticGenerationBatchRaisesForGemma4Images(t *testing.T) {
 
 	req := newReq("gemma4", true, true)
 	req.applyAutomaticGenerationBatch(true, 8192, 8*format.GibiByte, 14*format.GibiByte, ml.FlashAttentionAuto, nil)
-	require.Equal(t, 2048, req.opts.NumBatch, "gemma4 with a projector at the 8192 rung decodes its image chunk in one piece")
+	require.Equal(t, 2048, req.opts.NumBatch, "gemma4 with vision at the 8192 rung decodes its image chunk in one piece")
 
 	req = newReq("gemma4", false, true)
 	req.applyAutomaticGenerationBatch(true, 8192, 8*format.GibiByte, 14*format.GibiByte, ml.FlashAttentionAuto, nil)
