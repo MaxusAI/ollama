@@ -395,6 +395,12 @@ knife-edge tier is not a quality verdict. The decision is Glenn's: batch ≥ the
 is a throughput fix with no measured contract cost; the register row moves from "fork unmeasured" to "measured,
 decision pending".
 
+The same container answered #313's ask from the ROCm host (`run_budget_sweep.sh`, `BUDGETS="280 560 1120"`, min == max,
+gemma4:31b, num_ctx 16384 so the 1120 rung decodes past n_ubatch = 1024): scene IoU 0.925 / 0.936 / 0.967 and
+name_bbox 0.691 / 0.714 / 0.709 — no cliff where gfx1151 collapses to 0.000 — with `prompt_eval_count` 848 / 614,
+1111 / 887, 1684 / 1447 (scene / document), digit for digit the ROCm host's b10864 figures. The budget-fill geometry
+is identical across the two hosts; the gfx1151 defect needs the HIP `integrated` path, not the batch geometry.
+
 The fork's `004` fill resizes through `hparams.image_resize_algo`, so it has followed bicubic since 0.33.1; the
 preflight's `token_ladder` (5/5 geometries) and `pinned_image_token_budget` (560 → 529, ceiling 1120) pass on it.
 
