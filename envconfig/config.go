@@ -234,6 +234,14 @@ var (
 	EnableVulkan = BoolWithDefault("OLLAMA_VULKAN")
 	// EnableIntegratedGPU controls whether integrated GPUs may be selected.
 	EnableIntegratedGPU = BoolWithDefault("OLLAMA_IGPU_ENABLE")
+	// IntegratedGPUDirectIO controls whether llama-server loads weights with
+	// direct I/O on integrated CUDA/ROCm GPUs. Upstream forces it there with no
+	// opt-out; set OLLAMA_IGPU_DIRECT_IO=0 to fall back to llama.cpp's own
+	// "auto" load mode, which never selects direct I/O. Unset keeps upstream's
+	// behaviour. MaxusAI fork: direct I/O is an unvalidated load-path change on
+	// gfx1151 (docs/maxusai/amd-upgrade-gate.md, clause 3), and this is what
+	// lets one image measure it on and off.
+	IntegratedGPUDirectIO = BoolWithDefault("OLLAMA_IGPU_DIRECT_IO")
 	// NoCloudEnv checks the OLLAMA_NO_CLOUD environment variable.
 	NoCloudEnv = Bool("OLLAMA_NO_CLOUD")
 	// CreateRemote forces model creation through the server API even when the server is local.

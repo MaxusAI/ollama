@@ -637,10 +637,15 @@ func appendFlashAttentionArgs(params []string, gpus []ml.DeviceInfo) []string {
 // appendLoadModeArgs selects llama-server's single model loading mode. Direct I/O
 // skips the page cache on load for integrated CUDA/ROCm GPUs, which share system
 // memory with the CPU and would otherwise double-buffer weights.
+//
+// MaxusAI fork: OLLAMA_IGPU_DIRECT_IO=0 skips the forced direct I/O, leaving the
+// mmap preference below and llama.cpp's own "auto" mode in charge. Default on.
 func appendLoadModeArgs(params []string, opts api.Options, gpus []ml.DeviceInfo) []string {
-	for _, g := range gpus {
-		if runtime.GOOS == "linux" && g.Integrated && (strings.EqualFold(g.Library, "CUDA") || strings.EqualFold(g.Library, "ROCm")) {
-			return append(params, "--load-mode", "dio")
+	if envconfig.IntegratedGPUDirectIO(true) {
+		for _, g := range gpus {
+			if runtime.GOOS == "linux" && g.Integrated && (strings.EqualFold(g.Library, "CUDA") || strings.EqualFold(g.Library, "ROCm")) {
+				return append(params, "--load-mode", "dio")
+			}
 		}
 	}
 
