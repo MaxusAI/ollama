@@ -305,6 +305,57 @@ built from a worktree at the tag on the `bigdisk` builder — every native stage
   and the run paid the cold kernel compile so the first real request does not. The README's matrix is regenerated from
   this run, stamped `0.34.1-dynres-0-g8a7ba94`.
 
+## The MLX pin move and the vision encoder (#312, 2026-09-18)
+
+The Metal session found that the `gemma4:31b-nvfp4` and `26b-nvfp4` image embeddings (`TestVisionGoldenParity`, against
+the vendored mlx-vlm reference) move across `2b95b4a5 → 8a7ba949` on Apple Silicon while `12b-nvfp4` is bit-identical,
+and asked this host for the same measurement on MLX-CUDA, to split "Metal kernels" from "shared Go/MLX-C code" (#312).
+Measured here at both ends: the Go side at each commit in a `golang:1.26` container, dlopen'ing the payload extracted
+from the fork's own release image for that commit (`sync-0.33.2` = `0.33.2-dynres-5-g2b95b4a`, MLX `c793734e`;
+`sync-0.34.1-main`, MLX `d9add9d1`), goldens byte-identical at both commits, two runs per cell, every repeat to the digit:
+
+| model | `2b95b4a5` mean / std / norm_mean / max Δ | `8a7ba949` | Metal, from #312 |
+|---|---|---|---|
+| 12b | −0.02562 / 2.4605 / 151.309 / 0.0625 | identical in every digit | identical (151.310 / 0.0625) |
+| 26b | −0.00024 / 1.6290 / 86.343 / 0.0469 | identical in every digit | 86.346 / 0.2266 → 86.350 / 0.0508 |
+| 31b | −0.00621 / 1.3243 / 96.999 / 0.0898 | −0.00614 / 1.3251 / 97.056 / 0.1094 | 96.749 / 0.1406 → 96.998 / 0.1094 |
+
+Two causes, one per backend:
+
+- **Metal-only, and a fix.** ml-explore/mlx#3912 (`dfe17baf`, merged 2026-09-11, inside the pin range, Metal kernels
+  only): `fp_qmm_t` ran its K loop past `K_eff` when **K % 32 == 16**, reading 16 columns of the next row's packed weights
+  and scales into the accumulator, for every matrix-sized nvfp4 `quantized_matmul`. The gemma4 vision tower's
+  `mlp.down_proj` is nvfp4 `[1152 × 4304]`, K = 134 × 32 + 16, in 26b and 31b (27 layers each); 12b has no tower, and
+  its two quantized vision weights have K = 3840 and 6912. So the 0.33.2 Metal encoder for 26b/31b was corrupted (the
+  Metal session then reproduced it at kernel level: 79 % of outputs off by > 1.0 at K = 4304, M = 256; clean at
+  K = 4288) and 0.34 moved *toward* the reference. The CUDA kernel (`qmm_sm80_tn_…_g16_nvfp4`) never had the defect:
+  26b reads 0.0469 at both ends, the number the fixed Metal kernel (0.0508) now agrees with. **No campaign on this host
+  is affected** — mlx-cuda never ran the Metal kernel, so the nvfp4 campaigns here
+  (`vision-campaign-2026-08-28-mlx0330-nvfp4.md`, `…-08-31-mlx0332-nvfp4.md`) stand; Metal-side 26b/31b vision numbers
+  from before `8a7ba949` were measured through the corrupted kernel.
+- **Shared Go code, small.** The fold's `ToMLXGlobalScale` (`x/mlxrunner/model/quant.go`) holds every nvfp4 global
+  scale as `f32(m × 2688)` (MLX's representation, 2688 = 448 × 6) and `scaleAndCast` (`x/mlxrunner/mlx/ops_extra.go`)
+  applies `f32(f32(m × 2688) / 2688)`, which is one f32 ulp off `m` for 17 of 31b's 191 vision global scales and exact
+  for both of 12b's; 26b's tower has none. Control: `8a7ba949` with a two-line revert of only that arithmetic
+  (`claude-scratch/wt-gsexact`), same 0.34.1 payload, reproduces `2b95b4a5`'s 31b line to every digit. Inside the
+  test's bounds (norm_mean +0.06 %); not a regression. Whether to keep the raw multiplier on the wrapper-applied paths
+  (`QuantizedMatmul`, `Dequantize`) and reserve `× 2688` for the paths that hand the scale to MLX (`GatherQMM`, `QQMM`)
+  is Glenn's call; the reference uses the raw `m`.
+
+The gap is the same class as the resize algorithm: the MLX pin was folded as an opaque range. **Rule for the next
+fold:** list the range's commits (`gh api repos/ml-explore/mlx/compare/<old>...<new>`, then each commit's files) and
+check every kernel fix's selection condition against the served models' quantized tensor dims, read from the store's
+safetensors headers (nvfp4: `weight` U32 columns × 8 = K, `.scale` U8 columns × 16 = K). A fix selected by shape moves
+one backend for a subset of models and reads exactly like a shared-code drift.
+
+Running `x/mlxrunner` tests against the CUDA payload outside the image (`claude-scratch/golden312.sh`): `golang:1.26.0`
+with `-u 1000:1000` and `--gpus '"device=0"'`; the payload from `docker cp <image>:/usr/lib/ollama/mlx_cuda_v13`
+symlinked at `<wt>/build/lib/ollama/mlx_cuda_v13` **plus** `<wt>/build/lib/ollama/include → mlx_cuda_v13/include`
+(MLX finds CCCL relative to the library's parent, not `CUDA_PATH`; without it the first JIT fails on
+`cuda/std/tuple`); `LD_LIBRARY_PATH`, `CUDA_PATH` and `CUDA_HOME` at the payload dir; one `MLX_PTX_CACHE_DIR` per MLX
+version; `OLLAMA_MODELS` at the store; `OLLAMA_VISION_E2E=1`. An old Go commit loads the old image's payload with no
+rebuild, which is #307's point. 12b ≈ 130 s cold, 31b ≈ 25 s warm.
+
 ## Not in this fold
 
 - The Metal half: MLX and MLX-C moved, so the Metal payload changes too; held by Glenn.
