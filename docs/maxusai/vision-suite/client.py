@@ -179,8 +179,14 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
     # "the llama.cpp payload differs" when comparing against a stock server on a
     # different LLAMA_CPP_VERSION. These are Runner options — changing them
     # reloads the model.
+    # NUM_BATCH pins the generation batch (llama-server -b/-ub via appendBatchArgs)
+    # that the scheduler otherwise derives from num_ctx (1024 above 4096, 2048
+    # above 32768). A gemma4 image chunk above num_batch tokens is decoded in
+    # pieces, non-causal only within each piece (task doc 0.34.1, llama.cpp
+    # #28954), so this is the knob that A/Bs that split at a fixed rung.
     for env, opt in (("IMAGE_MIN_TOKENS", "image_min_tokens"),
-                     ("IMAGE_MAX_TOKENS", "image_max_tokens")):
+                     ("IMAGE_MAX_TOKENS", "image_max_tokens"),
+                     ("NUM_BATCH", "num_batch")):
         if use_env_opts and os.environ.get(env):
             opts[opt] = int(os.environ[env])
     # MTP / speculative draft depth (--spec-draft-n-max on the llama-server
