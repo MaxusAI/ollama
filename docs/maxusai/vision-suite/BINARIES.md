@@ -18,7 +18,8 @@ A host can be rebuilt from it; a binary sitting only in `/tmp` cannot.
 | `0.32.14-maxusai-9594f81e` | [`9594f81e`](https://github.com/MaxusAI/ollama/commit/9594f81e) | llama.cpp **b10434** | v0.32.14 pin | `711d4ad126773ddf…` | the `mlx-metal-0-32-14` preflight baseline |
 | `0.32.14-maxusai-c82b0464` | [`c82b0464`](https://github.com/MaxusAI/ollama/commit/c82b0464) | llama.cpp **b10434** | v0.32.14 pin | `03f9f9289dbaba1b…` | last pre-0.33.0 deploy on :11435 (2026-08-22 → 27); preflight PASS 2026-08-22; rollback target (Go half) for the 0.33.0 swap |
 | `0.33.0-maxusai-21cfe88e` | [`21cfe88e`](https://github.com/MaxusAI/ollama/commit/21cfe88e) | llama.cpp **b10488** | 27fec909 pin | `6ab35025981be587…` | provenance for the `mlx-metal-0-33-0` profile measurement and the 27fec909 golden recalibration; rollback target (Go half) for the 0.33.2 swap |
-| `0.33.2-maxusai-2b95b4a5` | [`2b95b4a5`](https://github.com/MaxusAI/ollama/commit/2b95b4a5) | llama.cpp **b10630** | c793734e pin | `cd6033d6e72a430e…` | current; the v0.33.2 fold (#232, ADR 0033 xgrammar). Provenance for the `mlx-metal-0-33-2` profile measurement; preflight PASS 2026-08-30, goldens NOT recalibrated at this MLX pin |
+| `0.33.2-maxusai-2b95b4a5` | [`2b95b4a5`](https://github.com/MaxusAI/ollama/commit/2b95b4a5) | llama.cpp **b10630** | c793734e pin | `cd6033d6e72a430e…` | serving on :11435 until the 0.34.0 swap; the v0.33.2 fold (#232, ADR 0033 xgrammar). Provenance for the `mlx-metal-0-33-2` profile measurement; preflight PASS 2026-08-30, goldens NOT recalibrated at this MLX pin |
+| `0.34.0-maxusai-8a7ba949` | [`8a7ba949`](https://github.com/MaxusAI/ollama/commit/8a7ba949) | llama.cpp **b10864** | d9add9d1 pin | `867ee5d6063d8f77…` | the v0.34.0 + v0.34.1 folds (#297, #302). Provenance for the `mlx-metal-0-34-0` profile (#306); preflight PASS 2026-09-18 (19/12); whitespace bound (#301) confirmed behaviourally on real documents across the MLX pin move. **Built and staged, NOT yet serving** — the `:11435` swap is pending its kickstart |
 
 Full checksums:
 
@@ -28,6 +29,7 @@ d807360e94e0e17ac346df9bef198b6a182ef2f47bff78a0e772f6d1d67bad72  ~/.ollama/bina
 03f9f9289dbaba1bba2a5826a22e1aa85525e96c7e78942bf41828ff90908a71  ~/.ollama/binaries/ollama-0.32.14-maxusai-c82b0464
 6ab35025981be587ff0a73f0b7ae007b608300defb46f176065c8f3f52d78139  ~/.ollama/binaries/ollama-0.33.0-maxusai-21cfe88e
 cd6033d6e72a430e0b96170adb3d7408c908edfdae392654faeaae46f31e9ee2  ~/.ollama/binaries/ollama-0.33.2-maxusai-2b95b4a5
+867ee5d6063d8f77be6d8278c51d18f49892f00aa80c38c51630227aa9f68a57  ~/.ollama/binaries/ollama-0.34.0-maxusai-8a7ba949
 ```
 
 ## What b10353 is the provenance for
@@ -59,10 +61,19 @@ been rebuilt at MLX `c793734`, reported `MLX version=0.32.1-37-gc793734` — old
 Go, new MLX, a pairing nothing was ever measured on. `mlx_payload_pin` failed it
 against the profile's `27fec909`, which is what that check is for.
 
-So "rollback target" below means **the Go half**. A true rollback restores the
-payload too: check out the commit and rebuild (`CLEAN_DEPS=1`, below) so
-`build/lib/ollama` holds that pin's MLX again, or verify what you actually got by
-reading the engine-init line before trusting the restored server.
+So "rollback target" meant **the Go half** only, and for the rows above
+`0.33.2` it still does: a true rollback to those needs a checkout and rebuild
+(`CLEAN_DEPS=1`, below) so `build/lib/ollama` holds that pin's MLX again.
+
+**From 2026-09-18 the payload is archived too.** `~/.ollama/binaries/` now holds
+`payload-0.33.2-maxusai-2b95b4a5/` and `payload-0.34.0-maxusai-8a7ba949/` beside
+the binaries, so rolling between those two is a copy rather than a ~25 minute cold
+rebuild — which on this host also depends on Xcode's separately-downloadable Metal
+toolchain being installed. Archiving only the binary made every earlier row a
+one-way door in practice; see "Adding one".
+
+Either way, verify what you actually got by reading the engine-init line before
+trusting a restored server.
 
 ## Rebuilding one
 
@@ -85,12 +96,19 @@ gates on.
 
 ## Adding one
 
-Archive the binary whenever a payload pin moves, before the new build replaces
-it on the host:
+Archive **both halves** whenever a payload pin moves, before the new build
+replaces them on the host. The binary alone is not enough — it does not carry
+its MLX (above), so a binary-only archive cannot restore a working pairing:
 
 ```sh
-cp -p /tmp/ollama-vs ~/.ollama/binaries/ollama-$(OLLAMA_HOST=127.0.0.1:1 /tmp/ollama-vs --version 2>&1 \
+VER=$(OLLAMA_HOST=127.0.0.1:1 /tmp/ollama-vs --version 2>&1 \
   | sed -n 's/^Warning: client version is //p')
+cp -p /tmp/ollama-vs ~/.ollama/binaries/ollama-$VER
+mkdir -p ~/.ollama/binaries/payload-$VER
+cp -R build/lib/ollama/. ~/.ollama/binaries/payload-$VER/
 ```
+
+Archive the OUTGOING pairing the same way before overwriting it, because
+`build/lib/ollama` is the only copy of the payload the running server resolves.
 
 Then add a row here with its sha256 and what it is the provenance for.
