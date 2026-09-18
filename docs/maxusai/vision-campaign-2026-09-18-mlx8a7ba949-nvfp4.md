@@ -164,6 +164,33 @@ a bf16 LM, or the converse. The MLX-CUDA session is pulling the registry's
 current `31b-nvfp4`, which carries a **bf16 tower with a 4-bit LM** — against
 our local copy's 4-bit tower and 4-bit LM, that varies the tower alone.
 
+### The local 31b checkpoints are preserved under tower-qualified tags
+
+The MLX-CUDA session found that our local `gemma4:31b-nvfp4` and the registry's
+current tag **share a config digest while differing in 194 vision layers** —
+ours has a 4-bit tower, the registry now ships that tag with a bf16 one. Pulling
+the registry tag would therefore overwrite the checkpoint every number in this
+document was measured on, under the same name, with no version change to warn
+anyone.
+
+The three 31b MLX checkpoints are copied to tower-qualified tags before any pull
+(manifests only — blobs are shared by digest, so the copies cost no disk):
+
+| preserved tag | vision `down_proj` | vision `gate/up/q/k/v/o` | LM |
+|---|---|---|---|
+| `gemma4:31b-nvfp4-tower-nvfp4` | 4-bit | 4-bit | 4-bit |
+| `gemma4:31b-mxfp8-tower-mxfp8` | **bf16** | 8-bit | 8-bit |
+| `gemma4:31b-mlx-bf16-tower-bf16` | bf16 | bf16 | bf16 |
+
+**The `-tower-mxfp8` name is lossy on purpose** and this table is the authority:
+that tower is 8-bit in 162 of its 356 vision layers with `down_proj` alone left
+at bf16 — which is why that checkpoint never meets the #3912 defect even on a
+pre-fix build.
+
+`gemma4:12b-nvfp4` needs no such tag: it has no `vision_tower.encoder` at all,
+only a `vision_embedder` (patch dense plus positional), which is the structural
+reason it was immune to #3912 throughout.
+
 ### The 26b is the counter-control
 
 The 26b's encoder was corrupted **more** than the 31b's by the same kernel bug —
