@@ -1,6 +1,6 @@
 # Open regression: gemma4:31b-nvfp4 think-on loses a 9px OCR tier on 0.34.0
 
-**Status: reproducible, cause unidentified.** Four hypotheses are falsified
+**Status: reproducible, LOCALISED TO #302 by bisect.** Four hypotheses are falsified
 below; a fifth and better lead — greedy nondeterminism — is recorded at the end
 and is where the next person should start.
 
@@ -109,12 +109,62 @@ drafting disabled. 24 runs, perfect separation, no configuration moves it. That
 is the finding to bisect; the determinism question is a separate and much softer
 observation.
 
+## Bisect: everything is in #302
+
+Bisected on the ENCODER rather than the tier. The tier needs a scored benchmark
+and sits on a quantity that drifts hundreds of tokens between runs; the encoder
+measurement is deterministic and answers one question per build in seconds.
+
+Midpoint `907deffd` — the v0.34.0 fold plus #300 and #301, pins `b10760` /
+MLX `ce916dbb`, distinct from both endpoints:
+
+| | 26b encoder maxΔ | think-on 9px | greedy eval range |
+|---|---|---|---|
+| `2b95b4a5` (0.33.2) | 0.2266 | 4 | 1584-1588 (4) |
+| `907deffd` (midpoint) | **0.2266** | **4** | 1289-1290 (**1**) |
+| `8a7ba949` (v0.34.1 fold) | 0.0508 | 3 | 1290-2105 (**815**) |
+
+**Three independent observables flip at the same commit boundary** — image
+embeddings, OCR tier, and run-to-run spread. All clean on the midpoint, all
+moving in #302. 26b and 31b agree, and the 12b control is bit-identical on all
+three builds.
+
+That eliminates the entire v0.34.0 upstream fold, #300, and #301. It does not
+prove one cause, but it rules out the findings being scattered across the fold
+and needing separate hunts.
+
+**Remaining suspects, all inside #302:** MLX `ce916dbb -> d9add9d1` (24 upstream
+commits, prime suspect since MLX is the vision compute backend), MLX-C
+`c74db530 -> ebc88f10`, the scoped-array-lifetimes refactor, the NVFP4
+global-scale / `gather_qmm` work, and the `ec3cc2307` KV-buffer cherry-pick.
+
+## A separation route that does not work
+
+The MLX pin and the Go changes ship together, so no bisect separates them.
+Pairing them deliberately — `8a7ba949`'s Go with `ce916dbb`'s MLX payload —
+IS NOT POSSIBLE:
+
+```
+CHECK failed: mlx_stream_thread_local_new_
+SIGSEGV during cgo execution
+mlx._Cfunc_mlx_install_capture_handler()
+mlx.init.1()  at x/mlxrunner/mlx/mlx.go:43
+```
+
+The new Go calls `mlx_install_capture_handler` at package init and `ce916dbb`'s
+MLX-C lacks the symbol it needs, so it dies before any test runs. Separating the
+halves requires reverting Go changes against the new payload, not swapping
+payloads. Worth knowing before spending time on the cheap-looking approach.
+
+It also means payload/binary skew fails LOUDLY on this path rather than
+silently, which is stronger than what `mlx_payload_pin` was designed to catch.
+
 ## Next step not taken
 
-Splitting the fold at `907deffd` (v0.34.0, MLX `ce916dbb`) against `8a7ba949`
-(v0.34.1, MLX `d9add9d1`) halves the search. It needs a rebuild: only the two
-endpoints are archived, and the `907deffd` install was discarded. Archiving it
-would have been the right call, since it was a distinct Go/MLX pairing.
+Splitting #302 further, or the MLX-CUDA comparison in #312 — which is now the
+cheapest remaining cut, because the surviving suspects divide into MLX Metal
+kernels (which CUDA would not reproduce) and shared Go/MLX-C layers (which it
+would).
 
 ## Reproducing
 
