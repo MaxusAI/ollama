@@ -73,11 +73,13 @@ returns `nn.NewLinear`, whose `Forward` is `x.Matmul(w)` — no `QuantizedMatmul
 no `fp_qmm_t`, no global scale. `31b-mlx-bf16` carries **zero** `.weight_scale`
 tensors across 1247 (59.2 GiB).
 
-**`31b-mxfp8`'s vision tower is bf16, not mxfp8.** Its vision L0
-`mlp.down_proj` blob is **9,916,560 bytes in both the mxfp8 and the bf16
-checkpoint** — byte-identical, and exactly `1152 × 4304 × 2 + 144` header. Only
-the language model is 8-bit (119 MB/layer against bf16's 231 MB). So mxfp8 is a
-second bf16-encoder arm, not an independent vision quantization.
+**`31b-mxfp8` keeps `down_proj` at bf16 while quantizing the rest of the
+tower to 8-bit.** Its vision L0 `mlp.down_proj` blob is 9,916,560 bytes in both
+the mxfp8 and the bf16 checkpoint — byte-identical, exactly
+`1152 × 4304 × 2 + 144` header, same blob digest `4b80a6f9…`. That one tensor
+is shared; the other 162 vision weight layers are not. Reading only
+`down_proj` and calling the tower bf16 was an error in the first version of this
+section.
 
 The same arithmetic re-derives this document's shape claim from file sizes
 alone, with no code and no model load: the nvfp4 blob is
@@ -87,10 +89,44 @@ giving K = 4304 and group = 16.
 ### What the control establishes
 
 **The model's true 9px answer is 4** — bf16, with no quantization anywhere,
-scores 4 in both think modes. nvfp4 on the fixed kernel scores 3; nvfp4 on the
-broken kernel scored 4. The kernel defect was compensating for an nvfp4
-quantization loss on this sample, so #3912 did not cost a tier, it stopped
+scores 4 in **10 of 10** reps. nvfp4 on the fixed kernel reaches it 2/10; nvfp4
+on the broken kernel reached it 14/14. The kernel defect was compensating for an
+nvfp4 quantization loss on this sample, so #3912 did not cost a tier, it stopped
 hiding one.
+
+**The cell is bimodal, and the tables above are n = 1.** Ten reps per
+quantization, think-off, same binary and window:
+
+| model | vision tower | LM | 9px per rep | rate at 4 |
+|---|---|---|---|---|
+| `31b-mlx-bf16` | bf16 | bf16 | `[4,4,4,4,4,4,4,4,4,4]` | **10/10** |
+| `31b-mxfp8` | **bf16** | 8-bit | `[3,3,3,3,3,3,3,3,3,3]` | **0/10** |
+| `31b-nvfp4` | nvfp4 | 4-bit | `[4,4,3,3,3,3,3,3,3,3]` | **2/10** |
+
+**None of these three arms isolates the encoder from the language model.**
+Reading the whole vision tower rather than one tensor:
+
+| checkpoint | vision `down_proj` | vision `gate/up/q/k/v/o` | LM |
+|---|---|---|---|
+| `31b-nvfp4` | 4-bit | 4-bit | 4-bit |
+| `31b-mxfp8` | **bf16** | **8-bit** | 8-bit |
+| `31b-mlx-bf16` | bf16 | bf16 | bf16 |
+
+`31b-mxfp8`'s tower is 8-bit in 162 of its 356 vision layers, with only
+`down_proj` left at bf16 — it is not a bf16-tower arm. Each checkpoint varies
+tower precision and LM precision together, so none of them attributes the glyph
+to either.
+
+What the reps do establish is that **the cell does not order by numerical
+precision**: `31b-mxfp8` carries a bf16 `down_proj` — the very tensor #3912
+corrupts — and an 8-bit tower and LM, and still scores 0/10, below the 4-bit
+`31b-nvfp4`'s 2/10. A metric where more precision scores worse is not measuring
+quality, and is not a readout of the vision encoder.
+
+The single-capture tables in this section therefore report the minority mode
+roughly one time in eight. They are kept because they are what was measured, but
+**no conclusion should rest on one capture of this cell**, here or elsewhere in
+this repo.
 
 That is consistent with the golden-parity delta, which measures the fused
 quantized matmul against dequantize-then-matmul — the arithmetic the nvfp4
