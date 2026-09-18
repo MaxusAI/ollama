@@ -228,11 +228,80 @@ that includes conclusions drawn in this repo before today.
   first measured case where that convention can report the wrong mode, and it
   is the reason the follow-up runs `N = 10`.
 
-## 5. Open
+## 5. Settled — on real OCR the kernel defect is undetectable
 
-Whether the pre-#3912 kernel genuinely reads fine text better, or merely won one
-glyph by chance, needs more than twenty synthetic codes. The follow-up runs
-**OCRBench** (`echo840/OCRBench`, contains-match, lmms-eval semantics) at
-`LIMIT=200` on both archived builds — `0.34.0-maxusai-8a7ba949` (MLX
-`0.32.2-61-gd9add9d`, fixed) and `0.33.2-maxusai-2b95b4a5` (MLX
-`0.32.1-37-gc793734`, broken) — same model, same window, same host.
+The 9px cell could not answer whether the pre-#3912 kernel reads fine text
+better, so the question was put to **OCRBench v1** (`echo840/OCRBench`,
+contains-match, lmms-eval semantics via `extbench.py`), all **1000** items,
+`gemma4:31b-nvfp4` think-off, `num_ctx=16384`, on both archived builds — the
+same local checkpoint (4-bit tower, 4-bit LM) under each binary, so only the
+build differs:
+
+```
+0.34.0-maxusai-8a7ba949  (MLX d9add9d1, FIXED)   835/1000 = 0.8350
+0.33.2-maxusai-2b95b4a5  (MLX c793734e, BROKEN)  833/1000 = 0.8330
+
+both right 826 | both wrong 158 | FIXED only 9 | BROKEN only 7
+discordant 16   exact McNemar two-tailed p = 0.8036   -> not significant
+churn 16/1000 = 1.6%
+```
+
+**The two builds are statistically indistinguishable.** Two items separate them
+in 1000. The kernel defect — which corrupts 232722 of 294912 elements at
+K = 4304, M = 256 in isolation — is not detectable in end-to-end OCR accuracy.
+
+### The 200-item slice was misleading, in both directions
+
+An earlier 200-item run gave `FIXED only 4 / BROKEN only 0` and was reported here
+as directionally unanimous but underpowered. Extending to 1000 shows the
+direction was noise: across the remaining 800 items the split is 5 fixed / 7
+broken. A unanimous 4–0 cannot reach significance in a two-tailed exact test —
+that caveat was right, and the extension is why it mattered.
+
+The slice was also unrepresentative of the benchmark. Per-chunk accuracy on the
+fixed build runs `0.875, 0.845, 0.945, 0.845, 0.665` — the last 200 items are
+much harder. **Reading the first 200 as 87.5% and comparing it to the tech
+report's 88.3 reasoning-off figure was wrong**; the full-benchmark number for
+this checkpoint is 83.5%, and the gap to 88.3 is most plausibly nvfp4
+quantization, though that has not been measured here against an unquantized run.
+
+### What the 16 discordant items look like
+
+Descriptive only — 9 against 7 is not a difference, and the classification below
+is a reading of the outputs, not a tested claim.
+
+| item | gold | fixed | broken |
+|---|---|---|---|
+| 0 | `CENTRE` | `Centre` | `Centuries` |
+| 78 | `DAVIDSON` | `Davidson` | `Davison` |
+| 93 | `CORONAD` | `CORONADO` | `CORONA` |
+| 218 | `100972` | `100972` | `10972` |
+| 374 | `72.7` | `72.7%` | `12.7%` |
+| 239 | `27299` | `272.99` | `27299` |
+| 265 | `TISPPIP` | `TISPP IP` | `TISPPIP` |
+| 348 | `TRANSAVIA.COM` | `Transavia` | `transavia.com` |
+| 931 | `AO = OC = OB = OD` | `OB - OD` | `OB = OD` |
+
+The fixed build's wins are character reads (`Davison`, `CORONA`, `10972`,
+`12.7%` are dropped or substituted characters). Several of the broken build's
+wins are punctuation and spacing under a strict contains-match scorer
+(`272.99` for `27299`, `TISPP IP` for `TISPPIP`, `Transavia` truncating the
+domain) rather than misreads. Only two — item 670 `England` for `australia` and
+item 673 `Thursday` for `monday` — are outright errors by the fixed build.
+
+### The decision this answers
+
+**Do not revert the kernel.** Not because reverting would cost OCR accuracy —
+it demonstrably would not, at this precision — but because the fixed kernel is
+arithmetically correct, matches MLX-CUDA's golden delta exactly at `0.0898`, and
+the 9px tier that motivated the question was never measuring the encoder. There
+is no accuracy argument on either side; there is a correctness argument on one.
+
+## 6. Open
+
+- **Which checkpoint the MLX-CUDA host measured.** Its 200-item OCRBench figure
+  (0.860) is comparable to Metal's only if it ran a 4-bit tower; the registry's
+  current `31b-nvfp4` ships a bf16 one, and the two differ in 194 layers.
+- **No unquantized OCRBench baseline.** `31b-mlx-bf16` has not been run over the
+  1000 items, so the 83.5 → 88.3 gap is attributed to quantization by plausibility
+  rather than measurement.
