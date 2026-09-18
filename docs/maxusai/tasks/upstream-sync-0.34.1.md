@@ -299,7 +299,11 @@ built from a worktree at the tag on the `bigdisk` builder — every native stage
   grammar goes to flat; costs drafting speed on grammar requests only), 54 tags before and after, 10 s of no service.
   `ollama-0.34.0-dynres-0-gcf2ad41` is stopped and kept: rollback is
   `docker rm -f ollama-0.34.1-dynres-0-g8a7ba94 && docker start ollama-0.34.0-dynres-0-gcf2ad41`. The teacher-v3
-  session confirmed nothing of theirs was on `:11497`. Post-deploy preflight against `:11497`: below when done.
+  session confirmed nothing of theirs was on `:11497`.
+- **Post-deploy preflight against `:11497`** (14:01–14:11, `preflight-runs/full-0341-deployed.{log,json}`): **PASS 21 /
+  SKIP 7**; version, both payload pins, budgets, think + format and the poison probe all green on production itself,
+  and the run paid the cold kernel compile so the first real request does not. The README's matrix is regenerated from
+  this run, stamped `0.34.1-dynres-0-g8a7ba94`.
 
 ## Not in this fold
 
