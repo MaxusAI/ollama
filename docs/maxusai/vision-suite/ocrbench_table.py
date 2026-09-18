@@ -3,6 +3,7 @@
 
     python3 ocrbench_table.py "nvfp4=ocr31b_nvfp4,ocr31b_nvfp4_r2" "q4_K_M=ocr31b_q4km"
     python3 ocrbench_table.py --dir . --engine mlx-cuda "bf16=ocr31b_bf16"
+    python3 ocrbench_table.py --categories "q4=ocr31b_q4km" "q8=ocr31b_q8"
 
 Each argument is `label=tag[,tag...]`; several tags are repeats of one arm. Reads
 `ext_<tag>_ocrbench.json` and writes three tables: the arms, the repeat spread, and
@@ -49,6 +50,36 @@ def mcnemar_p(b, c):
         return 1.0
     k = min(b, c)
     return min(1.0, 2 * sum(math.comb(n, i) for i in range(k + 1)) / (2 ** n))
+
+
+def question_types(directory, offset, limit, bench="ocrbench"):
+    """{row index: question_type} from extbench's cached row slice; {} when it is absent.
+
+    Reads the cache rather than the dataset server: the breakdown must describe the
+    same rows the arms answered, and a run that scored 200 items already has them.
+    """
+    path = os.path.join(directory, "extimgs", bench, f"rows_{offset}_{limit}.json")
+    if not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        rows = json.load(f)
+    return {offset + i: r.get("question_type") or "unlabelled" for i, r in enumerate(rows)}
+
+
+def category_table(arms, types):
+    """Correct-per-type for each arm: where a ladder's misses actually live."""
+    labels = list(arms)
+    rows = ["| question type | n | " + " | ".join(labels) + " |",
+            "|---|---|" + "---|" * len(labels)]
+    for name in sorted(set(types.values())):
+        idx = [i for i, t in types.items() if t == name]
+        cells = []
+        for label in labels:
+            ok = arms[label][0][1]["ok"]
+            got = [ok[i] for i in idx if i in ok]
+            cells.append(f"{sum(got)}/{len(got)}" if got else "—")
+        rows.append(f"| {name} | {len(idx)} | " + " | ".join(cells) + " |")
+    return "\n".join(rows)
 
 
 def mean(xs):
@@ -110,6 +141,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("arms", nargs="+", help="label=tag[,tag...]")
     ap.add_argument("--dir", default=os.path.dirname(os.path.abspath(__file__)))
+    ap.add_argument("--categories", action="store_true",
+                    help="also break the first run of each arm down by OCRBench question type")
     ap.add_argument("--engine", default="mlx-cuda",
                     help="engine label for the table; mlx-cuda and mlx-metal numbers never share one")
     a = ap.parse_args(argv)
@@ -139,6 +172,13 @@ def main(argv=None):
     if len(arms) > 1:
         print("\n**Paired on the same items** (first run of each arm)\n")
         print(paired_table(arms))
+    if a.categories:
+        types = question_types(a.dir, s["offset"], s["requested"])
+        if types:
+            print("\n**By OCRBench question type** (first run of each arm)\n")
+            print(category_table(arms, types))
+        else:
+            print("\n<!-- no cached row slice in extimgs/ocrbench; run an arm first -->")
     if missing:
         print(f"\nMissing score files: {', '.join('`ext_%s_ocrbench.json`' % m for m in missing)}")
     return 0

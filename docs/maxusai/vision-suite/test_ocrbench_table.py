@@ -90,5 +90,33 @@ class TestTables(unittest.TestCase):
                 ocrbench_table.main(["--dir", d, "x=nothing"])
 
 
+class TestCategories(unittest.TestCase):
+    def test_question_types_come_from_the_cached_slice(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "extimgs", "ocrbench"))
+            with open(os.path.join(d, "extimgs", "ocrbench", "rows_0_3.json"), "w") as f:
+                json.dump([{"question_type": "Handwriting Recognition"},
+                           {"question_type": "Regular Text Recognition"},
+                           {}], f)
+            types = ocrbench_table.question_types(d, 0, 3)
+            self.assertEqual(types[0], "Handwriting Recognition")
+            self.assertEqual(types[2], "unlabelled", "a row without a type is still an item")
+
+    def test_missing_cache_is_empty_not_an_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(ocrbench_table.question_types(d, 0, 200), {})
+
+    def test_category_table_counts_per_arm(self):
+        with tempfile.TemporaryDirectory() as d:
+            write(d, "a", [1, 0, 1, 1])
+            write(d, "b", [1, 1, 1, 0])
+            arms = {"A": [("a", ocrbench_table.load(d, "a"))],
+                    "B": [("b", ocrbench_table.load(d, "b"))]}
+            types = {0: "hand", 1: "hand", 2: "regular", 3: "regular"}
+            out = ocrbench_table.category_table(arms, types)
+            self.assertIn("| hand | 2 | 1/2 | 2/2 |", out)
+            self.assertIn("| regular | 2 | 2/2 | 1/2 |", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

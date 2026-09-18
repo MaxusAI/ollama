@@ -80,7 +80,7 @@ LIMIT=200 OFFSET=0 THINK=false NUM_CTX=8192 NUM_PREDICT=512 SLEEP=1 TIMEOUT=1800
 
 | setting | value | why |
 |---|---|---|
-| items | 200, offset 0 | the slice the Metal run used |
+| items | 200, offset 0 | the slice the Metal run used — see the warning below |
 | think | off | OCRBench answers are a word or a phrase |
 | sampling | temperature 0, `apply_sampling=False` | the arms must differ by weights, not by sampling |
 | `num_ctx` | 8192, every arm | one image and a short question; identical across arms so no arm truncates |
@@ -90,6 +90,22 @@ LIMIT=200 OFFSET=0 THINK=false NUM_CTX=8192 NUM_PREDICT=512 SLEEP=1 TIMEOUT=1800
 
 Each arm runs in a probe container on port 11521 against GPU0 with a 16 GiB overhead
 reserve, never against `:11497`.
+
+**What rows 0–200 actually contain.** The dataset is ordered by task, so this slice is
+**not a sample of OCRBench** — it is four of its ten categories, 50 items each:
+
+| Regular Text Recognition | Irregular Text Recognition | Artistic Text Recognition | Handwriting Recognition |
+|---|---|---|---|
+| 50 | 50 | 50 | 50 |
+
+Digit-string, non-semantic text, scene-text VQA, doc-oriented VQA, key-information
+extraction and handwritten maths are **absent**. So every number here — ours and the
+Metal 0.875 — is an accuracy on OCRBench's *text-recognition half*, and must not be
+called an OCRBench score or compared with a published one (those are out of 1000 across
+all ten categories). It is still the right slice for this question, because the arms are
+being compared with each other on identical items. Widening to the full 1000, or to a
+stratified 20-per-category slice, is the obvious follow-up and costs about 80 minutes per
+arm at these rates.
 
 **The ladder varies one thing at a time — but only within an engine.** The library's
 three MLX tags (`31b-nvfp4`, `31b-mxfp8`, `31b-mlx-bf16`) carry an **identical bf16
@@ -118,22 +134,52 @@ is nvfp4 too. It is reported as its own row, because it differs from the library
 
 | arm | engine | model | correct / scored | accuracy | ±1 s.e. | mean s/item | median | prompt_eval |
 |---|---|---|---|---|---|---|---|---|
-| q4_K_M | llama.cpp | `gemma4:31b-it-q4_K_M` | 171 / 200 | **0.855** | 0.025 | 5.0 | 4.9 | 1115 |
-| q8_0 | llama.cpp | `gemma4:31b-it-q8_0` | _pending_ | | | | | |
+| q4_K_M (run 1) | llama.cpp | `gemma4:31b-it-q4_K_M` | 171 / 200 | **0.855** | 0.025 | 5.0 | 4.9 | 1115 |
+| q4_K_M (run 2) | llama.cpp | `gemma4:31b-it-q4_K_M` | 171 / 200 | **0.855** | 0.025 | 4.9 | 4.8 | 1115 |
+| q8_0 (run 1) | llama.cpp | `gemma4:31b-it-q8_0` | 170 / 200 | **0.850** | 0.025 | 5.1 | 5.0 | 1115 |
+| q8_0 (run 2) | llama.cpp | `gemma4:31b-it-q8_0` | 170 / 200 | **0.850** | 0.025 | 5.2 | 4.8 | 1115 |
 | bf16 | llama.cpp | `gemma4:31b-it-bf16` | _pending_ | | | | | |
 
-**Paired, the two arms measured so far** (same 200 items):
+**Repeats — the GGUF path is item-level deterministic**
+
+| arm | runs | accuracies | items that flipped |
+|---|---|---|---|
+| q4_K_M | 2 | 0.855, 0.855 | 0 |
+| q8_0 | 2 | 0.850, 0.850 | 0 |
+
+Not one of 200 items changed verdict between runs on either arm. That is the positive
+control the rest of the ladder needs: on this engine a difference between arms is the
+weights, not run noise.
+
+**Paired, the arms measured so far** (same items)
 
 | A | B | A | B | b (A only) | c (B only) | p | resolved |
 |---|---|---|---|---|---|---|---|
 | nvfp4 (mlx-cuda) | q4_K_M (llama.cpp) | 0.860 | 0.855 | 3 | 2 | 1.000 | no |
+| q4_K_M | q8_0 | 0.855 | 0.850 | 1 | 0 | 1.000 | no |
 
-Five items out of 200 separate the two engines, three one way and two the other. On the
-95 % of items where both are right or both are wrong they agree exactly, so the engines
-are not reading these images differently; they differ on a handful of hard ones, in both
-directions. MLX answers in 2.3 s against llama.cpp's 5.0 s, at an identical mean
-prompt_eval of 1115 tokens — the same image budget, so that gap is engine speed and not
-a different amount of image.
+**q8_0 buys nothing over q4_K_M here.** The two differ on a single item out of 200, in
+q4's favour, at the same seconds per item — the same conclusion the Qwen2.5-VL campaign
+reached at 32B. Against MLX, five items separate the engines, three one way and two the
+other; where both are right or both are wrong they agree exactly, so the engines are not
+reading these images differently, they differ on a handful of hard ones in both
+directions. MLX answers in 2.3 s against llama.cpp's 5.0 s at an identical mean
+prompt_eval of 1115 tokens — the same image budget, so that gap is engine speed, not a
+different amount of image.
+
+**By question type** (first run of each arm), from `ocrbench_table.py --categories`:
+
+| question type | n | mlx-cuda nvfp4 | q4_K_M | q8_0 |
+|---|---|---|---|---|
+| Artistic Text Recognition | 50 | 49/50 | 49/50 | 48/50 |
+| Handwriting Recognition | 50 | 34/50 | 33/50 | 33/50 |
+| Irregular Text Recognition | 50 | 40/50 | 40/50 | 40/50 |
+| Regular Text Recognition | 50 | 49/50 | 49/50 | 49/50 |
+
+Regular and artistic text are at ceiling for every arm. All the headroom is in
+handwriting (16–17 misses) and irregular text (10 misses, the same count on all three),
+and no arm is more than one item better than another in any category. If a quantisation
+cost exists at 31b, this slice does not show it in text recognition.
 
 ## Harness note (2026-09-19)
 
@@ -166,6 +212,8 @@ not yet identified, which the audit above makes load-bearing.
    `python3 docs/maxusai/vision-suite/ocrbench_table.py --engine mlx-metal "nvfp4=<tag>"`
    and paste the table into this section. Same generator, so the columns line up.
 4. State the build the runner came from, as the CUDA rows do.
+5. Label the number for what it is: rows 0–200 are OCRBench's four text-recognition
+   categories, not the benchmark. `--categories` prints the per-type split.
 
 ---
 
