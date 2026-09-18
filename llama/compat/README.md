@@ -37,6 +37,42 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   measurably break `box_2d` vertical grounding; see
   `docs/maxusai/gemma4-bbox-investigation-findings.md`. Makes
   `--image-min-tokens` a no-op for gemma4.
+
+  **Upstream converging on 70/1120 is not redundancy (checked 2026-09-18, at
+  b10864).** llama.cpp moved its own gemma4 defaults from
+  `set_limit_image_tokens(40, 280)` to `(70, 1120)` at b10864 — exactly the
+  endpoints of the ladder above — which invites the question of whether this
+  patch can now go. It cannot, and the reason is that the two changes are
+  orthogonal. Those bounds are inputs to `calc_size_preserved_ratio`, which
+  rounds each axis to align and then clamps DOWN when over `max_pixels` or
+  scales UP when under `min_pixels`; it neither snaps to the ladder nor fills
+  to the budget, so an under-budget image keeps its natural rounded grid. 004
+  replaces that call for gemma4 with `calc_size_budget_fill`. Upstream changed
+  the bounds fed to an algorithm; this patch changes the algorithm. Two further
+  checks: 004 never touches `set_limit_image_tokens` at all — that line appears
+  only as patch context — and the fork passes `--image-min-tokens 70
+  --image-max-tokens 1120` explicitly on every gemma4 launch, so the payload's
+  own defaults never bound anything here in the first place. Re-open this
+  question only if upstream adds ladder snapping or budget filling to the
+  dyn_size preprocessor itself, not merely because the numbers match.
+
+  Two related facts, so the same ground is not re-walked. The patch context
+  *was* re-cut for this bump (`fb18f5c94`, "re-cut 004 for llama.cpp b10864"),
+  which is why it still applies: at `2b95b4a5` its context read
+  `set_limit_image_tokens(40, 280)` and on `main` it reads `(70, 1120)`.
+  Separately, the gemma4 branch's `image_resize_algo = RESIZE_ALGO_BICUBIC` is
+  NOT a b10864 change — b10630 already set it, so it predates the 0.33.2
+  baseline. A diff of the gemma4 branch spanning b9888..b10864 shows the
+  resize-algo and token-limit changes together and invites treating both as
+  new; only the token limits are.
+
+  **The MLX path does not use this patch.** The `mlx-metal` preflight profiles
+  carry `patchset = []` because the compat patches do not apply to MLX at all.
+  Apple Silicon gets the same geometry from `llm.BudgetFillSize`
+  (`llm/llama_server.go`), a Go mirror of `calc_size_budget_fill` called from
+  `x/models/gemma4/vision.go`. The two must stay in lockstep: changing one and
+  not the other silently splits GGUF and MLX onto different grids, and only the
+  GGUF half is covered by this patch's tests.
 - `005-llama-cpp-dynres-pinned-overshoot.patch` - shared dyn_size sizing: when
   a pinned budget (min ~= max) makes the min_pixels ceil overshoot max_pixels,
   floor just under min instead. The budget is a hard ceiling; measured
