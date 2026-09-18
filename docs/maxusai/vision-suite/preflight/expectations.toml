@@ -340,6 +340,56 @@ TestVisionGoldenParity passes for 12b, 26b and 31b (31b norm_mean 96.941 ->
 runner regressions must not be conflated.
 """
 
+[profiles.mlx-metal-0-34-0]
+platform = "mlx-metal"
+# The v0.34.0 and v0.34.1 folds (#297, #302) moved BOTH payload pins again —
+# llama.cpp b10630 -> b10864, MLX c793734e -> d9add9d1. By the same ADR 0011
+# rule that created mlx-metal-0-33-0 and -0-33-2, an MLX bump alone requires a
+# new profile rather than a widened pattern. Narrow to the 0.34.0 base per
+# ADR 0032.
+version_pattern = '^0\.34\.0-maxusai-[0-9a-f]{7,40}$'
+# MLX payload identity, read from MLX_VERSION at 8a7ba949, the build this
+# profile was measured on (BINARIES.md). mlx_payload_pin asserts it against the
+# runner's engine-init line, which reported 0.32.2-61-gd9add9d on that build.
+mlx_build = "d9add9d11f3154111a4c85f267ec2fd307ecd18e"
+patchset = []                     # llama.cpp compat patches do not apply to MLX
+reference_image = "native macOS build — no container"
+expect_patch_marker = 1
+arches = ["gemma4", "gemma4_unified", "qwen35moe", "qwen35"]
+notes = """
+Successor to mlx-metal-0-33-2 after the v0.34.0 + v0.34.1 folds.
+
+Every ladder below was re-measured on 0.34.0-maxusai-8a7ba949 against the
+build-under-test on :11437 with measure_ladder.py, one freshly restarted server
+per arch, and came back BYTE-IDENTICAL to the 0.33.2 rows: gemma4 and
+gemma4_unified [1102 x 5] at prefix 19, qwen35moe and qwen35
+[68, 146, 578, 2306, 5186] at prefix 13. Stride, scaling and tolerance
+reproduce too — 24 of 24 compared values. That is the third consecutive payload
+move to leave token accounting inert on this platform.
+
+THE STAMP IS 0.34.0 THOUGH THE FOLD IS 0.34.1. build-macos.sh derives the base
+from the newest reachable release tag, and that is still v0.34.0-dynres, so a
+v0.34.1 build stamps 0.34.0-maxusai-<sha>. version_pattern therefore admits any
+0.34.0-maxusai build; mlx_build is what identifies the fold and mlx_payload_pin
+is what enforces it. The earlier 0.34.0-maxusai-907deffd build (MLX ce916dbb,
+built 2026-09-18, never deployed) matches this pattern and will correctly FAIL
+the pin. That is the check working, not a gap in the pattern.
+
+BUDGET/PIXEL FIELDS ARE CARRIED, AND THE JUSTIFICATION IS NARROWER THAN
+0.33.2's. The native MLX path emits no load_hparams pixel lines, so
+measure_ladder leaves those four as TODO and says so on stderr. mlx-metal-0-33-2
+carried them on the whole of llm/llama_server.go being byte-identical across its
+fold. THAT IS NOT TRUE HERE — across 2b95b4a5..8a7ba949 that file moved 83/64
+and llm/ gained model_split.go. The narrower claim, which is the one made here,
+is that ImageTokensForSize itself is byte-for-byte identical between those two
+commits (32 lines, empty diff) and TestImageTokensForSize passes on this build.
+budgets_observed = false records that these fields are carried, not read.
+
+aspect_ladder and the think_format probes are carried from 0.33.2 unchanged.
+Neither is a silent carry: preflight runs both live, so a moved value fails the
+gate rather than passing on the strength of this note.
+"""
+
 [profiles.metal-0-32-14]
 platform = "metal"
 # The GGUF/Metal half of Apple Silicon on the v0.32.14 payload (b10434).
@@ -1499,6 +1549,126 @@ aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
 ladder_tolerance = 2
 # prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
 ladder = [68, 146, 578, 2306, 5186]
+
+[expect.mlx-metal-0-34-0.gemma4]
+status = "measured"
+measured_on = "2026-09-18"
+model = "gemma4:31b-mlx-bf16"
+patch_stride = 48
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
+budget_min_tokens = 70   # carried: Go sizing model byte-identical, see notes
+budget_max_tokens = 1120   # carried: Go sizing model byte-identical, see notes
+image_min_pixels = 161280   # carried: Go sizing model byte-identical, see notes
+image_max_pixels = 2580480   # carried: Go sizing model byte-identical, see notes
+scaling = "flat"
+# Aspect axis. ladder_sizes is five 16:9 geometries, so it varies image SIZE
+# only, and a budget-fill arch scales every input to the same grid — which
+# makes gemma4's five rungs mathematically identical and its "5/5" one
+# degree of freedom reported as five. These three ratios (1:1, 4:3, 4:1)
+# move the axis the ladder cannot: gemma4 spans 1058-1102 across them,
+# while qwen tracks PIXEL COUNT rather than ratio (768x768, 1024x576 and
+# 576x1024 are all ~590k px, hence its identical 578). Measured on
+# 0.33.2-maxusai-2b95b4a5 against :11437, values emitted by the probe.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.mlx-metal-0-34-0.gemma4_unified]
+status = "measured"
+measured_on = "2026-09-18"
+model = "gemma4:12b-nvfp4"
+patch_stride = 48
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
+budget_min_tokens = 70   # carried: Go sizing model byte-identical, see notes
+budget_max_tokens = 1120   # carried: Go sizing model byte-identical, see notes
+image_min_pixels = 161280   # carried: Go sizing model byte-identical, see notes
+image_max_pixels = 2580480   # carried: Go sizing model byte-identical, see notes
+scaling = "flat"
+# Aspect axis. ladder_sizes is five 16:9 geometries, so it varies image SIZE
+# only, and a budget-fill arch scales every input to the same grid — which
+# makes gemma4's five rungs mathematically identical and its "5/5" one
+# degree of freedom reported as five. These three ratios (1:1, 4:3, 4:1)
+# move the axis the ladder cannot: gemma4 spans 1058-1102 across them,
+# while qwen tracks PIXEL COUNT rather than ratio (768x768, 1024x576 and
+# 576x1024 are all ~590k px, hence its identical 578). Measured on
+# 0.33.2-maxusai-2b95b4a5 against :11437, values emitted by the probe.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.mlx-metal-0-34-0.qwen35moe]
+status = "measured"
+measured_on = "2026-09-18"
+model = "qwen3.6:35b-a3b-nvfp4"
+patch_stride = 32
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
+budget_min_tokens = 64   # carried: Go sizing model byte-identical, see notes
+budget_max_tokens = 16384   # carried: Go sizing model byte-identical, see notes
+image_min_pixels = 65536   # carried: Go sizing model byte-identical, see notes
+image_max_pixels = 16777216   # carried: Go sizing model byte-identical, see notes
+scaling = "dynamic"
+# Aspect axis. ladder_sizes is five 16:9 geometries, so it varies image SIZE
+# only, and a budget-fill arch scales every input to the same grid — which
+# makes gemma4's five rungs mathematically identical and its "5/5" one
+# degree of freedom reported as five. These three ratios (1:1, 4:3, 4:1)
+# move the axis the ladder cannot: gemma4 spans 1058-1102 across them,
+# while qwen tracks PIXEL COUNT rather than ratio (768x768, 1024x576 and
+# 576x1024 are all ~590k px, hence its identical 578). Measured on
+# 0.33.2-maxusai-2b95b4a5 against :11437, values emitted by the probe.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
+
+[expect.mlx-metal-0-34-0.qwen35]
+status = "measured"
+measured_on = "2026-09-18"
+model = "qwen3.8:27b-nvfp4"
+patch_stride = 32
+# The ladder above was measured on the build under test; these four are
+# NOT observable here — the native MLX path emits no load_hparams line,
+# so payload_proof has nothing to read. Kept because they are true and
+# they document the budget, and the stride arithmetic still catches a
+# hand-edit typo; flagged because "measured" covered both halves and
+# only one of them was.
+budgets_observed = false
+budget_min_tokens = 64   # carried: Go sizing model byte-identical, see notes
+budget_max_tokens = 16384   # carried: Go sizing model byte-identical, see notes
+image_min_pixels = 65536   # carried: Go sizing model byte-identical, see notes
+image_max_pixels = 16777216   # carried: Go sizing model byte-identical, see notes
+scaling = "dynamic"
+# Aspect axis. ladder_sizes is five 16:9 geometries, so it varies image SIZE
+# only, and a budget-fill arch scales every input to the same grid — which
+# makes gemma4's five rungs mathematically identical and its "5/5" one
+# degree of freedom reported as five. These three ratios (1:1, 4:3, 4:1)
+# move the axis the ladder cannot: gemma4 spans 1058-1102 across them,
+# while qwen tracks PIXEL COUNT rather than ratio (768x768, 1024x576 and
+# 576x1024 are all ~590k px, hence its identical 578). Measured on
+# 0.33.2-maxusai-2b95b4a5 against :11437, values emitted by the probe.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
 [expect.mlx-cuda.gemma4]
 status = "measured"
 measured_on = "2026-08-17"
@@ -1779,6 +1949,78 @@ require_nonempty_response = true
 require_valid_json = true
 require_nonempty_thinking = true
 # Measured on this build (runs/rc-0332.json): eval_count 296 of 4000, valid JSON after thinking.
+
+[expect.mlx-metal-0-34-0.gemma4.think_format]
+# ADR 0033 replaced the MLX runner's constrained sampling with upstream's
+# grammar engine, and this is the only probe that exercises it. A bare
+# format:"json" only proves the output parses; the schema below is what makes
+# it prove the SHAPE, which is the property constrained decoding exists to
+# provide. Keep it small — every key here is a claim the engine must honour on
+# every arch in this profile.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Carried from mlx-metal-0-33-2. preflight RUNS this probe live, so a
+# moved result fails the gate rather than riding on the old measurement.
+
+[expect.mlx-metal-0-34-0.gemma4_unified.think_format]
+# ADR 0033 replaced the MLX runner's constrained sampling with upstream's
+# grammar engine, and this is the only probe that exercises it. A bare
+# format:"json" only proves the output parses; the schema below is what makes
+# it prove the SHAPE, which is the property constrained decoding exists to
+# provide. Keep it small — every key here is a claim the engine must honour on
+# every arch in this profile.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Carried from mlx-metal-0-33-2. preflight RUNS this probe live, so a
+# moved result fails the gate rather than riding on the old measurement.
+
+[expect.mlx-metal-0-34-0.qwen35moe.think_format]
+# ADR 0033 replaced the MLX runner's constrained sampling with upstream's
+# grammar engine, and this is the only probe that exercises it. A bare
+# format:"json" only proves the output parses; the schema below is what makes
+# it prove the SHAPE, which is the property constrained decoding exists to
+# provide. Keep it small — every key here is a claim the engine must honour on
+# every arch in this profile.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Carried from mlx-metal-0-33-2. preflight RUNS this probe live, so a
+# moved result fails the gate rather than riding on the old measurement.
+
+[expect.mlx-metal-0-34-0.qwen35.think_format]
+# ADR 0033 replaced the MLX runner's constrained sampling with upstream's
+# grammar engine, and this is the only probe that exercises it. A bare
+# format:"json" only proves the output parses; the schema below is what makes
+# it prove the SHAPE, which is the property constrained decoding exists to
+# provide. Keep it small — every key here is a claim the engine must honour on
+# every arch in this profile.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Carried from mlx-metal-0-33-2. preflight RUNS this probe live, so a
+# moved result fails the gate rather than riding on the old measurement.
 
 
 [poison.cuda-dynres-903]
