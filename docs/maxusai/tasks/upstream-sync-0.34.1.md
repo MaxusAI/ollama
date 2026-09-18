@@ -270,6 +270,140 @@ is the change that broke patch 004's context. The same commit also touched the t
   fill hunks apply there at offsets. `pinned_image_token_budget` and `token_ladder` will show whether the served
   grids still land on the ladder.
 
+## The drafting retention, reproduced and bounded (2026-09-18, after the deploy)
+
+Glenn asked for a deterministic reproduction before any upstream report. Method: one container at a time on GPU0 beside
+production, `OLLAMA_DEBUG=2`, N identical or fresh-prefix requests, the runner's own `memory … held=` line and the trie's
+trace line per request (`held − trie`, trie = active + paged-out), then instrumented Go-only swaps of the release image
+(`sync-0.34.1-instr` … `instr6`, never deployed) that add per-bucket accounting, a live-array registry and counters.
+Scripts `claude-scratch/leak-repro*.sh`, analysers `leak-repro-analyse.py` / `leak-repro-detail.py`, runner logs
+`preflight-runs/leakrepro-*-runner.log`.
+
+**Reproduction.** A request that carries an image, ends by `stop` (EOS or grammar completion) and runs under
+speculative decoding retains memory across the request; nothing else does. The size ladder (the preflight's five
+ladder images cycling, a bbox-per-object schema, `num_predict` 1500 — the ladder images hold nothing, so every answer
+is 5–9 tokens and stops) grows on 14 of 14 steps on qwen3.6:35b-a3b (+4.5 GiB over 15) and on 27b; the single
+stop-terminated request in an otherwise length-terminated run is the single request that grew (+422 MiB); 0 of 38
+length-terminated image requests grew; text-only stop-terminated requests, identical or fresh-prefix, grew only by the
+trie's own snapshots. The grammar is irrelevant (the no-format ladder leaks identically), so upstream's default
+configuration is affected. `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` (no drafting) is flat in every arm. `qwen3.5:0.8b-mlx`
+cannot reproduce it: the package ships no MTP head and never drafts.
+
+**Excluded, each by an instrumented run rather than by reading:** every Go-owned array (the registry shows zero
+root-held arrays and an identical live set with and without drafting); unevaluated graphs (evaluating every live array
+at teardown releases 0 B); the media fold's prefill captures (disabling them entirely: identical growth); the
+drafter's caches and media rows and the target cache slots (their buffers are flat by size); speculation's per-round
+snapshots (created = closed, 20,970 = 20,970); MLX-C handle leaks (every vector/closure site has its free); MLX's
+compile cache (`MLX_DISABLE_COMPILE=1`: unchanged); the CUDA graph cache size (24 requests at 400/20/50: +7.9 /
++5.8 / +7.9 GiB — within run-to-run variance; an 8-request run that looked flat at 20 was n = 1 and wrong);
+synchronous evaluation of the round's drafts (two runs, unchanged). The pool-release cadence was the part
+`ec3cc2307` removed. What remains is counted by MLX's allocator but referenced from the C++ side of the boundary.
+
+**Two components, measured on the same requests.** Sampling the runner's device memory (nvidia-smi) beside MLX's
+counter over 12 stop-terminated image requests: device +6.8 GiB, MLX active +3.2 GiB, of which the trie +1.7 and the
+unowned MLX-tracked part +1.2 — so more than half of the growth sits **outside MLX's accounting** (device − active
+2.2 → 5.8 GiB): CUDA-internal allocations that neither `held` nor the admission headroom can see. Bounding the graph
+cache shrank that outside part (+2.2 instead of +3.6) without touching the MLX-tracked part, which is what an LRU of
+instantiated graph execs would do; it is a share, not the mechanism.
+
+**The knob, measured on device memory (two runs, 12 stop-terminated image requests each, no drafting):** MLX's counter
+is flat outside the trie (−0.12 GiB both runs) — component A is gone — but **device memory still grows +6.8 and +6.6
+GiB**, more than with drafting. So the CUDA-internal component B is not drafting's: it follows **shape variety** (a
+fresh prefix per request is a new prefill shape, the ladder a new image shape), i.e. instantiated CUDA graph execs and
+JIT'd kernels per distinct shape, bounded by MLX's 400-entry graph cache at whatever a big prefill graph costs. The
+length-terminated control (fixed scene image, 1,500-token answers, drafting on) grows +1.0 GiB of device memory over
+12 and +0.3 of MLX-tracked memory — its two requests that happened to stop early. Two components, two owners:
+
+| component | condition | seen by | size (35b-a3b) | what removes it |
+|---|---|---|---|---|
+| **A** MLX-tracked, owned by nothing on the Go side | image + stop-terminated answer + speculation, grammar or not | `held`, admission | ~0.1–0.3 GiB per such request, unbounded | no drafting (`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` covers grammar requests only); no code fix known — the holder is on MLX's side |
+| **B** CUDA-internal, outside MLX's allocator | every new input shape (prompt length, image size), drafting or not | nvidia-smi only | +0.5 GiB per new shape early, bounded by the graph cache | a smaller `MLX_CUDA_GRAPH_CACHE_SIZE` (prefill latency cost), or pricing it into the admission headroom (ADR 0034) |
+
+**B's plateau (60 no-drafting requests, fresh prefix each, 19:25–19:33):** the CUDA-internal part peaks early and
+comes back down — device − MLX-active +6.6 GiB at request 10, +5.2 at 20, +3.8 at 60 (cache 400); +5.8 / +4.3 /
++2.7 at cache 50 — so it is a transient of the first distinct shapes plus a bounded steady state, not a leak; the
+bound at 50 saves ~1.1 GiB with no visible latency cost at steady state (1.5–1.8 s per request either way). Over the
+same 60 requests the trie fills to its 8 GiB `maxPagedOutBytes` budget (8.11 GiB at request 50 and flat after, exactly
+ollama#17924's plateau) and MLX-tracked memory outside it stays at −0.2 GiB. Steady state for 35b-a3b without
+drafting: **~34 GiB of device memory** = 22 weights + 8 trie + ~4 CUDA-internal, against an admission that prices the
+weights and the rung's KV. **A is the only unbounded growth**: +7.9 GiB over 24 stop-terminated image requests with
+drafting, linear, no plateau in sight.
+
+**Context upstream.** ollama#17924 (closed by its reporter as the trie filling to its 8 GiB `maxPagedOutBytes`)
+measured 0.147 GiB per request on this model family; ollama#17875 and #18131 report growth past that budget on Metal
+under agent workloads (short, stop-terminated answers with long contexts) and were closed as trie behaviour. This
+investigation supplies the non-trie component those reports were missing, with its condition.
+
+## The gemma4 image resize algorithm (Glenn's question, 2026-09-18)
+
+Glenn asked whether `hparams.image_resize_algo = RESIZE_ALGO_BILINEAR → RESIZE_ALGO_BICUBIC` in gemma4's projector case
+came up as a regression candidate. It did not, and for this fold that was right: `clip.cpp` has `RESIZE_ALGO_BICUBIC`
+for `PROJECTOR_TYPE_GEMMA4V/GEMMA4UV` at **both** b10760 and b10864, so the switch is not in this fold's delta.
+Where it did enter the fork: llama.cpp `56db501e7` "mtmd: use pillow-accurate algo, correct resize_algo for all models
+(#27594)", between b10488 and b10630 — the **0.33.1 fold** — and no fork record flagged it then. That is the gap.
+
+What the campaigns on record say about it, for the four gemma4 GGUF models: the 0.33.2 (b10630, bicubic) and 0.33.3
+(b10760, bicubic) campaigns are identical cell for cell; against the 0.33.0-line `sync15_` run (b10488, bilinear)
+the only visible move is e4b's 12 px fine-text tier 0 → 3 (n = 1 each), in the direction bicubic downscaling would
+give. gemma4:e2b's zeros (fine text 0/0/0/0/0, scene IoU 0.061, invoice 1/5) exist on every build from b10488 to
+b10760, bilinear and bicubic alike, and recover only at b10864 — where the one gemma4 commit is `163a40796` "model,
+mtmd: fix gemma4 vision handling (#28335)", the same commit that moved the default limits to (70, 1120). So the
+e2b/e4b recovery this fold measured is attributable to #28335, not to the resize algorithm. **Veto closed:** the
+four gemma4 cells re-run on the deployed 0.34.0 image on 2026-09-18 (`ggml034main_1_`, b10760) reproduce the baseline
+cell for cell — e2b's zeros, e4b's 0.354 / 0.000, 26b-a4b's `bcreasoning`/`bcpinned` both ✅ — so GGUF think-off is
+deterministic on both payloads and every gemma4 move in this fold is #28335's. Its mechanism for e2b/e4b: the commit
+carves E2B/E4B out of non-causal image decoding (they decode images causally now), which is what unbroke them.
+
+**The same commit is a regression upstream — llama.cpp #28954 (2026-09-15):** raising gemma4's cap to 1120 image
+tokens exceeds llama-server's default `n_ubatch` of 512, and a non-causal image chunk larger than one ubatch trips
+`GGML_ASSERT(cparams.causal_attn || cparams.n_ubatch >= n_tokens_all)` in `llama_context::decode`, which aborts the
+whole llama-server — every image above ~1.2 Mpx on 12b/26b/31b. First bad commit bisected to `163a40796`. **The fork
+does not crash**: our launcher passes `-b N -ub N` (equal, `appendBatchArgs`), and `mtmd_helper_decode_image_chunk`
+splits a chunk into `n_batch`-sized decodes, so every decode fits its ubatch. What that split costs instead: with
+the fork's automatic generation batch of 1024 (ctx > 4096, `automaticGenerationBatch`), a top-rung gemma4 image
+(1117–1121 tokens) is decoded as two non-causal sub-batches, and the first 1024 image tokens never attend to the last
+~95 — one-way bidirectional attention at the top rung, for as long as the fork has served 1120 (ADR 0008), on both
+payloads. Not a fold regression; a latent inconsistency the gates have measured consistently. The clean fork fix is
+a generation batch ≥ the image-token ceiling for gemma4 vision runners (2048), at the compute-buffer cost of the larger
+ubatch; the measurement that decides it is the top-rung bbox cells at `num_batch` 1024 against 2048. Register entry
+added; the upstream ollama launcher (v0.34.2 `llm/server.go`) is checked below for its own exposure.
+
+**Measured (2026-09-18, 21:24, `claude-scratch/batch-ab-0341.sh`, render `preflight-runs/batchab-0341-render-thinkfalse.md`):**
+the deployed 0.34.1 image, GPU0 beside production, the two gemma4 GGUF models that decode images non-causally, think-off
+at the 8192 rung, two repeats per arm. `batch1024_` is the scheduler's automatic batch at that rung (the runner log shows
+every image chunk, 1064–1100 tokens on these fixtures, decoded as `1/2 n_tokens_batch = 1024` plus a 40–76-token
+`2/2`); `batch2048_` sends `num_batch: 2048` per request (`NUM_BATCH` in `client.py`, branch `vsuite/num-batch-env`),
+and the same chunks decode as `1/1`. Both arms are deterministic: every scored cell is identical between repeats.
+
+| test | metric | 31b, batch 1024 | 31b, batch 2048 | 26b-a4b, batch 1024 | 26b-a4b, batch 2048 |
+|---|---|---|---|---|---|
+| scene | bbox IoU | 0.966 | 0.963 | 0.978 | 0.977 |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.709 | 0.709 | 0.753 | 0.753 |
+| fine text | 22/16/12/9/7 px | 4/4/4/**4**/3 | 4/4/4/**3**/3 | 4/4/4/3/3 | 4/4/4/3/3 |
+| multi (3 img) / anchored | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 | ✅ ✅ ✅ 5/5 | ✅ ✅ ✅ 5/5 | ✅ ✅ ✅ 5/5 |
+| throughput | prefill tok/s | 474 / 508 | 753 / 721 | 1250 / 1369 | 2434 / 2518 |
+| latency | s/req (unique image) | 12.7 / 12.6 | 11.5 / 11.6 | 4.5 / 4.2 | 3.7 / 3.7 |
+
+(T2 rows from `summarize_head_to_head.py`; throughput and latency give both repeats.) So the split costs nothing the
+scored cells can see: IoU within 0.003, every contract identical. Decoding the chunk in one piece is what the batch
+buys — prefill 1.5× on 31b and 1.9× on 26b-a4b, s/req −9 % and −18 % — and it moves one cell: 31b's 9 px fine-text
+tier, 4 with the split and 3 without, deterministic 2/2 on each side. That is the same shape as the Metal finding in
+#312 (the more correct encoder path scores one 9 px tier lower on 31b), and the same caveat applies: a single
+knife-edge tier is not a quality verdict. The decision is Glenn's: batch ≥ the 1120 ceiling for gemma4 vision runners
+is a throughput fix with no measured contract cost; the register row moves from "fork unmeasured" to "measured,
+decision pending".
+
+The same container answered #313's ask from the ROCm host (`run_budget_sweep.sh`, `BUDGETS="280 560 1120"`, min == max,
+gemma4:31b, num_ctx 16384 so the 1120 rung decodes past n_ubatch = 1024): scene IoU 0.925 / 0.936 / 0.967 and
+name_bbox 0.691 / 0.714 / 0.709 — no cliff where gfx1151 collapses to 0.000 — with `prompt_eval_count` 848 / 614,
+1111 / 887, 1684 / 1447 (scene / document), digit for digit the ROCm host's b10864 figures. The budget-fill geometry
+is identical across the two hosts; the gfx1151 defect needs the HIP `integrated` path, not the batch geometry.
+
+The fork's `004` fill resizes through `hparams.image_resize_algo`, so it has followed bicubic since 0.33.1; the
+preflight's `token_ladder` (5/5 geometries) and `pinned_image_token_budget` (560 → 529, ceiling 1120) pass on it.
+
 ## Retirement candidates (Glenn, 2026-09-17)
 
 `x/structured` was tested against upstream's engine (108 verdicts, 0 regressions) and deleted in this fold on
