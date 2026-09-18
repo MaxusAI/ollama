@@ -173,9 +173,29 @@ test (133 tests). What the series says:
   `held − trie` is 21.91–22.04 GiB for all 28 requests (+0.13 GiB total); `held` is the weights plus the trie and
   nothing else. **The 0.34.0 finding stands on this build: drafting under a grammar retains memory outside the
   trie's books, +0.23 GiB per request on 35b-a3b, and the fork's knob (ADR 0033, D5) removes it entirely.**
-  Two more probes decide what to carry: the same trace suite on the deployed 0.34.0 image (is this new to
-  0.34.1?) and on a Go-only swap of the fold plus upstream's `ec3cc2307` (does upstream's pool-release fix cover
-  it, or is the knob still the mitigation?).
+- **Like for like against the deployed build (09:43–09:59, `cand034t_`, same trace suite on
+  `maxusai/ollama:sync-0.34.0-main`):** the 0.34.0 runner logs its own `active` figure at the same point the
+  0.34.1 runner logs `held` (MLX active memory after the teardown's cache clear), and both log the trie line, so
+  resident memory and resident − trie compare directly (parser: `runnerlog.py`; logs:
+  `preflight-runs/vsuite-{cand034t,sync0341t,sync0341n}-runner.log`).
+
+  | model | build / arm | resident req 1 | req 14 | req 20 | req 28 | growth 1→28 | trie at 28 | resident − trie, 1→28 | max peak |
+  |---|---|---|---|---|---|---|---|---|---|
+  | qwen3.6:35b-a3b-nvfp4 | 0.34.0 deployed, drafting on | 22.1 | 25.9 | 27.6 | 29.2 | +7.1 | 5.6 | +1.8 | 39.2 |
+  | qwen3.6:35b-a3b-nvfp4 | 0.34.1 fold, drafting on | 22.1 | 27.6 | 29.7 | 32.8 | +10.6 | 5.6 | **+5.3** | 44.8 |
+  | qwen3.6:35b-a3b-nvfp4 | 0.34.1 fold, knob off | 22.1 | 25.0 | 26.2 | 27.6 | +5.5 | 5.6 | **+0.1** | 40.1 |
+  | qwen3.8:27b-nvfp4 | 0.34.0 deployed, drafting on | 17.4 | 27.2 | 31.1 | 30.9 | +13.5 | 8.1 | +6.1 | 43.1 |
+  | qwen3.8:27b-nvfp4 | 0.34.1 fold, drafting on | 17.4 | 34.8 | 41.3 | 35.4 | +18.0 | 8.1 | **+10.6** | 49.0 |
+
+  (GiB; one rep each; the trie is the same size on every build, so the difference is all outside its books.)
+  **Read:** drafting under a grammar retains about three times more on the 0.34.1 fold than on the deployed
+  build — +5.3 against +1.8 GiB on 35b-a3b, +10.6 against +6.1 on 27b over 28 requests — and the fork's knob
+  takes the fold to flat. Quality is unchanged either way (gate 5b). This is a memory regression of the MLX path
+  for recurrent-state models under drafting + grammar, not a correctness one; the deploy has the knob
+  (`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`, kept as our option on 2026-09-12) to remove it, at the cost of drafting
+  speed on grammar requests only. Last probe: the same suite on a Go-only swap of the fold plus upstream's
+  `ec3cc2307` (the v0.34.2 pool-release fix), `sync0341k_` — whether upstream's fix covers this or the knob is
+  the mitigation; D7 hangs on it.
 
 **Gate 5c, Qwen2.5-VL six cells, `q25vl0341_1_` against `q25vl_1_`** — render `preflight-runs/q25vl0341-render.md`:
 every quality cell identical across all six models, contract matrices identical, 0 errors, 0 OOMs. Throughput
