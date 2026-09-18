@@ -1208,6 +1208,7 @@ func TestAutomaticGenerationBatch(t *testing.T) {
 	tests := []struct {
 		name         string
 		effectiveCtx int
+		floor        int
 		predicted    uint64
 		available    uint64
 		flash        ml.FlashAttentionType
@@ -1276,13 +1277,120 @@ func TestAutomaticGenerationBatch(t *testing.T) {
 			gpus:         []ml.DeviceInfo{{DeviceID: ml.DeviceID{Library: "CUDA"}, FreeMemory: 6 * format.GibiByte}},
 			want:         256,
 		},
+		{
+			name:         "image chunk floor raises a medium context to 2048 with headroom",
+			effectiveCtx: 8192,
+			floor:        2048,
+			predicted:    8 * format.GibiByte,
+			available:    14 * format.GibiByte,
+			flash:        ml.FlashAttentionAuto,
+			want:         2048,
+		},
+		{
+			name:         "image chunk floor raises a small context with unknown memory",
+			effectiveCtx: 4096,
+			floor:        2048,
+			flash:        ml.FlashAttentionAuto,
+			want:         2048,
+		},
+		{
+			name:         "image chunk floor steps down to 1024 without 2048 headroom",
+			effectiveCtx: 8192,
+			floor:        2048,
+			predicted:    9 * format.GibiByte,
+			available:    14 * format.GibiByte,
+			flash:        ml.FlashAttentionAuto,
+			want:         1024,
+		},
+		{
+			name:         "image chunk floor below the context rung is inert",
+			effectiveCtx: 131072,
+			floor:        1024,
+			predicted:    8 * format.GibiByte,
+			available:    14 * format.GibiByte,
+			flash:        ml.FlashAttentionAuto,
+			want:         2048,
+		},
+		{
+			name:         "image chunk floor does not override the constrained CUDA path",
+			effectiveCtx: 131072,
+			floor:        2048,
+			predicted:    3 * format.GibiByte,
+			available:    6 * format.GibiByte,
+			flash:        ml.FlashAttentionDisabled,
+			gpus:         []ml.DeviceInfo{{DeviceID: ml.DeviceID{Library: "CUDA"}, FreeMemory: 6 * format.GibiByte}},
+			want:         256,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, automaticGenerationBatch(tt.effectiveCtx, tt.predicted, tt.available, tt.flash, tt.gpus))
+			require.Equal(t, tt.want, automaticGenerationBatch(tt.effectiveCtx, tt.floor, tt.predicted, tt.available, tt.flash, tt.gpus))
 		})
 	}
+}
+
+func TestImageChunkGenerationBatch(t *testing.T) {
+	withCeiling := func(maxTok int) api.Options {
+		opts := api.DefaultOptions()
+		opts.ImageMaxTokens = maxTok
+		return opts
+	}
+	tests := []struct {
+		name   string
+		family string
+		vision bool
+		opts   api.Options
+		want   int
+	}{
+		{"gemma4 vision at the default ceiling needs the large rung", "gemma4", true, api.DefaultOptions(), 2048},
+		{"gemma4 vision at 1120 pinned", "gemma4", true, withCeiling(1120), 2048},
+		{"gemma4 vision at 560 fits the medium rung", "gemma4", true, withCeiling(560), 1024},
+		{"gemma4 vision at 280 fits the default rung", "gemma4", true, withCeiling(280), 512},
+		{"text-only gemma4 has no image chunk", "gemma4", false, api.DefaultOptions(), 0},
+		{"other vision arches are out of scope", "qwen25vl", true, api.DefaultOptions(), 0},
+		{"nemotron_h_omni is out of scope", "nemotron_h_omni", true, api.DefaultOptions(), 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, imageChunkGenerationBatch(tt.family, tt.vision, tt.opts))
+		})
+	}
+}
+
+func TestApplyAutomaticGenerationBatchRaisesForGemma4Images(t *testing.T) {
+	// Vision comes from the manifest config here, as it does for the gemma4
+	// GGUFs the fork serves, whose tower sits inside the main file with no
+	// projector layer.
+	newReq := func(family string, vision bool, auto bool) *LlmRequest {
+		m := &Model{Config: model.ConfigV2{ModelFamily: family, Capabilities: []string{"completion"}}}
+		if vision {
+			m.Config.Capabilities = append(m.Config.Capabilities, "vision")
+		}
+		opts := api.DefaultOptions()
+		opts.NumBatch = 512
+		return &LlmRequest{model: m, opts: opts, numBatchAuto: auto}
+	}
+
+	req := newReq("gemma4", true, true)
+	req.applyAutomaticGenerationBatch(true, 8192, 8*format.GibiByte, 14*format.GibiByte, ml.FlashAttentionAuto, nil)
+	require.Equal(t, 2048, req.opts.NumBatch, "gemma4 with vision at the 8192 rung decodes its image chunk in one piece")
+
+	req = newReq("gemma4", false, true)
+	req.applyAutomaticGenerationBatch(true, 8192, 8*format.GibiByte, 14*format.GibiByte, ml.FlashAttentionAuto, nil)
+	require.Equal(t, 1024, req.opts.NumBatch, "text-only gemma4 keeps the context rung")
+
+	req = newReq("qwen25vl", true, true)
+	req.applyAutomaticGenerationBatch(true, 8192, 8*format.GibiByte, 14*format.GibiByte, ml.FlashAttentionAuto, nil)
+	require.Equal(t, 1024, req.opts.NumBatch, "other vision arches keep the context rung")
+
+	req = newReq("gemma4", true, false)
+	req.applyAutomaticGenerationBatch(true, 8192, 8*format.GibiByte, 14*format.GibiByte, ml.FlashAttentionAuto, nil)
+	require.Equal(t, 512, req.opts.NumBatch, "an explicit num_batch is never overridden")
+
+	req = newReq("gemma4", true, true)
+	req.applyAutomaticGenerationBatch(false, 8192, 8*format.GibiByte, 14*format.GibiByte, ml.FlashAttentionAuto, nil)
+	require.Equal(t, 512, req.opts.NumBatch, "embedding loads keep their batch")
 }
 
 func TestSchedUnloadAllRunners(t *testing.T) {
