@@ -125,10 +125,56 @@ is nvfp4 too. It is reported as its own row, because it differs from the library
 
 | arm | engine | model | correct / scored | accuracy | ±1 s.e. | mean s/item | median | prompt_eval |
 |---|---|---|---|---|---|---|---|---|
-| nvfp4 (quantised tower) | mlx-cuda | `gemma4:31b-nvfp4` | 172 / 200 | **0.860** | 0.025 | 2.3 | 2.0 | 1115 |
-| nvfp4 (bf16 tower) | mlx-cuda | `gemma4:31b-nvfp4` (library) | _pending_ | | | | | |
-| mxfp8 | mlx-cuda | `gemma4:31b-mxfp8` | _pending_ | | | | | |
-| bf16 | mlx-cuda | `gemma4:31b-mlx-bf16` | _pending_ | | | | | |
+| nvfp4 / nvfp4 tower (run 1) | mlx-cuda | `gemma4:31b-nvfp4` | 172 / 200 | **0.860** | 0.025 | 2.3 | 2.0 | 1115 |
+| nvfp4 / nvfp4 tower (run 2) | mlx-cuda | `gemma4:31b-nvfp4` | 172 / 200 | **0.860** | 0.025 | 2.2 | 2.0 | 1115 |
+| nvfp4 / bf16 tower (run 1) | mlx-cuda | `gemma4:31b-nvfp4` (library) | 170 / 200 | **0.850** | 0.025 | 1.4 | 1.4 | 1115 |
+| nvfp4 / bf16 tower (run 2) | mlx-cuda | `gemma4:31b-nvfp4` (library) | 170 / 200 | **0.850** | 0.025 | 1.5 | 1.5 | 1115 |
+| mxfp8 / bf16 tower (run 1) | mlx-cuda | `gemma4:31b-mxfp8` | 169 / 200 | **0.845** | 0.026 | 1.3 | 1.2 | 1115 |
+| mxfp8 / bf16 tower (run 2) | mlx-cuda | `gemma4:31b-mxfp8` | 169 / 200 | **0.845** | 0.026 | 1.3 | 1.2 | 1115 |
+| bf16 | mlx-cuda | `gemma4:31b-mlx-bf16` | _pulling_ | | | | | |
+
+**Repeats**
+
+| arm | runs | accuracies | items that flipped |
+|---|---|---|---|
+| nvfp4 / nvfp4 tower | 2 | 0.860, 0.860 | 0 |
+| nvfp4 / bf16 tower | 2 | 0.850, 0.850 | 0 |
+| mxfp8 / bf16 tower | 2 | 0.845, 0.845 | 0 |
+
+Not one item changed verdict between runs on any MLX arm either. On this workload — one
+image, a short answer, temperature 0, no drafting under a grammar — the engine's
+run-to-run movement does not appear at all, which is a stronger control than
+[ADR 0012] §4's caveat led us to expect.
+
+**Paired**
+
+| A | B | A | B | b (A only) | c (B only) | p | resolved |
+|---|---|---|---|---|---|---|---|
+| nvfp4 / nvfp4 tower | nvfp4 / bf16 tower | 0.860 | 0.850 | 3 | 1 | 0.625 | no |
+| nvfp4 / nvfp4 tower | mxfp8 / bf16 tower | 0.860 | 0.845 | 4 | 1 | 0.375 | no |
+| nvfp4 / bf16 tower | mxfp8 / bf16 tower | 0.850 | 0.845 | 1 | 0 | 1.000 | no |
+
+**Quantising the vision tower costs 39 % of the time per image and buys nothing here.**
+The two `nvfp4` rows share a language model and differ only in the tower: ours is nvfp4,
+the library's is bf16, and the bf16 one answers in 1.4 s against 2.3 s on identical
+images at an identical 1115-token mean prefill. The bf16 tower is 3.5× the bytes, so this
+is not weight bandwidth — the tower is about half a gigabyte either way. It is kernel
+throughput: the image encode is compute-bound, and MLX's quantised matmul on sm_120 runs
+at roughly half the rate of the dense bf16 path, which is what
+[`sm120-mixed-input-gemm`](../../x/mlxrunner/bench/qqmm) measured directly. Accuracy does
+not move with it: three items separate the two towers, p = 0.625.
+
+Language-model precision does not move accuracy either — `nvfp4` and `mxfp8` over the
+same bf16 tower differ on a single item out of 200, at 1.4 s against 1.3 s.
+
+**By question type** (first run of each arm)
+
+| question type | n | nvfp4 / nvfp4 tower | nvfp4 / bf16 tower | mxfp8 / bf16 tower |
+|---|---|---|---|---|
+| Artistic Text Recognition | 50 | 49/50 | 49/50 | 48/50 |
+| Handwriting Recognition | 50 | 34/50 | 33/50 | 33/50 |
+| Irregular Text Recognition | 50 | 40/50 | 39/50 | 39/50 |
+| Regular Text Recognition | 50 | 49/50 | 49/50 | 49/50 |
 
 ## Results — llama.cpp GGUF (same host, same GPU)
 
@@ -248,7 +294,12 @@ not yet identified, which the audit above makes load-bearing.
 
   The pulled library tags are kept in a separate store on the array
   (`claude-scratch/ocrbench-store`) so that pulling them cannot overwrite the artifacts
-  the fork's existing measurements were taken against; their digests land here with their
-  rows.
+  the fork's existing measurements were taken against:
+
+  | model (library, pulled 2026-09-19) | manifest digest |
+  |---|---|
+  | `gemma4:31b-nvfp4` (bf16 tower) | `sha256:a22a363052da770302019d5afab29bd967f9318e4377bddd297421189ea09d7d` |
+  | `gemma4:31b-mxfp8` | `sha256:9740f018f0d6bb64b439b6d701017bac85675511d519eae18992b7ed09d0dc6a` |
+  | `gemma4:31b-it-bf16` | `sha256:236d76ae08745dbc143c31b9271b0f25750885199aa6039d0fc0113171606e6d` |
 
 [ADR 0012]: adr/0012-benchmark-report-templates.md
