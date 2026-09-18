@@ -447,3 +447,35 @@ re-run two arms that had already answered.
 **Cost.** Nothing realised this time — the harness held. Each instance that
 slipped past would cost one needless re-run at the next rung (8–13 min per arm
 on these cells) and a wrong converged count in the published table.
+
+## 2026-09-18 — pin moves
+
+### 2026-09-18 — An MLX pin move can change one backend's numbers by tensor shape, and it reads like shared-code drift
+A kernel fix whose selection condition is a tensor dimension moves one backend
+for the subset of models that have the shape, and leaves the other backend and
+the other models alone. Folded as an opaque range, that looks exactly like a
+change in the shared model code.
+
+- **Evidence** — ml-explore/mlx#3912, inside the v0.34.1 fold's MLX pin move
+  (`c793734e → d9add9d1`), Metal kernels only: `fp_qmm_t` read past K when
+  **K % 32 == 16**. The gemma4 vision tower's `mlp.down_proj` is nvfp4
+  `[1152 × 4304]`, K % 32 = 16, in 26b and 31b (27 layers each); 12b's vision
+  weights have K = 3840 and 6912. `TestVisionGoldenParity` across the fold:
+  Metal 26b max Δ **0.2266 → 0.0508**, 31b 96.749 → 96.998, 12b identical;
+  MLX-CUDA (this host, n = 2 per arm, every repeat to the digit) 26b **0.0469
+  at both ends**, 12b identical, 31b 96.999 → 97.056 from a second, shared
+  cause — the fold's global-scale `f32(f32(m × 2688) / 2688)` round trip, one
+  f32 ulp off for 17 of 31b's 191 vision scales, none of 12b's; a two-line
+  control reproduced the old 31b line to the digit. #312, and
+  `tasks/upstream-sync-0.34.1.md` § "The MLX pin move and the vision encoder".
+- **Enforced by** — `vision-suite/quant_dims.py`: lists every quantized weight
+  a served model carries with its K and flags K % 32 != 0
+  (`test_quant_dims.py`). The rule in the task doc pairs it with the range's
+  kernel commits (`gh api repos/ml-explore/mlx/compare/<old>...<new>`, files
+  per commit): at each pin move, read every kernel fix's condition against
+  that list before the gates run.
+- **Cost** — on Metal, a bisect across three builds, seven hypotheses, and a
+  cross-host issue to find a fix that was in MLX's own PR list; and every
+  26b/31b vision number measured on Metal before `8a7ba949` went through a
+  kernel corrupting most of one matmul's outputs. Nothing on the CUDA host,
+  which never ran that kernel.
