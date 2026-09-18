@@ -306,6 +306,21 @@ unowned MLX-tracked part +1.2 — so more than half of the growth sits **outside
 cache shrank that outside part (+2.2 instead of +3.6) without touching the MLX-tracked part, which is what an LRU of
 instantiated graph execs would do; it is a share, not the mechanism.
 
+**The knob, measured on device memory (two runs, 12 stop-terminated image requests each, no drafting):** MLX's counter
+is flat outside the trie (−0.12 GiB both runs) — component A is gone — but **device memory still grows +6.8 and +6.6
+GiB**, more than with drafting. So the CUDA-internal component B is not drafting's: it follows **shape variety** (a
+fresh prefix per request is a new prefill shape, the ladder a new image shape), i.e. instantiated CUDA graph execs and
+JIT'd kernels per distinct shape, bounded by MLX's 400-entry graph cache at whatever a big prefill graph costs. The
+length-terminated control (fixed scene image, 1,500-token answers, drafting on) grows +1.0 GiB of device memory over
+12 and +0.3 of MLX-tracked memory — its two requests that happened to stop early. Two components, two owners:
+
+| component | condition | seen by | size (35b-a3b) | what removes it |
+|---|---|---|---|---|
+| **A** MLX-tracked, owned by nothing on the Go side | image + stop-terminated answer + speculation, grammar or not | `held`, admission | ~0.1–0.3 GiB per such request, unbounded | no drafting (`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` covers grammar requests only); no code fix known — the holder is on MLX's side |
+| **B** CUDA-internal, outside MLX's allocator | every new input shape (prompt length, image size), drafting or not | nvidia-smi only | +0.5 GiB per new shape early, bounded by the graph cache | a smaller `MLX_CUDA_GRAPH_CACHE_SIZE` (prefill latency cost), or pricing it into the admission headroom (ADR 0034) |
+
+The plateau of B and what a bounded cache does to it are being measured (60 no-drafting requests, cache 400 and 50).
+
 **Context upstream.** ollama#17924 (closed by its reporter as the trie filling to its 8 GiB `maxPagedOutBytes`)
 measured 0.147 GiB per request on this model family; ollama#17875 and #18131 report growth past that budget on Metal
 under agent workloads (short, stop-terminated answers with long contexts) and were closed as trie behaviour. This
