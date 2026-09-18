@@ -209,7 +209,7 @@ Against the five clauses in [`amd-upgrade-gate.md`](../amd-upgrade-gate.md):
 | 1. #17459 fixed, fix in target | **Cannot be satisfied as written.** Closed `not_planned` 2026-08-23; there is no fix to be in any tag. It does not reproduce here on any payload, including the target. |
 | 2. #17475 fixed, fix in target | **Cannot be satisfied as written.** Closed `not_planned` 2026-08-12. Does not reproduce here in 436 extractions. |
 | 3. `--direct-io` absent, opt-out-able, or validated | (a) no — present for ROCm iGPUs in b10864, confirmed in the runner line. (b) **now available** — `OLLAMA_IGPU_DIRECT_IO=0` removes the flag, verified on hardware in both tables; upstream pins that dio wins over `use_mmap=false`, so without that knob there is no opt-out. (c) partially — the dio-on b10864 arms ran 24 chat requests, 124 victim extractions and 1637 noise model loads with no corruption, but that is a by-product of these tests, not a targeted load-path integrity check. |
-| 4. Vision A/B, ≥6 consecutive `qwen35moe` rows, 0 degenerate on the candidate | **Outstanding.** The 2026-09-17 baseline covers b9888 (27 arms, clean); the candidate has had no vision-suite run. This is the one remaining piece of work the gate actually asks for and that can still be done. |
+| 4. Vision A/B, ≥6 consecutive `qwen35moe` rows, 0 degenerate on the candidate | **Run 2026-09-18. FAILED on the candidate, PASSES with compat 906.** Unpatched b10864 dropped `qwen3.6:35b-a3b` scene IoU 0.953 → 0.273 and lost the multi-image question. With `906-revert-hip-integrated-flag.patch` it scores **0.972**, above the baseline, 0 degenerate. See [the addendum](#addendum-2026-09-18--clause-4-run-and-the-cause-found). |
 | 5. `make proof` against the new `BASETAG` | **Outstanding.** This build used the full path, not the overlay. |
 
 Clauses 1 and 2 are unsatisfiable on their own terms, because "fixed" requires someone upstream
@@ -219,9 +219,12 @@ and the pin now has a measured cost** — half of `gemma4:31b` on the CPU, and m
 stall for minutes without direct I/O.
 
 That is a decision, not a conclusion, and it is Glenn's to make. What this document supports is
-making it on evidence. The concrete next step if the answer is "proceed" is clause 4: run the
-vision suite on b10864 against the 2026-09-17 baseline, which is what that baseline was
-recorded for.
+making it on evidence.
+
+**That decision has since changed twice.** Clause 4 was run the next day and the candidate failed
+it badly — for a reason unrelated to either gate issue. The cause was then found and fixed. See
+the addendum below; the paragraph above is left as written because it was the honest reading of
+the evidence available on 2026-09-17.
 
 ## Caveats — what would change these answers
 
@@ -251,3 +254,82 @@ assertion), `gatelib.py` (scratch-container plumbing), `repro_17459.py`, `repro_
 the two table generators `t17459.py` and `t17475.py` that produced the tables above. Raw
 results and full server logs for every run are on the host, outside the repo, under the session
 scratchpad.
+
+## Addendum 2026-09-18 — clause 4 run, and the cause found
+
+Clause 4 was run the day after this document was written. It changes the conclusion above, so it
+is recorded here rather than left for the reader to discover from a PR thread.
+
+### The candidate failed clause 4, then passed it
+
+Five-model campaign against the [2026-09-17 baseline](../vision-campaign-2026-09-17-rocm-baseline.md),
+same runner, same digests, same environment, think off. Scene bbox IoU:
+
+| model | 0.32.1 / b9888 | 0.34.1 / b10864 | 0.34.1 + **906** |
+|---|---|---|---|
+| `qwen3.8:27b-q4_K_M` | 0.991 | **0.065** | **1.000** |
+| `gemma4:31b-it-q4_K_M` | 0.961 | 0.922 *(3 of 6 objects)* | **0.960** |
+| `nemotron3:33b-q4_K_M` | 0.857 | **0.161** | **0.862** |
+| `qwen3.6:35b-a3b-q4_k_m` *(the gate model)* | 0.953 | **0.273** | **0.972** |
+| `gemma4:26b-a4b-it-q4_K_M` | 0.973 | 0.966 | **0.975** |
+
+Unpatched, three models also dropped invoice extraction 5/5 → **0/5** and fine-text OCR to zero
+(`gemma4:31b` found 4 of 20 codes, against 20 of 20 on the baseline). With 906 every model
+returns to **6/6 · 6/6 · 6/6** and **5/5 · 5/5 · ✅**, and `gemma4:31b` fine-text is digit-identical
+to the baseline at 4/4/4/4/3, 20/20.
+
+### The cause
+
+Upstream `c7d8722922a` ([llama.cpp#24233](https://github.com/ggml-org/llama.cpp/pull/24233)) set
+`info.devices[id].integrated = prop.integrated` on HIP builds. On an integrated/UMA device that
+changes which buffer types the backend claims, and
+[llama.cpp#28211](https://github.com/ggml-org/llama.cpp/issues/28211) root-causes the result as an
+**MMQ tile-barrier race on gfx115x producing wrong output with no crash and no warning, once a
+decode exceeds `n_ubatch`**.
+
+Upstream reverted it in [#28604](https://github.com/ggml-org/llama.cpp/pull/28604), merged
+**2026-09-08T14:19:53Z**. Our payload b10864 is `5d806aa25`, **2026-09-08T13:01:03Z** — we are on
+the wrong side of it by 78 minutes. Carried as `llama/compat/906-revert-hip-integrated-flag.patch`.
+
+Two upstream reports describe this symptom on this exact silicon, both predating our measurements:
+[#27419](https://github.com/ggml-org/llama.cpp/issues/27419) ("upper image content is lost while
+Vulkan/CPU are correct", Ryzen AI Max+ 395 / Radeon 8060S / gfx1151 / Qwen3.8-27B) and #28211.
+
+### Why every instrument said the build was healthy
+
+Across 135 scored cells on the unpatched candidate: **0 amdgpu page faults, 0 GPU resets, 0 ring
+timeouts, 0 HIP errors, 0 OOM kills, and 135/135 completions reporting `done_reason=stop`.** The
+only GPU faults recorded all day belong to a `GGML_CUDA_NO_PINNED=1` experiment that aborted the
+runner. Upstream notes that `llama-bench` cannot see the defect either, because throughput is
+identical on both builds.
+
+A plumbing check would have passed this image. Only scored output quality caught it — and even
+there, `gemma4:31b` scene IoU read 0.932 against a healthy 0.961 while `name_bbox_mean_iou` on the
+same run was 0.000. **The gate's own lesson 3 ("add output-quality checks to the deploy gate") is
+the only reason this was caught.**
+
+### What this does to clauses 1–3
+
+- **Clauses 1 and 2 are unchanged.** Neither issue reproduces; both remain closed `not_planned`.
+- **Clause 3 reads differently now.** Direct I/O was the gate's central suspicion for a month and
+  is exonerated: it does not cause the vision regression (dio-off reproduces it exactly), and it is
+  load-bearing — `GGML_CUDA_NO_PINNED=1`, the nearest thing to disabling the host-buffer path,
+  aborts the runner on load. The `OLLAMA_IGPU_DIRECT_IO` knob is a convenience, not a safety valve.
+- **The VRAM finding stands but reads differently.** 0.32.x seeing 27 GiB instead of 95 GiB is still
+  a real cost of the pin. It is no longer an argument for upgrading on its own.
+
+### Corrections to the body of this document
+
+- The 25–36/61 layer-placement figures above are from the gate matrix at `-c 524288 -np 2`. At the
+  vision campaign's `num_ctx 16384` **both builds run fully GPU-resident** (`offloaded 66/66
+  layers` on `qwen3.8`), so placement is not a variable in the vision comparison.
+- Hypotheses raised and refuted by experiment while chasing this, recorded so they are not re-run:
+  fp16 accumulation in the vision tower; multi-sub-batch image decode; the b10864
+  `RESIZE_ALGO_BILINEAR → BICUBIC` flip ([#27594](https://github.com/ggml-org/llama.cpp/pull/27594));
+  the gemma4 token-budget bump ([#28335](https://github.com/ggml-org/llama.cpp/pull/28335)); and
+  `GGML_CUDA_NO_PINNED=1`.
+
+### Open
+
+Whether this defect class reaches CUDA unified-memory devices — which bears directly on #17475,
+reported on a DGX Spark GB10. Requested in MaxusAI/ollama#313.
