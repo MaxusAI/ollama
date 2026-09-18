@@ -32,18 +32,111 @@ only on the one path.
 
 ### What this means for the numbers below
 
-The tier drop is **a downstream consequence of correcting a kernel**, not a
-defect to undo. The 9px score of 4 was measured on a build corrupting most of
-that matmul's outputs; the score of 3 is what the correct kernel produces.
+The tier drop is **an nvfp4 quantization cost that the broken kernel was
+masking**, not a defect the fix introduced and not a defect to undo. The 9px
+score of 4 was measured on a build corrupting most of that matmul's outputs.
+The score of 3 is what nvfp4 costs on this sample once the arithmetic is
+correct — see "The quantization control" below, where the unquantized bf16
+checkpoint scores 4.
 
 It also resolves what this document previously recorded as an unexplained
 paradox — that 0.34.0 was *closer* to the mlx-vlm reference while scoring worse.
-That is exactly what a correctness fix looks like from a scored probe that
-happened to favour the broken output.
+That is what a correctness fix looks like when the error it removes happened
+to compensate for a quantization loss on the scored sample.
 
 **Prior gemma4 26b/31b vision numbers measured before this fold went through a
 kernel corrupting 79% of the vision tower's down_proj outputs.** Anything
 compared against those baselines should be re-measured rather than trusted.
+
+## The quantization control (2026-09-18)
+
+**Read this table before re-measuring anything here.** Every cell below is
+recorded so these arms do not have to be run again.
+
+All three `gemma4:31b` quantizations, one binary `0.34.0-maxusai-8a7ba949`,
+payload `0.32.2-61-gd9add9d` (post-#3912), `num_ctx=16384`, `num_predict=2200`
+think-off / `8192` think-on, powermode 2, scored by `finetext_probe.py`:
+
+| model | vision tower | LM | think-off | think-on |
+|---|---|---|---|---|
+| `31b-nvfp4` | nvfp4 | nvfp4 | `[4,4,4,3,3]` | `[4,4,4,3,3]` |
+| `31b-mxfp8` | **bf16** | mxfp8 | `[4,4,4,3,2]` | `[4,4,4,4,3]` |
+| `31b-mlx-bf16` | **bf16** | bf16 | `[4,4,4,4,3]` | `[4,4,4,4,3]` |
+
+Tiers are `[22px, 16px, 12px, 9px, 7px]`. Both nvfp4 rows reproduce the
+campaign cells exactly (positive control: `eval=263` think-off, tiers to the
+digit), so the harness measures the same quantity today as during the campaign.
+
+**bf16 is a clean control by construction.** `x/mlxrunner/model/linear.go`
+dispatches on the presence of a `.weight_scale` sibling; absent it the factory
+returns `nn.NewLinear`, whose `Forward` is `x.Matmul(w)` — no `QuantizedMatmul`,
+no `fp_qmm_t`, no global scale. `31b-mlx-bf16` carries **zero** `.weight_scale`
+tensors across 1247 (59.2 GiB).
+
+**`31b-mxfp8`'s vision tower is bf16, not mxfp8.** Its vision L0
+`mlp.down_proj` blob is **9,916,560 bytes in both the mxfp8 and the bf16
+checkpoint** — byte-identical, and exactly `1152 × 4304 × 2 + 144` header. Only
+the language model is 8-bit (119 MB/layer against bf16's 231 MB). So mxfp8 is a
+second bf16-encoder arm, not an independent vision quantization.
+
+The same arithmetic re-derives this document's shape claim from file sizes
+alone, with no code and no model load: the nvfp4 blob is
+`2,789,452 = 2,479,104 (4-bit packed) + 309,888 (group-16 scales) + 460`,
+giving K = 4304 and group = 16.
+
+### What the control establishes
+
+**The model's true 9px answer is 4** — bf16, with no quantization anywhere,
+scores 4 in both think modes. nvfp4 on the fixed kernel scores 3; nvfp4 on the
+broken kernel scored 4. The kernel defect was compensating for an nvfp4
+quantization loss on this sample, so #3912 did not cost a tier, it stopped
+hiding one.
+
+That is consistent with the golden-parity delta, which measures the fused
+quantized matmul against dequantize-then-matmul — the arithmetic the nvfp4
+weights actually encode — and improves `0.1406 → 0.0898` with the fix, landing
+exactly on MLX-CUDA's `0.0898` (#316).
+
+### The confound, stated plainly
+
+`31b-mxfp8` carries bf16's exact encoder and still drops to 3 at think-off. So
+**language-model quantization alone moves the 9px tier**, and because nvfp4
+quantizes both the tower and the LM, these three checkpoints cannot pin nvfp4's
+3 to the vision tower specifically. Isolating that needs an nvfp4-vision +
+bf16-LM checkpoint, which the store does not contain.
+
+The general point outlives this investigation: a recall tier is not a clean
+readout of vision-encoder correctness, and a tier move across a build bump is
+not evidence about a kernel until the unquantized arm has been measured on the
+same binary and window.
+
+### Tier history, so it is not re-measured
+
+`gemma4:31b-nvfp4`, all builds, both think modes — transcribed from the
+`ft_*.json` capture files by script (the suite gitignores them, so this table is
+their durable form):
+
+| build | MLX pin | think-off | think-on | runs |
+|---|---|---|---|---|
+| `0.33.0-maxusai-21cfe88e` | pre-fold | `[4,4,4,4,3]` | `[4,4,4,4,3]` | 2 |
+| `0.33.2-maxusai-2b95b4a5` | `c793734e` | `[4,4,4,4,3]` | `[4,4,4,4,3]` | 5 |
+| `0.34.0-maxusai-907deffd` | `ce916dbb` | — | `[4,4,4,4,3]` | 3 |
+| `0.34.0-maxusai-8a7ba949` | `d9add9d1` | `[4,4,4,3,3]` | `[4,4,4,3,3]` | 5 |
+
+`26b-nvfp4` and `12b-nvfp4` are **unchanged across all three builds**
+(`[4,4,4,3,3]` and `[4,4,3,0,0]` think-off) — the 26b's encoder moved from the
+same fix while its tier did not, which is the first sign the tier and the
+encoder are not the same measurement.
+
+### One caveat on build-pair attribution
+
+`MLX_VERSION` did not move `ce916dbb → d9add9d1` along one line. `fbedf5066`
+moved the fold `37c26e57 → ce916dbb`, while upstream went
+`37c26e57 → cbb4059d → d9add9d1` separately — so the two builds sit on
+**different MLX branches**, not consecutive commits. #3912 itself survives that,
+because the kernel reproducer is selected by K (clean at `K mod 32 == 0`, broken
+only at 16) rather than by build pairing. No purely build-pair attribution
+does.
 
 ### Two things that made this expensive, worth carrying forward
 
@@ -52,7 +145,7 @@ answer: one fine-text OCR tier, one model, one think mode — and the model stay
 coherent throughout.
 
 **Nobody read upstream's PR history.** The whole investigation below bisected our
-own fold and treated the MLX pin as an opaque 24-commit blob. The answer was in
+own fold and treated the MLX pin as an opaque range. The answer was in
 MLX's changelog the entire time. The sibling ROCm investigation reached its own
 root cause the same way, on the same day.
 
