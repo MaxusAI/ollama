@@ -391,9 +391,9 @@ scored cells can see: IoU within 0.003, every contract identical. Decoding the c
 buys — prefill 1.5× on 31b and 1.9× on 26b-a4b, s/req −9 % and −18 % — and it moves one cell: 31b's 9 px fine-text
 tier, 4 with the split and 3 without, deterministic 2/2 on each side. That is the same shape as the Metal finding in
 #312 (the more correct encoder path scores one 9 px tier lower on 31b), and the same caveat applies: a single
-knife-edge tier is not a quality verdict. The decision is Glenn's: batch ≥ the 1120 ceiling for gemma4 vision runners
-is a throughput fix with no measured contract cost; the register row moves from "fork unmeasured" to "measured,
-decision pending".
+knife-edge tier is not a quality verdict. Glenn's decision, the same evening: raise it to the 1120 ceiling — ADR 0036, #320 (merged 2026-09-18): a gemma4
+vision runner starts from the smallest batch rung at or above its resolved image ceiling and steps down only when
+that does not fit; the register row reads "fixed in the fork".
 
 The same container answered #313's ask from the ROCm host (`run_budget_sweep.sh`, `BUDGETS="280 560 1120"`, min == max,
 gemma4:31b, num_ctx 16384 so the 1120 rung decodes past n_ubatch = 1024): scene IoU 0.925 / 0.936 / 0.967 and
