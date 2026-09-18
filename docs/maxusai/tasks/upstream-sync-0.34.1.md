@@ -270,6 +270,47 @@ is the change that broke patch 004's context. The same commit also touched the t
   fill hunks apply there at offsets. `pinned_image_token_budget` and `token_ladder` will show whether the served
   grids still land on the ladder.
 
+## The drafting retention, reproduced and bounded (2026-09-18, after the deploy)
+
+Glenn asked for a deterministic reproduction before any upstream report. Method: one container at a time on GPU0 beside
+production, `OLLAMA_DEBUG=2`, N identical or fresh-prefix requests, the runner's own `memory … held=` line and the trie's
+trace line per request (`held − trie`, trie = active + paged-out), then instrumented Go-only swaps of the release image
+(`sync-0.34.1-instr` … `instr6`, never deployed) that add per-bucket accounting, a live-array registry and counters.
+Scripts `claude-scratch/leak-repro*.sh`, analysers `leak-repro-analyse.py` / `leak-repro-detail.py`, runner logs
+`preflight-runs/leakrepro-*-runner.log`.
+
+**Reproduction.** A request that carries an image, ends by `stop` (EOS or grammar completion) and runs under
+speculative decoding retains memory across the request; nothing else does. The size ladder (the preflight's five
+ladder images cycling, a bbox-per-object schema, `num_predict` 1500 — the ladder images hold nothing, so every answer
+is 5–9 tokens and stops) grows on 14 of 14 steps on qwen3.6:35b-a3b (+4.5 GiB over 15) and on 27b; the single
+stop-terminated request in an otherwise length-terminated run is the single request that grew (+422 MiB); 0 of 38
+length-terminated image requests grew; text-only stop-terminated requests, identical or fresh-prefix, grew only by the
+trie's own snapshots. The grammar is irrelevant (the no-format ladder leaks identically), so upstream's default
+configuration is affected. `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` (no drafting) is flat in every arm. `qwen3.5:0.8b-mlx`
+cannot reproduce it: the package ships no MTP head and never drafts.
+
+**Excluded, each by an instrumented run rather than by reading:** every Go-owned array (the registry shows zero
+root-held arrays and an identical live set with and without drafting); unevaluated graphs (evaluating every live array
+at teardown releases 0 B); the media fold's prefill captures (disabling them entirely: identical growth); the
+drafter's caches and media rows and the target cache slots (their buffers are flat by size); speculation's per-round
+snapshots (created = closed, 20,970 = 20,970); MLX-C handle leaks (every vector/closure site has its free); MLX's
+compile cache (`MLX_DISABLE_COMPILE=1`: unchanged); the CUDA graph cache size (24 requests at 400/20/50: +7.9 /
++5.8 / +7.9 GiB — within run-to-run variance; an 8-request run that looked flat at 20 was n = 1 and wrong);
+synchronous evaluation of the round's drafts (two runs, unchanged). The pool-release cadence was the part
+`ec3cc2307` removed. What remains is counted by MLX's allocator but referenced from the C++ side of the boundary.
+
+**Two components, measured on the same requests.** Sampling the runner's device memory (nvidia-smi) beside MLX's
+counter over 12 stop-terminated image requests: device +6.8 GiB, MLX active +3.2 GiB, of which the trie +1.7 and the
+unowned MLX-tracked part +1.2 — so more than half of the growth sits **outside MLX's accounting** (device − active
+2.2 → 5.8 GiB): CUDA-internal allocations that neither `held` nor the admission headroom can see. Bounding the graph
+cache shrank that outside part (+2.2 instead of +3.6) without touching the MLX-tracked part, which is what an LRU of
+instantiated graph execs would do; it is a share, not the mechanism.
+
+**Context upstream.** ollama#17924 (closed by its reporter as the trie filling to its 8 GiB `maxPagedOutBytes`)
+measured 0.147 GiB per request on this model family; ollama#17875 and #18131 report growth past that budget on Metal
+under agent workloads (short, stop-terminated answers with long contexts) and were closed as trie behaviour. This
+investigation supplies the non-trie component those reports were missing, with its condition.
+
 ## The gemma4 image resize algorithm (Glenn's question, 2026-09-18)
 
 Glenn asked whether `hparams.image_resize_algo = RESIZE_ALGO_BILINEAR → RESIZE_ALGO_BICUBIC` in gemma4's projector case
