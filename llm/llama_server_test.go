@@ -2645,6 +2645,36 @@ func TestAppendLoadModeArgsIntegratedDirectIOOptOut(t *testing.T) {
 	}
 }
 
+// The DEFAULT must stay on. Direct I/O is worth ~100x on repeated model load on
+// an integrated GPU (1203 completed loads in a window against 3 with it off,
+// docs/maxusai/tasks/rocm-gate-issues-result.md), and it is not the cause of any
+// known correctness problem -- the b10864 vision regression reproduced identically
+// with it off and was upstream's HIP prop.integrated defect (llama/compat/906).
+//
+// This case is separate from the opt-out test above because that one only ever
+// sets the variable. An unset variable is the configuration production actually
+// runs, and a default that silently flipped to off would cost minutes per load
+// while every test still passed.
+func TestAppendLoadModeArgsIntegratedDefaultsToDirectIO(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("direct I/O is only forced on linux")
+	}
+	os.Unsetenv("OLLAMA_IGPU_DIRECT_IO")
+
+	for _, lib := range []string{"rocm", "ROCm", "cuda", "CUDA"} {
+		gpus := []ml.DeviceInfo{{DeviceID: ml.DeviceID{Library: lib}, Integrated: true}}
+		if got := appendLoadModeArgs([]string{"base"}, api.DefaultOptions(), gpus); !slices.Equal(got, []string{"base", "--load-mode", "dio"}) {
+			t.Fatalf("unset env, integrated %s = %v, want dio by default", lib, got)
+		}
+	}
+
+	// A discrete device must not get it, unset or otherwise.
+	discrete := []ml.DeviceInfo{{DeviceID: ml.DeviceID{Library: "rocm"}, Integrated: false}}
+	if got := appendLoadModeArgs([]string{"base"}, api.DefaultOptions(), discrete); !slices.Equal(got, []string{"base"}) {
+		t.Fatalf("unset env, discrete = %v, want no load-mode flag", got)
+	}
+}
+
 func TestAppendMMProjArgs(t *testing.T) {
 	defaultOpts := api.DefaultOptions()
 	partialOpts := api.DefaultOptions()
