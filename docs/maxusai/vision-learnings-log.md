@@ -479,3 +479,49 @@ change in the shared model code.
   26b/31b vision number measured on Metal before `8a7ba949` went through a
   kernel corrupting most of one matmul's outputs. Nothing on the CUDA host,
   which never ran that kernel.
+
+### 2026-09-18 — A tier move is not evidence about a kernel until the unquantized arm is measured
+A numerically wrong kernel can score *higher* than the correct one, because the
+error it introduces may compensate for a quantization loss on the scored
+sample. Ranking builds by a recall tier therefore ranks them by luck, not by
+correctness, unless an arm with no quantization in the path is measured on the
+same binary and window.
+
+- **Evidence** — `gemma4:31b`, 9px fine-text tier, one binary
+  `0.34.0-maxusai-8a7ba949` / payload `d9add9d1` (post-MLX#3912), `num_ctx=16384`,
+  `num_predict=2200`/`8192`, powermode 2:
+
+  | model | vision tower | LM | think-off | think-on |
+  |---|---|---|---|---|
+  | `31b-nvfp4` | nvfp4 | nvfp4 | `[4,4,4,3,3]` | `[4,4,4,3,3]` |
+  | `31b-mxfp8` | **bf16** | mxfp8 | `[4,4,4,3,2]` | `[4,4,4,4,3]` |
+  | `31b-mlx-bf16` | **bf16** | bf16 | `[4,4,4,4,3]` | `[4,4,4,4,3]` |
+
+  bf16 — which never enters `QuantizedMatmul` at all — scores **4**, so 4 is the
+  model's answer. nvfp4 on the fixed kernel scores 3; nvfp4 on the *broken*
+  kernel scored 4. The defect was masking an nvfp4 quantization cost, and
+  #3912 did not cost a tier, it stopped hiding one. Twelve runs had split
+  cleanly by build across both think modes, which looked like a robust
+  regression and was not one: a deterministic bug reproduces a lucky answer
+  perfectly, so run-to-run consistency says nothing about whether the answer
+  was earned. `vision-0340-mlx3912-fp-qmm-t-kmod32.md` § "The quantization
+  control".
+- **Second trap, same day** — `gemma4:31b-mxfp8` carries a **bf16 vision
+  tower**, not an mxfp8 one: its vision `mlp.down_proj` blob is byte-identical
+  in size to bf16's (`9,916,560 = 1152 × 4304 × 2 + 144`), and only the
+  language model is 8-bit. Treating it as an independent vision quantization
+  would have produced a three-way comparison that was really two-way. It still
+  drops to 3 at think-off, which is the other half of the lesson: **language
+  model quantization alone moves the 9px tier**, so a tier is not a clean
+  vision-encoder readout in either direction.
+- **Enforced by** — read the blob sizes before believing a tag. `quant_dims.py`
+  lists a served model's quantized weights and their K; a tensor the tag claims
+  is quantized but whose blob is `rows × cols × 2` is stored bf16. The same
+  arithmetic re-derives geometry with no model load: nvfp4
+  `2,789,452 = 2,479,104 (4-bit packed) + 309,888 (group-16 scales) + 460`
+  gives K = 4304, group = 16.
+- **Cost** — one published attribution ("the score of 3 is what the correct
+  kernel produces") that had to be withdrawn, and a near-recommendation to
+  revert a kernel that is wrong on 232722/294912 elements at this shape. Both
+  caught only because the bf16 checkpoint was already in the store and took
+  ~4 minutes to measure.
