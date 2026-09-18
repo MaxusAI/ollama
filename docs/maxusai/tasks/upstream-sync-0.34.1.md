@@ -319,7 +319,15 @@ length-terminated control (fixed scene image, 1,500-token answers, drafting on) 
 | **A** MLX-tracked, owned by nothing on the Go side | image + stop-terminated answer + speculation, grammar or not | `held`, admission | ~0.1–0.3 GiB per such request, unbounded | no drafting (`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` covers grammar requests only); no code fix known — the holder is on MLX's side |
 | **B** CUDA-internal, outside MLX's allocator | every new input shape (prompt length, image size), drafting or not | nvidia-smi only | +0.5 GiB per new shape early, bounded by the graph cache | a smaller `MLX_CUDA_GRAPH_CACHE_SIZE` (prefill latency cost), or pricing it into the admission headroom (ADR 0034) |
 
-The plateau of B and what a bounded cache does to it are being measured (60 no-drafting requests, cache 400 and 50).
+**B's plateau (60 no-drafting requests, fresh prefix each, 19:25–19:33):** the CUDA-internal part peaks early and
+comes back down — device − MLX-active +6.6 GiB at request 10, +5.2 at 20, +3.8 at 60 (cache 400); +5.8 / +4.3 /
++2.7 at cache 50 — so it is a transient of the first distinct shapes plus a bounded steady state, not a leak; the
+bound at 50 saves ~1.1 GiB with no visible latency cost at steady state (1.5–1.8 s per request either way). Over the
+same 60 requests the trie fills to its 8 GiB `maxPagedOutBytes` budget (8.11 GiB at request 50 and flat after, exactly
+ollama#17924's plateau) and MLX-tracked memory outside it stays at −0.2 GiB. Steady state for 35b-a3b without
+drafting: **~34 GiB of device memory** = 22 weights + 8 trie + ~4 CUDA-internal, against an admission that prices the
+weights and the rung's KV. **A is the only unbounded growth**: +7.9 GiB over 24 stop-terminated image requests with
+drafting, linear, no plateau in sight.
 
 **Context upstream.** ollama#17924 (closed by its reporter as the trie filling to its 8 GiB `maxPagedOutBytes`)
 measured 0.147 GiB per request on this model family; ollama#17875 and #18131 report growth past that budget on Metal

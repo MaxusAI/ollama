@@ -84,5 +84,5 @@ and image size vary grew the runner's **device** memory by +6.6 to +6.8 GiB whil
 (all of it the prefix trie): ~4.5 GiB of CUDA-internal allocations per 12 distinct shapes, invisible to the allocator's
 accounting and therefore to any memory limit built on it. Bounding `MLX_CUDA_GRAPH_CACHE_SIZE` to 20 shrank that
 component (+2.2 instead of +3.6 over 8 requests) at a prefill-latency cost, consistent with instantiated CUDA graph
-execs per distinct op sequence. The plateau over 60 shapes at cache 400 and 50 is measured in the fork's record.
+execs per distinct op sequence. Over 60 distinct shapes it is a transient plus a bounded steady state — device − active +6.6 GiB at request 10, +3.8 at 60 (cache 400); +5.8 / +2.7 at cache 50 — ~4 GiB that `get_active_memory` users cannot price, beside the prefix cache's own 8 GiB.
 Suggestion: expose the graph cache's device footprint (or bound it in bytes), so `get_active_memory` users can price it.
