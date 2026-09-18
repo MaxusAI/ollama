@@ -270,6 +270,26 @@ is the change that broke patch 004's context. The same commit also touched the t
   fill hunks apply there at offsets. `pinned_image_token_budget` and `token_ladder` will show whether the served
   grids still land on the ladder.
 
+## The gemma4 image resize algorithm (Glenn's question, 2026-09-18)
+
+Glenn asked whether `hparams.image_resize_algo = RESIZE_ALGO_BILINEAR → RESIZE_ALGO_BICUBIC` in gemma4's projector case
+came up as a regression candidate. It did not, and for this fold that was right: `clip.cpp` has `RESIZE_ALGO_BICUBIC`
+for `PROJECTOR_TYPE_GEMMA4V/GEMMA4UV` at **both** b10760 and b10864, so the switch is not in this fold's delta.
+Where it did enter the fork: llama.cpp `56db501e7` "mtmd: use pillow-accurate algo, correct resize_algo for all models
+(#27594)", between b10488 and b10630 — the **0.33.1 fold** — and no fork record flagged it then. That is the gap.
+
+What the campaigns on record say about it, for the four gemma4 GGUF models: the 0.33.2 (b10630, bicubic) and 0.33.3
+(b10760, bicubic) campaigns are identical cell for cell; against the 0.33.0-line `sync15_` run (b10488, bilinear)
+the only visible move is e4b's 12 px fine-text tier 0 → 3 (n = 1 each), in the direction bicubic downscaling would
+give. gemma4:e2b's zeros (fine text 0/0/0/0/0, scene IoU 0.061, invoice 1/5) exist on every build from b10488 to
+b10760, bilinear and bicubic alike, and recover only at b10864 — where the one gemma4 commit is `163a40796` "model,
+mtmd: fix gemma4 vision handling (#28335)", the same commit that moved the default limits to (70, 1120). So the
+e2b/e4b recovery this fold measured is attributable to #28335, not to the resize algorithm; the veto stays the
+n = 1 baseline, and a repeat of the four gemma4 cells on the deployed 0.34.0 image (`ggml034main_`) is queued for it.
+
+The fork's `004` fill resizes through `hparams.image_resize_algo`, so it has followed bicubic since 0.33.1; the
+preflight's `token_ladder` (5/5 geometries) and `pinned_image_token_budget` (560 → 529, ceiling 1120) pass on it.
+
 ## Retirement candidates (Glenn, 2026-09-17)
 
 `x/structured` was tested against upstream's engine (108 verdicts, 0 regressions) and deleted in this fold on
