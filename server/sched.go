@@ -849,7 +849,46 @@ func (req *LlmRequest) applyAutomaticGenerationBatch(completion bool, effectiveC
 		return
 	}
 
-	req.opts.NumBatch = automaticGenerationBatch(effectiveCtx, predictedVRAM, availableMemory, flashAttention, gpus)
+	floor := 0
+	if req.model != nil {
+		floor = imageChunkGenerationBatch(req.model.Config.ModelFamily, len(req.model.ProjectorPaths) > 0, req.opts)
+	}
+	req.opts.NumBatch = automaticGenerationBatch(effectiveCtx, floor, predictedVRAM, availableMemory, flashAttention, gpus)
+	if floor > 0 && req.opts.NumBatch < floor {
+		slog.Info("generation batch below the image chunk, images decode in pieces", "model", req.model.ModelPath, "num_batch", req.opts.NumBatch, "image_chunk_batch", floor)
+	}
+}
+
+// imageChunkGenerationBatch is the generation batch a vision runner needs to
+// decode one image chunk in a single piece: the smallest rung of the batch
+// ladder at or above the model's resolved image-token ceiling, or 0 for models
+// whose images never need it.
+//
+// gemma4's image tokens attend to each other (non-causal), and llama.cpp's
+// mtmd_helper_decode_image_chunk splits a chunk larger than n_batch into
+// n_batch-sized decodes, each bidirectional only within itself. The fork's
+// launcher sets -b and -ub equal (appendBatchArgs), so the batch chosen here
+// is the piece size. The ceiling is the request's resolved image_max_tokens
+// (api.DefaultImageMaxTokens = 1120 unless lowered), which the budget-fill
+// payload snaps to the 70/140/280/560/1120 ladder; every rung of that ladder
+// sits strictly below a batch rung, so ">= ceiling" leaves room for the
+// BOI/EOI framing. Measured 2026-09-18 (ADR 0036): the split costs no scored
+// cell, the single piece is 1.5-1.9x faster at prefill. nemotron_h_omni's
+// ceiling (3328) exceeds the ladder and stays out of scope.
+func imageChunkGenerationBatch(modelFamily string, hasProjector bool, opts api.Options) int {
+	if !hasProjector || modelFamily != "gemma4" {
+		return 0
+	}
+	_, ceiling, derived := llm.ResolvedImageTokenBudget(modelFamily, opts)
+	if !derived || ceiling <= 0 {
+		return 0
+	}
+	for _, batch := range []int{llamaServerGenerationBatchDefault, llamaServerGenerationBatchMedium, llamaServerGenerationBatchLarge} {
+		if batch >= ceiling {
+			return batch
+		}
+	}
+	return llamaServerGenerationBatchLarge
 }
 
 func generationBatchSurchargeForCompletion(completion bool, batch int) uint64 {
@@ -859,7 +898,12 @@ func generationBatchSurchargeForCompletion(completion bool, batch int) uint64 {
 	return generationBatchSurcharge(batch)
 }
 
-func automaticGenerationBatch(effectiveCtx int, predictedVRAM, availableMemory uint64, flashAttention ml.FlashAttentionType, gpus []ml.DeviceInfo) int {
+// automaticGenerationBatch derives the generation batch from the context rung,
+// raised to floor (an image chunk's batch, see imageChunkGenerationBatch) when
+// that is larger, and steps down rung by rung while the batch does not fit the
+// memory left after the model. Flash attention off on CUDA keeps upstream's
+// small batches regardless: those are the constrained cards.
+func automaticGenerationBatch(effectiveCtx, floor int, predictedVRAM, availableMemory uint64, flashAttention ml.FlashAttentionType, gpus []ml.DeviceInfo) int {
 	if flashAttention == ml.FlashAttentionDisabled && hasCUDADevice(gpus) {
 		if constrainedCUDAWithoutFlashAttention(effectiveCtx, gpus) {
 			return llamaServerGenerationBatchConstrained
@@ -867,7 +911,7 @@ func automaticGenerationBatch(effectiveCtx int, predictedVRAM, availableMemory u
 		return llamaServerGenerationBatchDefault
 	}
 
-	batch := generationBatchForContext(effectiveCtx)
+	batch := max(generationBatchForContext(effectiveCtx), floor)
 	for batch > llamaServerGenerationBatchDefault && !generationBatchFits(batch, predictedVRAM, availableMemory) {
 		batch = nextLowerGenerationBatch(batch)
 	}
