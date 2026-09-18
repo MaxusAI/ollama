@@ -56,6 +56,16 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   question only if upstream adds ladder snapping or budget filling to the
   dyn_size preprocessor itself, not merely because the numbers match.
 
+  Two related facts, so the same ground is not re-walked. The patch context
+  *was* re-cut for this bump (`fb18f5c94`, "re-cut 004 for llama.cpp b10864"),
+  which is why it still applies: at `2b95b4a5` its context read
+  `set_limit_image_tokens(40, 280)` and on `main` it reads `(70, 1120)`.
+  Separately, the gemma4 branch's `image_resize_algo = RESIZE_ALGO_BICUBIC` is
+  NOT a b10864 change — b10630 already set it, so it predates the 0.33.2
+  baseline. A diff of the gemma4 branch spanning b9888..b10864 shows the
+  resize-algo and token-limit changes together and invites treating both as
+  new; only the token limits are.
+
   **The MLX path does not use this patch.** The `mlx-metal` preflight profiles
   carry `patchset = []` because the compat patches do not apply to MLX at all.
   Apple Silicon gets the same geometry from `llm.BudgetFillSize`
