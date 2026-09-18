@@ -37,7 +37,7 @@ and, either way, to tell us whether the gate can ever lift.
 | | |
 |---|---|
 | Host | `10.8.0.4`, `glenn-NucBox-EVO-X2`, Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151** (RDNA 3.5) |
-| SSH | `ssh -i ~/.ssh/id_ed25519_NucBox-EVO-X2-glenn glenn@10.8.0.4` — for reaching the host **from 10.8.0.6**; the key does not live on 10.8.0.4 itself. An agent already running on the host needs none of this. |
+| SSH | Reach this host **from the CUDA host**, via a host alias in that operator's `~/.ssh/config`; the key lives there, not on this host. The account, key filename and alias are deliberately not recorded in this public repo. An agent already running on the host needs none of this. |
 | ROCm | 7.2.1 · HIP 7.2.53211 |
 | Production container | `ollama-rocm`, image `maxusai-ollama:0.32.1-rocm-dynres-296eb020`, port 11434 — **leave alone** |
 | Deployment defs | `~/deployments/ollama/docker/ollama-rocm/` (compose, Makefile, `.env`) |

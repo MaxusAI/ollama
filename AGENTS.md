@@ -95,3 +95,19 @@ There are two independent MLX bindings, and they enforce this differently:
 See `docs/development.md` ("MLX threading"),
 `docs/maxusai/adr/0017-mlx-work-runs-on-a-permanently-claimed-os-thread.md`, and
 `docs/maxusai/adr/0018-imagegen-caches-mlx-streams-per-thread.md`.
+
+**This fork is public — no runnable remote-access commands in it.** `MaxusAI/ollama`
+is a public fork of `ollama/ollama`, so everything under `docs/maxusai/` is
+world-readable. Host facts that help an agent orient (an address, a container
+name, a port) are fine and already widespread. What is not fine is a line a
+reader could paste to reach a machine: the gate brief carried
+`ssh -i ~/.ssh/<key> <user>@<host>`, which put the account, the private-key
+filename, the target host and — in the prose beside it — the second host holding
+that key into one copy-pasteable string. That is a lateral-movement recipe, not
+provenance, and none of it was needed by an agent already running on the host.
+
+Write the shape, not the specifics: `ssh <host> docker exec {container} ...`, and
+keep account names, key filenames and SSH aliases in the operator's
+`~/.ssh/config` where they belong. The same applies to tokens, registry
+credentials and `.env` contents. When a doc needs the real values to be useful,
+that doc belongs outside this repo.

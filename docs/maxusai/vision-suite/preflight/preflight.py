@@ -263,7 +263,7 @@ def main():
                     help="limit to these arches (default: all in the profile)")
     ap.add_argument("--container", help="container name (default: auto-detect by port)")
     ap.add_argument("--exec-cmd", help="template for running a command in the "
-                                       "container, e.g. 'ssh h docker exec {container} sh -c ...'")
+                                       "container, e.g. 'ssh <host> docker exec {container} sh -c ...'")
     ap.add_argument("--log-cmd", help="template for reading container logs; "
                                       "{container} and {since} are substituted")
     ap.add_argument("--expectations", default=os.path.join(DIR, "expectations.toml"))
