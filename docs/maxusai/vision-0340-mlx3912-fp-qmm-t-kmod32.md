@@ -1,12 +1,60 @@
-# Open regression: gemma4:31b-nvfp4 think-on loses a 9px OCR tier on 0.34.0
+# SOLVED: the gemma4 26b/31b vision shift on 0.34.0 is upstream MLX #3912
 
-**Status: reproducible, LOCALISED TO #302 by bisect.** Four hypotheses are falsified
-below; a fifth and better lead — greedy nondeterminism — is recorded at the end
-and is where the next person should start.
+**Status: ROOT CAUSE FOUND AND CONFIRMED. This is not a regression — it is a
+kernel correctness FIX, and 0.34.0 is the more correct build.**
 
-Measured 2026-09-18 on 10.8.0.3, powermode 2, benchmark server on `:11436` from
-scratch installs (never the deployed binary — `serve-apple-mlx.sh` restarts with
-`pkill -f "$BIN serve"` and production's cmdline is `/opt/github/MaxusAI/ollama/ollama serve`).
+## Root cause
+
+Upstream **MLX PR #3912** fixed a Metal kernel bug in `fp_qmm_t` that reads past
+the K dimension when **`K mod 32 == 16`**. Our v0.34.1 fold (#302) crossed that
+fix when the MLX pin moved `ce916dbb -> d9add9d1`.
+
+`K = 4304` is the vision tower's `mlp.down_proj` contraction dimension in the
+gemma4 **26b and 31b** nvfp4 checkpoints — stored packed as `[1152, 538]` at 8
+values per word, cross-checked by the group-16 scale tensor at `[1152, 269]`.
+`4304 = 134*32 + 16`.
+
+**12b carries no nvfp4 vision `down_proj` at all** (its text ones are K = 15360
+and 65536, both `mod 32 == 0`). It was never a lucky control — it is
+structurally immune, which is why it came back bit-identical on every build.
+
+Confirmed at kernel level, independent of models or scores (guard test in #315):
+
+```
+MLX ce916dbb (pre-fix)   K=4288  max 0.000152588   0/294912 elements over 1.0
+                         K=4304  max 24.0494       232722/294912   <- 79% corrupted
+MLX d9add9d1 (post-fix)  K=4288  max 0.000152588   0/294912
+                         K=4304  max 0.137939      0/294912
+```
+
+The aligned control is bit-identical across both libraries, so the two differ
+only on the one path.
+
+### What this means for the numbers below
+
+The tier drop is **a downstream consequence of correcting a kernel**, not a
+defect to undo. The 9px score of 4 was measured on a build corrupting most of
+that matmul's outputs; the score of 3 is what the correct kernel produces.
+
+It also resolves what this document previously recorded as an unexplained
+paradox — that 0.34.0 was *closer* to the mlx-vlm reference while scoring worse.
+That is exactly what a correctness fix looks like from a scored probe that
+happened to favour the broken output.
+
+**Prior gemma4 26b/31b vision numbers measured before this fold went through a
+kernel corrupting 79% of the vision tower's down_proj outputs.** Anything
+compared against those baselines should be re-measured rather than trusted.
+
+### Two things that made this expensive, worth carrying forward
+
+**The symptom was almost invisible.** Not a crash, not an obviously wrong
+answer: one fine-text OCR tier, one model, one think mode — and the model stayed
+coherent throughout.
+
+**Nobody read upstream's PR history.** The whole investigation below bisected our
+own fold and treated the MLX pin as an opaque 24-commit blob. The answer was in
+MLX's changelog the entire time. The sibling ROCm investigation reached its own
+root cause the same way, on the same day.
 
 ## The finding
 
