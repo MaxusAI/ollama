@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ocrbench_table  # noqa: E402
 
 
-def write(directory, tag, verdicts, model="gemma4:31b-nvfp4"):
+def write(directory, tag, verdicts, model="gemma4:31b-nvfp4", host=None, ver=None):
     """A score file whose i-th record is correct iff verdicts[i]."""
     recs = [{"i": i, "pred": "x", "secs": 2.0, "prompt_eval_count": 1100,
              "eval_count": 3, "gold": ["x"], "ok": bool(v)} for i, v in enumerate(verdicts)]
@@ -26,6 +26,10 @@ def write(directory, tag, verdicts, model="gemma4:31b-nvfp4"):
                        "endpoint": "generate", "correct": sum(bool(v) for v in verdicts),
                        "accuracy": round(sum(bool(v) for v in verdicts) / len(verdicts), 4)},
            "records": recs}
+    if host:
+        doc["summary"]["host"] = [host]
+    if ver:
+        doc["summary"]["server_version"] = [ver]
     with open(os.path.join(directory, f"ext_{tag}_ocrbench.json"), "w") as f:
         json.dump(doc, f)
 
@@ -116,6 +120,42 @@ class TestCategories(unittest.TestCase):
             out = ocrbench_table.category_table(arms, types)
             self.assertIn("| hand | 2 | 1/2 | 2/2 |", out)
             self.assertIn("| regular | 2 | 2/2 | 1/2 |", out)
+
+
+class TestProvenanceFooter(unittest.TestCase):
+    """SPEC H13, reached through this renderer rather than the suite's.
+
+    `extbench.py` discarded the host/server_version `client.generate()` stamps
+    until 2026-09-19, so a ladder can mix files that record provenance with
+    files that do not. Aggregating over sets would print one clean host for the
+    whole table — the recorded row vouching for the unrecorded one, which is
+    the defect H13 exists to stop.
+    """
+
+    def _footer(self, *specs):
+        with tempfile.TemporaryDirectory() as d:
+            arms = {}
+            for tag, host, ver in specs:
+                write(d, tag, [1, 1, 0], host=host, ver=ver)
+                arms[tag] = [(tag, ocrbench_table.load(d, tag))]
+            return ocrbench_table.provenance_footer(arms)
+
+    def test_one_campaign_renders_a_clean_footer(self):
+        out = self._footer(("a", "http://h:1", "0.34.1-x"), ("b", "http://h:1", "0.34.1-x"))
+        self.assertNotIn("MIXED", out)
+        self.assertIn("build: 0.34.1-x", out)
+
+    def test_a_file_without_h11_fields_is_named(self):
+        self.assertIn(ocrbench_table.NOT_RECORDED, self._footer(("a", None, None)))
+
+    def test_a_recorded_file_never_vouches_for_an_unrecorded_one(self):
+        out = self._footer(("a", "http://h:1", "0.34.1-x"), ("b", None, None))
+        self.assertIn("MIXED", out)
+        self.assertIn(ocrbench_table.NOT_RECORDED, out)
+
+    def test_two_builds_trip_mixed(self):
+        out = self._footer(("a", "http://h:1", "0.34.1-x"), ("b", "http://h:1", "0.34.2-y"))
+        self.assertIn("MIXED", out)
 
 
 if __name__ == "__main__":

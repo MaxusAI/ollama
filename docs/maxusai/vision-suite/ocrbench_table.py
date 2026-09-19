@@ -104,6 +104,31 @@ def arm_table(arms, engine):
     return "\n".join(rows)
 
 
+NOT_RECORDED = "pre-H11 run (not recorded)"
+
+
+def provenance_footer(arms):
+    """SPEC H13: the footer is built from every rendered file, and never guesses.
+
+    `extbench.py` did not persist the host/server_version that `client.generate()`
+    stamps on each response until 2026-09-19, so older files carry neither. Such a
+    file must surface as its own entry rather than contribute nothing — a footer
+    aggregated over sets would otherwise print one clean host for a table whose
+    other rows have no provenance at all, which is the exact defect H13 names.
+    """
+    hosts, builds = set(), set()
+    for runs in arms.values():
+        for _, d in runs:
+            s = d["summary"]
+            for key, acc in (("host", hosts), ("server_version", builds)):
+                v = s.get(key)
+                acc.add(", ".join(v) if isinstance(v, list) and v else (str(v) if v else NOT_RECORDED))
+    if len(hosts) > 1 or len(builds) > 1:
+        return ("\n⚠ **MIXED — rows are not one campaign** "
+                f"(hosts: {sorted(hosts)}; builds: {sorted(builds)})")
+    return f"\nhost: {hosts.pop()} · build: {builds.pop()}"
+
+
 def repeat_table(arms):
     """Repeats of one arm: the spread, and how many items changed verdict between runs."""
     multi = {l: r for l, r in arms.items() if len(r) > 1}
@@ -181,6 +206,7 @@ def main(argv=None):
             print("\n<!-- no cached row slice in extimgs/ocrbench; run an arm first -->")
     if missing:
         print(f"\nMissing score files: {', '.join('`ext_%s_ocrbench.json`' % m for m in missing)}")
+    print(provenance_footer(arms))
     return 0
 
 
