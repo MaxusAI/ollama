@@ -1013,12 +1013,37 @@ func nextLowerAutoNumCtx(numCtx int) (int, bool) {
 	}
 }
 
+// integratedPoolIsShared reports whether an integrated GPU's memory comes out of
+// the same pool the OS reports as system memory.
+//
+// The clamp in availableMemoryForLoad exists because an iGPU's free-memory
+// figure can be a stale device baseline while system free memory is live. That
+// reasoning holds when the two describe one pool. It does not hold on a fixed
+// carve-out: a Strix Halo host reports 96 GiB of GPU memory beside 31 GiB of
+// system memory on a 128 GiB machine, and the two are disjoint. Clamping there
+// sizes every batch, context and mmap decision against a number that describes
+// a different pool -- measured 2026-09-19 on gfx1151, where it held gemma4's
+// generation batch at 512-1024 against a 2048 floor while 95.4 GiB of GPU
+// memory sat free (ADR 0036, docs/maxusai/ocrbench-gemma4-quant-ladder.md).
+//
+// A GPU whose total exceeds all system memory cannot have been carved out of
+// it, so that is the test. Either total being unreported (0) keeps the previous
+// behaviour, because an unknown pool relationship is not evidence of a
+// dedicated one.
+func integratedPoolIsShared(systemInfo ml.SystemInfo, gpu ml.DeviceInfo) bool {
+	if systemInfo.TotalMemory == 0 || gpu.TotalMemory == 0 {
+		return true
+	}
+
+	return gpu.TotalMemory <= systemInfo.TotalMemory
+}
+
 func availableMemoryForLoad(systemInfo ml.SystemInfo, gpus []ml.DeviceInfo) (available, gpuFree uint64, systemLimited bool) {
 	var sharedGPUFree uint64
 	var discreteGPUFree uint64
 	for _, gpu := range gpus {
 		gpuFree += gpu.FreeMemory
-		if gpu.Integrated {
+		if gpu.Integrated && integratedPoolIsShared(systemInfo, gpu) {
 			sharedGPUFree += gpu.FreeMemory
 		} else {
 			discreteGPUFree += gpu.FreeMemory
@@ -1205,7 +1230,8 @@ func hasDiscreteGPU(gpus []ml.DeviceInfo) bool {
 }
 
 func availableMemoryForGPU(systemInfo ml.SystemInfo, gpu ml.DeviceInfo) uint64 {
-	if gpu.Integrated && systemInfo.FreeMemory > 0 && systemInfo.FreeMemory < gpu.FreeMemory {
+	if gpu.Integrated && integratedPoolIsShared(systemInfo, gpu) &&
+		systemInfo.FreeMemory > 0 && systemInfo.FreeMemory < gpu.FreeMemory {
 		return systemInfo.FreeMemory
 	}
 
