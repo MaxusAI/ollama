@@ -264,6 +264,36 @@ A post-promotion smoke test against the live `:11434` returned a correct descrip
 scene fixture naming all six shapes, `done_reason=stop`, `prompt_eval_count` 1122 — the 1120
 budget, filled.
 
+### The fine-text cost, measured rather than assumed
+
+Scene IoU is at or above baseline on four of five models and one thousandth below on the
+fifth. **Fine text is not uniformly at baseline**, and the first version of this record said
+"no regression" on the strength of the IoU column alone.
+
+Against the 0.32.1 baseline, think off, `num_ctx` 16384, **N=5 per arm per model**:
+
+| model | tier | 0.32.1 baseline | promoted `16649e8c` | |
+|---|---|---|---|---|
+| `nemotron3:33b` | 9px | 4/4/4/4/4 | 3/3/3/3/3 | **−1, reproducible** |
+| `qwen3.6:35b-a3b` | 7px | 2/2/2/2/2 | 1/1/1/1/1 | **−1, reproducible** |
+| `qwen3.8:27b` | 9px | 2/2/2/2/2 | 3/3/3/3/3 | **+1, reproducible** |
+
+Every other tier on every model is identical across builds, and 22/16/12px is 4/4 everywhere.
+
+**These are not noise, and the reason they were nearly dismissed as noise is worth recording.**
+The initial reading was one capture per cell, and the fork's own spread finding —
+`vision-learnings-log.md`, 2026-09-18 — says a single capture reports the minority mode about
+1 in 8. That finding is about **MLX greedy decoding on Metal**. On ROCm with think off and
+temperature 0 the fine-text probe is deterministic: five captures per cell returned the *same*
+value five times out of five, in all six cells, on both builds. Applying another platform's
+variance to this one would have retired a real regression as sampling noise.
+
+**The trade, stated plainly.** The promotion costs one fine-text item at 9px on `nemotron3`
+and one at 7px on `qwen3.6`, and gains one at 9px on `qwen3.8`, against a payload fix worth
+0.065 → 1.000 scene IoU on `qwen3.8` and 0.161 → 0.862 on `nemotron3`. That is worth taking,
+but it is a trade, not a free upgrade, and nothing here explains the two losses — they are
+not attributed to compat 906, to b10864, or to anything else. They are recorded as open.
+
 ### What is still open, and what would reopen this
 
 - **Whether the HIP defect class reaches CUDA unified memory** (MaxusAI/ollama#313). If it
