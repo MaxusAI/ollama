@@ -341,6 +341,12 @@ def check_metal_tensor_runtime(profile, container, log_cmd=None):
     undeclared = _tensor_undeclared("metal_tensor_runtime", expected)
     if undeclared:
         return undeclared
+    if not container and not log_cmd:
+        return result("metal_tensor_runtime", SKIP,
+                      "no container and no --log-cmd; cannot read the startup "
+                      "log", expected=expected,
+                      diagnosis="Pass --log-cmd 'cat <serve log>' on a native "
+                                "run. Same requirement as mlx_payload_pin.")
     try:
         seen = metal_tensor_discovery(container, log_cmd)
     except Exception as exc:

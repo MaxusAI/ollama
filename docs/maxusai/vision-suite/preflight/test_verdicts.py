@@ -1852,6 +1852,15 @@ class TestMetalTensorGate(unittest.TestCase):
         r = self.runtime(self.RETRY)
         self.assertEqual(r["status"], SKIP)
 
+    def test_no_container_and_no_log_cmd_skips(self):
+        """The invocation this harness actually uses on the Mac host is
+        --log-cmd alone; forget it and the check must say "no log source", the
+        way mlx_payload_pin does. It reached `docker logs ... None` instead and
+        came back ERROR, which fails the whole run on a healthy server."""
+        r = checks.check_metal_tensor_runtime(self.PROF, None, log_cmd=None)
+        self.assertEqual(r["status"], SKIP, r["summary"])
+        self.assertIn("--log-cmd", r["summary"] + r.get("diagnosis", ""))
+
     def test_no_log_skips(self):
         r = self.runtime("")
         self.assertEqual(r["status"], SKIP)
