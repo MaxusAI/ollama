@@ -146,6 +146,24 @@ Scottynn → Scottlynn     CORONAD → CORONA        both → booth
 For contrast, the HIP defect produced whole-image failures and `0.000` scene IoU, not off-by-one
 transcriptions. Nothing in these records resembles it.
 
+## Model identity (ADR 0038)
+
+`store_audit.py --store /opt/ollama/.ollama/models gemma4:31b-it`, 2026-09-19: **all three tags
+identical to the registry**, nothing changed, nothing local-only. So unlike the MLX nvfp4
+checkpoints — where the library re-published `gemma4:31b-nvfp4` with a bf16 vision tower under an
+unchanged tag and config blob — these rows are citable against another host's, provided that host
+also holds the registry version.
+
+| tag | local manifest digest |
+|---|---|
+| `gemma4:31b-it-q4_K_M` | `sha256:6316f0629137b426c9d9b853ffc4c8209589f30ee39aebede6285096c0ff47e7` |
+| `gemma4:31b-it-q8_0` | `sha256:53dd8459790f8795177444daa9e33f417e03c0d1cdedb80b6c73898603d20aef` |
+| `gemma4:31b-it-bf16` | `sha256:236d76ae08745dbc143c31b9271b0f25750885199aa6039d0fc0113171606e6d` |
+
+Note for anyone running the audit on this host: its store is `/opt/ollama/.ollama/models`, not the
+tool's default, and `store_audit.py` prints nothing at all when pointed at a store that holds no
+matching tags — an empty result reads identically to a clean one.
+
 ## Provenance caveat
 
 The three score files carry **no `host` / `server_version`**: `extbench.py` did not persist them
