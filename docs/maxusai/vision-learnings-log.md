@@ -572,11 +572,14 @@ support; the paired discordant counts settle it in one line.
   "quantization is costing us a tier" is a finding about a specific
   quantization and kernel, never a general property of the checkpoint.
 - **Enforced by** — `summarize_extbench.py --paired` (H7 generator) computes the
-  discordant counts and an **exact** McNemar. Exact, not chi-square: at 3-vs-1
-  the continuity-corrected approximation gives p≈0.317 against the true 0.625,
-  and 0.317 is the kind of number that gets reported as "trending".
+  discordant counts and an **exact** McNemar, and prints `resolved: no` rather
+  than an ordering when a pair does not clear it. Exact, not chi-square: at
+  3-vs-1 the continuity-corrected approximation gives p≈0.317 against the true
+  0.625, and 0.317 is the kind of number that gets reported as "trending".
   `test_summarizers.py::TestExtbenchSummary` pins both the exact values and the
-  H13 footer behaviour.
+  H13 footer behaviour. Three sessions wrote a renderer for this within a day of
+  each other and two were dropped rather than shipped — SPEC H1's "a second one
+  is the defect" applies to summarizers, not just runners.
 - **Cost** — none this time, because the paired columns were computed before
   the numbers were written up. The near-miss is that the first draft of the
   status report quoted 171 vs 175 across backends as if the gap meant something.

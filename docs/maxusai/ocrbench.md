@@ -79,6 +79,12 @@ comparable within a slice, never across.
 | 200, rows 0–200 | ROCm GGUF | `gemma4:31b-it-q8_0` | 169 / 200 | 0.845 |
 | 200, rows 0–200 | ROCm GGUF | `gemma4:31b-it-bf16` | 169 / 200 | 0.845 |
 
+Seconds per item are not comparable across those rows either: CUDA runs the GGUF arms at
+about 5.0 s and ROCm/gfx1151 at 7.7–8.3 s, on different silicon with a different batch.
+**ADR 0036's batch floor is a per-host fact, not a property of the build**: the same commit
+asks for 2048 on both, gets it on CUDA and is refused it on gfx1151, so read the logged
+`num_batch` rather than assuming the floor applied.
+
 ## What all three runs agree on
 
 **No quantisation difference resolves.** Every paired test run on every host — 4-bit
