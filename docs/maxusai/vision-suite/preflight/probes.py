@@ -675,6 +675,47 @@ def local_listener_exe(port):
     return exe if exe.startswith("/") else None
 
 
+# The two variables that decide the gate from outside ggml. A server started by
+# launchd with DISABLE=1 runs without the accelerators and says nothing about
+# it anywhere — no log line, no API field — so the only way to see it is to read
+# the environment of the process that is actually serving.
+TENSOR_ENV_VARS = ("GGML_METAL_TENSOR_DISABLE", "GGML_METAL_TENSOR_ENABLE")
+
+
+def server_env(port):
+    """The environment of the process listening on <port>, or None when it
+    cannot be read.
+
+    None and {} are NOT the same answer and the caller must not collapse them:
+    `ps -wwE` prints no environment at all for another user's process, which
+    would otherwise read as "the server has nothing set" — a false green about
+    the one variable that turns the accelerators off. A process with a genuinely
+    empty environment does not occur, so no tokens means no access.
+
+    darwin-only, like local_listener_exe: Linux `ps e` has the same shape but
+    this is only reached for a Metal profile.
+    """
+    pid_exe = local_listener_exe(port)
+    if not pid_exe:
+        return None
+    try:
+        pids = subprocess.run(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
+                              capture_output=True, text=True, timeout=30)
+        pid = (pids.stdout or "").split()
+        if not pid:
+            return None
+        ps = subprocess.run(["ps", "-wwE", "-p", pid[0]], capture_output=True,
+                            text=True, errors="replace", timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    env = {}
+    for token in (ps.stdout or "").split():
+        if "=" in token:
+            k, v = token.split("=", 1)
+            env.setdefault(k, v)
+    return env or None
+
+
 def lib_ollama_llama_server(exe):
     """The llama-server that `exe` would spawn, or None.
 

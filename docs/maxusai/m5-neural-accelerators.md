@@ -102,9 +102,17 @@ host — 0 occurrences in 25 MB of `serve.err.log` spanning 69 restarts — whic
 precisely why it is worth a check: a fallback that never happens is invisible
 until the day it does, and nothing else about the server would look wrong.
 
+A fourth route is simpler still and leaves no trace at all: `GGML_METAL_TENSOR_DISABLE`
+in the *server's* environment. ggml's gate honours it silently, and a probe run from
+the operator's shell would not see it — so the host check reads the two variables from
+the listening process (`ps -wwE`) and runs `nax_probe` under those, rather than under
+the shell's. It cuts both ways: an operator who exports the variable to test something
+would otherwise have every later preflight report a healthy server as degraded.
+
 `preflight.py` now asserts all three halves — host, payload, and this — as
 `metal_tensor_host`, `metal_tensor_payload` and `metal_tensor_runtime`, gated on a
-profile's `expect_metal_tensor_api`.
+profile's `expect_metal_tensor_api`, and `release_matrix.py` renders them as one
+**M5 tensor path** column, reported at its weakest check.
 
 ## 3. MLX: affine int4 is ~11% faster than nvfp4 at the prefill chunk
 

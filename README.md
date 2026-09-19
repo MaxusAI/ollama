@@ -68,7 +68,13 @@
      The mlx-metal run is committed (runs/preflight-mlx-metal-0340-8a7ba949.json);
      the CUDA host's post-deploy run is not, so today the two rows are each
      generated on their own host and pasted verbatim. Committing the CUDA run
-     makes the command above regenerate both. -->
+     makes the command above regenerate both.
+
+     The table below is the verbatim generator output for the v0.34.1 fold and
+     is NOT hand-edited to match a later generator. release_matrix.py has since
+     gained an "M5 tensor path" column (the three metal_tensor_* checks); both
+     runs here predate those checks, so it regenerates as "not run" on every
+     row, and the column appears at the next fold's regeneration. -->
 
 | surface | Build identity | Image size ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|

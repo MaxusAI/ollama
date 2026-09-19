@@ -1557,6 +1557,62 @@ class TestMetalStampFollowsADR0032(unittest.TestCase):
         self.assertEqual(got.stdout.strip(), want)
         self.assertNotIn("-maxusai-", got.stdout)
 
+class TestReleaseMatrixTensorColumn(unittest.TestCase):
+    """A gate nothing renders is a gate nobody reads. release_matrix.py is the
+    fold's headline artifact, and a check absent from GROUPS is simply not in
+    it — the quiet version of the false green TestReleaseMatrixColumns exists
+    to forbid.
+    """
+
+    COLUMN = "M5 tensor path"
+
+    def render(self, results, platform):
+        return TestReleaseMatrixColumns.render(
+            TestReleaseMatrixColumns(), results, platform=platform,
+            version="0.34.1-dynres-0-gsynthet")
+
+    @staticmethod
+    def rec(check, status, summary="synthetic"):
+        return {"check": check, "arch": None, "status": status, "summary": summary}
+
+    BASE = [{"check": "version", "arch": None, "status": PASS, "summary": "s"},
+            {"check": "token_ladder", "arch": "gemma4", "status": PASS, "summary": "s"}]
+
+    def test_a_healthy_metal_host_reads_green(self):
+        row = self.render(self.BASE + [
+            self.rec("metal_tensor_host", PASS),
+            self.rec("metal_tensor_payload", PASS),
+            self.rec("metal_tensor_runtime", PASS)], "mlx-metal")
+        self.assertEqual(row[self.COLUMN], "green")
+
+    def test_a_lost_tensor_path_is_not_green(self):
+        """The whole point of rendering it: 2.14x of prefill, gone, with every
+        other column legitimately green beside it."""
+        row = self.render(self.BASE + [
+            self.rec("metal_tensor_host", PASS),
+            self.rec("metal_tensor_payload", PASS),
+            self.rec("metal_tensor_runtime", FAIL,
+                     summary="this server disabled the Metal tensor API")], "mlx-metal")
+        self.assertEqual(row[self.COLUMN], "**FAIL**")
+        self.assertEqual(row["Image size ladder"], "green")
+
+    def test_a_surface_with_no_metal_reads_n_a_not_a_gap(self):
+        """cuda cannot have this path. N/A is neutral; a plain skip would read
+        as coverage this surface owes and does not."""
+        row = self.render(self.BASE + [
+            self.rec("metal_tensor_host", SKIP, summary="does not apply on cuda"),
+            self.rec("metal_tensor_payload", SKIP, summary="does not apply on cuda"),
+            self.rec("metal_tensor_runtime", SKIP, summary="does not apply on cuda")],
+            "cuda")
+        self.assertEqual(row[self.COLUMN], "n/a")
+        self.assertEqual(row["Image size ladder"], "green")
+
+    def test_an_older_run_reads_not_run_rather_than_green(self):
+        """Every run recorded before this gate existed carries none of the three."""
+        row = self.render(self.BASE, "mlx-metal")
+        self.assertEqual(row[self.COLUMN], "not run")
+
+
 class TestReleaseMatrixEquivalentStamps(unittest.TestCase):
     """A release matrix filters runs by version prefix, and ADR 0032 records
     equivalent stamps of one build. For the v0.34.1 fold the CUDA run stamps
@@ -1671,15 +1727,45 @@ class TestMetalTensorGate(unittest.TestCase):
 
     # ---- host: does this machine enable the accelerators at all ----
 
-    def host(self, profile=None, host=None, platform="darwin", **probe_kw):
+    def host(self, profile=None, host=None, platform="darwin",
+             server_env={"PATH": "/usr/bin"}, **probe_kw):
         """The platform is pinned because these tests must answer the same on a
         Linux CI runner as on the Mac host — and the check's darwin gate is
         real, so it gets a test of its own rather than a free pass here."""
         with mock.patch("sys.platform", platform), \
+             mock.patch.object(checks, "server_env", return_value=server_env), \
              mock.patch.object(checks, "nax_probe", **probe_kw) as probe:
             r = checks.check_metal_tensor_host(
                 self.PROF if profile is None else profile, host or self.LOCAL)
         return r, probe
+
+    def test_the_probe_answers_for_the_servers_environment_not_the_harnesss(self):
+        """nax_probe reads GGML_METAL_TENSOR_* from its OWN environment, so a
+        server started by launchd with GGML_METAL_TENSOR_DISABLE=1 would be
+        running without the accelerators while a probe launched from the
+        operator's shell cheerfully reported true. The one variable that turns
+        the path off is the one the check has to read from the SERVER."""
+        r, probe = self.host(return_value=dict(self.OK, has_tensor=False),
+                             server_env={"GGML_METAL_TENSOR_DISABLE": "1",
+                                         "PATH": "/usr/bin"})
+        self.assertEqual(probe.call_args.kwargs["env"]["GGML_METAL_TENSOR_DISABLE"], "1")
+        self.assertEqual(r["status"], FAIL)
+
+    def test_a_variable_the_server_lacks_is_removed_not_inherited(self):
+        """The mirror image, and the one that would produce a FALSE ALARM: the
+        operator exports the variable in their own shell to test something, and
+        every preflight run after that reports the server has lost the
+        accelerators. None means delete."""
+        _, probe = self.host(return_value=self.OK, server_env={"PATH": "/usr/bin"})
+        self.assertIsNone(probe.call_args.kwargs["env"]["GGML_METAL_TENSOR_DISABLE"])
+
+    def test_an_unreadable_server_environment_is_named_in_the_result(self):
+        """Another user's process: the hardware half of the answer is still
+        good, so it runs — but it must not silently claim to have read an
+        environment it could not."""
+        r, probe = self.host(return_value=self.OK, server_env=None)
+        self.assertIsNone(probe.call_args.kwargs["env"])
+        self.assertIn("harness", r["summary"] + (r.get("diagnosis") or ""))
 
     def test_host_that_accelerates_passes(self):
         r, _ = self.host(return_value=self.OK)
@@ -1711,12 +1797,22 @@ class TestMetalTensorGate(unittest.TestCase):
         self.assertEqual(r["status"], SKIP, r["summary"])
         self.assertIn("clang", r["summary"] + r.get("diagnosis", ""))
 
-    def test_no_expectation_skips_loudly(self):
+    def test_a_metal_profile_that_declares_nothing_skips_loudly(self):
         """Same contract as payload_pin: a profile that declares nothing is not
         silently passed, and is told what to add."""
-        r, _ = self.host(profile={}, return_value=self.OK)
+        r, _ = self.host(profile={"platform": "mlx-metal"}, return_value=self.OK)
         self.assertEqual(r["status"], SKIP)
         self.assertIn("expect_metal_tensor_api", r.get("diagnosis", ""))
+
+    def test_a_non_metal_profile_says_does_not_apply(self):
+        """cuda and rocm have no Metal tensor API to lose, and telling their
+        operator to add a field would be wrong advice. The exact phrase matters:
+        release_matrix.effective() reads "does not apply" to mean N/A, which is
+        neutral in a column rather than a coverage gap dragging it down."""
+        r, _ = self.host(profile={"platform": "cuda"}, return_value=self.OK)
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("does not apply", r["summary"])
+        self.assertNotIn("expect_metal_tensor_api", r.get("diagnosis", "") or "")
 
     def test_remote_server_skips_because_the_probe_measures_the_wrong_machine(self):
         """nax_probe runs where the HARNESS runs. Against a server on another

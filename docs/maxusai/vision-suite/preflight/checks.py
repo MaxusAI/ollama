@@ -8,10 +8,11 @@ import subprocess
 import sys
 import time
 
-from probes import (ProbeError, TENSOR_MARKER, binary_marker_count,
+from probes import (ProbeError, TENSOR_ENV_VARS, TENSOR_MARKER,
+                    binary_marker_count,
                     container_logs, grep_binary_marker, lib_ollama_llama_server,
                     launched_runner_paths, local_listener_exe,
-                    metal_tensor_discovery, mlx_build_payload,
+                    metal_tensor_discovery, mlx_build_payload, server_env,
                     ladder_image_b64, llama_cpp_build, mlx_build,
                     mlx_describe_commit, nax_probe, parse_load_segments,
                     parse_pixel_lines, poison_image_b64)
@@ -205,11 +206,23 @@ def local_port(host):
     return port if hostname in LOCAL_HOSTNAMES else None
 
 
-def _tensor_undeclared(name, expected):
-    if expected is None:
-        return result(name, SKIP, "profile records no expect_metal_tensor_api",
-                      diagnosis=TENSOR_UNDECLARED)
-    return None
+# The platforms that can have a Metal tensor API at all. Everywhere else the
+# three checks are not a coverage gap to be closed but a question that does not
+# arise, and the phrase is load-bearing: release_matrix.effective() reads "does
+# not apply" as N/A, which is neutral in a column instead of dragging it down.
+METAL_PLATFORMS = {"metal", "mlx-metal", "apple-silicon", "apple-silicon-mlx"}
+
+
+def _tensor_undeclared(name, profile):
+    """SKIP for a profile with no expectation — but the two reasons are not the
+    same, and telling a cuda operator to add a Metal field would be wrong."""
+    if profile.get("expect_metal_tensor_api") is not None:
+        return None
+    platform = profile.get("platform")
+    if platform not in METAL_PLATFORMS:
+        return result(name, SKIP, f"does not apply on {platform or 'this platform'}")
+    return result(name, SKIP, "profile records no expect_metal_tensor_api",
+                  diagnosis=TENSOR_UNDECLARED)
 
 
 def check_metal_tensor_host(profile, host):
@@ -221,10 +234,11 @@ def check_metal_tensor_host(profile, host):
     harness and skips — failing there teaches the operator to ignore the check.
     """
     expected = profile.get("expect_metal_tensor_api")
-    undeclared = _tensor_undeclared("metal_tensor_host", expected)
+    undeclared = _tensor_undeclared("metal_tensor_host", profile)
     if undeclared:
         return undeclared
-    if not local_port(host):
+    port = local_port(host)
+    if not port:
         return result("metal_tensor_host", SKIP,
                       f"{host} is not this machine", expected=expected,
                       diagnosis="nax_probe measures the machine the harness runs "
@@ -233,8 +247,17 @@ def check_metal_tensor_host(profile, host):
     if sys.platform != "darwin":
         return result("metal_tensor_host", SKIP,
                       f"{sys.platform} has no Metal tensor API", expected=expected)
+    # nax_probe reads GGML_METAL_TENSOR_* from its own environment, and the
+    # question is what the SERVER will do — so it is run under the server's two
+    # variables, not the operator's. A variable the server does not have is
+    # deleted rather than inherited, or an export in the operator's shell would
+    # report every server on the box as degraded.
+    env = server_env(port)
+    overlay = {v: env.get(v) for v in TENSOR_ENV_VARS} if env is not None else None
+    whose = ("the server's environment" if env is not None
+             else "the harness's environment (the server's could not be read)")
     try:
-        probe = nax_probe()
+        probe = nax_probe(env=overlay)
     except ProbeError as exc:
         return result("metal_tensor_host", SKIP, f"probe not runnable: {exc}",
                       expected=expected,
@@ -249,8 +272,8 @@ def check_metal_tensor_host(profile, host):
         why = probe.get("error", "")
         return result(
             "metal_tensor_host", FAIL,
-            f"host tensor-API state is not the one this profile was measured on "
-            f"({probe.get('device')})",
+            f"host tensor-API state is not the one this profile was measured "
+            f"on ({probe.get('device')}, under {whose})",
             expected=expected, actual=actual, probe=probe,
             diagnosis=(f"{steps}. {why}\n"
                        "       The four steps are ggml's own, in order: Metal4 "
@@ -261,7 +284,8 @@ def check_metal_tensor_host(profile, host):
                        "arm and nothing else turns red. Gaining it is equally a "
                        "mismatch: re-measure and update the profile deliberately."))
     return result("metal_tensor_host", PASS,
-                  f"{probe.get('device')} has_tensor={str(actual).lower()} ({steps})",
+                  f"{probe.get('device')} has_tensor={str(actual).lower()} "
+                  f"({steps}), under {whose}",
                   expected=expected, actual=actual, probe=probe)
 
 
@@ -277,7 +301,7 @@ def check_metal_tensor_payload(profile, host, container, since, log_cmd=None):
     executable resolves to, by ollama's own rule.
     """
     expected = profile.get("expect_metal_tensor_api")
-    undeclared = _tensor_undeclared("metal_tensor_payload", expected)
+    undeclared = _tensor_undeclared("metal_tensor_payload", profile)
     if undeclared:
         return undeclared
     port = local_port(host)
@@ -338,7 +362,7 @@ def check_metal_tensor_runtime(profile, container, log_cmd=None):
     open after the decision was already made.
     """
     expected = profile.get("expect_metal_tensor_api")
-    undeclared = _tensor_undeclared("metal_tensor_runtime", expected)
+    undeclared = _tensor_undeclared("metal_tensor_runtime", profile)
     if undeclared:
         return undeclared
     if not container and not log_cmd:
