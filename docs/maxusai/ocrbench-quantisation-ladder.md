@@ -295,85 +295,11 @@ cost exists at 31b, this slice does not show it in text recognition.
 
 ## Results — llama.cpp GGUF on ROCm / gfx1151
 
-Run independently on the AMD host before this PR existed, on the same commit and the same
-200-row slice, and folded in here rather than published as a second ladder. Rendered by
-`summarize_extbench.py`:
-
-```
-| arm | engine | model | correct / scored | accuracy | ±1 s.e. | mean s/item | median | prompt_eval |
-|---|---|---|---|---|---|---|---|---|
-| q4_K_M | llama.cpp | `gemma4:31b-it-q4_K_M` | 171 / 200 | **0.855** | 0.025 | 7.7 | 7.7 | 1115 |
-| q8_0 | llama.cpp | `gemma4:31b-it-q8_0` | 169 / 200 | **0.845** | 0.026 | 8.1 | 8.1 | 1115 |
-| bf16 | llama.cpp | `gemma4:31b-it-bf16` | 169 / 200 | **0.845** | 0.026 | 8.3 | 8.1 | 1115 |
-
-OCRBench `echo840/OCRBench` [test] rows 0–200, think false, endpoint generate, contains-match scoring (lmms-eval semantics).
-
-**Paired on the same items** (first run of each arm)
-
-| A | B | A | B | b (A only) | c (B only) | p | resolved |
-|---|---|---|---|---|---|---|---|
-| q4_K_M | q8_0 | 0.855 | 0.845 | 3 | 1 | 0.625 | no |
-| q4_K_M | bf16 | 0.855 | 0.845 | 3 | 1 | 0.625 | no |
-| q8_0 | bf16 | 0.845 | 0.845 | 0 | 0 | 1.000 | no |
-
-host: pre-H11 run (not recorded) · build: pre-H11 run (not recorded)
-```
-
-**Same conclusion, different silicon.** The ladder is flat: `q8_0` and `bf16` agree on
-every one of the 200 items — zero discordant pairs — and `q4_K_M` is 3-vs-1 against each,
-which does not resolve. Nothing here orders the quantisations.
-
-### Before these rows are read against the CUDA ones
-
-Same: 200 rows at offset 0, think off, `/api/generate`, `apply_sampling=False` with
-`temperature 0` (both hardcoded in `extbench.py`), commit `16649e8`, contains-match scoring.
-
-Different, and each difference is large enough to cover the 1–2 item gaps between the two
-hosts' `q8_0` / `bf16` rows:
-
-| | CUDA / sm_120 | ROCm / gfx1151 |
-|---|---|---|
-| `num_ctx` | 8192 | 16384 |
-| runs per arm | 2 (0 flips) | 1 |
-| image chunk | one batch | **split** — see below |
-
-I would not attribute those gaps to anything. What the pair of ladders *does* support is
-stronger than either alone: the two hosts decoded the image differently and landed within
-two items of each other at every rung.
-
-### `num_batch` on gfx1151: ADR 0036 asks for 2048 and is refused
-
-The engine row in "What is measured" says GGUF arms decode the image in one batch. That
-holds on a discrete card and **not on this one**. ADR 0036's own diagnostic fires on every
-gemma4 load here:
-
-```
-msg="generation batch below the image chunk, images decode in pieces" num_batch=1024 image_chunk_batch=2048
-```
-
-1024 for `q4_K_M` at `-np 1`, 512 for `q8_0` and `bf16`, 512 for everything at `-np 2`. Not
-for want of memory — `availableMemoryForLoad` takes its integrated-GPU branch and sizes the
-batch against **31 GiB of system RAM** while the scheduler logs `available="95.4 GiB"` of
-GPU. On a discrete card `discreteGPUFree` carries the whole figure and the branch never
-triggers, which is why the CUDA arms get 2048. The branch's premise — that iGPU free memory
-is "a static or slowly refreshed device baseline" — does not hold on a Strix Halo carve-out,
-where the 96 GiB is a fixed allocation and not shared with the 31 GiB the host sees.
-
-Two consequences beyond this table. ADR 0036's measured 1.5–1.9× prefill gain is unavailable
-on gfx1151 at any quantisation, and — worth stating because the opposite was briefly assumed
-— the image chunk still exceeds `n_ubatch`, so ADR 0036 does **not** incidentally mask the
-HIP MMQ race and `llama/compat/906-revert-hip-integrated-flag.patch` stays load-bearing for
-gemma4. ADR 0036 carries the measurement.
-
-### Provenance, and what is still owed
-
-These three files predate the H11 change in this PR and render as
-`pre-H11 run (not recorded)`. The build is `0.34.1-dynres-16649e8c`, attested from the
-runner logs rather than from the score files — inferred provenance, per
-[ADR 0024](adr/0024-locate-faults-before-fixing-them.md). Per
-[ADR 0038](adr/0038-a-model-is-identified-by-its-manifest-digest.md) the manifest digests of
-the three GGUF tags on this host are still owed before these rows are cited against another
-host's.
+The AMD host ran the same three GGUF arms on the same commit and the same 200-row slice:
+q4_K_M 171/200, q8_0 and bf16 169/200 each, with q8_0 and bf16 agreeing on every one of the
+200 items. Its tables, its batch confound and its wall times live in
+[ocrbench-gemma4-quant-ladder.md](ocrbench-gemma4-quant-ladder.md) rather than being copied
+here; what the two ladders say together is in [ocrbench.md](ocrbench.md#reading-two-hosts-together).
 
 ## Harness note (2026-09-19)
 

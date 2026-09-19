@@ -85,6 +85,26 @@ about 5.0 s and ROCm/gfx1151 at 7.7–8.3 s, on different silicon with a differe
 asks for 2048 on both, gets it on CUDA and is refused it on gfx1151, so read the logged
 `num_batch` rather than assuming the floor applied.
 
+## Reading two hosts together
+
+The CUDA and ROCm GGUF ladders ran the same 200 rows at offset 0, think off,
+`/api/generate`, `apply_sampling=False` with `temperature 0`, on the same commit
+`16649e8`, with contains-match scoring. Three things differed, and each is large enough to
+cover the one-to-two item gaps between the two hosts' `q8_0` and `bf16` rows:
+
+| | CUDA / sm_120 | ROCm / gfx1151 |
+|---|---|---|
+| `num_ctx` | 8192 | 16384 |
+| runs per arm | 2 (0 items flipped) | 1 |
+| image chunk | one batch | split — ADR 0036's floor is refused |
+| seconds per item | 5.0 | 7.7–8.3 |
+
+Do not attribute those gaps to the silicon. What the pair supports is stronger than either
+ladder alone: **the two hosts decoded the image differently — one chunk against several —
+and still landed within two items of each other at every rung.** A split non-causal decode
+did not cost this benchmark anything measurable, which is the same answer ADR 0036 reached
+from the scored side.
+
 ## What all three runs agree on
 
 **No quantisation difference resolves.** Every paired test run on every host — 4-bit
