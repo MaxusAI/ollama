@@ -391,9 +391,9 @@ scored cells can see: IoU within 0.003, every contract identical. Decoding the c
 buys — prefill 1.5× on 31b and 1.9× on 26b-a4b, s/req −9 % and −18 % — and it moves one cell: 31b's 9 px fine-text
 tier, 4 with the split and 3 without, deterministic 2/2 on each side. That is the same shape as the Metal finding in
 #312 (the more correct encoder path scores one 9 px tier lower on 31b), and the same caveat applies: a single
-knife-edge tier is not a quality verdict. The decision is Glenn's: batch ≥ the 1120 ceiling for gemma4 vision runners
-is a throughput fix with no measured contract cost; the register row moves from "fork unmeasured" to "measured,
-decision pending".
+knife-edge tier is not a quality verdict. Glenn's decision, the same evening: raise it to the 1120 ceiling — ADR 0036, #320 (merged 2026-09-18): a gemma4
+vision runner starts from the smallest batch rung at or above its resolved image ceiling and steps down only when
+that does not fit; the register row reads "fixed in the fork".
 
 The same container answered #313's ask from the ROCm host (`run_budget_sweep.sh`, `BUDGETS="280 560 1120"`, min == max,
 gemma4:31b, num_ctx 16384 so the 1120 rung decodes past n_ubatch = 1024): scene IoU 0.925 / 0.936 / 0.967 and
@@ -438,6 +438,22 @@ built from a worktree at the tag on the `bigdisk` builder — every native stage
   SKIP 7**; version, both payload pins, budgets, think + format and the poison probe all green on production itself,
   and the run paid the cold kernel compile so the first real request does not. The README's matrix is regenerated from
   this run, stamped `0.34.1-dynres-0-g8a7ba94`.
+- **ADR 0036 deployed 22:30:18** (Glenn's word the same evening, after #320 merged) by `deploy-adr0036.sh`, the same
+  mirror-by-`docker inspect` script: container `ollama-0.34.1-dynres-16-g16649e8`, image
+  `maxusai/ollama:0.34.1-dynres-16-g16649e8` = the release image with a Go-only binary swap from `main` `16649e8`
+  (`publish-go` on the `bigdisk` builder, seconds; `git diff 8a7ba949...16649e8` over every native input — `x/mlxrunner/mlx`,
+  the MLX and llama.cpp pins, `cmake/`, `llama/`, `ml/`, the Dockerfile — is empty apart from the HIP-only compat 906
+  patch, which the CUDA payload compiles to the same `integrated = false` either way), same env (`OLLAMA_HOST` +
+  `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`), 54 tags before and after, 11 s of no service. `ollama-0.34.1-dynres-0-g8a7ba94`
+  is stopped and kept: rollback is
+  `docker rm -f ollama-0.34.1-dynres-16-g16649e8 && docker start ollama-0.34.1-dynres-0-g8a7ba94`.
+  Verified on production itself: the first gemma4:31b-it-q4_K_M request launched `llama-server … --image-max-tokens 1120
+  … -b 2048 -ub 2048` and logged `decoding image batch 1/1, n_tokens_batch = 1100` (scene bbox IoU 0.963, 6 labels,
+  prompt_eval 1684, `preflight-runs/prod-adr0036-g31b.log`; the request paid the cold kernel compile, 52 s for that one
+  image decode, as every first request after a deploy does); the MLX runner (gemma4:12b-nvfp4, `keep_alive` 0) answered `OK` — the first request paid the runner's cold JIT (8 m 59 s;
+  a 600 s client cap on the first attempt tripped before it, logged as `500 10m0s`), the second loaded in 10.5 s. Both
+  models unloaded; `/api/ps` empty afterwards. The README's matrix keeps the tag's full
+  preflight stamp: the swap changes no native input, so the run is not repeated.
 
 ## The MLX pin move and the vision encoder (#312, 2026-09-18)
 

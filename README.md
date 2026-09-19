@@ -26,9 +26,13 @@
 > **Current fold:** [`v0.34.1-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.34.1-dynres)
 > — upstream v0.34.1, llama.cpp `b10864`, MLX `d9add9d1`. `main` moves ahead of this between
 > folds; the tag is the fixed point to build and roll back to.
-> **Deployed:** the same tag, stamped `0.34.1-dynres-0-g8a7ba94`, on the CUDA host since
-> 2026-09-18, with `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` on the container (ADR 0033; see the fold's
-> memory finding in [`docs/maxusai/tasks/upstream-sync-0.34.1.md`](docs/maxusai/tasks/upstream-sync-0.34.1.md)).
+> **Deployed:** `main` at `16649e8`, stamped `0.34.1-dynres-16-g16649e8`, on the CUDA host since
+> 2026-09-18 22:30 — the tag's native payload with a Go-only rebuild that adds ADR 0036 (a gemma4
+> vision runner starts from the batch rung holding its image ceiling), with
+> `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` on the container (ADR 0033; see the fold's memory finding in
+> [`docs/maxusai/tasks/upstream-sync-0.34.1.md`](docs/maxusai/tasks/upstream-sync-0.34.1.md)).
+> The matrix below is the tag's full preflight run; the rebuild changes no native input, and its
+> verification on production is in the task doc's deploy section.
 > On the Apple Silicon host the same commit has served the mlx-metal surface on `:11435` since
 > 2026-09-18, stamped `0.34.0-maxusai-8a7ba949` — the same build as `0.34.1-dynres-0-g8a7ba94` (ADR 0032,
 > 2026-09-19 amendment) — and was promoted on 2026-09-19 with the MLX #3912 kernel fix kept
