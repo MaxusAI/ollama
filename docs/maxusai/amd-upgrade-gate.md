@@ -4,33 +4,34 @@ MaxusAI-fork reference (fork-only; does not exist upstream). Written 2026-07-31 
 `0.32.5-gemma4budget-4259c191` produced degenerate output on the gfx1151 host and was rolled
 back to `0.32.1-gemma4budget-85ebcb79`.
 
-> **The one thing to take away:** do **not** upgrade the AMD/gfx1151 deployment past
-> **0.32.1** until [#17459](https://github.com/ollama/ollama/issues/17459) and
-> [#17475](https://github.com/ollama/ollama/issues/17475) are **fixed, with the fix in the
-> target tag**, **and** `--direct-io` is confirmed safe on ROCm iGPUs. The deployed image is
-> `maxusai-ollama:0.32.1-rocm-dynres-296eb020` (see Status).
+> **LIFTED 2026-09-19.** The AMD/gfx1151 deployment now runs `maxusai-ollama:0.34.1-rocm724-main-16649e8c`
+> (llama.cpp b10864 + `llama/compat/906-revert-hip-integrated-flag.patch`). Clauses 3 and 4
+> are satisfied on measurement; clauses 1 and 2 were **overridden on evidence** because they
+> could never be satisfied as written — see [the 2026-09-19 decision](#decision-2026-09-19--the-gate-lifts-on-evidence).
+> The history below is kept in full: it is why this fork does not trust a plumbing check.
 >
-> **"Closed" is not the bar, and this already matters.** As of 2026-08-16 #17475 is closed as
-> **`not_planned`** — declined, not repaired; the cross-request PII leak it documents stands.
-> #17459 is still open. Read condition 1 and 2 of the normative spec, which have always said
-> *with the fix in the target tag*; the summary above previously said only "closed" and could
-> be read as half-satisfied. This gate is about the
-> **upstream payload**, not about anything the fork changed — moving *within* the b9888
-> lineage, as the 2026-08-08 deploy did, is not an upgrade and is not gated.
+> **What "not merely closed" was protecting against, and why it stopped applying.** Clauses 1
+> and 2 required the two issues to be *fixed, with the fix in the target tag*. Both were
+> closed **`not_planned`** — #17475 on 2026-08-12, #17459 on 2026-08-23 — so no fix exists to
+> be in any tag, and the clauses became unsatisfiable rather than unsatisfied. Waiting on them
+> was no longer waiting for anything. This gate is about the **upstream payload**, not about
+> anything the fork changed — moving *within* a payload lineage, as the 2026-08-08 deploy did,
+> is not an upgrade and is not gated.
 
 ## Status
 
 | | |
 |---|---|
-| Deployed image | `maxusai-ollama:0.32.1-rocm-dynres-296eb020` (verified on host 2026-08-16) |
-| Deployed version | `0.32.1-dynres-296eb020` |
-| Build type | **full** `FLAVOR=rocm` from `release/0.32.1-dynres`; compat **002 + 004 + 005** |
-| Payload | **b9888** — gate-safe; no `--direct-io` |
-| Previous image | `maxusai-ollama:0.32.1-rocm-gemma4budget` (`0.32.1-gemma4budget-85ebcb79`) — retained for rollback |
-| Blocked target | `0.32.5-gemma4budget-4259c191` (built, verified, **rolled back**) |
+| Deployed image | `maxusai-ollama:0.34.1-rocm724-main-16649e8c` (promoted 2026-09-19) |
+| Deployed version | `0.34.1-dynres-16649e8c` |
+| Build type | **full** `FLAVOR=rocm`, `ROCMVERSION=7.2.4`, from `main`; compat **001 + 002 + 004 + 005 + 801 + 903 + 906** |
+| Payload | **b10864** (`5d806aa25`) **+ compat 906** — the upstream HIP `prop.integrated` revert, which b10864 misses by 78 minutes |
+| Previous image | `maxusai-ollama:0.32.1-rocm-dynres-5d5b7a72` (`0.32.1-dynres-5d5b7a72`, payload b9888) — **retained for rollback** |
+| Superseded pin | `0.32.1-dynres-296eb020` recorded here until 2026-09-19; the host was in fact running `5d5b7a72`, so this row had drifted from the host it describes |
+| Blocked target | `0.32.5-gemma4budget-4259c191` (built, verified, **rolled back** 2026-07-31) — never unblocked; superseded, not cleared |
 | Host | Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151**, ROCm, Linux |
-| Gate lifts when | #17459 **and** #17475 **fixed** (not merely closed), **and** `--direct-io` re-validated on ROCm iGPU — see the normative spec |
-| Issue status 2026-08-16 | #17459 **open**; #17475 **closed as `not_planned`** — declined, not fixed. Gate holds. |
+| Gate status | **lifted 2026-09-19** on the decision below. Clauses 3 and 4 measured; 1 and 2 overridden as unsatisfiable |
+| Issue status 2026-09-19 | #17459 **closed `not_planned`** 2026-08-23; #17475 **closed `not_planned`** 2026-08-12. Neither reproduces on this host |
 
 The 2026-08-08 change swapped one b9888 image for another and **did not touch the gate**.
 The overlay image it replaced could not carry `llama/compat/*.patch` at all, so shipping
@@ -171,10 +172,17 @@ option; it is a third-party issue touching PII, so it is a decision, not a task.
 
 Before moving the AMD/gfx1151 deployment past `0.32.1`, **all** must hold:
 
-1. [#17459](https://github.com/ollama/ollama/issues/17459) is **closed**, with the fix in the
-   target tag.
-2. [#17475](https://github.com/ollama/ollama/issues/17475) is **closed**, with the fix in the
-   target tag.
+1. ~~[#17459](https://github.com/ollama/ollama/issues/17459) is **closed**, with the fix in the
+   target tag.~~ **Superseded 2026-09-19** — closed `not_planned`, no fix exists. Replaced by:
+   *#17459's symptom does not reproduce on this host on the target payload*, demonstrated across
+   every payload tested (`rocm-gate-issues-result.md` § "#17459 — does not reproduce, on any payload").
+2. ~~[#17475](https://github.com/ollama/ollama/issues/17475) is **closed**, with the fix in the
+   target tag.~~ **Superseded 2026-09-19** — closed `not_planned`, no fix exists. Replaced by:
+   *#17475's contamination does not reproduce under the reporter's protocols on this host*, 436
+   victim extractions, three instrument corrections (same document, § "#17475 — no contamination").
+   **This is the weaker of the two replacements** and it is stated as such: a clean run is not
+   proof of absence for a race, and MaxusAI/ollama#313 still asks CUDA whether the HIP defect
+   class reaches unified memory, which would make #17475 that bug in disguise.
 3. `--direct-io` is either (a) absent for ROCm iGPUs in the target, (b) opt-out-able and
    disabled here, or (c) validated on gfx1151 — a load-path integrity check, not just
    throughput.
@@ -215,15 +223,75 @@ llama.cpp default floor and small images stay cheap (313 rather than 1049 tokens
 CUDA) is unaffected by clause 3 and may track a different version; note that #17475 was
 reported on CUDA, so clauses 1–2 still apply there.
 
-## The deployable line while this gate holds
+## Decision 2026-09-19 — the gate lifts on evidence
 
-`main` tracks llama.cpp **b10091** — the payload this gate blocks. The AMD/gfx1151 host is
-served from **`release/0.32.1-dynres`**, pinned to **b9888** and predating `--direct-io`.
+**Outcome: promoted.** `ollama-rocm` moved from `0.32.1-dynres-5d5b7a72` (b9888) to
+`0.34.1-dynres-16649e8c` (b10864 + compat 906) at 18:55 on 2026-09-19. The previous image is
+retained; rollback is one `docker run` with the same arguments and the old tag.
 
-That lineage is permanent for as long as the gate holds, and it is **never merged into
-`main`** — see [ADR 0006](adr/0006-release-lineage-is-never-merged-into-main.md). Fixes reach
-AMD by cherry-pick, adapted to b9888; they will not arrive by merging. When this gate lifts,
-the lineage is **retired and archived**, not merged.
+### Clause outcomes, as the spec requires them to be recorded
+
+| clause | outcome |
+|---|---|
+| 1. #17459 | **Overridden.** Closed `not_planned` 2026-08-23 — declined, not repaired, so no fix can be in any tag and the clause was unsatisfiable rather than unsatisfied. Replaced by: does not reproduce on this host on any payload tested, including the target. |
+| 2. #17475 | **Overridden, and this is the weaker of the two.** Closed `not_planned` 2026-08-12. No contamination in 436 victim extractions under the reporter's protocols, after three instrument corrections. A clean run is not proof of absence for a race — see the open question below. |
+| 3. `--direct-io` | **Satisfied under (c), validated.** A/B on the fixed build, both arms verified to differ at the runner flag line: dio-on `--load-mode dio`, dio-off no flag. `qwen3.6` 0.972 and `gemma4:31b` 0.960 in **both** arms, fine-text and invoice identical. Also satisfied under (b): `OLLAMA_IGPU_DIRECT_IO=0` exists (MaxusAI/ollama#318). The default is left **on**, because dio measurably helps load times here and costs nothing in quality. |
+| 4. Vision A/B, ≥6 consecutive rows, 0 degenerate | **PASSED on the promoted image**, five models, think off, `num_ctx` 16384. Table below. |
+| 5. `make proof` against the new `BASETAG` | **Waived — the check does not exist.** No `proof` target in either this repo or `amd-rocm-ollama`, and no `BASETAG`/`STOCK` variables anywhere. The `docker/ollama-rocm/.env` named in the 2026-07-31 decision record is not a real path. Clause 5 has been unimplementable since it was written; recorded as waived rather than passed. |
+
+### Clause 4 evidence — the promoted image, not a proxy for it
+
+Clause 4 first passed on the `hip906` image (`968762ca`). The artifact promoted is `16649e8c`,
+which adds only an inert-unless-set env knob, an optimization measured inert on this host, and
+docs. It was re-run anyway, because "near-certainly equivalent" is the reasoning that put a
+plumbing-verified build into production on 2026-07-31.
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| qwen3.6:35b-a3b-q4_k_m | GGUF | 16384 | 0.972 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 1.000 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5/5 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 0.960 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384 | 0.976 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+| nemotron3:33b-q4_K_M | GGUF | 16384 | 0.862 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11499 · build(s) 0.34.1-dynres-16649e8c · think=false
+
+Against the 2026-09-17 baseline: `qwen3.6` 0.953 → **0.972**, `qwen3.8` 0.991 → **1.000**,
+`nemotron3` 0.857 → **0.862**, `gemma4:31b` 0.961 → **0.960** (one thousandth, noise). Zero
+degenerate rows; boxes, labels and colours 6/6 on every model and the invoice 5/5 on every model.
+
+A post-promotion smoke test against the live `:11434` returned a correct description of the
+scene fixture naming all six shapes, `done_reason=stop`, `prompt_eval_count` 1122 — the 1120
+budget, filled.
+
+### What is still open, and what would reopen this
+
+- **Whether the HIP defect class reaches CUDA unified memory** (MaxusAI/ollama#313). If it
+  does, #17475 is that bug in disguise, compat 906 closes it, and clause 2 is satisfied on the
+  merits instead of waived. This is the single measurement that would most strengthen the
+  decision recorded here.
+- **Clause 5 needs an implementation or a deletion.** A gate clause that cannot be run is not a
+  safeguard; it is a line of text that makes the gate look stronger than it is.
+- **Compat 906 is load-bearing.** b10864 misses upstream's revert by 78 minutes. Any payload bump
+  must carry 906 or land after `d4389a4dd92`, or the vision regression returns silently — no
+  crash, no warning, correct-looking token counts.
+
+## The deployable line — superseded 2026-09-19
+
+**AMD/gfx1151 is now served from `main`,** like every other platform: the promoted image is a
+full `FLAVOR=rocm` build of `16649e8c`. The three platforms have converged — CUDA moved to
+0.34.1 on 2026-09-18, mlx-metal in MaxusAI/ollama#324, ROCm here.
+
+> **Until 2026-09-19 this section read:** `main` tracks llama.cpp **b10091** — the payload this
+> gate blocks. The AMD/gfx1151 host is served from **`release/0.32.1-dynres`**, pinned to
+> **b9888** and predating `--direct-io`. That lineage is permanent for as long as the gate
+> holds, and it is **never merged into `main`**. Fixes reach AMD by cherry-pick, adapted to
+> b9888; they will not arrive by merging.
+
+`release/0.32.1-dynres` is therefore **retired and archived, not merged** — the lift condition
+[ADR 0006](adr/0006-release-lineage-is-never-merged-into-main.md) always specified. It stays
+buildable as the rollback target for as long as `maxusai-ollama:0.32.1-rocm-dynres-5d5b7a72`
+is the image this decision names for rollback; archiving it is not the same as deleting it.
 
 ## See also
 
