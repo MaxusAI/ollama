@@ -642,7 +642,7 @@ class TestLineageProfilesTrackOneVersionFamily(unittest.TestCase):
     )
     FOREIGN_STAMPS = (
         "0.35.0-dynres-0-gabcdef0",     # next family: needs its own fold + widening
-        "0.33.2-maxusai-2b95b4a5",      # the native Metal stamp is not this lineage
+        "0.33.2-maxusai-2b95b4a5",      # the retired native Metal stamp (ADR 0032, 2026-09-19)
         "0.33.2-dynres.1",              # a tag name is not a build stamp
         "0.33.2-dynres.x-0-g2b95b4a",   # point tags are numeric
     )
@@ -1447,6 +1447,159 @@ class TestReleaseMatrixColumns(unittest.TestCase):
                               f"which neither checks.py/preflight.py emits nor "
                               f"any recorded run carries")
 
+
+
+class TestMetalStampFollowsADR0032(unittest.TestCase):
+    """ADR 0032 amendment 2026-09-19: the native macOS build stamps through
+    scripts/env.sh's `git describe --tags --first-parent`, like every other
+    build, and the `<base>-maxusai-<sha>` native stamp is retired.
+
+    The v0.34.1 Metal build was made at 12:00:24 on 2026-09-18 and the
+    `v0.34.1-dynres` tag was cut at 12:49:45, so it stamped the PREVIOUS fold:
+    0.34.0-maxusai-8a7ba949 for the same commit the CUDA image stamps
+    0.34.1-dynres-0-g8a7ba94. ADR 0032 records the two as one build. The
+    profile must admit both stamps of that build, keep admitting interim builds
+    on the 0.34.1 lineage, and keep REFUSING a Metal build made before its fold
+    tag exists — which is the mistake, and it now fails at the gate instead of
+    shipping a wrong number.
+    """
+
+    PROFILE = "mlx-metal-0-34-0"
+    ADMIT = (
+        "0.34.0-maxusai-8a7ba949",    # the deployed build, legacy native stamp
+        "0.34.1-dynres-0-g8a7ba94",   # the same build, stamped as ADR 0032 wants
+        "0.34.1-dynres-12-g6bd8634",  # an interim build on the fold's lineage
+    )
+    REJECT = (
+        "0.34.0-dynres-3-g8a7ba94",        # built before v0.34.1-dynres was cut
+        "0.34.1-dynres.1-0-g8a7ba94",      # a point tag is a new deploy: widen deliberately
+        "0.34.1-dynres-0-g8a7ba94-dirty",  # a dirty tree describes nothing
+        "0.35.0-dynres-0-gabcdef0",        # the next fold
+        "0.33.2-maxusai-2b95b4a5",         # a previous profile's build
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_profile_admits_both_stamps_of_the_recorded_equivalence(self):
+        pat = re.compile(self.exp["profiles"][self.PROFILE]["version_pattern"])
+        for stamp in self.ADMIT:
+            self.assertRegex(stamp, pat, f"{self.PROFILE} must admit {stamp}")
+
+    def test_profile_refuses_too_early_point_tag_dirty_and_foreign_stamps(self):
+        pat = re.compile(self.exp["profiles"][self.PROFILE]["version_pattern"])
+        for stamp in self.REJECT:
+            self.assertNotRegex(stamp, pat, f"{self.PROFILE} must reject {stamp}")
+
+    def test_the_adr0032_stamp_resolves_to_this_profile_through_preflight(self):
+        """Through the resolver the gate actually uses, not the regex alone."""
+        import preflight
+        pid, _ = preflight.resolve_profile(self.exp, "mlx-metal", "0.34.1-dynres-0-g8a7ba94")
+        self.assertEqual(pid, self.PROFILE)
+
+    def test_build_macos_stamps_exactly_what_env_sh_stamps(self):
+        """One definition of the stamp. STAMP_ONLY=1 prints the version and exits
+        before any build, so this costs a `git describe`, not an MLX compile.
+
+        PATH is a temporary directory holding only git, sed and dirname — all the
+        script touches before STAMP_ONLY exits — so this test CANNOT start a real
+        build on any host, whatever state the script is in. Its first draft could:
+        run before STAMP_ONLY existed, it launched cmake and an MLX compile. A test
+        whose red state builds the product is a hazard; this one's exits 127."""
+        import shutil
+        repo = pathlib.Path(__file__).resolve().parents[4]
+        script = repo / "docs/maxusai/vision-suite/build-macos.sh"
+        if not (script.exists() and (repo / "scripts/env.sh").exists()):
+            self.skipTest("release lineages ship preflight/ alone (CI's 'preflight/ "
+                          "alone' step); build-macos.sh and scripts/env.sh are outside it")
+        tools = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tools, True)
+        for tool in ("git", "sed", "dirname"):
+            found = shutil.which(tool)
+            if not found:
+                self.skipTest(f"{tool} is not on PATH")
+            os.symlink(found, os.path.join(tools, tool))
+        env = {k: v for k, v in os.environ.items() if k != "VERSION"}
+        env["PATH"] = tools
+        got = subprocess.run(["/bin/sh", str(script)], cwd=repo, capture_output=True,
+                             text=True, env={**env, "STAMP_ONLY": "1"}, timeout=60)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        want = subprocess.run(["/bin/sh", "-c", '. scripts/env.sh >/dev/null 2>&1; printf %s "$VERSION"'],
+                              cwd=repo, capture_output=True, text=True, env=env, timeout=60).stdout
+        self.assertTrue(want, "env.sh produced no VERSION")
+        self.assertEqual(got.stdout.strip(), want)
+        self.assertNotIn("-maxusai-", got.stdout)
+
+class TestReleaseMatrixEquivalentStamps(unittest.TestCase):
+    """A release matrix filters runs by version prefix, and ADR 0032 records
+    equivalent stamps of one build. For the v0.34.1 fold the CUDA run stamps
+    0.34.1-dynres-0-g8a7ba94 and the Metal run 0.34.0-maxusai-8a7ba949, so a
+    single `--version 0.34.1-dynres` rendered the Metal row "not run" for a
+    surface with a PASS on record. `--version` is repeatable: each names a
+    stamp prefix of the release, and a run matching any of them counts.
+    """
+
+    CUDA = ("cuda", "0.34.1-dynres-0-g8a7ba94")
+    METAL = ("mlx-metal", "0.34.0-maxusai-8a7ba949")
+
+    def rows(self, versions):
+        """{surface: measured-on cell} for two synthetic PASS runs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for platform, version in (self.CUDA, self.METAL):
+                run = {"meta": {"platform": platform, "version": version,
+                                "started_utc": "20260919T000000"},
+                       "results": [{"check": "think_format", "status": "PASS"}]}
+                path = os.path.join(tmp, f"{platform}.json")
+                with open(path, "w") as fh:
+                    json.dump(run, fh)
+                paths.append(path)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                release_matrix.main(paths, versions)
+        got = {}
+        for line in out.getvalue().splitlines():
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if cells and cells[0].startswith("**"):
+                got[cells[0].strip("*")] = cells[-1]
+        return got
+
+    def test_every_named_stamp_is_admitted(self):
+        got = self.rows(["0.34.1-dynres", "0.34.0-maxusai-8a7ba949"])
+        self.assertIn(self.CUDA[1], got["cuda"])
+        self.assertIn(self.METAL[1], got["mlx-metal"])
+
+    def test_one_prefix_still_drops_the_other_stamp(self):
+        """Filtering is unchanged: a release does not borrow a foreign build's cells."""
+        got = self.rows(["0.34.1-dynres"])
+        self.assertIn(self.CUDA[1], got["cuda"])
+        self.assertEqual(got["mlx-metal"], "—")
+
+    def test_a_bare_string_version_still_works(self):
+        got = self.rows("0.34.1-dynres")
+        self.assertIn(self.CUDA[1], got["cuda"])
+        self.assertEqual(got["mlx-metal"], "—")
+
+    def test_cli_accepts_version_twice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for platform, version in (self.CUDA, self.METAL):
+                path = os.path.join(tmp, f"{platform}.json")
+                with open(path, "w") as fh:
+                    json.dump({"meta": {"platform": platform, "version": version,
+                                        "started_utc": "20260919T000000"},
+                               "results": [{"check": "think_format", "status": "PASS"}]}, fh)
+                paths.append(path)
+            got = subprocess.run([sys.executable, "release_matrix.py",
+                                  "--version", "0.34.1-dynres",
+                                  "--version", "0.34.0-maxusai-8a7ba949", *paths],
+                                 cwd=pathlib.Path(__file__).parent,
+                                 capture_output=True, text=True)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertIn(self.METAL[1], got.stdout)
+        self.assertIn(self.CUDA[1], got.stdout)
 
 # The main block must stay at the END of the file: unittest.main() runs the
 # classes defined ABOVE it, so a class appended after it silently never runs

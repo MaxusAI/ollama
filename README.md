@@ -33,11 +33,11 @@
 > [`docs/maxusai/tasks/upstream-sync-0.34.1.md`](docs/maxusai/tasks/upstream-sync-0.34.1.md)).
 > The matrix below is the tag's full preflight run; the rebuild changes no native input, and its
 > verification on production is in the task doc's deploy section.
-> On the Apple Silicon host the same commit, stamped `0.34.0-maxusai-8a7ba949` by `build-macos.sh`, has
-> served the mlx-metal surface on `:11435` since 2026-09-18, promoted on 2026-09-19 with the MLX #3912
-> kernel fix kept ([ADR 0037](docs/maxusai/adr/0037-keep-the-mlx-3912-kernel-fix.md)). Its launchd
-> environment does **not** yet set `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`, so drafting under a grammar is on
-> there, unlike the CUDA container.
+> On the Apple Silicon host the same commit has served the mlx-metal surface on `:11435` since
+> 2026-09-18, stamped `0.34.0-maxusai-8a7ba949` — the same build as `0.34.1-dynres-0-g8a7ba94` (ADR 0032,
+> 2026-09-19 amendment) — and was promoted on 2026-09-19 with the MLX #3912 kernel fix kept
+> ([ADR 0037](docs/maxusai/adr/0037-keep-the-mlx-3912-kernel-fix.md)), with
+> `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` in its launchd environment as on the CUDA container.
 
 > Fork builds are stamped `<upstream-version>-dynres-<n>-g<sha>`; `dynres`
 > names the change that started the fork, not the company that runs it.
@@ -54,14 +54,14 @@
      so a later smoke (which deliberately skips probes) would overwrite green
      cells with "skipped". The release notes carry the same generated matrix.
 
-     For v0.34.1 the rows come from TWO hosts' runs, each generated separately
-     and pasted verbatim: the cuda row from the CUDA host's post-deploy run
-     (not committed), the mlx-metal row from
-       release_matrix.py runs/preflight-mlx-metal-0340-8a7ba949.json
-     (committed). The Metal build stamps 0.34.0-maxusai-<sha> rather than
-     0.34.1-dynres-<n>-g<sha> (ADR 0037, Consequences), so a single
-     `--version 0.34.1-dynres` run would drop it. Regenerating both rows from one
-     command needs the CUDA run committed and the stamps reconciled. -->
+     For v0.34.1 the two surfaces carry equivalent stamps of one build (ADR 0032,
+     2026-09-19 amendment), so name both:
+       release_matrix.py --version 0.34.1-dynres \
+           --version 0.34.0-maxusai-8a7ba949 runs/*.json
+     The mlx-metal run is committed (runs/preflight-mlx-metal-0340-8a7ba949.json);
+     the CUDA host's post-deploy run is not, so today the two rows are each
+     generated on their own host and pasted verbatim. Committing the CUDA run
+     makes the command above regenerate both. -->
 
 | surface | Build identity | Image size ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|
@@ -109,6 +109,8 @@ decision and its measurements live (`docs/maxusai/`).
 |---|---|---|---|
 | **MLX admission** | weights against free device memory (and, since v0.34.1, a system-memory bound on integrated GPUs) | weights + KV priced at the requested `num_ctx` + a per-architecture headroom; an explicit rung that does not fit is refused, an automatic one is clamped | ADR 0034 |
 | **MLX memory ceiling** | none | `OLLAMA_MLX_MEMORY_LIMIT` and a cache limit, set per runner from the admitted budget | runner knobs |
+| **nvfp4 global scales** | — | held in MLX's `m × 2688` representation and divided back out by every wrapper that applies the scale itself, which is not the identity in float32 (17 of 31b's 191 vision scales move one ulp) | ADR 0039 (proposed) |
+| **model identity in a record** | a tag | the manifest digest: the library re-published `gemma4:*-nvfp4` with bf16 vision towers under unchanged tags and config blobs | ADR 0038 (proposed) |
 | **gemma4 image chunk vs. generation batch (GGUF)** | the batch follows `num_ctx` (1024 above 4096), so a top-rung gemma4 image (up to 1120 tokens) is decoded in two pieces, bidirectional only within each | a gemma4 vision runner starts from the batch rung that holds its image ceiling (2048 at 1120) and steps down only when it does not fit | ADR 0036 |
 | **gemma4 on MLX** | upstream's own vision and audio tower with a fixed per-checkpoint soft-token set, no per-request budget | vision through upstream's `MediaModel` with a per-request budget seam; audio not shipped | ADR 0021 |
 | **media prompts on MLX** | — | prefill chunks span-aligned around image blocks; a late image is refused | ADR 0014 |

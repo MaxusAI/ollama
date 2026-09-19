@@ -345,9 +345,16 @@ platform = "mlx-metal"
 # The v0.34.0 and v0.34.1 folds (#297, #302) moved BOTH payload pins again —
 # llama.cpp b10630 -> b10864, MLX c793734e -> d9add9d1. By the same ADR 0011
 # rule that created mlx-metal-0-33-0 and -0-33-2, an MLX bump alone requires a
-# new profile rather than a widened pattern. Narrow to the 0.34.0 base per
-# ADR 0032.
-version_pattern = '^0\.34\.0-maxusai-[0-9a-f]{7,40}$'
+# new profile rather than a widened pattern.
+#
+# Two stamps, ONE build (ADR 0032, 2026-09-19 amendment): the legacy native
+# stamp the deployed binary carries, 0.34.0-maxusai-8a7ba949, and the stamp
+# build-macos.sh now takes from scripts/env.sh, 0.34.1-dynres-<n>-g<sha>. The
+# second alternative admits interim builds on the 0.34.1 lineage and nothing
+# else: not 0.34.0-dynres-* (a build made before the fold tag was cut, which is
+# how the legacy stamp came to say 0.34.0), not a .N point tag (a new deploy —
+# widen deliberately), not -dirty. mlx_payload_pin still decides the payload.
+version_pattern = '^(0\.34\.0-maxusai-[0-9a-f]{7,40}|0\.34\.1-dynres-\d+-g[0-9a-f]{7,40})$'
 # MLX payload identity, read from MLX_VERSION at 8a7ba949, the build this
 # profile was measured on (BINARIES.md). mlx_payload_pin asserts it against the
 # runner's engine-init line, which reported 0.32.2-61-gd9add9d on that build.
@@ -367,13 +374,16 @@ gemma4_unified [1102 x 5] at prefix 19, qwen35moe and qwen35
 reproduce too — 24 of 24 compared values. That is the third consecutive payload
 move to leave token accounting inert on this platform.
 
-THE STAMP IS 0.34.0 THOUGH THE FOLD IS 0.34.1. build-macos.sh derives the base
-from the newest reachable release tag, and that is still v0.34.0-dynres, so a
-v0.34.1 build stamps 0.34.0-maxusai-<sha>. version_pattern therefore admits any
-0.34.0-maxusai build; mlx_build is what identifies the fold and mlx_payload_pin
-is what enforces it. The earlier 0.34.0-maxusai-907deffd build (MLX ce916dbb,
-built 2026-09-18, never deployed) matches this pattern and will correctly FAIL
-the pin. That is the check working, not a gap in the pattern.
+THE DEPLOYED STAMP SAYS 0.34.0 THOUGH THE FOLD IS 0.34.1 — RESOLVED 2026-09-19.
+The Metal build ran at 12:00:24 on 2026-09-18, 49 minutes before v0.34.1-dynres
+was cut, and build-macos.sh then took its base from the newest tag at build
+time. It now stamps through scripts/env.sh like every other build, and ADR 0032
+records 0.34.0-maxusai-8a7ba949 = 0.34.1-dynres-0-g8a7ba94 as one build.
+mlx_build is what identifies the fold and mlx_payload_pin is what enforces it:
+the earlier 0.34.0-maxusai-907deffd build (MLX ce916dbb, built 2026-09-18, never
+deployed) still matches the legacy alternative and will correctly FAIL the pin.
+That is the check working, not a gap in the pattern.
+(test_verdicts.py::TestMetalStampFollowsADR0032)
 
 BUDGET/PIXEL FIELDS ARE CARRIED, AND THE JUSTIFICATION IS NARROWER THAN
 0.33.2's. The native MLX path emits no load_hparams pixel lines, so

@@ -281,6 +281,18 @@ window.
 
 ## 3. Before writing anything
 
+
+**H19 — A slice names its rows and its categories.** External sets are ordered
+by task, so a `LIMIT`/`OFFSET` window is a stratum, not a sample: OCRBench rows
+0–200 are four of its ten categories — regular, irregular, artistic and
+handwriting recognition — and contain no VQA, key-information extraction,
+digit strings or handwritten maths. A slice result names its rows and its
+categories, and is never called by the benchmark's name alone or set beside a
+published score for the whole set — H17's sibling problem, one level up: there a
+tag did not identify the weights, here a benchmark's name does not identify the
+questions. `summarize_extbench.py --categories` prints the split from the cached
+rows.
+
 **H8 — Check the inventory first.** `vision-suite/README.md` §Files lists every
 script and what it does. Read it before adding a script or a helper. Three
 separate incidents in one week — six duplicate runners, four duplicate helpers,
@@ -455,6 +467,7 @@ before asserting what two checkpoints have in common.
 | H4b | `arm_done` in `vision_suite.py` importing `was_capped` (H5); `test_summarizers.py::TestResumeNeverSkipsCapped` asserts capped, error, and missing blocks all re-run; `::TestWasCappedPrefersDoneReason` asserts the `done_reason` verdict outranks the arithmetic and absence falls back to it |
 | H5, H6 | `summarize_reps.py`, `summarize_geometry.py`, `summarize_matrix.py` and `preflight/checks.py` all import `was_capped` (`test_summarizers.py::TestCappedDiscipline`, `test_verdicts.py::TestQualityCappedExcluded`); the ladder decisions are `capped_arms` / `ceiling_standing` / `mark_not_converged` in the same module, driven by `run_engine_compare.sh` via argv subcommands (`::TestCappedArms`, `::TestLadderCeilingMarker`) |
 | H7 | ADR 0012 rules 1 and 8; request examples via `emit_request.py` (payload captured from `client.py`, never re-derived) |
+| H7, H11, H13 (external benchmarks) | `extbench.py` runs render through `summarize_extbench.py`, never by hand; `extbench.py` persists the `host` / `server_version` that `client.generate()` already stamps on every response, collected as SETS so a mid-run container restart cannot let one build vouch for another's rows; `test_summarizers.py::TestExtbenchSummary` asserts the unrecorded-file, mixed-campaign and clean-footer cases, and that the paired test stays EXACT (at 3-vs-1 discordant the uncorrected chi-square reads p≈0.317 against the true 0.625) |
 | H13 (footers) | `test_summarizers.py::TestProvenanceFooter` — clean / all-pre-H11 / mixed-recording / two-host cases against the rendered footer |
 | H13 (capped rendering) | `cap_or` in `summarize_head_to_head.py` importing `was_capped` (H5); `test_summarizers.py::TestT2CappedCells` asserts a capped scene hides score and latency but keeps tok/s; `q()`/`multi_cell` in `summarize_engine_compare.py` guard every T1 quality cell — `::TestT1CappedQualityCells` |
 | H14 | `token_split.py`'s acceptance gate (`--write` refuses without it, and skips-by-name irreconcilable cells); `test_summarizers.py::TestT1ThinkTokColumn` asserts stamped-count-or-dash, never an estimate; `finetext_probe.py` persists as `finetext_probe` (one producer per persist name) |
@@ -464,6 +477,7 @@ before asserting what two checkpoints have in common.
 | H10 | `client.RETRY_BACKOFF` = 5/15/30s with `_retries` recorded per cell; `test_client.py::TestTransportRetry` asserts a 400 calls `urlopen` exactly once while a 503 retries. `client.evict_others()` polls `/api/ps` until the eviction is observable and returns what it could not evict; `run_engine_compare.sh` calls it before each model when `RESTART_CMD` is absent, `COLD_START=0` opts out |
 | H15 | **Nothing enforces this.** The 2026-09-18 replication (`bench-runs/finetext-9px-31b-quant-reps-2026-09-18.json`) is the worked example of reporting a rate |
 | H16 | **Not enforced, and the renderer works against it:** `summarize_engine_compare.py` renders the suite arm and shows the probe arm only as a fallback. A render that reported both arms, or flagged their disagreement, would enforce it |
-| H17 | Partly: `quant_dims.py` (#316) lists a checkpoint's quantized weights and their K. Nothing records the manifest digest on a score block, and nothing diffs two checkpoints' layer sets; the config digest a reader might reach for instead identifies the architecture, not the checkpoint |
+| H17 | `store_audit.py` diffs a store's manifests against the registry and names what moved, which tensor group and the size ratio; `--digests` prints the digest to cite (`test_store_audit.py`). It found the case that motivates the rule: `gemma4:31b-nvfp4` re-published with a bf16 vision tower, 194 layers different under an unchanged tag and config blob (ADR 0038). `quant_dims.py` (#316) still lists a checkpoint's quantized weights and their K. Score blocks do not yet carry the digest — that is the remaining gap |
 | H18 | **Nothing enforces this.** `extbench.py` produces per-item records that a paired test can use; `bench-runs/ocrbench-v1-1000-gemma4-31b-nvfp4-0340-vs-0332.json` carries the paired items and the exact McNemar result |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |
+| H19 | `summarize_extbench.py --categories` prints a slice's question-type split from the cached row file (`test_summarizers.py`); `extbench.py` caches that file per `(offset, limit)` so the rows a run answered are recoverable |

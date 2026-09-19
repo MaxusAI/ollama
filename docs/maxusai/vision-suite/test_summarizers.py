@@ -32,6 +32,7 @@ import summarize_engine_compare as sec  # noqa: E402
 import summarize_head_to_head as shh  # noqa: E402
 import summarize_contract_matrix as scm  # noqa: E402
 import summarize_reps as reps  # noqa: E402
+import summarize_extbench as sxb  # noqa: E402
 import vision_suite as vs  # noqa: E402
 
 # One model, two think cells. Numbers chosen so every assertion below can name
@@ -1950,6 +1951,145 @@ class TestOutputLengths(unittest.TestCase):
         self._scores("a_1_alpha_1b_thinkfalse", {"scene_single": {"eval_count": 10, "answer_chars": 40}})
         out = self._run(["a_1_", "gone_1_", "alpha:1b"])
         self.assertIn("missing `scores_gone_1_alpha_1b_thinkfalse.json`", out)
+
+
+class TestExtbenchSummary(unittest.TestCase):
+    """`summarize_extbench.py` renders external-benchmark runs (H7).
+
+    Two things here are not obvious from reading the table. The footer must not
+    let an H11-recording file vouch for one that records nothing — the same
+    defect H13 was written for, reached by a different summarizer. And the
+    paired test must stay exact: at these discordant counts the chi-square
+    approximation is anticonservative, which is the direction that manufactures
+    a difference between two quantizations that agree.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def _write(self, tag, oks, host=None, ver=None, bench="ocrbench"):
+        recs = [{"i": i, "ok": ok} for i, ok in enumerate(oks)]
+        summary = {
+            "tag": tag, "model": f"m:{tag}", "benchmark": bench,
+            "dataset": "echo840/OCRBench", "split": "test",
+            "offset": 0, "requested": len(oks), "scored": len(oks),
+            "errors": 0, "empty_responses": 0,
+            "think_env": "false", "think_on": False, "endpoint": "generate",
+            "correct": sum(oks), "accuracy": round(sum(oks) / len(oks), 4),
+        }
+        if host:
+            summary["host"] = [host]
+        if ver:
+            summary["server_version"] = [ver]
+        path = os.path.join(self.dir, f"ext_{tag}_{bench}.json")
+        with open(path, "w") as f:
+            json.dump({"summary": summary, "records": recs}, f)
+
+    def _run(self, *tags, paired=False):
+        argv = ["summarize_extbench.py", "--dir", self.dir, "ocrbench", *tags]
+        if paired:
+            argv.append("--paired")
+        out = io.StringIO()
+        with mock_argv(argv), contextlib.redirect_stdout(out):
+            sxb.main()
+        return out.getvalue()
+
+    def test_a_file_without_h11_fields_is_named_not_silently_dropped(self):
+        self._write("noprov", [1, 1, 0])
+        self.assertIn(sxb.NOT_RECORDED, self._run("noprov"))
+
+    def test_a_recorded_file_never_vouches_for_an_unrecorded_one(self):
+        self._write("good", [1, 1, 0], host="http://h:1", ver="0.34.1-x")
+        self._write("noprov", [1, 0, 0])
+        out = self._run("good", "noprov")
+        self.assertIn("MIXED", out)
+        self.assertIn(sxb.NOT_RECORDED, out)
+
+    def test_one_campaign_renders_a_clean_footer(self):
+        self._write("a", [1, 1, 0], host="http://h:1", ver="0.34.1-x")
+        self._write("b", [1, 0, 0], host="http://h:1", ver="0.34.1-x")
+        out = self._run("a", "b")
+        self.assertNotIn("MIXED", out)
+        self.assertIn("build: 0.34.1-x", out)
+
+    def test_identical_arms_report_zero_discordant_pairs(self):
+        self._write("a", [1, 1, 0, 1], host="h", ver="v")
+        self._write("b", [1, 1, 0, 1], host="h", ver="v")
+        row = [ln for ln in self._run("a", "b", paired=True).splitlines()
+               if ln.startswith("| a vs b")][0]
+        self.assertIn("| 3 | 1 | 0 | 0 | 1.000 |", row)
+
+    def test_mcnemar_is_exact_at_small_discordant_counts(self):
+        # 3 vs 1 is the observed q4-vs-q8 split. The exact two-sided p is
+        # 2 * (C(4,0) + C(4,1)) / 2**4 = 0.625. The UNCORRECTED chi-square
+        # gives 0.317 -- the number that would read as a near-significant
+        # difference between two quantizations. (With continuity correction it
+        # is 0.617, close to exact here; the correction is what most references
+        # mean by "McNemar's test", and dropping it is the easy mistake.)
+        self.assertAlmostEqual(sxb.mcnemar_exact(3, 1), 0.625, places=6)
+        self.assertEqual(sxb.mcnemar_exact(0, 0), 1.0)
+        self.assertAlmostEqual(sxb.mcnemar_exact(5, 0), 0.0625, places=6)
+
+
+
+class TestExtbenchArmsAndSlices(unittest.TestCase):
+    """The repeat, timing and category tables added when the three OCRBench runs merged."""
+
+    def _write(self, d, tag, verdicts, model="gemma4:31b-nvfp4"):
+        recs = [{"i": i, "pred": "x", "secs": 2.0, "prompt_eval_count": 1100,
+                 "eval_count": 3, "gold": ["x"], "ok": bool(v)} for i, v in enumerate(verdicts)]
+        doc = {"summary": {"tag": tag, "model": model, "benchmark": "ocrbench",
+                           "dataset": "echo840/OCRBench", "split": "test", "offset": 0,
+                           "requested": len(verdicts), "scored": len(verdicts), "errors": 0,
+                           "empty_responses": 0, "think_env": "false", "think_on": False,
+                           "endpoint": "generate", "correct": sum(bool(v) for v in verdicts),
+                           "accuracy": round(sum(bool(v) for v in verdicts) / len(verdicts), 4)},
+               "records": recs}
+        with open(os.path.join(d, f"ext_{tag}_ocrbench.json"), "w") as f:
+            json.dump(doc, f)
+
+    def test_an_arm_spec_splits_label_from_its_repeats(self):
+        self.assertEqual(sxb.parse_arm("q4=a,b"), ("q4", ["a", "b"]))
+        self.assertEqual(sxb.parse_arm("solo"), ("solo", ["solo"]))
+
+    def test_stderr_is_the_binomial_form(self):
+        self.assertAlmostEqual(sxb.stderr(174, 200), 0.0238, places=3)
+        self.assertEqual(sxb.stderr(0, 0), 0.0)
+
+    def test_repeats_count_items_that_changed_verdict(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "r1", [1, 1, 0, 0])
+            self._write(d, "r2", [1, 0, 1, 0])          # items 1 and 2 flipped
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                sys.argv = ["x", "--dir", d, "--repeats", "ocrbench", "q4=r1,r2"]
+                sxb.main()
+            self.assertIn("| q4 | 2 | 0.500, 0.500 | 2 |", out.getvalue())
+
+    def test_categories_come_from_the_cached_row_slice(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "extimgs", "ocrbench"))
+            with open(os.path.join(d, "extimgs", "ocrbench", "rows_0_4.json"), "w") as f:
+                json.dump([{"question_type": "hand"}, {"question_type": "hand"},
+                           {"question_type": "regular"}, {}], f)
+            self._write(d, "a", [1, 0, 1, 1])
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                sys.argv = ["x", "--dir", d, "--categories", "ocrbench", "A=a"]
+                sxb.main()
+            got = out.getvalue()
+            self.assertIn("| hand | 2 | 1/2 |", got)
+            self.assertIn("| unlabelled | 1 | 1/1 |", got, "a row with no type is still an item")
+
+    def test_a_missing_row_slice_is_a_comment_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "a", [1, 0])
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                sys.argv = ["x", "--dir", d, "--categories", "ocrbench", "A=a"]
+                sxb.main()
+            self.assertIn("no cached row slice", out.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

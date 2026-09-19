@@ -83,3 +83,36 @@ the fixed point to roll back to" named a commit that was not what ran. Rule:
   two differ; updating it is part of a deploy, as the fold pointer is part of
   a fold.
 
+
+## Amendment 2026-09-19 — the native macOS build stamps like every other build
+
+The v0.34.1 fold shipped one commit under two identities. The fold merge landed
+`8a7ba949` at 11:56:44 on 2026-09-18; the Metal binary was built from it at 12:00:24;
+`v0.34.1-dynres` was cut on it at 12:49:45. The CUDA image, stamped by `scripts/env.sh`,
+reports `0.34.1-dynres-0-g8a7ba94`. The Metal binary reports `0.34.0-maxusai-8a7ba949`,
+because `vision-suite/build-macos.sh` never adopted this ADR: it stamped
+`<base>-maxusai-<sha>`, taking `<base>` from the newest release tag **at build time** —
+still `v0.34.0-dynres` for those 49 minutes. Two consequences followed: the release
+matrix could not render both surfaces from one `--version`, and nothing refused a fold
+build made before its fold tag existed.
+
+Rules:
+
+- **Every build stamps through `scripts/env.sh`**, native macOS included. `build-macos.sh`
+  sources it in a subshell and takes only `VERSION`; the `-maxusai-` native stamp is
+  retired. `STAMP_ONLY=1` prints the stamp and builds nothing, which is what
+  `test_verdicts.py::TestMetalStampFollowsADR0032` uses to hold the two in lockstep —
+  with `PATH` cut to `/usr/bin:/bin` so the test cannot start a real build even if the
+  knob regresses.
+- **A fold's builds, on every surface, come after its fold tag.** A Metal build made
+  first now stamps `0.34.0-dynres-<n>-g<sha>` for 0.34.1 code, and
+  `mlx-metal-0-34-0`'s `version_pattern` refuses it, so the mistake stops at preflight.
+  The pattern admits the legacy stamp of the deployed build and interim builds on the
+  0.34.1 lineage — not point tags, not `-dirty`.
+- **`release_matrix.py --version` is repeatable.** A release whose surfaces carry
+  equivalent stamps names each: `--version 0.34.1-dynres --version
+  0.34.0-maxusai-8a7ba949`. One prefix still drops a foreign build's run.
+- Recorded H11/H13 equivalence: `0.34.0-maxusai-8a7ba949` ≡ `0.34.1-dynres-0-g8a7ba94`
+  — one build (main @ `8a7ba949`, llama.cpp `b10864`, MLX `d9add9d1`). The deployed
+  Metal binary is not rebuilt to change its stamp; as with `0.33.0-dynres-0-g5171887`
+  above, the equivalence is recorded instead.
