@@ -1727,7 +1727,7 @@ class TestMetalTensorGate(unittest.TestCase):
 
     # ---- host: does this machine enable the accelerators at all ----
 
-    def host(self, profile=None, host=None, platform="darwin",
+    def host(self, profile=None, host=None, platform="darwin", container=None,
              server_env={"PATH": "/usr/bin"}, **probe_kw):
         """The platform is pinned because these tests must answer the same on a
         Linux CI runner as on the Mac host — and the check's darwin gate is
@@ -1736,7 +1736,8 @@ class TestMetalTensorGate(unittest.TestCase):
              mock.patch.object(checks, "server_env", return_value=server_env), \
              mock.patch.object(checks, "nax_probe", **probe_kw) as probe:
             r = checks.check_metal_tensor_host(
-                self.PROF if profile is None else profile, host or self.LOCAL)
+                self.PROF if profile is None else profile, host or self.LOCAL,
+                container)
         return r, probe
 
     def test_the_probe_answers_for_the_servers_environment_not_the_harnesss(self):
@@ -1818,6 +1819,16 @@ class TestMetalTensorGate(unittest.TestCase):
         """nax_probe runs where the HARNESS runs. Against a server on another
         host that is a different GPU, and a PASS would be a lie."""
         r, probe = self.host(return_value=self.OK, host="http://10.8.0.6:11437")
+        self.assertEqual(r["status"], SKIP)
+        probe.assert_not_called()
+
+    def test_a_containerised_server_skips_here_too(self):
+        """A container published on a local port passes the localhost test and
+        is still not this machine's GPU: lsof would find the port forwarder and
+        the probe would describe the host kernel. Today no Metal profile runs in
+        a container — which is exactly what was assumed about the payload half
+        before it was caught reading a container path off the harness's disk."""
+        r, probe = self.host(return_value=self.OK, container="ollama-metal?")
         self.assertEqual(r["status"], SKIP)
         probe.assert_not_called()
 

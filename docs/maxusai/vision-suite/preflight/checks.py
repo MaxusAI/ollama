@@ -225,25 +225,35 @@ def _tensor_undeclared(name, profile):
                   diagnosis=TENSOR_UNDECLARED)
 
 
-def check_metal_tensor_host(profile, host):
-    """Will THIS machine use the accelerators?
+def check_metal_tensor_host(profile, host, container=None):
+    """Will THIS SERVER use the accelerators?
+
+    Two things decide it and they live in different places, so both are read
+    here: the machine's own answer, which nax_probe measures, and the two
+    GGML_METAL_TENSOR_* variables, which are read off the SERVING PROCESS and
+    handed to the probe — a server started with DISABLE=1 is not accelerated
+    however capable the machine is, and says so nowhere else.
 
     nax_probe runs where the HARNESS runs, so this is only answerable for a
-    server on this machine; against a remote host it would be a confident
-    statement about the wrong GPU. A probe that cannot be BUILT is a gap in the
-    harness and skips — failing there teaches the operator to ignore the check.
+    native server on this machine; against a remote or containerised one it
+    would be a confident statement about the wrong GPU. A probe that cannot be
+    BUILT is a gap in the harness and skips — failing there teaches the operator
+    to ignore the check.
     """
     expected = profile.get("expect_metal_tensor_api")
     undeclared = _tensor_undeclared("metal_tensor_host", profile)
     if undeclared:
         return undeclared
     port = local_port(host)
-    if not port:
+    if container or not port:
         return result("metal_tensor_host", SKIP,
-                      f"{host} is not this machine", expected=expected,
+                      f"{host} is not a native server on this machine",
+                      expected=expected,
                       diagnosis="nax_probe measures the machine the harness runs "
-                                "on. For a remote server it would answer about "
-                                "the wrong GPU, so it is not run at all.")
+                                "on, and the environment it reads belongs to the "
+                                "process listening on that port. For a remote or "
+                                "containerised server both would describe "
+                                "something else, so it is not run at all.")
     if sys.platform != "darwin":
         return result("metal_tensor_host", SKIP,
                       f"{sys.platform} has no Metal tensor API", expected=expected)
