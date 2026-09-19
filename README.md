@@ -38,6 +38,13 @@
 > 2026-09-19 amendment) — and was promoted on 2026-09-19 with the MLX #3912 kernel fix kept
 > ([ADR 0037](docs/maxusai/adr/0037-keep-the-mlx-3912-kernel-fix.md)), with
 > `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` in its launchd environment as on the CUDA container.
+> **The AMD/gfx1151 host joined on 2026-09-19 18:55**, stamped `0.34.1-dynres-16649e8c` from a
+> full `FLAVOR=rocm` build of the same commit, when the
+> [upgrade gate](docs/maxusai/amd-upgrade-gate.md#decision-2026-09-19--the-gate-lifts-on-evidence)
+> lifted — it had held that host on 0.32.1 since 2026-07-31, and all three platforms now serve
+> one commit. That build **must** carry `llama/compat/906-revert-hip-integrated-flag.patch`:
+> llama.cpp b10864 misses upstream's HIP revert by 78 minutes, and without it vision output on
+> gfx1151 is silently wrong — no crash, no warning, unchanged token counts.
 
 > Fork builds are stamped `<upstream-version>-dynres-<n>-g<sha>`; `dynres`
 > names the change that started the fork, not the company that runs it.
