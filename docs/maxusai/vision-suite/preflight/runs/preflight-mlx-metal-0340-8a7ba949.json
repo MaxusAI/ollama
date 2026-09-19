@@ -1,0 +1,528 @@
+{
+  "meta": {
+    "host": "http://127.0.0.1:11437",
+    "platform": "mlx-metal",
+    "image_tag": null,
+    "started_utc": "20260918T021900",
+    "expectations_file": "expectations.toml",
+    "schema_version": 1,
+    "version": "0.34.0-maxusai-8a7ba949",
+    "profile": "mlx-metal-0-34-0",
+    "patchset": [],
+    "container": null,
+    "mlx_build": "0.32.2-61-gd9add9d"
+  },
+  "results": [
+    {
+      "check": "version",
+      "arch": null,
+      "status": "PASS",
+      "summary": "0.34.0-maxusai-8a7ba949 matches profile mlx-metal-0-34-0",
+      "expected": "^0\\.34\\.0-maxusai-[0-9a-f]{7,40}$",
+      "actual": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+      "check": "payload_pin",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "profile records no llama_cpp_build to assert against",
+      "diagnosis": "Add llama_cpp_build to this profile so a llama.cpp bump fails loudly instead of inheriting stale expectations. See README.md."
+    },
+    {
+      "check": "image_tag",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "no container resolved (remote host?)"
+    },
+    {
+      "check": "go_patch_marker",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "no container resolved; cannot grep the binary",
+      "expected": 1
+    },
+    {
+      "check": "poison_probe",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "no poison-probe expectation recorded for this profile"
+    },
+    {
+      "check": "text_baseline",
+      "arch": "gemma4",
+      "status": "PASS",
+      "summary": "in-image text prefix = 19 (calibrated on 256x144+512x288); text-only = 19",
+      "actual": 19
+    },
+    {
+      "check": "token_ladder",
+      "arch": "gemma4",
+      "status": "PASS",
+      "summary": "5/5 geometries within +/-2",
+      "expected": {
+        "256x144": 1102,
+        "512x288": 1102,
+        "1024x576": 1102,
+        "2048x1152": 1102,
+        "3072x1728": 1102
+      },
+      "actual": {
+        "256x144": 1102,
+        "512x288": 1102,
+        "1024x576": 1102,
+        "2048x1152": 1102,
+        "3072x1728": 1102
+      },
+      "rows": [
+        {
+          "size": "256x144",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "512x288",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "1024x576",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "2048x1152",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "3072x1728",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        }
+      ],
+      "shape": "flat",
+      "expected_shape": "flat"
+    },
+    {
+      "check": "payload_proof",
+      "arch": "gemma4",
+      "status": "SKIP",
+      "summary": "budget/pixel values are not observable on this platform",
+      "diagnosis": "This block's budgets were established without a load log (the native MLX path emits none) and are recorded as budgets_observed = false. Nothing here is waiting on a container; see the profile notes for how the values were established."
+    },
+    {
+      "check": "aspect_ladder",
+      "arch": "gemma4",
+      "status": "PASS",
+      "summary": "3/3 aspect ratios within +/-2",
+      "expected": {
+        "1024x768": 1066,
+        "1920x480": 1058,
+        "768x768": 1091
+      },
+      "actual": {
+        "1024x768": 1066,
+        "1920x480": 1058,
+        "768x768": 1091
+      }
+    },
+    {
+      "check": "think_format",
+      "arch": "gemma4",
+      "status": "PASS",
+      "summary": "valid JSON after thinking (138 tokens)",
+      "expected": "non-empty JSON response with think:true + format:json",
+      "actual": {
+        "response_chars": 184,
+        "thinking_chars": 373,
+        "eval_count": 138
+      }
+    },
+    {
+      "check": "pinned_image_token_budget",
+      "arch": "gemma4",
+      "status": "SKIP",
+      "summary": "no pinned-budget expectation recorded for this arch",
+      "diagnosis": "Omitted deliberately: the 005 defect was found on nemotron and this arch's probe has not been measured. See README.md to add one."
+    },
+    {
+      "check": "text_baseline",
+      "arch": "gemma4_unified",
+      "status": "PASS",
+      "summary": "in-image text prefix = 19 (calibrated on 256x144+512x288); text-only = 19",
+      "actual": 19
+    },
+    {
+      "check": "token_ladder",
+      "arch": "gemma4_unified",
+      "status": "PASS",
+      "summary": "5/5 geometries within +/-2",
+      "expected": {
+        "256x144": 1102,
+        "512x288": 1102,
+        "1024x576": 1102,
+        "2048x1152": 1102,
+        "3072x1728": 1102
+      },
+      "actual": {
+        "256x144": 1102,
+        "512x288": 1102,
+        "1024x576": 1102,
+        "2048x1152": 1102,
+        "3072x1728": 1102
+      },
+      "rows": [
+        {
+          "size": "256x144",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "512x288",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "1024x576",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "2048x1152",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "3072x1728",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        }
+      ],
+      "shape": "flat",
+      "expected_shape": "flat"
+    },
+    {
+      "check": "payload_proof",
+      "arch": "gemma4_unified",
+      "status": "SKIP",
+      "summary": "budget/pixel values are not observable on this platform",
+      "diagnosis": "This block's budgets were established without a load log (the native MLX path emits none) and are recorded as budgets_observed = false. Nothing here is waiting on a container; see the profile notes for how the values were established."
+    },
+    {
+      "check": "aspect_ladder",
+      "arch": "gemma4_unified",
+      "status": "PASS",
+      "summary": "3/3 aspect ratios within +/-2",
+      "expected": {
+        "1024x768": 1066,
+        "1920x480": 1058,
+        "768x768": 1091
+      },
+      "actual": {
+        "1024x768": 1066,
+        "1920x480": 1058,
+        "768x768": 1091
+      }
+    },
+    {
+      "check": "think_format",
+      "arch": "gemma4_unified",
+      "status": "PASS",
+      "summary": "valid JSON after thinking (494 tokens)",
+      "expected": "non-empty JSON response with think:true + format:json",
+      "actual": {
+        "response_chars": 267,
+        "thinking_chars": 1734,
+        "eval_count": 494
+      }
+    },
+    {
+      "check": "pinned_image_token_budget",
+      "arch": "gemma4_unified",
+      "status": "SKIP",
+      "summary": "no pinned-budget expectation recorded for this arch",
+      "diagnosis": "Omitted deliberately: the 005 defect was found on nemotron and this arch's probe has not been measured. See README.md to add one."
+    },
+    {
+      "check": "text_baseline",
+      "arch": "qwen35moe",
+      "status": "PASS",
+      "summary": "in-image text prefix = 13 (calibrated on 256x144+512x288); text-only = 13",
+      "actual": 13
+    },
+    {
+      "check": "token_ladder",
+      "arch": "qwen35moe",
+      "status": "PASS",
+      "summary": "5/5 geometries within +/-2",
+      "expected": {
+        "256x144": 68,
+        "512x288": 146,
+        "1024x576": 578,
+        "2048x1152": 2306,
+        "3072x1728": 5186
+      },
+      "actual": {
+        "256x144": 68,
+        "512x288": 146,
+        "1024x576": 578,
+        "2048x1152": 2306,
+        "3072x1728": 5186
+      },
+      "rows": [
+        {
+          "size": "256x144",
+          "expected": 68,
+          "actual": 68,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "512x288",
+          "expected": 146,
+          "actual": 146,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "1024x576",
+          "expected": 578,
+          "actual": 578,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "2048x1152",
+          "expected": 2306,
+          "actual": 2306,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "3072x1728",
+          "expected": 5186,
+          "actual": 5186,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        }
+      ],
+      "shape": "scaling",
+      "expected_shape": "dynamic"
+    },
+    {
+      "check": "payload_proof",
+      "arch": "qwen35moe",
+      "status": "SKIP",
+      "summary": "budget/pixel values are not observable on this platform",
+      "diagnosis": "This block's budgets were established without a load log (the native MLX path emits none) and are recorded as budgets_observed = false. Nothing here is waiting on a container; see the profile notes for how the values were established."
+    },
+    {
+      "check": "aspect_ladder",
+      "arch": "qwen35moe",
+      "status": "PASS",
+      "summary": "3/3 aspect ratios within +/-2",
+      "expected": {
+        "1024x768": 770,
+        "1920x480": 902,
+        "768x768": 578
+      },
+      "actual": {
+        "1024x768": 770,
+        "1920x480": 902,
+        "768x768": 578
+      }
+    },
+    {
+      "check": "think_format",
+      "arch": "qwen35moe",
+      "status": "PASS",
+      "summary": "valid JSON after thinking (1801 tokens)",
+      "expected": "non-empty JSON response with think:true + format:json",
+      "actual": {
+        "response_chars": 360,
+        "thinking_chars": 6232,
+        "eval_count": 1801
+      }
+    },
+    {
+      "check": "pinned_image_token_budget",
+      "arch": "qwen35moe",
+      "status": "SKIP",
+      "summary": "no pinned-budget expectation recorded for this arch",
+      "diagnosis": "Omitted deliberately: the 005 defect was found on nemotron and this arch's probe has not been measured. See README.md to add one."
+    },
+    {
+      "check": "text_baseline",
+      "arch": "qwen35",
+      "status": "PASS",
+      "summary": "in-image text prefix = 13 (calibrated on 256x144+512x288); text-only = 13",
+      "actual": 13
+    },
+    {
+      "check": "token_ladder",
+      "arch": "qwen35",
+      "status": "PASS",
+      "summary": "5/5 geometries within +/-2",
+      "expected": {
+        "256x144": 68,
+        "512x288": 146,
+        "1024x576": 578,
+        "2048x1152": 2306,
+        "3072x1728": 5186
+      },
+      "actual": {
+        "256x144": 68,
+        "512x288": 146,
+        "1024x576": 578,
+        "2048x1152": 2306,
+        "3072x1728": 5186
+      },
+      "rows": [
+        {
+          "size": "256x144",
+          "expected": 68,
+          "actual": 68,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "512x288",
+          "expected": 146,
+          "actual": 146,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "1024x576",
+          "expected": 578,
+          "actual": 578,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "2048x1152",
+          "expected": 2306,
+          "actual": 2306,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "3072x1728",
+          "expected": 5186,
+          "actual": 5186,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        }
+      ],
+      "shape": "scaling",
+      "expected_shape": "dynamic"
+    },
+    {
+      "check": "payload_proof",
+      "arch": "qwen35",
+      "status": "SKIP",
+      "summary": "budget/pixel values are not observable on this platform",
+      "diagnosis": "This block's budgets were established without a load log (the native MLX path emits none) and are recorded as budgets_observed = false. Nothing here is waiting on a container; see the profile notes for how the values were established."
+    },
+    {
+      "check": "aspect_ladder",
+      "arch": "qwen35",
+      "status": "PASS",
+      "summary": "3/3 aspect ratios within +/-2",
+      "expected": {
+        "1024x768": 770,
+        "1920x480": 902,
+        "768x768": 578
+      },
+      "actual": {
+        "1024x768": 770,
+        "1920x480": 902,
+        "768x768": 578
+      }
+    },
+    {
+      "check": "think_format",
+      "arch": "qwen35",
+      "status": "PASS",
+      "summary": "valid JSON after thinking (242 tokens)",
+      "expected": "non-empty JSON response with think:true + format:json",
+      "actual": {
+        "response_chars": 370,
+        "thinking_chars": 646,
+        "eval_count": 242
+      }
+    },
+    {
+      "check": "pinned_image_token_budget",
+      "arch": "qwen35",
+      "status": "SKIP",
+      "summary": "no pinned-budget expectation recorded for this arch",
+      "diagnosis": "Omitted deliberately: the 005 defect was found on nemotron and this arch's probe has not been measured. See README.md to add one."
+    },
+    {
+      "check": "mlx_payload_pin",
+      "arch": null,
+      "status": "PASS",
+      "summary": "MLX build d9add9d matches the measured payload (0.32.2-61-gd9add9d), from the runner's engine-init line",
+      "expected": "d9add9d11f3154111a4c85f267ec2fd307ecd18e",
+      "actual": "0.32.2-61-gd9add9d"
+    },
+    {
+      "check": "endpoint_exclusive",
+      "arch": null,
+      "status": "PASS",
+      "summary": "no contention detected (worst queue wait 0.0s)",
+      "expected": "queue wait <= 10.0s",
+      "actual": "0.0s",
+      "models_loaded": [
+        "qwen3.8:27b-nvfp4",
+        "qwen3.6:35b-a3b-nvfp4",
+        "gemma4:12b-nvfp4"
+      ]
+    }
+  ],
+  "summary": {
+    "PASS": 19,
+    "SKIP": 12
+  }
+}
