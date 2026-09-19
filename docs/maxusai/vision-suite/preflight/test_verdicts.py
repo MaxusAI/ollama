@@ -2039,7 +2039,10 @@ class TestTensorProbeRoutes(unittest.TestCase):
 
         def fake_run(argv, **kw):
             calls.append(argv)
-            out = both if "-wwE" in argv else cmd
+            if argv[0] == "lsof":
+                out = "12345"
+            else:
+                out = both if "-wwE" in argv else cmd
             return subprocess.CompletedProcess(argv, 0, stdout=out + "\n", stderr="")
 
         with mock.patch.object(probes, "local_listener_exe", return_value="/x/ollama"), \
@@ -2068,6 +2071,19 @@ class TestTensorProbeRoutes(unittest.TestCase):
         identifier'), so this is a real state and not a hypothetical. None and
         {} must not collapse: {} would read as "the server sets nothing"."""
         self.assertIsNone(self.ps("/bin/sleep 8", "/bin/sleep 8"))
+
+    def test_two_processes_on_one_port_is_cannot_tell(self):
+        """During a kickstart the old and new servers both appear for a moment.
+        Taking the first would let a dying process supply the binary AND the
+        environment for a verdict about the new one — and the two lsof calls
+        could even disagree about which. Ambiguous is not an answer."""
+        def two_pids(argv, **kw):
+            out = "111\n222\n" if argv[0] == "lsof" else "/x/ollama\n"
+            return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+
+        with mock.patch.object(probes.subprocess, "run", two_pids):
+            self.assertIsNone(probes.local_listener_exe(11435))
+            self.assertIsNone(probes.server_env(11435))
 
     # ---- launched_runner_paths: the window has to be real ----
 

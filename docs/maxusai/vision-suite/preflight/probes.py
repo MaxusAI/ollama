@@ -694,7 +694,11 @@ def local_listener_exe(port):
     except (OSError, subprocess.SubprocessError):
         return None
     pid = (pids.stdout or "").split()
-    if not pid:
+    # Two processes on one port is the kickstart window, when the outgoing and
+    # incoming servers overlap. Taking the first would let a dying process
+    # supply the binary for a verdict about the new one. Ambiguous is not an
+    # answer; every caller treats None as a skip.
+    if len(pid) != 1:
         return None
     try:
         ps = subprocess.run(["ps", "-p", pid[0], "-o", "comm="],
@@ -735,7 +739,7 @@ def server_env(port):
         pids = subprocess.run(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
                               capture_output=True, text=True, timeout=30)
         pid = (pids.stdout or "").split()
-        if not pid:
+        if len(pid) != 1:          # same reason as local_listener_exe
             return None
         argv = subprocess.run(["ps", "-p", pid[0], "-ww", "-o", "command="],
                               capture_output=True, text=True, errors="replace",
