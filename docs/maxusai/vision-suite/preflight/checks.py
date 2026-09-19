@@ -189,7 +189,7 @@ def check_poison_probe(client, expect, profile_id,
     This is a defect-class canary, not an arch baseline: qwen2.5vl's vision
     tower carries final-block massive activations that overflow fp16 GEMM
     accumulation on CUDA/HIP (#214, measured). The launcher closes the class
-    by injecting GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32 into qwen25vl runners
+    by injecting GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32 into qwen2vl/qwen25vl runners
     (docs/maxusai/qwen25vl-cublas-f32-env.md); a build without that gate — or
     a container overriding it to f16 — fails this check deterministically."""
     if not expect:
