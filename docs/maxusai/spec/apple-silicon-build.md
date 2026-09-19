@@ -130,12 +130,17 @@ was said about.
 ```sh
 cmake -B build .
 cmake --build build --parallel 18
-go build -trimpath -ldflags="-X=github.com/ollama/ollama/version.Version=<version>" -o ollama .
+go build -trimpath -ldflags="-X=github.com/ollama/ollama/version.Version=$VERSION" -o ollama .
 ```
 
-Stamp the version the way [`Dockerfile.gemma4budget`](../../../Dockerfile.gemma4budget)
-does, so `ollama --version` identifies the build as a fork artifact rather than
-reporting `0.0.0`.
+Take `$VERSION` from [`scripts/env.sh`](../../../scripts/env.sh) — `git describe --tags
+--first-parent`, the fork identity every build carries (ADR 0032:
+`<release>-dynres-<n>-g<sha>`) — so `ollama --version` names the fold rather than
+reporting `0.0.0`. Do not assemble it by hand: [`vision-suite/build-macos.sh`](../vision-suite/build-macos.sh)
+is the supported native build and sources `env.sh` for exactly this;
+`STAMP_ONLY=1 sh docs/maxusai/vision-suite/build-macos.sh` prints the stamp without
+building. Cut the fold tag before building the fold, or the stamp names the previous
+release (ADR 0032, 2026-09-19 amendment).
 
 ## Container (`Dockerfile.applearm`)
 

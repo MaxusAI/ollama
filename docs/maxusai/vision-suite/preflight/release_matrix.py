@@ -100,8 +100,14 @@ def main(paths, version=None):
         # A release matrix must not borrow a green cell from a different
         # build. Runs that do not match the release are dropped, and their
         # surfaces then correctly report "not run".
+        #
+        # `version` may name several prefixes. ADR 0032 records equivalent stamps
+        # of ONE build — the v0.34.1 CUDA image 0.34.1-dynres-0-g8a7ba94 and the
+        # Metal build of the same commit, 0.34.0-maxusai-8a7ba949 — and a matrix
+        # for that release names each. A run matching any of them counts.
+        prefixes = (version,) if isinstance(version, str) else tuple(version)
         runs = [r for r in runs
-                if r.get("meta", {}).get("version", "").startswith(version)]
+                if r.get("meta", {}).get("version", "").startswith(prefixes)]
 
     by_surface = defaultdict(list)
     for r in runs:
@@ -138,7 +144,9 @@ def main(paths, version=None):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("runs", nargs="*", help="preflight run JSONs")
-    ap.add_argument("--version", help="only count runs whose version starts "
-                                      "with this, e.g. 0.33.2-dynres")
+    ap.add_argument("--version", action="append",
+                    help="only count runs whose version starts with this, e.g. "
+                         "0.33.2-dynres. Repeat it to name every stamp of one "
+                         "build that ADR 0032 records as equivalent.")
     a = ap.parse_args()
     main(a.runs or sorted(glob.glob("runs/*.json")), a.version)
