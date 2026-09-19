@@ -120,7 +120,7 @@ LIMIT=200 OFFSET=0 THINK=false NUM_CTX=8192 NUM_PREDICT=512 SLEEP=1 TIMEOUT=1800
 | `num_ctx` | 8192, every arm | one image and a short question; identical across arms so no arm truncates |
 | endpoint | `/api/generate` | what the published slices used |
 | loaded models | one at a time, unloaded between arms | GPU0 is shared; a resident model skews the next arm |
-| engine | the deployed build `0.34.1-dynres-16-g16649e8` | GGUF arms on **this** host decode the image in one batch (ADR 0036); that is a per-host fact, not a property of the build — read the logged `num_batch`, because on gfx1151 the same build is refused the floor ([below](#num_batch-on-gfx1151-adr-0036-asks-for-2048-and-is-refused)) |
+| engine | the deployed build `0.34.1-dynres-16-g16649e8` | GGUF arms **on this host** decode the image in one batch (ADR 0036). That is a per-host fact, not a property of the build: read the logged `num_batch`. On gfx1151 the same build is refused the floor at every quantisation — 1024 for q4 at `-np 1`, 512 for q8 and bf16 — because `availableMemoryForLoad` takes its integrated-GPU branch and sizes the batch against 31 GiB of system RAM while the scheduler logs `available="95.4 GiB"` of GPU ([ocrbench-gemma4-quant-ladder.md](ocrbench-gemma4-quant-ladder.md#why-the-batch-differs-and-why-adr-0036-never-fires-here)) |
 
 Each arm runs in a probe container on port 11521 against GPU0 with a 16 GiB overhead
 reserve, never against `:11497`.
