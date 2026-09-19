@@ -293,6 +293,14 @@ handwriting (16–17 misses) and irregular text (10 misses, the same count on al
 and no arm is more than one item better than another in any category. If a quantisation
 cost exists at 31b, this slice does not show it in text recognition.
 
+## Results — llama.cpp GGUF on ROCm / gfx1151
+
+The AMD host ran the same three GGUF arms on the same commit and the same 200-row slice:
+q4_K_M 171/200, q8_0 and bf16 169/200 each, with q8_0 and bf16 agreeing on every one of the
+200 items. Its tables, its batch confound and its wall times live in
+[ocrbench-gemma4-quant-ladder.md](ocrbench-gemma4-quant-ladder.md) rather than being copied
+here; what the two ladders say together is in [ocrbench.md](ocrbench.md#reading-two-hosts-together).
+
 ## Harness note (2026-09-19)
 
 Two arms died mid-run when a DNS blip made the row fetch fail, so `extbench.py` now
