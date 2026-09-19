@@ -108,6 +108,14 @@ first is image accounting and the second is generation length.
   `refcoco` mode reports the winning coordinate dialect and JSON key per item, so it doubles
   as a dialect probe. See [../vision-benchmark-survey.md](../vision-benchmark-survey.md) for
   why the external harnesses' own grounding scorers cannot be trusted with our models.
+- `summarize_extbench.py [--dir D] [--paired] <bench> <tag…>` — renders `ext_*.json` as one
+  markdown table with an H13 provenance footer. **Tables from external benchmarks are pasted
+  from this, never retyped** (SPEC H7). `--paired` adds the per-pair discordant counts and an
+  exact McNemar over the items both arms scored: two accuracies on a shared row set cannot
+  distinguish a real difference from a coin-flip disagreement, and the discordant columns can.
+  Measured 2026-09-19: `gemma4:31b` q8_0 and bf16 came back with **zero** discordant items over
+  200 OCRBench rows while their accuracy column read 0.845 for both and q4_K_M read 0.855
+  ([../ocrbench-gemma4-quant-ladder.md](../ocrbench-gemma4-quant-ladder.md)).
 - `run_grid.sh <host> <tag-prefix>` — model × think-mode grid against one host, with an
   optional restart hook between runs (see below). Budgets are **per think-mode** and set by
   the runner: think-off `num_predict` 4000, think-on `num_ctx - CTX_PROMPT_RESERVE` (8192 at

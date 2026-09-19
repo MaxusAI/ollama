@@ -308,6 +308,10 @@ def main():
           f"endpoint={os.environ.get('ENDPOINT', 'generate')}")
 
     records, correct, ious, dialects, empty = [], 0, [], {}, 0
+    # H11: collected as SETS, not scalars. A container restart mid-run
+    # (the vision suite has had them) would otherwise let one build
+    # vouch for rows another build served.
+    hosts, builds = set(), set()
     for i, row in enumerate(rows):
         src = row["image"]["src"] if isinstance(row["image"], dict) else row["image"]
         path = cache_image(BENCH, offset + i, src)
@@ -323,6 +327,8 @@ def main():
             print(f"{offset + i:>4}  ERROR {e}")
             continue
         dt = round(time.time() - t0, 1)
+        hosts.add(r.get("_host"))
+        builds.add(r.get("_server_version"))
         if not pred.strip():
             empty += 1
 
@@ -362,6 +368,10 @@ def main():
         # only one of these cannot distinguish those.
         "think_env": think, "think_on": think == "on",
         "endpoint": os.environ.get("ENDPOINT", "generate"),
+        # H11: where it ran and which build served it. client.generate()
+        # already stamps both on every response; this only persists them.
+        "host": sorted(h for h in hosts if h) or None,
+        "server_version": sorted(b for b in builds if b) or None,
         "correct": correct, "accuracy": round(correct / n, 4) if n else None,
     }
     if BENCH == "refcoco":
