@@ -1,0 +1,586 @@
+package mlxrunner
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"maps"
+	"math"
+	"net"
+	"net/http"
+	"os"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"golang.org/x/sync/errgroup"
+
+	"github.com/ollama/ollama/api"
+	"github.com/ollama/ollama/manifest"
+	"github.com/ollama/ollama/mlx"
+	"github.com/ollama/ollama/mlx/mlxthread"
+	"github.com/ollama/ollama/mlxrunner/batch"
+	"github.com/ollama/ollama/mlxrunner/cache"
+	"github.com/ollama/ollama/mlxrunner/model"
+	_ "github.com/ollama/ollama/mlxrunner/model/architectures"
+	"github.com/ollama/ollama/mlxrunner/sample"
+	"github.com/ollama/ollama/mlxrunner/tokenizer"
+)
+
+// Request is a short-lived struct that carries a completion request through
+// a channel from the HTTP handler to the runner goroutine. The ctx field
+// must travel with the request so that cancellation propagates across the
+// channel boundary.
+type Request struct {
+	CompletionRequest
+	Responses chan CompletionResponse
+	Pipeline  func(context.Context, Request) error
+
+	Ctx         context.Context //nolint:containedctx // Queued requests carry caller cancellation to the runner.
+	Tokens      []int32
+	MediaItems  []mediaItem
+	Layout      any // opaque PrepareMedia layout state, stamped on every batch
+	SamplerOpts sample.Options
+	Grammar     *grammarCompilation
+}
+
+type Runner struct {
+	Model         model.Model
+	weights       *mlx.Scope
+	Tokenizer     *tokenizer.Tokenizer
+	Requests      chan Request
+	Sampler       *sample.Sampler
+	cache         *prefixCache
+	contextLength int
+	mlxThread     *mlxthread.Thread
+	// grammarEngine is the structured-output subsystem; nil when the grammar
+	// library or vocabulary failed to load.
+	grammarEngine *grammarEngine
+	// spec is the speculative-decoding subsystem. Nil when the model ships no
+	// draft head.
+	spec *speculation
+}
+
+func (r *Runner) Load(modelName string) error {
+	weights, err := r.loadModel(modelName)
+	if err != nil {
+		return err
+	}
+	mlx.Eval(weights...)
+	mlx.ClearCache()
+	r.weights = mlx.NewScope()
+	r.weights.Attach(weights...)
+	configureWiredMemory()
+	// After the weights are resident, so the "previous" it logs and any cache
+	// it trims reflect a loaded model rather than an empty allocator.
+	configureCacheLimit()
+
+	return nil
+}
+
+func (r *Runner) loadModel(modelName string) (weights []*mlx.Array, err error) {
+	weights = mlx.ScopedArrays(func() []*mlx.Array {
+		root, e := model.Open(modelName)
+		if e != nil {
+			err = e
+			return nil
+		}
+
+		m, e := model.New(root)
+		if e != nil {
+			err = e
+			return nil
+		}
+
+		// Load all tensor blobs from manifest
+		tensors, e := loadTensorsFromManifest(root)
+		if e != nil {
+			err = e
+			return nil
+		}
+
+		// On Metal, materialize the loaded tensors with CPU reads before any
+		// weight graph exists, so the weight eval never commits a command buffer
+		// that waits on file data. CUDA loads read at dispatch and need no pre-pass.
+		if mlx.MetalIsAvailable() {
+			mlx.Eval(slices.Collect(maps.Values(tensors))...)
+		}
+
+		// Assign weights to model (model-specific logic). Target and draft weights
+		// must be loaded before the load scope ends so tensors from a combined
+		// manifest are not discarded before the draft model can retain them.
+		if err = m.LoadWeights(tensors); err != nil {
+			return nil
+		}
+
+		var draftModel model.DraftModel
+		draft, e := model.NewDraft(root, m)
+		if e != nil {
+			err = e
+			return nil
+		}
+		if draft != nil {
+			if err = draft.LoadWeights(tensors); err != nil {
+				return nil
+			}
+			draftModel = draft
+		} else if sd, ok := m.(model.SelfDraft); ok {
+			// Inline draft head: already loaded with the target; nil if none shipped.
+			draftModel = sd.SelfDraft()
+		}
+
+		w := mlx.Collect(m)
+		if draft != nil {
+			draftArrays := mlx.Collect(draft)
+			w = append(w, draftArrays...)
+			if root.Draft != nil {
+				slog.Info("Loaded draft model", "tensor_prefix", root.Draft.TensorPrefix, "config", root.Draft.Config, "arrays", len(draftArrays))
+			} else {
+				slog.Info("Loaded draft model", "arrays", len(draftArrays))
+			}
+		}
+
+		r.Model = m
+		r.Tokenizer = m.Tokenizer()
+		r.contextLength = m.MaxContextLength()
+		caches := m.NewCaches()
+		draftCaches := newDraftCaches(draftModel)
+		r.cache = newPrefixCache(slices.Concat(caches, draftCaches))
+		r.Sampler = sample.New(r.contextLength)
+		r.spec = newSpeculation(r, draftModel, caches, draftCaches)
+		r.grammarEngine = newGrammarEngine(logitsWidth(m), r.Tokenizer)
+
+		mlx.EnableCompile()
+
+		return w
+	})
+	return weights, err
+}
+
+func (r *Runner) Close() {
+	if r.grammarEngine != nil {
+		r.grammarEngine.close()
+		r.grammarEngine = nil
+	}
+	r.weights.Close()
+	r.weights = nil
+}
+
+// newDraftCaches returns nil when the model ships no draft.
+func newDraftCaches(draft model.DraftModel) []cache.Cache {
+	if draft == nil {
+		return nil
+	}
+	return draft.NewCaches()
+}
+
+// MemoryLimitEnv carries the parent's view of FREE device memory, in bytes, to
+// the runner subprocess. Set by the MLX client, which computes it from
+// ml.DeviceInfo.FreeMemory less the per-device minimum and OLLAMA_GPU_OVERHEAD.
+const MemoryLimitEnv = "OLLAMA_MLX_MEMORY_LIMIT"
+
+// configureMemoryLimit caps the allocator on backends with no wired-residency
+// concept — everything except Metal.
+//
+// MLX is not uncapped on CUDA: it defaults the limit to a fraction of TOTAL
+// device memory (measured 90.22 GiB on a 95.6 GiB card). That is the wrong
+// denominator on a shared GPU. With other processes already holding tens of
+// gigabytes, MLX still believes the whole card is its own, so a growing KV
+// cache allocates past what is actually free and cudaMallocAsync fails. MLX
+// aborts the process on a failed allocation rather than returning an error, so
+// the runner dies and the request 500s.
+//
+// The parent already computes the right number and previously discarded it
+// after an admission check. Prefer it; fall back to reporting MLX's own default
+// so the ceiling is visible rather than assumed.
+func configureMemoryLimit(active int, wsErr error) {
+	limit, err := mlx.MemoryLimit()
+	if err != nil {
+		slog.Warn("Unable to query MLX recommended working set; using pageable memory",
+			"error", wsErr, "memory_limit_error", err)
+		return
+	}
+
+	budget, ok := parseMemoryBudget(os.Getenv(MemoryLimitEnv))
+	if !ok {
+		slog.Warn("Unable to query MLX recommended working set (Metal-only device key); "+
+			"relying on the backend default, which is derived from TOTAL device memory",
+			"error", wsErr,
+			"active", mlx.PrettyBytes(active),
+			"backend_limit", mlx.PrettyBytes(limit))
+		return
+	}
+
+	// Never raise the backend's own ceiling — only lower it to what is free.
+	if budget >= limit {
+		slog.Debug("MLX memory budget is not below the backend limit; leaving it alone",
+			"budget", mlx.PrettyBytes(budget), "backend_limit", mlx.PrettyBytes(limit))
+		return
+	}
+
+	previous, err := mlx.SetMemoryLimit(budget)
+	if err != nil {
+		slog.Warn("Unable to apply MLX memory limit; keeping the backend default",
+			"budget", mlx.PrettyBytes(budget), "error", err)
+		return
+	}
+	slog.Info("Configured MLX memory limit from free device memory",
+		"active", mlx.PrettyBytes(active),
+		"limit", mlx.PrettyBytes(budget),
+		"previous", mlx.PrettyBytes(previous))
+}
+
+// CacheLimitEnv bounds MLX's RETAINED buffer cache, in bytes. Unset leaves
+// MLX's own limit in place; 0 means retain nothing. See configureCacheLimit for
+// the measured trade and why there is no default.
+const CacheLimitEnv = "OLLAMA_MLX_CACHE_LIMIT"
+
+// configureCacheLimit bounds what MLX keeps after it is finished with it.
+//
+// The memory limit above caps TOTAL allocation and decides when an allocation
+// FAILS. It does not make MLX give anything back, and MLX's allocator retains
+// freed blocks for reuse. Measured on gemma4:31b-nvfp4, one 3072x1728 image:
+// active 18.29 GiB against cache 13.16 GiB, for a 32.36 GiB process where
+// llama.cpp does the identical work — same image, same num_ctx, same
+// prompt_eval_count — in 23.03 GiB. The cache IS the difference.
+//
+// That matters beyond tidiness on a shared card: a large retained cache is a
+// candidate cause of an out-of-memory abort seen on qwen3.6:35b-a3b-nvfp4 at
+// the same geometry while nvidia-smi reported 85 GiB free, because the pool
+// holds memory the driver can no longer hand to a big contiguous request.
+//
+// NO DEFAULT, ON MEASUREMENT. A bounded default was shipped and then withdrawn:
+// the trade is sharp and has no comfortable middle. Measured n=3 on
+// gemma4:31b-nvfp4, one 3072x1728 image, decode tok/s against peak footprint:
+//
+//	 4 GiB   29.44 tok/s   28,749 MiB    <- all of the footprint win
+//	 8 GiB   34.73 tok/s   32,779 MiB
+//	16 GiB   34.77 tok/s   33,295 MiB
+//	90 GiB   34.98 tok/s   33,276 MiB    <- MLX's own default
+//
+// Throughput recovers fully by 8 GiB, but 8 GiB saves 497 MiB -- nothing. The
+// entire 4.5 GB saving sits at 4 GiB, and 4 GiB costs 15.8% decode, because the
+// transient working set is ~7 GiB (peak 25.37 against active 18.29) and a
+// smaller cache makes the allocator round-trip to the driver inside every
+// forward.
+//
+// So a default at 8 GiB would buy nothing while adding a surprise, and a default
+// at 4 GiB would silently cost every user a sixth of their throughput to save
+// memory most of them are not short of. Neither is worth doing on the operator's
+// behalf. The knob is opt-in: set OLLAMA_MLX_CACHE_LIMIT when the footprint
+// matters more than the speed -- a shared card, or a model that OOMs at large
+// geometries -- and pay the cost knowingly.
+//
+// AND THE COST IS WORSE ON MULTI-IMAGE WORK THAN THE NUMBERS ABOVE SUGGEST.
+// Every figure in the table is one 3072x1728 image. Starving the allocator from
+// the other direction -- OLLAMA_MLX_MEMORY_LIMIT, full 12-test suite, n=2 --
+// shows the penalty concentrating on the three-image cells:
+//
+//	cell                   24 GiB      82 GiB     delta
+//	scene_single         30.46 t/s   30.87 t/s     +1%
+//	multi_3img           28.46 t/s   29.19 t/s     +3%
+//	bbox_contract_multi  17.71 t/s   27.21 t/s    +54%
+//
+// Peak footprint 33,536 MiB against 67,518 MiB. Stable across both reps on each
+// side (17.73/17.71 vs 25.0/27.21), so the 54% is not noise.
+//
+// The lesson for anyone measuring this next: a single-image prompt CANNOT show
+// it. Three separate sweeps over the allocator ceiling came back flat on
+// scene_single and were reported as "no throughput effect" -- true of that cell,
+// and not true of the workload the suite actually exists to measure.
+func configureCacheLimit() {
+	// Unset and malformed are different situations and only the first is
+	// silent. parseCacheLimit folds unset, unparseable and out-of-range into one
+	// `false`, and returning on all three reproduces the exact defect the
+	// override work exists to remove: a request that is discarded without a
+	// trace, so a sweep over several values yields identical runs and nothing in
+	// the output says why. That is how the cap-0 bug hid -- it reported the
+	// DEFAULT's footprint under the cap-0 label. The sibling knob already warns
+	// (configureMemoryLimit), so this was also inconsistent within one file.
+	//
+	// The exposure is worse here: OLLAMA_MLX_MEMORY_LIMIT is machine-written by
+	// the parent as a raw byte count, while this one is hand-typed by an
+	// operator following a comment that tells them to set it -- so "8GiB" is a
+	// plausible thing to type, and it parses as nothing.
+	raw := os.Getenv(CacheLimitEnv)
+	if raw == "" {
+		return
+	}
+	limit, ok := parseCacheLimit(raw)
+	if !ok {
+		slog.Warn("Ignoring malformed "+CacheLimitEnv+"; it is a byte count in decimal digits, not a size suffix. Keeping the backend default",
+			"value", raw)
+		return
+	}
+	previous, err := mlx.SetCacheLimit(limit)
+	if err != nil {
+		slog.Warn("Unable to apply MLX cache limit; keeping the backend default",
+			"limit", mlx.PrettyBytes(limit), "error", err)
+		return
+	}
+	slog.Info("Configured MLX buffer cache limit",
+		"limit", mlx.PrettyBytes(limit),
+		"previous", mlx.PrettyBytes(previous),
+		"memory", mlx.Memory{})
+}
+
+// parseCacheLimit is parseMemoryBudget with ZERO ADMITTED. The two look alike
+// and mean different things: a memory budget of 0 is meaningless (it would
+// forbid every allocation), so parseMemoryBudget rejects it, but a CACHE limit
+// of 0 is the most useful value in the range -- "retain nothing", the setting
+// that makes MLX return every freed buffer instead of holding it.
+//
+// Reusing parseMemoryBudget here silently discarded OLLAMA_MLX_CACHE_LIMIT=0
+// and left the backend default in place, so a measurement of that setting
+// reported the DEFAULT's footprint under the cap-0 label -- 33,134 MiB,
+// byte-identical to the unset arm, which is what gave it away.
+func parseCacheLimit(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil || v > math.MaxInt {
+		return 0, false
+	}
+	return int(v), true
+}
+
+func parseMemoryBudget(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil || v == 0 || v > math.MaxInt {
+		return 0, false
+	}
+	return int(v), true
+}
+
+// logitsWidth reads a model's logits width off a one-token forward's static
+// shape — the same Forward and Unembed path decode logits take. Nothing is
+// evaluated.
+func logitsWidth(m model.Model) (width int) {
+	mlx.Scoped(func() {
+		caches := m.NewCaches()
+		hidden, _ := m.Forward(&batch.Batch{
+			InputIDs:     mlx.FromValues([]int32{0}, 1, 1),
+			SeqOffsets:   []int32{0},
+			SeqQueryLens: []int32{1},
+		}, caches)
+		logits := m.Unembed(hidden)
+		width = logits.Dim(logits.NumDims() - 1)
+		for _, c := range caches {
+			if c != nil {
+				c.Free()
+			}
+		}
+	})
+	return width
+}
+
+func configureWiredMemory() {
+	if !mlx.GPUIsAvailable() {
+		return
+	}
+
+	active := mlx.ActiveMemory()
+	maxRecommended, err := mlx.MaxRecommendedWorkingSetSize()
+	if err != nil {
+		// max_recommended_working_set_size is a Metal device key, and so is the
+		// wired-residency concept it feeds. Returning here left non-Metal
+		// backends with NO cap at all: on CUDA a growing KV cache allocated
+		// until cudaMallocAsync failed, and MLX aborts the process on a failed
+		// allocation rather than returning an error, so the runner died and the
+		// request 500'd. Report the allocator limit that IS portable so the
+		// backend's own ceiling is visible rather than assumed.
+		configureMemoryLimit(active, err)
+		return
+	}
+
+	limit := min(active, maxRecommended)
+	previous, err := mlx.SetWiredLimit(limit)
+	if err != nil {
+		slog.Warn("Unable to configure MLX wired memory; using pageable memory",
+			"active", mlx.PrettyBytes(active),
+			"limit", mlx.PrettyBytes(limit),
+			"error", err)
+		return
+	}
+
+	if active > maxRecommended {
+		slog.Warn("MLX model exceeds the recommended working set; performance may be degraded",
+			"active", mlx.PrettyBytes(active),
+			"recommended", mlx.PrettyBytes(maxRecommended))
+	}
+	// Limiting residency to the loaded model's active allocations avoids
+	// reserving the remaining capacity for growing KV caches.
+	slog.Debug("Configured MLX wired memory",
+		"active", mlx.PrettyBytes(active),
+		"limit", mlx.PrettyBytes(limit),
+		"previous", mlx.PrettyBytes(previous))
+}
+
+// loadTensorsFromManifest loads all tensor blobs from the manifest into a
+// flat map, deduplicating by digest and remapping safetensors key suffixes.
+//
+// Uses a two-phase approach: first loads all raw tensors, then remaps
+// .bias → _qbias with complete knowledge of which base names have .scale
+// entries. This avoids a race condition where Go map iteration order could
+// cause .bias to be processed before .scale within the same blob.
+func loadTensorsFromManifest(root *model.Root) (map[string]*mlx.Array, error) {
+	// Phase 1: Load all tensors raw from all blobs
+	rawTensors := make(map[string]*mlx.Array)
+	seen := make(map[string]bool)
+	for _, layer := range root.Manifest.TensorLayers() {
+		if seen[layer.Digest] {
+			continue
+		}
+		seen[layer.Digest] = true
+		blobPath, err := manifest.BlobsPath(layer.Digest)
+		if err != nil {
+			return nil, err
+		}
+		for name, arr := range mlx.Load(blobPath) {
+			rawTensors[name] = arr
+		}
+	}
+
+	// Phase 2: Identify all base names that have .scale tensors and remap them
+	scaleBaseNames := make(map[string]bool)
+	allTensors := make(map[string]*mlx.Array, len(rawTensors))
+	for name, arr := range rawTensors {
+		if strings.HasSuffix(name, ".scale") {
+			baseName := strings.TrimSuffix(name, ".scale")
+			allTensors[baseName+"_scale"] = arr
+			scaleBaseNames[baseName] = true
+		}
+	}
+
+	// Phase 3: Process remaining tensors with complete scale knowledge
+	for name, arr := range rawTensors {
+		if strings.HasSuffix(name, ".scale") {
+			continue // already handled
+		}
+		if strings.HasSuffix(name, ".bias") && !strings.HasSuffix(name, ".weight_qbias") {
+			baseName := strings.TrimSuffix(name, ".bias")
+			if scaleBaseNames[baseName] {
+				allTensors[baseName+"_qbias"] = arr
+			} else {
+				allTensors[name] = arr
+			}
+		} else {
+			allTensors[name] = arr
+		}
+	}
+
+	slog.Info("Loaded tensors from manifest", "count", len(allTensors))
+	return allTensors, nil
+}
+
+func (r *Runner) Run(host, port string, mux http.Handler) error {
+	g, ctx := errgroup.WithContext(context.Background())
+
+	g.Go(func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case request := <-r.Requests:
+				err := r.runRequest(request)
+				if err != nil {
+					slog.Info("Request terminated", "error", err)
+					var statusErr api.StatusError
+					if !errors.As(err, &statusErr) {
+						statusErr = api.StatusError{
+							StatusCode:   http.StatusInternalServerError,
+							ErrorMessage: err.Error(),
+						}
+					}
+					select {
+					case request.Responses <- CompletionResponse{Error: &statusErr}:
+					case <-request.Ctx.Done():
+					}
+				}
+
+				close(request.Responses)
+
+				// Report first, stop second. The caller gets a StatusError
+				// describing the failure; only then does the runner exit, so
+				// the scheduler reloads a clean one rather than this process
+				// continuing on MLX state a failed evaluation abandoned.
+				var fatal fatalRunnerError
+				if errors.As(err, &fatal) {
+					return err
+				}
+			}
+		}
+	})
+
+	srv := &http.Server{Addr: net.JoinHostPort(host, port), Handler: mux}
+
+	// Without this the worker returning an error cancels ctx but ListenAndServe
+	// keeps running, so g.Wait() never returns and the "stop second" above
+	// never takes effect.
+	g.Go(func() error {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	})
+
+	g.Go(func() error {
+		slog.Info("Starting HTTP server", "host", host, "port", port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	})
+
+	return g.Wait()
+}
+
+// fatalRunnerError marks a failure the runner must not continue past. MLX
+// treats a failed graph evaluation as unrecoverable and mlxthread re-panics it
+// onto this goroutine deliberately; recovering lets the caller be told what
+// happened instead of reading a stack from a dead subprocess, but the runner
+// still stops afterwards rather than serving on state MLX has abandoned.
+type fatalRunnerError struct{ err error }
+
+func (e fatalRunnerError) Error() string { return e.err.Error() }
+func (e fatalRunnerError) Unwrap() error { return e.err }
+
+// recoverRequest converts a panic raised while evaluating a request into an
+// error, so the existing error path in Run reports it as a StatusError to the
+// client. Allocation failures get the one thing a stack trace cannot give the
+// operator: what to change.
+func recoverRequest(err *error) {
+	v := recover()
+	if v == nil {
+		return
+	}
+
+	msg := fmt.Sprint(v)
+	wrapped := fmt.Errorf("mlx runner aborted: %s", msg)
+	if strings.Contains(msg, "out of memory") {
+		wrapped = fmt.Errorf("%w; the device ran out of memory during evaluation — "+
+			"lower num_ctx or free VRAM on the device", wrapped)
+	}
+	slog.Error("Recovered a panic while evaluating a request; stopping the runner",
+		"error", msg)
+	*err = fatalRunnerError{err: wrapped}
+}
+
+func (r *Runner) runRequest(request Request) (err error) {
+	defer recoverRequest(&err)
+
+	defer request.Grammar.close()
+	if r.mlxThread == nil {
+		return request.Pipeline(request.Ctx, request)
+	}
+
+	return r.mlxThread.Do(request.Ctx, func() error {
+		return request.Pipeline(request.Ctx, request)
+	})
+}

@@ -24,13 +24,13 @@ import (
 	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/envconfig"
 	"github.com/ollama/ollama/manifest"
+	"github.com/ollama/ollama/mlx"
 	"github.com/ollama/ollama/model/parsers"
 	"github.com/ollama/ollama/parser"
 	"github.com/ollama/ollama/template"
 	"github.com/ollama/ollama/thinking"
 	"github.com/ollama/ollama/types/model"
 	"github.com/ollama/ollama/version"
-	"github.com/ollama/ollama/x/mlxrunner/mlx"
 	"github.com/ollama/ollama/x/transfer"
 )
 
@@ -1197,15 +1197,16 @@ func pullWithTransfer(ctx context.Context, n model.Name, layers []manifest.Layer
 	}
 
 	if err := transfer.Download(ctx, transfer.DownloadOptions{
-		Blobs:           blobs,
-		BaseURL:         baseURL,
-		DestDir:         destDir,
-		Repository:      n.DisplayNamespaceModel(),
-		BodyConcurrency: max(1, int(envconfig.MaxTransferStreams())),
-		Progress:        progress,
-		Token:           regOpts.Token,
-		GetToken:        getToken,
-		Logger:          slog.Default(),
+		Blobs:             blobs,
+		BaseURL:           baseURL,
+		DestDir:           destDir,
+		Repository:        n.DisplayNamespaceModel(),
+		BodyConcurrency:   max(1, int(envconfig.MaxTransferStreams())),
+		Progress:          progress,
+		Token:             regOpts.Token,
+		GetToken:          getToken,
+		Logger:            slog.Default(),
+		AllowPrivateHosts: regOpts != nil && regOpts.Insecure,
 	}); err != nil {
 		return err
 	}
@@ -1274,17 +1275,18 @@ func pushWithTransfer(ctx context.Context, n model.Name, layers []manifest.Layer
 	}
 
 	return transfer.Upload(ctx, transfer.UploadOptions{
-		Blobs:           blobs,
-		BaseURL:         baseURL,
-		SrcDir:          srcDir,
-		BodyConcurrency: max(1, int(envconfig.MaxTransferStreams())),
-		Progress:        progress,
-		Token:           regOpts.Token,
-		GetToken:        getToken,
-		Logger:          slog.Default(),
-		Manifest:        manifestJSON,
-		ManifestRef:     n.Tag,
-		Repository:      n.DisplayNamespaceModel(),
+		Blobs:             blobs,
+		BaseURL:           baseURL,
+		SrcDir:            srcDir,
+		BodyConcurrency:   max(1, int(envconfig.MaxTransferStreams())),
+		Progress:          progress,
+		Token:             regOpts.Token,
+		GetToken:          getToken,
+		Logger:            slog.Default(),
+		Manifest:          manifestJSON,
+		ManifestRef:       n.Tag,
+		Repository:        n.DisplayNamespaceModel(),
+		AllowPrivateHosts: regOpts != nil && regOpts.Insecure,
 	})
 }
 
@@ -1386,6 +1388,8 @@ func makeRequestWithRetry(ctx context.Context, method string, requestURL *url.UR
 // structured in a way that makes this easy, so this will have to do for now.
 var testMakeRequestDialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 
+var errBlockedRedirect = errors.New("blocked redirect to a different host")
+
 func makeRequest(ctx context.Context, method string, requestURL *url.URL, headers http.Header, body io.Reader, regOpts *registryOptions) (*http.Response, error) {
 	if requestURL.Scheme != "http" && regOpts != nil && regOpts.Insecure {
 		requestURL.Scheme = "http"
@@ -1419,8 +1423,28 @@ func makeRequest(ctx context.Context, method string, requestURL *url.URL, header
 		req.ContentLength = contentLength
 	}
 
+	var checkRedirect func(req *http.Request, via []*http.Request) error
+	if regOpts != nil {
+		checkRedirect = regOpts.CheckRedirect
+	}
+	if checkRedirect == nil {
+		insecure := regOpts != nil && regOpts.Insecure
+		// Default redirect policy: same-host only, so a registry can't steer
+		// manifest or blob requests at internal addresses. --insecure opts out
+		// for trusted LAN/local registries.
+		checkRedirect = func(req *http.Request, via []*http.Request) error {
+			if len(via) > 10 {
+				return errMaxRedirectsExceeded
+			}
+			if !insecure && req.URL.Host != via[0].URL.Host {
+				return errBlockedRedirect
+			}
+			return nil
+		}
+	}
+
 	c := &http.Client{
-		CheckRedirect: regOpts.CheckRedirect,
+		CheckRedirect: checkRedirect,
 	}
 	if testMakeRequestDialContext != nil {
 		tr := http.DefaultTransport.(*http.Transport).Clone()

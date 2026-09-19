@@ -1,16 +1,4 @@
 name: test
-# MaxusAI fork note -- NOT upstream. Jobs with `runs-on: linux` / `runs-on: windows`
-# target SELF-HOSTED runners. This fork has none registered (verified via
-# /actions/runners at both repo and org level), so those jobs queue forever and are
-# cancelled or time out after 24h -- they never start, `runner` is empty and zero
-# steps execute. They are not required checks, so they never blocked a merge; they
-# just buried the real signal.
-#
-# `vars.SELF_HOSTED_RUNNERS` gates them. Unset (the current state) => they skip
-# cleanly. If runners are ever registered, set the repository variable to 'true'
-# and they come back with no further edits.
-#
-# Keep this guard when syncing from upstream; upstream has runners and we do not.
 
 concurrency:
   # For PRs, later CI runs preempt previous ones. e.g. a force push on a PR
@@ -19,42 +7,11 @@ concurrency:
   # For non-PR pushes, concurrency.group needs to be unique for every distinct
   # CI run we want to have happen. Use run_id, which in practice means all
   # non-PR CI runs will be allowed to run without preempting each other.
-  #
-  # MaxusAI fork note -- NOT upstream, keep when syncing. Upstream writes this
-  # as `-$${{ github.pull_request.number || github.run_id }}`, which has never
-  # done what the two paragraphs above describe. The pull request payload lives
-  # at `github.event.pull_request`; there is no `github.pull_request`, and an
-  # undefined context property evaluates to null rather than erroring. So the
-  # `||` fell through to run_id on every event, the group was unique per run,
-  # and nothing could preempt anything -- zero concurrency cancellations across
-  # 30 test.yaml runs on this fork. (The stray `$` was a literal in the group
-  # name, which is how it went unnoticed for so long: the group looked wrong
-  # rather than behaved wrong.)
-  #
-  # The run_id fallback still carries pushes to main, so each one gets its own
-  # group and runs to completion -- which is what the push trigger below is
-  # for. A merge that breaks the build must not be cancelled by the next merge.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  group: ${{ github.workflow }}-$${{ github.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 on:
   pull_request:
-    paths:
-      - '**/*'
-      - '!docs/**'
-      - '!README.md'
-  # Post-merge signal. A change can go green on its own pull request and still
-  # break main once merged: the LLAMA_CPP_VERSION bump b10091 -> b10353 left
-  # three of the compat patches in llama/compat/ unable to apply, which broke
-  # every GGUF build off main, and nothing reported it -- of the workflows in
-  # this repository only preflight-expectations.yaml ran on pushes to main.
-  #
-  # This does NOT un-gate the self-hosted `linux` / `windows` jobs. They stay
-  # behind `vars.SELF_HOSTED_RUNNERS` (see the fork note at the top of this
-  # file) and skip on a push exactly as they do on a pull request.
-  push:
-    branches:
-      - main
     paths:
       - '**/*'
       - '!docs/**'
@@ -73,77 +30,41 @@ jobs:
         with:
           fetch-depth: 0
       - id: changes
-        # Passed as env rather than interpolated into the script body: on a
-        # push the pull_request.* values are empty, and `local BASE=${{ ... }}`
-        # then expanded to a bare `local BASE=`, so the range was silently
-        # empty and every glob reported False.
-        env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE_SHA: ${{ github.event.before }}
-          PUSH_HEAD_SHA: ${{ github.sha }}
         run: |
-          # This job now runs on pushes to main as well as on pull requests,
-          # and the two events name their diff endpoints differently.
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            HEAD=$PR_HEAD_SHA
-            BASE=$(git merge-base "$PR_BASE_SHA" "$HEAD")
-          else
-            HEAD=$PUSH_HEAD_SHA
-            BASE=$PUSH_BEFORE_SHA
-            # A branch's first push reports the all-zero SHA, and a force-push
-            # can name a pre-image this checkout does not have. Neither yields
-            # a usable range, so fail open: treat everything as changed rather
-            # than silently reporting False the way the old form did.
-            git cat-file -e "$BASE^{commit}" 2>/dev/null || BASE=
-          fi
-
           changed() {
-            if [ -z "$BASE" ]; then
-              echo True
-              return
-            fi
-            git diff-tree -r --no-commit-id --name-only "$BASE" "$HEAD" \
+            local BASE=${{ github.event.pull_request.base.sha }}
+            local HEAD=${{ github.event.pull_request.head.sha }}
+            local MERGE_BASE=$(git merge-base $BASE $HEAD)
+            git diff-tree -r --no-commit-id --name-only "$MERGE_BASE" "$HEAD" \
               | xargs python3 -c "import sys; from pathlib import Path; print(any(Path(x).match(glob) for x in sys.argv[1:] for glob in '$*'.split(' ')))"
           }
 
-          # Every directory needs BOTH the `d/**` and `d/**/*` forms, as
-          # cmake/ and x/imagegen/mlx/ already have. Path.match() matches
-          # right-to-left and does not treat ** as recursive, so a pattern
-          # only ever matches a path with exactly as many segments: `d/**/*`
-          # matches d/sub/file but NOT d/file. Without the `d/**` sibling,
-          # llama/server/CMakeLists.txt and every llama/compat/*.patch
-          # reported False.
           echo changed=$(changed \
             'CMakeLists.txt' \
             'CMakePresets.json' \
             'cmake/**' \
             'cmake/**/*' \
-            'llama/server/**' \
             'llama/server/**/*' \
-            'llama/compat/**' \
             'llama/compat/**/*' \
             'LLAMA_CPP_VERSION' \
             'MLX_VERSION' \
             'MLX_C_VERSION' \
+            'mlx/CMakeLists.txt' \
+            'mlx/compat/**' \
+            'mlx/compat/**/*' \
+            'mlxrunner/xgrammar/native/**' \
+            'mlxrunner/xgrammar/native/**/*' \
             'llama/llama.cpp/**' \
             'llama/llama.cpp/**/*' \
             'ml/backend/ggml/ggml/**' \
             'ml/backend/ggml/ggml/**/*' \
-            'x/imagegen/mlx/**' \
-            'x/imagegen/mlx/**/*' \
             '.github/**' \
-            'x/mlxrunner/xgrammar/native/**' \
-            'x/mlxrunner/xgrammar/native/**/*' \
             '.github/**/*') | tee -a $GITHUB_OUTPUT
           echo app_changed=$(changed 'app/**' 'app/**/*') | tee -a $GITHUB_OUTPUT
           echo go_mod_changed=$(changed 'go.mod') | tee -a $GITHUB_OUTPUT
           echo enginehash=$(cat LLAMA_CPP_VERSION)-$(cat MLX_VERSION)-$(cat MLX_C_VERSION) | tee -a $GITHUB_OUTPUT
 
   patches:
-    # Deliberately ungated: no `needs: [changes]`, no `if:`. This is the job
-    # that reports a broken llama/compat patch set, so it runs on every pull
-    # request and every push to main regardless of what the diff touched.
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
@@ -162,120 +83,9 @@ jobs:
             -DGGML_CPU_ALL_VARIANTS=ON \
             -DOLLAMA_RUNNER_DIR=
 
-      # Applying is not compiling. b10353 gathered calc_size_preserved_ratio's
-      # positional parameters into a calc_size_opt struct; 005's hunk applied
-      # with no conflict and still referenced the bare max_pixels and
-      # align_size the struct had absorbed. Only a build catches that class of
-      # drift, which is why the configure step above is not sufficient on its
-      # own -- see "Regenerating the Patch Files" in llama/compat/README.md.
-      #
-      # `mtmd` pulls in llama, so this compiles every file the 0xx patches
-      # touch: llama-model-loader.cpp (001), clip.cpp (001/002/004),
-      # nemotron-v2-vl.cpp + mtmd.cpp (002), models/laguna.cpp (003),
-      # mtmd-image.cpp (004/005), plus the compat sources themselves. Building
-      # it here rather than against a standalone llama.cpp checkout is what
-      # makes 001 reachable at all: it includes llama-ollama-compat.h, which
-      # only Ollama's build tree supplies.
-      #
-      # It does NOT reach the 9xx band. Those patch ggml/src/ggml-cuda/*, which
-      # is compiled only with a GPU backend enabled, and this tree enables none
-      # -- see the patches-ggml job below.
-      #
-      # Linux only. The drift this catches is upstream renaming things, which
-      # is platform-independent, and a second full native build would dominate
-      # the job. (One gap: 003's body is #if GGML_USE_METAL, so only its
-      # build_moe_ffn call site is compiled here, not the Metal block.)
-      - name: Verify patches compile
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          cmake --build "$RUNNER_TEMP/llama-server-patch-check" \
-            --target mtmd --parallel "$(nproc)"
-
-  # The 9xx half of the patch set (903 patches ggml/src/ggml-cuda/mmq.cu) is
-  # invisible to the job above: `mtmd` never pulls in ggml-cuda, and that tree
-  # is configured with no GPU backend, so no .cu file is compiled at all. 903
-  # was application-checked but never compiled until this job existed.
-  #
-  # The `linux` job's CUDA/ROCm presets do compile it, but they are gated on
-  # vars.SELF_HOSTED_RUNNERS and skip entirely when no self-hosted runner is
-  # attached -- which is the normal state of this fork. Coverage that only
-  # exists when a runner happens to be present is not coverage.
-  #
-  # Compiling all of ggml-cuda would be disproportionate (~140 translation
-  # units per architecture), so this builds only the objects for the ggml
-  # sources the patch set actually touches, at one virtual arch. The source
-  # list is read out of the patch headers rather than hardcoded, so a future
-  # 9xx patch is picked up without editing this job.
-  #
-  # Ungated for the same reason as `patches`: it reports a broken patch set.
-  patches-ggml:
-    runs-on: ubuntu-latest
-    container: nvidia/cuda:13.0.0-devel-ubuntu22.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install toolchain
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            ca-certificates curl git ninja-build
-          # Ubuntu 22.04 ships CMake 3.22; llama.cpp needs >= 3.24. Same
-          # Kitware tarball and version the `linux` job installs.
-          curl -fsSL "https://github.com/Kitware/CMake/releases/download/v3.31.2/cmake-3.31.2-linux-$(uname -m).tar.gz" \
-            | tar xz -C /usr/local --strip-components 1
-          cmake --version
-      - name: Verify ggml patches compile
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t srcs < <(
-            grep -rhE '^\+\+\+ b/ggml/.*\.(cu|cpp)$' llama/compat --include='*.patch' \
-              | sed 's|^+++ b/||' | sort -u)
-          if [ "${#srcs[@]}" -eq 0 ]; then
-            echo "No patch touches ggml/; nothing to compile."
-            exit 0
-          fi
-          printf 'patched ggml source: %s\n' "${srcs[@]}"
-
-          dir="$RUNNER_TEMP/ggml-patch-check"
-          cmake -S llama/server -B "$dir" -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DGGML_BACKEND_DL=ON \
-            -DGGML_NATIVE=OFF \
-            -DGGML_OPENMP=OFF \
-            -DGGML_CUDA=ON \
-            -DCMAKE_CUDA_ARCHITECTURES=80-virtual \
-            -DOLLAMA_RUNNER_DIR=
-
-          # Ninja names each object after its source, so the object to build is
-          # derivable from the patch header -- but not from the full source
-          # path: ggml-cuda compiles these sources in place, while ggml-hip
-          # reaches them through relative ../ hops, giving two different object
-          # path shapes for the same file. Match the basename instead, keep
-          # every ggml target that compiles it, and build them all.
-          #
-          # A source that resolves to no object is a hard failure: it means the
-          # patch edits a file this configuration never compiles, and the check
-          # would otherwise pass while proving nothing.
-          objs=()
-          for src in "${srcs[@]}"; do
-            mapfile -t found < <(ninja -C "$dir" -t targets all \
-              | grep -oE "[^ :]*/$(basename "$src")\.o" | grep ggml | sort -u || true)
-            if [ "${#found[@]}" -eq 0 ]; then
-              echo "::error::no build object for patched source $src"
-              exit 1
-            fi
-            printf '  -> %s\n' "${found[@]}"
-            objs+=("${found[@]}")
-          done
-          ninja -C "$dir" "${objs[@]}"
-
   linux:
     needs: [changes]
-    if: needs.changes.outputs.changed == 'True' && vars.SELF_HOSTED_RUNNERS == 'true'
+    if: needs.changes.outputs.changed == 'True'
     strategy:
       matrix:
         include:
@@ -371,7 +181,7 @@ jobs:
           test -x "$RUNNER_TEMP/ollama-local/lib/ollama/llama-quantize"
   windows:
     needs: [changes]
-    if: needs.changes.outputs.changed == 'True' && vars.SELF_HOSTED_RUNNERS == 'true'
+    if: needs.changes.outputs.changed == 'True'
     strategy:
       matrix:
         include:
@@ -613,7 +423,7 @@ jobs:
         with:
           path: .cache/mlx-darwin-release
           # Key on every payload input so a source-built payload survives pushes.
-          key: mlx-darwin-${{ hashFiles('MLX_VERSION', 'MLX_C_VERSION', 'cmake/local.cmake', 'cmake/apply-git-patches.cmake', 'cmake/mlx/CMakeLists.txt', 'cmake/mlx/CMakePresets.json', 'x/mlxrunner/mlx/CMakeLists.txt', 'mlx/compat/**', 'x/mlxrunner/xgrammar/native/**') }}
+          key: mlx-darwin-${{ hashFiles('MLX_VERSION', 'MLX_C_VERSION', 'cmake/local.cmake', 'cmake/apply-git-patches.cmake', 'cmake/mlx/CMakeLists.txt', 'cmake/mlx/CMakePresets.json', 'mlx/CMakeLists.txt', 'mlx/compat/**', 'mlxrunner/xgrammar/native/**') }}
       - name: Prepare MLX Darwin release payload
         if: ${{ startsWith(matrix.os, 'macos') }}
         run: .github/scripts/prepare_mlx_darwin.sh
@@ -633,11 +443,9 @@ jobs:
           cmake -S . -B build/mlx-generate -DOLLAMA_MLX_BACKENDS=cuda_v13
           cmake --build build/mlx-generate --target ollama-mlx-generate-wrappers
           git diff --exit-code -- \
-            x/imagegen/mlx/mlx.h \
-            x/imagegen/mlx/mlx.c \
-            x/mlxrunner/mlx/generated.h \
-            x/mlxrunner/mlx/generated.c \
-            x/mlxrunner/mlx/include/mlx/c
+            mlx/generated.h \
+            mlx/generated.c \
+            mlx/include/mlx/c
       - name: Run go generate
         run: go generate ./...
 
@@ -680,7 +488,7 @@ jobs:
         with:
           path: .cache/mlx-darwin-release
           # Key on every payload input so a source-built payload survives pushes.
-          key: mlx-darwin-${{ hashFiles('MLX_VERSION', 'MLX_C_VERSION', 'cmake/local.cmake', 'cmake/apply-git-patches.cmake', 'cmake/mlx/CMakeLists.txt', 'cmake/mlx/CMakePresets.json', 'x/mlxrunner/mlx/CMakeLists.txt', 'mlx/compat/**', 'x/mlxrunner/xgrammar/native/**') }}
+          key: mlx-darwin-${{ hashFiles('MLX_VERSION', 'MLX_C_VERSION', 'cmake/local.cmake', 'cmake/apply-git-patches.cmake', 'cmake/mlx/CMakeLists.txt', 'cmake/mlx/CMakePresets.json', 'mlx/CMakeLists.txt', 'mlx/compat/**', 'mlxrunner/xgrammar/native/**') }}
       - name: Prepare MLX Darwin release payload
         if: ${{ startsWith(matrix.os, 'macos') }}
         run: .github/scripts/prepare_mlx_darwin.sh
