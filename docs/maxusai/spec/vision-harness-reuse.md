@@ -4,8 +4,8 @@ MaxusAI-fork specification. Status: **implemented** — `run_engine_compare.sh`
 carries `REPEATS` / `TAG_PREFIX` / `ONLY_TESTS`, and `summarize_reps.py`
 imports its helpers from `summarize_engine_compare.py`. Written 2026-08-17;
 H15–H18 added 2026-09-19 from the 0.34 fold's kernel investigation
-([ADR 0037](../adr/0037-keep-the-mlx-3912-kernel-fix.md)); H20 added 2026-09-20
-from gating the M5 tensor path
+([ADR 0037](../adr/0037-keep-the-mlx-3912-kernel-fix.md)); H20 and H21 added
+2026-09-20 from gating the M5 tensor path
 ([m5-neural-accelerators.md](../m5-neural-accelerators.md)).
 
 Normative rules for adding to `docs/maxusai/vision-suite/`. The decision and its
@@ -308,8 +308,10 @@ apply", which `release_matrix.effective()` reads as neutral rather than as
 coverage owed. And a check nothing renders is a check nobody reads: a new check
 joins a `release_matrix.GROUPS` column in the same change.
 
-> Measured 2026-09-19/20, gating the M5 tensor path — four defects in one guard,
-> caught before any of them shipped. A hand-written copy of ggml's dummy
+> Measured 2026-09-19/20, gating the M5 tensor path — ten defects in one guard,
+> caught before any of them shipped, six of them by an adversarial review whose
+> own headline diagnosis was itself wrong (it tested `ps -wwE` with a platform
+> binary, the one class macOS hides). A hand-written copy of ggml's dummy
 > `matmul2d` reported `has_tensor:false` on a host where the accelerators were
 > demonstrably working (#338, now extracted from the pinned llama.cpp). An early
 > `metal_tensor_payload` would have run `strings` on the *harness's* filesystem
@@ -318,6 +320,22 @@ joins a `release_matrix.GROUPS` column in the same change.
 > A native run without `--log-cmd` came back ERROR rather than skip. All four put
 > a red mark on a healthy build; the third, read the other way, would also have
 > stayed green on a server that really had lost the accelerators.
+
+**H21 — A log window is enforced per line, or it is not enforced.** A
+`--log-cmd` template that cannot substitute `{since}` — `cat <serve log>`, the
+only form that works on the native macOS path — returns the WHOLE file, and the
+`since` the caller passed is inert. Anything that reads such a log filters each
+line on its own timestamp, and treats a line whose timestamp will not parse as
+outside the window: cannot-confirm must never read as confirmed. Where a log is
+shared by several servers, the line must also be tied to the one under test.
+
+> Twice, in the same repository, from the same cause. 2026-08-30: a month-old
+> engine-init line satisfied a five-second window and the MLX pin check returned
+> PASS in a run that loaded no model at all. 2026-09-20: the tensor gate's
+> payload half chose among **522** stale `starting llama-server` lines — zero of
+> them in its actual window — and labelled the pick "launched by this run". The
+> fix the first incident shipped was in `mlx_build`'s docstring, three functions
+> away from the second, and was read before the second was written.
 
 **H8 — Check the inventory first.** `vision-suite/README.md` §Files lists every
 script and what it does. Read it before adding a script or a helper. Three
@@ -508,3 +526,4 @@ before asserting what two checkpoints have in common.
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |
 | H19 | `summarize_extbench.py --categories` prints a slice's question-type split from the cached row file (`test_summarizers.py`); `extbench.py` caches that file per `(offset, limit)` so the rows a run answered are recoverable |
 | H20 | `preflight/checks.py` keeps SKIP, FAIL and ERROR distinct per check and names the route in the summary; `test_verdicts.py::TestMetalTensorGate` asserts the toolchain-missing, remote-host, containerised-payload, missing-`--log-cmd` and does-not-apply skips, and `::TestReleaseMatrixTensorColumn` asserts the column renders, goes red, and reads N/A where there is no Metal |
+| H21 | `probes.mlx_build` and `probes.launched_runner_paths` both filter on each line's own slog timestamp and drop unparseable ones; `probes.parse_metal_tensor_discovery` anchors on the port under test; `test_verdicts.py::TestTensorProbeRoutes` asserts the stale-line, untimestamped and newest-wins cases, `::TestMetalTensorGate` the wrong-server anchor |
