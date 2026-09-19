@@ -50,6 +50,21 @@
   The preflight `poison_probe` passes on this build's payload, and no cell here shows the
   signature. `visionServerArgs` also passes `--image-min-tokens 1024`, upstream mtmd's floor
   for Qwen-VL grounding.
+
+  > **Correction (2026-09-19).** "every tag and quant is covered" is true of this campaign
+  > and false as a general claim, and it is corrected here rather than rewritten: all six
+  > cells above ran registry `qwen2.5vl` tags, whose blobs carry
+  > `general.architecture = "qwen25vl"`, so every runner in this document did carry the env
+  > and no measurement here moves. What the sentence over-reached on is coverage beyond the
+  > registry. `general.architecture` records the converter, not the model: llama.cpp's
+  > converter maps Qwen2-VL, Qwen2.5-VL and Qwen2.5-Omni's thinker onto one
+  > `MODEL_ARCH.QWEN2VL`, so a **self-converted** Qwen2.5-VL GGUF says `"qwen2vl"` and the
+  > gate as it stood on 2026-09-13 never fired for it. Verified on a local conversion of
+  > `allenai/olmOCR-2-7B-1025` (text GGUF `"qwen2vl"`, mmproj
+  > `clip.projector_type = "qwen2.5vl_merger"`) and reported the same on community
+  > `richardyoung/olmocr2:7b-q8`. The gate now matches both spellings — see
+  > [the knob doc](qwen25vl-cublas-f32-env.md) for the widened scope and what it costs
+  > genuine Qwen2-VL.
 - **Endpoint / sampling:** `run_engine_compare.sh` defaults — `/api/chat`, think off at
   temperature 0 (ADR 0029), `num_predict` 2200, ladder from `num_ctx` 8192 to 65536, one
   model at a time, cold restart per cell, `OLLAMA_MAX_LOADED_MODELS=1`,
