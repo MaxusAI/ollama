@@ -46,13 +46,19 @@ Establish three things. Guessing any of them wastes a twenty-minute run.
    `mlx-cuda` is declared but has never been measured, and `cpu` is
    unmeasured too; both exit 4 rather than implying a pass. The old names
    (`apple-silicon`, `apple-silicon-mlx`, `apple-silicon-cpu`) still work
-   and print a deprecation line. ROCm is gated at the 0.32.1 base
-   (`docs/maxusai/amd-upgrade-gate.md`) and served from `release/0.32.1-dynres`.
-   Note what the gate does and does not pin: it blocks the 0.32.5 base and its
-   b10091 payload, **not** the compat patches — that lineage carries 002/004/005
-   as adapted backports. So ROCm has the *same patch list* as CUDA over a
-   *different payload*, and its numbers are still not the CUDA ones. Identical
-   patch lists do not imply identical token counts. On a Mac the platform names
+   and print a deprecation line. **ROCm is no longer gated at 0.32.1**: the
+   upgrade gate lifted on 2026-09-19 and gfx1151 now serves `main` like every
+   other platform (`docs/maxusai/amd-upgrade-gate.md`, the 2026-09-19 decision).
+   `release/0.32.1-dynres` is archived as the rollback target, not the serving
+   line. A gfx1151 build on payload b10864 **must** carry
+   `llama/compat/906-revert-hip-integrated-flag.patch` — without it vision
+   output is silently wrong: no crash, no warning, unchanged `prompt_eval_count`,
+   and scene IoU falling to 0.065 on `qwen3.8`. A preflight that passes its
+   plumbing checks on a 906-less gfx1151 build is telling you nothing; that is
+   why the vision probes exist. ROCm now has the *same payload and the same patch
+   list* as CUDA, but its numbers are still not the CUDA ones — the batch ladder
+   resolves differently on an integrated GPU (ADR 0036), so identical builds do
+   not imply identical token counts. On a Mac the platform names
    the serving stack, which version alone cannot: `metal` is the
    llama.cpp path, `mlx-metal` is the MLX-store server (conventionally
    `:11436`, `OLLAMA_MODELS=~/.ollama/models-mlx`).

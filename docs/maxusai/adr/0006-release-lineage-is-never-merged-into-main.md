@@ -1,6 +1,12 @@
 # ADR 0006: `release/0.32.1-dynres` is a maintained lineage, never merged into `main`
 
-- **Status:** accepted 2026-08-02
+- **Status:** accepted 2026-08-02; **the lineage it governs is retired 2026-09-19** —
+  the AMD upgrade gate lifted and gfx1151 now serves `main`. The *rule* still holds and is
+  what made the retirement clean: because the lineage was never merged, retiring it is a
+  decision to stop building from it, not a history to untangle. `release/0.32.1-dynres`
+  stays buildable as the rollback target named in the gate's 2026-09-19 decision; archived
+  is not deleted. Re-read this ADR before creating the next release lineage, not before
+  touching this one.
 - **Date:** 2026-08-02
 - **Deciders:** MaxusAI fork maintainers
 - **Related:** [ADR 0003](0003-vision-image-token-budget-policy.md) (lineage backports take
