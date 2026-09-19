@@ -20,6 +20,29 @@ superseded by this run
 ([vision-0340-mlx3912-fp-qmm-t-kmod32.md](vision-0340-mlx3912-fp-qmm-t-kmod32.md),
 [#312](https://github.com/MaxusAI/ollama/issues/312)).
 
+**Outcome.** The #3912 fix is kept and this build is promoted on the mlx-metal surface —
+[ADR 0037](adr/0037-keep-the-mlx-3912-kernel-fix.md). The measurement rules this campaign
+forced are [SPEC vision-harness-reuse](spec/vision-harness-reuse.md) H15–H18. Committed data,
+assembled from the run captures by script (ADR 0012 rule 8):
+
+- `vision-suite/bench-runs/vision-campaign-2026-09-18-mlx8a7ba949.json` — every cell, both finetext arms
+- `vision-suite/bench-runs/finetext-9px-31b-quant-reps-2026-09-18.json` — the N=10 reps and the both-arm history
+- `vision-suite/bench-runs/ocrbench-v1-1000-gemma4-31b-nvfp4-0340-vs-0332.json` — 1000 paired OCRBench items
+- `vision-suite/preflight/runs/preflight-mlx-metal-0340-8a7ba949.json` — the build's preflight, PASS 19 / SKIP 12
+
+**Checkpoints measured**, identified by manifest digest (SPEC H17 — the config digest is the
+architecture and is shared across quantizations, so it identifies nothing):
+
+| checkpoint | manifest sha256 | config | size |
+|---|---|---|---|
+| `gemma4:12b-nvfp4` | `117d0d84cf2ab865` | `f6127828935e` | 7.1 GiB |
+| `gemma4:26b-nvfp4` | `c8656f50f0a6d864` | `2aacfc93c6bc` | 16.3 GiB |
+| `gemma4:31b-nvfp4` | `637cc0ff15709212` | `b72c5344f12d` | 17.4 GiB |
+| `qwen3.8:27b-nvfp4` | `5642e97495e1a088` | `25a98d24af80` | 16.9 GiB |
+| `qwen3.6:35b-a3b-nvfp4` | `1b50c6fdc2d4f75f` | `2dacb491745b` | 20.4 GiB |
+| `gemma4:31b-mxfp8` (control) | `1434769c1561f4be` | `b14d00cdc9b6` | 31.1 GiB |
+| `gemma4:31b-mlx-bf16` (control) | `fb3f25b3bc8d5d72` | `b72c5344f12d` | 59.2 GiB |
+
 **Scope.** Think-off runs all five nvfp4 tags. Think-on runs only
 `gemma4:31b-nvfp4` and `qwen3.8:27b-nvfp4`, matching the 0.33.2 campaign's
 narrowing so the two remain comparable; the repo convention is to run both modes,
@@ -205,7 +228,7 @@ the larger score effect. **It shows none at all**, on any tier, on any build.
 | build | 9px = 4 | 9px = 3 |
 |---|---|---|
 | `0.33.0` / `0.33.2` (pre-#3912 kernel) | **14** | 0 |
-| `0.34.0` (post-#3912 kernel), campaign captures | **1** | **15** |
+| `0.34.0` (post-#3912 kernel), single captures (campaigns + 2 controls) | **1** | **15** |
 | `0.34.0`, N=10 reps above | **2** | **8** |
 
 A single observation of this cell reports the minority mode roughly one time in

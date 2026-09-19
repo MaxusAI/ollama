@@ -1,0 +1,945 @@
+{
+ "meta": {
+  "purpose": "is the gemma4:31b 9px fine-text tier a readout of vision-encoder correctness? Measure its RATE per quantization on one binary instead of reading one capture.",
+  "date": "2026-09-18",
+  "host": "http://127.0.0.1:11436",
+  "server_version": "0.34.0-maxusai-8a7ba949",
+  "mlx": "0.32.2-61-gd9add9d",
+  "request": {
+   "probe": "finetext_probe.py",
+   "think": false,
+   "num_ctx": 16384,
+   "num_predict": 2200,
+   "temperature": 0,
+   "powermode": "2"
+  },
+  "ground_truth_9px": [
+   "HVA-4828-EN89",
+   "JFR-2880-PW01",
+   "RNK-0391-DW18",
+   "FFW-8248-UJ83"
+  ],
+  "discriminating_code": "RNK-0391-DW18 (misread as RMK-0391-DW18)"
+ },
+ "reps_think_off_N10": {
+  "31b-mlx-bf16": {
+   "composition": {
+    "vision_down_proj": "bf16",
+    "vision_other_projections": "bf16",
+    "language_model": "bf16",
+    "config_digest": "sha256:b72c5344f12daafb8d8706bd78268903363f8d7a30e16b40ffc16bc0e8b8a4c3",
+    "preserved_as": "gemma4:31b-mlx-bf16-tower-bf16",
+    "manifest_digest_prefix": "sha256:fb3f25b3bc8d5d72",
+    "identity_note": "manifest digest identifies the checkpoint; config digest is the architecture and is shared across quantizations"
+   },
+   "reps": [
+    {
+     "rep": 1,
+     "tiers": [
+      4,
+      4,
+      4,
+      4,
+      3
+     ],
+     "recall_9px": 4,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 2,
+     "tiers": [
+      4,
+      4,
+      4,
+      4,
+      3
+     ],
+     "recall_9px": 4,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 3,
+     "tiers": [
+      4,
+      4,
+      4,
+      4,
+      3
+     ],
+     "recall_9px": 4,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 4,
+     "tiers": [
+      4,
+      4,
+      4,
+      4,
+      3
+     ],
+     "recall_9px": 4,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 5,
+     "tiers": [
+      4,
+      4,
+      4,
+      4,
+      3
+     ],
+     "recall_9px": 4,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 6,
+     "tiers": [
+      4,
+      4,
+      4,
+      4,
+      3
+     ],
+     "recall_9px": 4,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 7,
+     "tiers": [
+      4,
+      4,
+      4,
+      4,
+      3
+     ],
+     "recall_9px": 4,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 8,
+     "tiers": [
+      4,
+      4,
+      4,
+      4,
+      3
+     ],
+     "recall_9px": 4,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 9,
+     "tiers": [
+      4,
+      4,
+      4,
+      4,
+      3
+     ],
+     "recall_9px": 4,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 10,
+     "tiers": [
+      4,
+      4,
+      4,
+      4,
+      3
+     ],
+     "recall_9px": 4,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    }
+   ],
+   "9px_per_rep": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+   ],
+   "rate_at_4": "10/10"
+  },
+  "31b-mxfp8": {
+   "composition": {
+    "vision_down_proj": "bf16",
+    "vision_other_projections": "8-bit (162 of 189 projection weights)",
+    "language_model": "8-bit",
+    "config_digest": "sha256:b14d00cdc9b6b44f6be540c7a8c02b03400ab7ef2b317eab91292d9f27205cba",
+    "preserved_as": "gemma4:31b-mxfp8-tower-mxfp8",
+    "manifest_digest_prefix": "sha256:1434769c1561f4be",
+    "identity_note": "manifest digest identifies the checkpoint; config digest is the architecture and is shared across quantizations"
+   },
+   "reps": [
+    {
+     "rep": 1,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      2
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 2,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      2
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 3,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      2
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 4,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      2
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 5,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      2
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 6,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      2
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 7,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      2
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 8,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      2
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 9,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      2
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 10,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      2
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    }
+   ],
+   "9px_per_rep": [
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3
+   ],
+   "rate_at_4": "0/10"
+  },
+  "31b-nvfp4": {
+   "composition": {
+    "vision_down_proj": "4-bit",
+    "vision_other_projections": "4-bit",
+    "language_model": "4-bit",
+    "config_digest": "sha256:b72c5344f12daafb8d8706bd78268903363f8d7a30e16b40ffc16bc0e8b8a4c3",
+    "preserved_as": "gemma4:31b-nvfp4-tower-nvfp4",
+    "manifest_digest_prefix": "sha256:637cc0ff15709212",
+    "identity_note": "manifest digest identifies the checkpoint; config digest is the architecture and is shared across quantizations"
+   },
+   "reps": [
+    {
+     "rep": 1,
+     "tiers": [
+      4,
+      4,
+      4,
+      4,
+      3
+     ],
+     "recall_9px": 4,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 2,
+     "tiers": [
+      4,
+      4,
+      4,
+      4,
+      3
+     ],
+     "recall_9px": 4,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 3,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      3
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 4,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      3
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 5,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      3
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 6,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      3
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 7,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      3
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 8,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      3
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 9,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      3
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    },
+    {
+     "rep": 10,
+     "tiers": [
+      4,
+      4,
+      4,
+      3,
+      3
+     ],
+     "recall_9px": 3,
+     "eval_count": 263,
+     "server_version": "0.34.0-maxusai-8a7ba949"
+    }
+   ],
+   "9px_per_rep": [
+    4,
+    4,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3
+   ],
+   "rate_at_4": "2/10"
+  }
+ },
+ "one_capture_disagreement": {
+  "note": "previous campaign on the same build, same cell, the two finetext arms: byte-identical provenance (prompt_sha 2609dc6cba954ae7, images_sha a1d6d5519519ecb4, window 16384/2200, eval_count 263, answer_chars 351), texts differing by one character",
+  "scores_arm": {
+   "file": "scores_mlx8a7ba9nv1_gemma4_31b-nvfp4_thinkfalse.json",
+   "code": "RNK-0391-DW18",
+   "recall_9px": 4
+  },
+  "probe_arm": {
+   "file": "ft_mlx8a7ba9nv1_gemma4_31b-nvfp4_thinkfalse.json",
+   "code": "RMK-0391-DW18",
+   "recall_9px": 3
+  }
+ },
+ "both_arm_history_31b_nvfp4": {
+  "tally": {
+   "post-#3912": {
+    "9px=4": 1,
+    "9px=3": 15,
+    "other": 0
+   },
+   "pre-#3912": {
+    "9px=4": 14,
+    "9px=3": 0,
+    "other": 0
+   }
+  },
+  "captures": [
+   {
+    "arm": "scores",
+    "file": "scores_ftA1_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     3
+    ],
+    "eval_count": 1469
+   },
+   {
+    "arm": "scores",
+    "file": "scores_ftA2_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     3
+    ],
+    "eval_count": 2125
+   },
+   {
+    "arm": "scores",
+    "file": "scores_ftA3_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     3
+    ],
+    "eval_count": 2120
+   },
+   {
+    "arm": "scores",
+    "file": "scores_ftB1_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.33.2-maxusai-2b95b4a5",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 1588
+   },
+   {
+    "arm": "scores",
+    "file": "scores_ftB2_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.33.2-maxusai-2b95b4a5",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 1588
+   },
+   {
+    "arm": "scores",
+    "file": "scores_ftB3_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.33.2-maxusai-2b95b4a5",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 1588
+   },
+   {
+    "arm": "scores",
+    "file": "scores_mlx0330nv1_gemma4_31b-nvfp4_thinkfalse.json",
+    "server_version": "0.33.0-maxusai-21cfe88e",
+    "sampling_source": "greedy-think-off",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 263
+   },
+   {
+    "arm": "scores",
+    "file": "scores_mlx0330nv1_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.33.0-maxusai-21cfe88e",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 1595
+   },
+   {
+    "arm": "scores",
+    "file": "scores_mlx0332nv1_gemma4_31b-nvfp4_thinkfalse.json",
+    "server_version": "0.33.2-maxusai-2b95b4a5",
+    "sampling_source": "greedy-think-off",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 263
+   },
+   {
+    "arm": "scores",
+    "file": "scores_mlx0332nv1_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.33.2-maxusai-2b95b4a5",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 1588
+   },
+   {
+    "arm": "scores",
+    "file": "scores_mlx8a7ba9nv1_gemma4_31b-nvfp4_thinkfalse.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "greedy-think-off",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 263
+   },
+   {
+    "arm": "scores",
+    "file": "scores_mlx8a7ba9nv1_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     3
+    ],
+    "eval_count": 1536
+   },
+   {
+    "arm": "scores",
+    "file": "scores_mlx8a7ba9v2nv1_gemma4_31b-nvfp4_thinkfalse.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "greedy-think-off",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     3
+    ],
+    "eval_count": 263
+   },
+   {
+    "arm": "scores",
+    "file": "scores_mlx8a7ba9v2nv1_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     2
+    ],
+    "eval_count": 1448
+   },
+   {
+    "arm": "ft",
+    "file": "ft_ftA1_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     2
+    ],
+    "eval_count": 1448
+   },
+   {
+    "arm": "ft",
+    "file": "ft_ftA2_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     2
+    ],
+    "eval_count": 1448
+   },
+   {
+    "arm": "ft",
+    "file": "ft_ftA3_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     3
+    ],
+    "eval_count": 1604
+   },
+   {
+    "arm": "ft",
+    "file": "ft_ftB1_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.33.2-maxusai-2b95b4a5",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 1588
+   },
+   {
+    "arm": "ft",
+    "file": "ft_ftB2_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.33.2-maxusai-2b95b4a5",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 1588
+   },
+   {
+    "arm": "ft",
+    "file": "ft_ftB3_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.33.2-maxusai-2b95b4a5",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 1595
+   },
+   {
+    "arm": "ft",
+    "file": "ft_mlx0330nv1_gemma4_31b-nvfp4_thinkfalse.json",
+    "server_version": "0.33.0-maxusai-21cfe88e",
+    "sampling_source": "greedy-think-off",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 263
+   },
+   {
+    "arm": "ft",
+    "file": "ft_mlx0330nv1_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.33.0-maxusai-21cfe88e",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 1588
+   },
+   {
+    "arm": "ft",
+    "file": "ft_mlx0332nv1_gemma4_31b-nvfp4_thinkfalse.json",
+    "server_version": "0.33.2-maxusai-2b95b4a5",
+    "sampling_source": "greedy-think-off",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 263
+   },
+   {
+    "arm": "ft",
+    "file": "ft_mlx0332nv1_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.33.2-maxusai-2b95b4a5",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     4,
+     3
+    ],
+    "eval_count": 1595
+   },
+   {
+    "arm": "ft",
+    "file": "ft_mlx8a7ba9nv1_gemma4_31b-nvfp4_thinkfalse.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "greedy-think-off",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     3
+    ],
+    "eval_count": 263
+   },
+   {
+    "arm": "ft",
+    "file": "ft_mlx8a7ba9nv1_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     3
+    ],
+    "eval_count": 1591
+   },
+   {
+    "arm": "ft",
+    "file": "ft_mlx8a7ba9v2nv1_gemma4_31b-nvfp4_thinkfalse.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "greedy-think-off",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     3
+    ],
+    "eval_count": 263
+   },
+   {
+    "arm": "ft",
+    "file": "ft_mlx8a7ba9v2nv1_gemma4_31b-nvfp4_thinkon.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     3
+    ],
+    "eval_count": 1447
+   },
+   {
+    "arm": "ft (quantization-control run)",
+    "file": "ft_qctl_31bnvfp4_thinkfalse.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "greedy-think-off",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     3
+    ],
+    "eval_count": 263
+   },
+   {
+    "arm": "ft (quantization-control run)",
+    "file": "ft_qctl_31bnvfp4_thinkon.json",
+    "server_version": "0.34.0-maxusai-8a7ba949",
+    "sampling_source": "card:gemma4+temp0",
+    "tiers": [
+     4,
+     4,
+     4,
+     3,
+     3
+    ],
+    "eval_count": 1363
+   }
+  ],
+  "note": "single captures only: both finetext arms of every campaign/replication cell tagged for gemma4_31b-nvfp4, plus the two quantization-control (qctl) captures. The N=10 reps are reported separately above and are NOT in this tally."
+ },
+ "reading": "bf16 10/10, mxfp8 0/10, nvfp4 2/10. No arm isolates encoder from LM (mxfp8's tower is 8-bit except down_proj). The cell does not order by precision: mxfp8 carries a bf16 down_proj and 8-bit tower+LM yet scores below all-4-bit nvfp4. A metric on which more precision scores worse is not measuring quality."
+}
