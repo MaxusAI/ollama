@@ -12,12 +12,13 @@ install, no HF token, public datasets only):
   chartqa       lmms-lab-encoder/ChartQA test relaxed accuracy (+-5% numeric)
   refcoco       lmms-lab-encoder/RefCOCO val  dialect-aware bbox IoU
 
-Env: LIMIT (default 50), OFFSET (0), THINK=on|false (false), ENDPOINT=generate|chat
+Env: LIMIT (default 50), OFFSET (0), REFRESH_ROWS=1 (re-fetch the cached row
+slice), THINK=on|false (false), ENDPOINT=generate|chat
 (generate), NUM_PREDICT, NUM_CTX (16384), TIMEOUT (900), SLEEP (0 — seconds between
 requests, to yield the GPU on a shared host).
 
 Writes ext_<tag>_<bench>.json (per-item records + summary) beside the script and
-caches images under extimgs/<bench>/.
+caches images and the row slice under extimgs/<bench>/.
 
 The refcoco scorer reuses the dialect logic of vision_suite.py: it searches
 pixel / norm-1000 / norm-0-1 spaces and xyxy / yxyx orders per item and keeps the
@@ -52,13 +53,36 @@ SUFFIX = {
 BBOX_KEYS = ("bbox", "bbox_2d", "box_2d", "box")
 
 
-def http_json(url, timeout=60):
-    req = urllib.request.Request(url, headers={"User-Agent": "maxusai-extbench/1"})
-    return json.load(urllib.request.urlopen(req, timeout=timeout))
+def http_json(url, timeout=60, attempts=4):
+    """GET with retries: a transient DNS or gateway blip must not end a 20-minute arm."""
+    last = None
+    for i in range(attempts):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "maxusai-extbench/1"})
+            return json.load(urllib.request.urlopen(req, timeout=timeout))
+        except Exception as e:                                        # noqa: BLE001
+            last = e
+            if i + 1 < attempts:
+                time.sleep(2 ** i)
+    raise last
+
+
+def rows_cache_path(bench, offset, limit):
+    return os.path.join(DIR, "extimgs", bench, f"rows_{offset}_{limit}.json")
 
 
 def fetch_rows(bench, offset, limit):
-    """HF datasets-server /rows, paged at its 100-row maximum."""
+    """HF datasets-server /rows, paged at its 100-row maximum, cached on disk.
+
+    A slice is a fixed set of items, so it is fetched once and reused: re-fetching per
+    arm re-asks a remote service for an answer that must not change between arms, and
+    makes every arm depend on that service still resolving. Set REFRESH_ROWS=1 to
+    re-fetch (and to notice a dataset that moved under a pinned offset).
+    """
+    path = rows_cache_path(bench, offset, limit)
+    if os.path.exists(path) and os.environ.get("REFRESH_ROWS", "") != "1":
+        with open(path) as f:
+            return json.load(f)
     spec = BENCHES[bench]
     out = []
     while len(out) < limit:
@@ -70,6 +94,12 @@ def fetch_rows(bench, offset, limit):
         if not rows:
             break
         out.extend(r["row"] for r in rows)
+    if len(out) == limit:                    # only a complete slice is worth caching
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(out, f)
+        os.replace(tmp, path)
     return out
 
 
