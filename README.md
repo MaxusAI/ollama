@@ -29,6 +29,11 @@
 > **Deployed:** the same tag, stamped `0.34.1-dynres-0-g8a7ba94`, on the CUDA host since
 > 2026-09-18, with `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` on the container (ADR 0033; see the fold's
 > memory finding in [`docs/maxusai/tasks/upstream-sync-0.34.1.md`](docs/maxusai/tasks/upstream-sync-0.34.1.md)).
+> On the Apple Silicon host the same commit, stamped `0.34.0-maxusai-8a7ba949` by `build-macos.sh`, has
+> served the mlx-metal surface on `:11435` since 2026-09-18, promoted on 2026-09-19 with the MLX #3912
+> kernel fix kept ([ADR 0037](docs/maxusai/adr/0037-keep-the-mlx-3912-kernel-fix.md)). Its launchd
+> environment does **not** yet set `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`, so drafting under a grammar is on
+> there, unlike the CUDA container.
 
 > Fork builds are stamped `<upstream-version>-dynres-<n>-g<sha>`; `dynres`
 > names the change that started the fork, not the company that runs it.
@@ -43,13 +48,22 @@
            --version <fold-version> docs/maxusai/vision-suite/preflight/runs/<full-run>.json
      Feed it the FULL run only: the generator takes the newest run per surface,
      so a later smoke (which deliberately skips probes) would overwrite green
-     cells with "skipped". The release notes carry the same generated matrix. -->
+     cells with "skipped". The release notes carry the same generated matrix.
+
+     For v0.34.1 the rows come from TWO hosts' runs, each generated separately
+     and pasted verbatim: the cuda row from the CUDA host's post-deploy run
+     (not committed), the mlx-metal row from
+       release_matrix.py runs/preflight-mlx-metal-0340-8a7ba949.json
+     (committed). The Metal build stamps 0.34.0-maxusai-<sha> rather than
+     0.34.1-dynres-<n>-g<sha> (ADR 0037, Consequences), so a single
+     `--version 0.34.1-dynres` run would drop it. Regenerating both rows from one
+     command needs the CUDA run committed and the stamps reconciled. -->
 
 | surface | Build identity | Image size ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|
 | **cuda** | green | green | green | green | skipped | green | green | `0.34.1-dynres-0-g8a7ba94` |
 | **mlx-cuda** | not run | not run | not run | not run | not run | not run | not run | — |
-| **mlx-metal** | not run | not run | not run | not run | not run | not run | not run | — |
+| **mlx-metal** | skipped | green | skipped | green | not run | skipped | green | `0.34.0-maxusai-8a7ba949` |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | — |
 | **rocm** | not run | not run | not run | not run | not run | not run | not run | — |
 | **cpu** | not run | not run | not run | not run | not run | not run | not run | — |

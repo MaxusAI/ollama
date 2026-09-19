@@ -2,7 +2,9 @@
 
 MaxusAI-fork specification. Status: **implemented** — `run_engine_compare.sh`
 carries `REPEATS` / `TAG_PREFIX` / `ONLY_TESTS`, and `summarize_reps.py`
-imports its helpers from `summarize_engine_compare.py`. Written 2026-08-17.
+imports its helpers from `summarize_engine_compare.py`. Written 2026-08-17;
+H15–H18 added 2026-09-19 from the 0.34 fold's kernel investigation
+([ADR 0037](../adr/0037-keep-the-mlx-3912-kernel-fix.md)).
 
 Normative rules for adding to `docs/maxusai/vision-suite/`. The decision and its
 evidence are [ADR 0028](../adr/0028-one-runner-one-set-of-helpers.md); report
@@ -249,6 +251,52 @@ identity. The two generations also scored differently (recall_9px 1/4
 against 2/4), which is the measured instance behind ADR 0012 conv. 4's
 think-on non-reproducibility note.
 
+**H15 — One capture of a quality cell is one draw, not a value.** A score or
+size tier that differs between two builds is not attributed to anything until
+its RATE is measured on each: at least ten reps per build, same binary, window
+and power mode, reported as `k/N`. `n = 1` stays right for a campaign's
+survey of quality ([ADR 0012](../adr/0012-benchmark-report-templates.md)); it
+is not enough to conclude that a build moved a cell.
+
+> Measured 2026-09-18: `gemma4:31b-nvfp4`'s 9 px tier read 3 on every 0.34.0
+> capture of one finetext arm, and the move was published as a clean split by
+> build. Ten reps put it at 2/10 reading 4, and the other arm already held a 4.
+> At greedy, temperature 0.
+
+**H16 — Both finetext arms count, and a tally that reads one is half the
+evidence.** Every campaign cell carries two INDEPENDENT fine-text generations:
+`vision_suite.py`'s folded arm (`scores_<tag>.json["finetext"]`) and
+`finetext_probe.py` (`ft_<tag>.json`). Any count over captures reads both, and
+reports disagreement between them as a result rather than resolving it.
+
+The rendered table does NOT show both: `summarize_engine_compare.py` takes
+`scores.get("finetext")` and falls back to `ft_<tag>.json` only when the suite
+arm is absent, so where both exist the second draw is never rendered. H14's
+note recorded the arms disagreeing at think-on; 2026-09-18 extends it to
+think-off at temperature 0. On `0.34.0` one `31b-nvfp4` cell's two arms had
+byte-identical provenance — same `prompt_sha`, `images_sha`, window,
+`eval_count=263` and `answer_chars=351` — and differed by one character,
+`RNK-0391-DW18` against `RMK-0391-DW18`, scoring 4 and 3. In the 2026-09-18
+campaign 2 of 7 cells' arms disagree on a tier. A count of "twelve runs split
+cleanly by build" was published from the `ft_` arm alone and was wrong.
+
+**H18 — A cross-build accuracy claim needs a paired test on many items, and a
+tier move needs the unquantized arm.** Two builds compared on a benchmark are
+compared item by item on the SAME items with an exact McNemar test on the
+discordant pairs — never by diffing two headline accuracies: at 200 items near 85 % the
+standard error of the difference is about 3.4 points, so a real gap needs to be
+roughly seven points before two headline numbers can show it. A unanimous split cannot reach
+significance below six discordant pairs, so a 200-item slice routinely cannot
+answer the question at all. Before a fine-text or recall tier is read as
+evidence about a kernel, pin or quantization, the checkpoint with no
+quantization in the path (`*-mlx-bf16`) is measured on the same binary and
+window.
+
+> Measured 2026-09-18/19: a 200-item OCRBench slice gave 4–0 to the fixed
+> kernel; all 1000 items gave 9–7, p = 0.80. The slice was also
+> unrepresentative (per-chunk accuracy 0.875 … 0.665), so its headline 87.5 %
+> was not the checkpoint's 83.5 %.
+
 ## 3. Before writing anything
 
 **H8 — Check the inventory first.** `vision-suite/README.md` §Files lists every
@@ -389,6 +437,32 @@ something previously hidden:
 - A cell with no `prompt_sha` predates 2026-08-20. Its workload is whatever its
   campaign document says, which is why campaign docs quote the arm and the date.
 
+**H17 — A checkpoint is its manifest digest, not its tag and not its config
+digest.** Registry tags are mutable: the library's current `gemma4:31b-nvfp4`
+carries a bf16 vision tower, while the checkpoint every 0.34 Metal number was
+measured on carries a 4-bit one — 194 vision layers differ (the MLX-CUDA
+session's registry audit, #312), and a pull replaces one with the other under an
+unchanged name.
+
+The **config** digest cannot tell them apart. It is the architecture's
+`config.json`, identical across quantizations of one model: locally
+`31b-nvfp4` and `31b-mlx-bf16` both carry `b72c5344…`. What identifies a
+checkpoint is the sha256 of its **manifest**, which changes when any layer does
+(`31b-nvfp4` `637cc0ff…`, `31b-mxfp8` `1434769c…`, `31b-mlx-bf16`
+`fb3f25b3…`). A campaign document records the manifest digest of every
+checkpoint it measured, and a checkpoint that must stay reproducible is
+preserved under a tag naming its composition before any pull — the copy's
+manifest digest must equal the original's (`gemma4:31b-nvfp4-tower-nvfp4` is
+`637cc0ff…`).
+
+Two checkpoints share a component only when their FULL layer sets match by
+digest. One matching tensor proves one tensor: `31b-mxfp8` and `31b-mlx-bf16`
+share a byte-identical vision `down_proj` blob (digest `4b80a6f9…`), and the
+claim that they share a bf16 tower was published from that tensor alone — 162 of
+the 356 vision layers are 8-bit in `31b-mxfp8`. `quant_dims.py` lists a
+checkpoint's quantized weights; diff the manifests by `name` and `digest`
+before asserting what two checkpoints have in common.
+
 ## 4. Conformance
 
 | requirement | enforced by |
@@ -407,5 +481,9 @@ something previously hidden:
 | H12 | `prompt_sha` / `images_sha` / `prompt_parts` on every score block, written by `client.generate()`; absence marks a pre-2026-08-20 cell |
 | H11 | `host` / `server_version` on every score block, written unconditionally by `client.generate()`; absence marks a pre-2026-08-20 cell |
 | H10 | `client.RETRY_BACKOFF` = 5/15/30s with `_retries` recorded per cell; `test_client.py::TestTransportRetry` asserts a 400 calls `urlopen` exactly once while a 503 retries. `client.evict_others()` polls `/api/ps` until the eviction is observable and returns what it could not evict; `run_engine_compare.sh` calls it before each model when `RESTART_CMD` is absent, `COLD_START=0` opts out |
+| H15 | **Nothing enforces this.** The 2026-09-18 replication (`bench-runs/finetext-9px-31b-quant-reps-2026-09-18.json`) is the worked example of reporting a rate |
+| H16 | **Not enforced, and the renderer works against it:** `summarize_engine_compare.py` renders the suite arm and shows the probe arm only as a fallback. A render that reported both arms, or flagged their disagreement, would enforce it |
+| H17 | Partly: `quant_dims.py` (#316) lists a checkpoint's quantized weights and their K. Nothing records the manifest digest on a score block, and nothing diffs two checkpoints' layer sets; the config digest a reader might reach for instead identifies the architecture, not the checkpoint |
+| H18 | **Nothing enforces this.** `extbench.py` produces per-item records that a paired test can use; `bench-runs/ocrbench-v1-1000-gemma4-31b-nvfp4-0340-vs-0332.json` carries the paired items and the exact McNemar result |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |
 | H15 | `store_audit.py` diffs the store against the registry and `--digests` prints the manifest digest to cite (`test_store_audit.py`); `ocrbench_table.py --categories` prints a slice's question-type split from the cached rows (`test_ocrbench_table.py::TestCategories`) |

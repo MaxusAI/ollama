@@ -491,28 +491,47 @@ same binary and window.
   `0.34.0-maxusai-8a7ba949` / payload `d9add9d1` (post-MLX#3912), `num_ctx=16384`,
   `num_predict=2200`/`8192`, powermode 2:
 
-  | model | vision tower | LM | think-off | think-on |
-  |---|---|---|---|---|
-  | `31b-nvfp4` | nvfp4 | nvfp4 | `[4,4,4,3,3]` | `[4,4,4,3,3]` |
-  | `31b-mxfp8` | **bf16** | mxfp8 | `[4,4,4,3,2]` | `[4,4,4,4,3]` |
-  | `31b-mlx-bf16` | **bf16** | bf16 | `[4,4,4,4,3]` | `[4,4,4,4,3]` |
+  Ten reps per quantization, think-off:
 
-  bf16 — which never enters `QuantizedMatmul` at all — scores **4**, so 4 is the
-  model's answer. nvfp4 on the fixed kernel scores 3; nvfp4 on the *broken*
-  kernel scored 4. The defect was masking an nvfp4 quantization cost, and
-  #3912 did not cost a tier, it stopped hiding one. Twelve runs had split
-  cleanly by build across both think modes, which looked like a robust
-  regression and was not one: a deterministic bug reproduces a lucky answer
-  perfectly, so run-to-run consistency says nothing about whether the answer
-  was earned. `vision-0340-mlx3912-fp-qmm-t-kmod32.md` § "The quantization
-  control".
-- **Second trap, same day** — `gemma4:31b-mxfp8` carries a **bf16 vision
-  tower**, not an mxfp8 one: its vision `mlp.down_proj` blob is byte-identical
-  in size to bf16's (`9,916,560 = 1152 × 4304 × 2 + 144`), and only the
-  language model is 8-bit. Treating it as an independent vision quantization
-  would have produced a three-way comparison that was really two-way. It still
-  drops to 3 at think-off, which is the other half of the lesson: **language
-  model quantization alone moves the 9px tier**, so a tier is not a clean
+  | model | vision tower | LM | 9px per rep | rate at 4 |
+  |---|---|---|---|---|
+  | `31b-mlx-bf16` | bf16 | bf16 | `[4,4,4,4,4,4,4,4,4,4]` | **10/10** |
+  | `31b-mxfp8` | **bf16** | 8-bit | `[3,3,3,3,3,3,3,3,3,3]` | **0/10** |
+  | `31b-nvfp4` | nvfp4 | 4-bit | `[4,4,3,3,3,3,3,3,3,3]` | **2/10** |
+
+  bf16 — which never enters `QuantizedMatmul` at all — scores 4 reliably, so 4
+  is the model's answer. nvfp4 on the fixed kernel reaches it 2/10; nvfp4 on the
+  *broken* kernel reached it 14/14. The defect was masking an nvfp4 quantization
+  cost, and #3912 did not cost a tier, it stopped hiding one.
+
+  **None of these three arms isolates the encoder from the language model** —
+  each varies both at once (`31b-mxfp8`'s tower is 8-bit in 162 of 356 vision
+  layers, with only `down_proj` at bf16). What they do establish is that the
+  cell **does not order by numerical precision**: `31b-mxfp8` carries a bf16
+  `down_proj` plus an 8-bit tower and LM and scores 0/10, below the 4-bit
+  `31b-nvfp4`'s 2/10. A metric where more precision scores worse is not
+  measuring quality.
+  `vision-0340-mlx3912-fp-qmm-t-kmod32.md` § "The quantization control".
+- **Correction to this entry's first draft (same day).** It originally read
+  "twelve runs had split cleanly by build across both think modes". That count
+  came from only one of the suite's **two** finetext arms. `vision_suite.py`
+  writes `scores_<tag>.json` and `finetext_probe.py` writes `ft_<tag>.json`, and
+  they are independent generations; the `scores_` arm holds a `0.34.0` capture
+  that scored 4. Counting both arms it is 14/14 on the pre-fix builds against
+  1/16 post-fix, and the N=10 reps above put the post-fix rate at 2/10. The cell
+  is bimodal, not deterministic — **a single capture reports the minority mode
+  roughly one time in eight.** The lesson the entry draws is unchanged; the
+  evidence for it was overstated, by reading one arm and not checking for a
+  second.
+- **Second trap, same day, and I fell into it** — `gemma4:31b-mxfp8`'s vision
+  `mlp.down_proj` blob IS byte-identical to bf16's (`9,916,560 = 1152 × 4304 × 2
+  + 144`, same digest). I read that one tensor and called the whole tower bf16.
+  It is not: 162 of its 356 vision layers are 8-bit, and only `down_proj` was
+  left at bf16. **One tensor does not characterise a tower** — diff the whole
+  layer set, by digest, before claiming two checkpoints share a component. The
+  claim reached two published PR comments and two merged docs before the
+  MLX-CUDA session's registry audit surfaced it. What survives is that a tier is
+  not a clean
   vision-encoder readout in either direction.
 - **Enforced by** — read the blob sizes before believing a tag. `quant_dims.py`
   lists a served model's quantized weights and their K; a tensor the tag claims
