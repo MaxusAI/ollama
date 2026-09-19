@@ -163,11 +163,29 @@ confirmed**, and nothing here should be read as having confirmed it.
 
 ## Follow-ups
 
-1. **Guard the GGUF tensor path.** It is worth 2.14x and fails *silently*: the gate
-   disables itself on a failed runtime compile, logs nothing we can see, and the only
-   symptom is half the prefill. A preflight probe that compiles the same dummy
-   `mpp::tensor_ops::matmul2d` kernel would catch a toolchain or OS regression before
-   a deploy does.
+1. **Guard the GGUF tensor path — `vision-suite/preflight/nax_probe.m`, written for
+   this.** It replicates the gate's own decision (family, `DISABLE`, name allowlist,
+   dummy-kernel compile) in ~100 ms cold and ~2 ms warm, without loading a model, and
+   exits 0/1. On this host:
+
+   ```
+   {"device":"Apple M5 Max","supports_metal4_family":true,"name_allowlisted":true,
+    "dummy_kernel_compiles":true,"pipeline_ms":96.1,"has_tensor":true}
+   ```
+
+   which agrees with the 2.14x measurement by a route that shares nothing with it.
+   `GGML_METAL_TENSOR_DISABLE=1` flips it to `has_tensor:false`, exit 1.
+
+   **The kernel it compiles is copied verbatim from ggml and must stay in sync.**
+   A hand-written reconstruction failed to compile here — wrong descriptor arity,
+   wrong template arguments, a missing `tensor_inline` tag — and would have raised a
+   false alarm against a perfectly healthy host. The file carries the one-liner that
+   re-extracts it from the pinned llama.cpp.
+
+   Still to do: wire it into `preflight.py` as a check, with an expectations field so
+   a host that *should* accelerate and doesn't fails the gate rather than merely
+   printing. Pair it with a `strings` assertion that the built `llama-server` carries
+   `GGML_METAL_HAS_TENSOR`, so the build half is covered too.
 2. **Ask upstream about NAX for `group_size < 64`.** That single change would move the
    whole nvfp4 fleet; ml-explore/mlx#4202 is the thread.
 3. **An ~11% prefill gain is probably not worth a requantisation on its own**, and it
