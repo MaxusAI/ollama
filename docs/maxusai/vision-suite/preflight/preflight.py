@@ -381,7 +381,7 @@ def main():
     # a decision the server made at startup, so waiting would only add delay.
     # The payload half runs after the arch loop -- see below.
     results.append(checks.check_metal_tensor_host(profile, args.host, container))
-    results.append(checks.check_metal_tensor_runtime(profile, container, args.log_cmd))
+    results.append(checks.check_metal_tensor_runtime(profile, args.host, container, args.log_cmd))
     flush()
 
     # Defect-class canary, keyed by profile rather than arch: it loads its own

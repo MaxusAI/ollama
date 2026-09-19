@@ -594,7 +594,7 @@ def nax_probe(env=None, src=None, timeout=180):
 # routes.go logs this once per server start, and discovery runs AFTER it (the
 # order is Listening -> "discovering available GPUs..."), which is what makes it
 # usable as the boundary between this process's discovery and the last one's.
-LISTEN_RE = re.compile(r'msg="Listening on [^"]*"')
+LISTEN_RE = re.compile(r'msg="Listening on (\S+) \(version[^"]*"')
 # discover/runner.go, reached from llm.ShouldRetryWithMetalTensorDisabled. The
 # retry sets GGML_METAL_TENSOR_DISABLE=1 for discovery AND, via
 # recordPersistentRunnerEnv, for every runner this server process later spawns.
@@ -603,51 +603,81 @@ TENSOR_FALLBACK_RE = re.compile(
     re.M)
 
 
-def parse_metal_tensor_discovery(text):
-    """{'anchored': bool, 'window': str, 'fallback': str|None}
+def parse_metal_tensor_discovery(text, port):
+    """{'anchored': bool, 'window': str, 'fallback': str|None, 'ports': [...]}
 
-    Only the CURRENT server process's discovery counts. serve.err.log on the Mac
-    host is 25 MB spanning 69 restarts; searching all of it would attribute a
-    long-dead process's fallback to the build under test — the misattribution
-    parse_load_segments exists to prevent, in a file that is never rotated.
-    Without an anchor there is nothing to attribute to, so `anchored` is False
-    and the caller must skip rather than guess.
+    Only the CURRENT server process's discovery counts, and only the server
+    under test's. serve.err.log on the Mac host is 25 MB spanning 69 restarts of
+    a server that shares the file with nothing — but four ollama servers share
+    the host, an operator names the log by hand, and the anchor taken as "the
+    last Listening on line" would then attribute another server's discovery to
+    the build under test. Worse, being the LAST one, it would put a fallback
+    logged by the server under test OUTSIDE the window and report PASS. The
+    anchor line carries the port; this matches on it.
+
+    Without an anchor for `port` there is nothing to attribute to, so `anchored`
+    is False and the caller must skip rather than guess. `ports` is what the log
+    did contain, so the skip can say what it found instead.
     """
-    anchors = list(LISTEN_RE.finditer(text or ""))
+    anchors, ports = [], []
+    for m in LISTEN_RE.finditer(text or ""):
+        seen = m.group(1).rpartition(":")[2]
+        if seen not in ports:
+            ports.append(seen)
+        if seen == str(port):
+            anchors.append(m)
     if not anchors:
-        return {"anchored": False, "window": "", "fallback": None}
+        return {"anchored": False, "window": "", "fallback": None, "ports": ports}
     window = text[anchors[-1].end():]
     m = TENSOR_FALLBACK_RE.search(window)
-    return {"anchored": True, "window": window,
+    return {"anchored": True, "window": window, "ports": ports,
             "fallback": m.group(0).strip() if m else None}
 
 
-def metal_tensor_discovery(container, log_cmd=None):
+def metal_tensor_discovery(container, port, log_cmd=None):
     """parse_metal_tensor_discovery over the WHOLE log — deliberately unwindowed.
 
     Discovery happens at server start, which is before any preflight window
-    opens; a `since` here would reliably return nothing. The anchor is what
-    bounds it instead.
+    opens; a `since` here would reliably return nothing. The anchor for this
+    server's own port is what bounds it instead.
     """
-    return parse_metal_tensor_discovery(container_logs(container, 0, log_cmd))
+    return parse_metal_tensor_discovery(container_logs(container, 0, log_cmd), port)
 
 
 def launched_runner_paths(container, since_epoch, log_cmd=None):
-    """The llama-server executables this window's runner launches actually ran,
-    in log order, deduped.
+    """The llama-server executables THIS window's runner launches ran, oldest
+    first.
 
-    This is the only route that cannot name the wrong binary: it is the path the
-    server itself printed. A path containing a space would split wrongly here —
-    the Go side logs an unquoted command line, so there is nothing better to
-    parse, and the fallback in checks.py covers the case where this finds none.
+    THE WINDOW IS ENFORCED HERE, per line, for the reason mlx_build's docstring
+    already records: `cat <serve log>` — the only --log-cmd form that works on
+    the native macOS path — cannot substitute {since}, so container_logs returns
+    the whole file, 69 restarts of it. Trusting it unfiltered means inspecting a
+    binary some earlier run launched, since archived by the deploy flow, and
+    labelling it "launched by this run".
+
+    A launch whose timestamp will not parse is treated as OUTSIDE the window:
+    cannot-confirm must never read as confirmed. A path containing a space would
+    split wrongly — the Go side logs an unquoted command line, so there is
+    nothing better to parse, and checks.py falls back to the listening
+    executable when this finds nothing.
     """
-    out, seen = [], set()
-    for m in LAUNCH_RE.finditer(container_logs(container, since_epoch, log_cmd)):
-        cmd = m.group(1).split()
-        if not cmd or cmd[0] in seen:
+    out = []
+    for line in container_logs(container, since_epoch, log_cmd).splitlines():
+        m = LAUNCH_RE.search(line)
+        if not m:
             continue
-        seen.add(cmd[0])
-        out.append(cmd[0])
+        cmd = m.group(1).split()
+        if not cmd:
+            continue
+        t = SLOG_TIME_RE.search(line)
+        if not t:
+            continue
+        try:
+            when = datetime.datetime.fromisoformat(t.group(1)).timestamp()
+        except ValueError:
+            continue
+        if when >= since_epoch:
+            out.append(cmd[0])
     return out
 
 
@@ -683,20 +713,23 @@ TENSOR_ENV_VARS = ("GGML_METAL_TENSOR_DISABLE", "GGML_METAL_TENSOR_ENABLE")
 
 
 def server_env(port):
-    """The environment of the process listening on <port>, or None when it
-    cannot be read.
+    """The environment of the process listening on <port>, or None when macOS
+    will not show it.
 
-    None and {} are NOT the same answer and the caller must not collapse them:
-    `ps -wwE` prints no environment at all for another user's process, which
-    would otherwise read as "the server has nothing set" — a false green about
-    the one variable that turns the accelerators off. A process with a genuinely
-    empty environment does not occur, so no tokens means no access.
+    `ps -wwE` prints argv and the environment run together with no delimiter, so
+    the environment is recovered as the SUFFIX after the same process's plain
+    `command=`. Harvesting every =-bearing token instead reads argv as
+    environment — `sh -c 'OLLAMA_HOST=... ollama serve'` is enough — and that is
+    worse than failing: it makes an unreadable environment look readable, so the
+    caller confidently DELETES the variables it was supposed to honour.
 
-    darwin-only, like local_listener_exe: Linux `ps e` has the same shape but
-    this is only reached for a Metal profile.
+    None and {} are NOT the same answer and the caller must not collapse them.
+    The kernel hides the environment of PLATFORM binaries (`codesign -dv` prints
+    "Platform identifier"), which is why `ps -wwE` on /bin/sleep shows nothing
+    while an ollama server — an ordinary ad-hoc signed binary — shows all of it.
+    Measured on macOS 26.6.2, both cases.
     """
-    pid_exe = local_listener_exe(port)
-    if not pid_exe:
+    if not local_listener_exe(port):
         return None
     try:
         pids = subprocess.run(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
@@ -704,12 +737,18 @@ def server_env(port):
         pid = (pids.stdout or "").split()
         if not pid:
             return None
-        ps = subprocess.run(["ps", "-wwE", "-p", pid[0]], capture_output=True,
-                            text=True, errors="replace", timeout=30)
+        argv = subprocess.run(["ps", "-p", pid[0], "-ww", "-o", "command="],
+                              capture_output=True, text=True, errors="replace",
+                              timeout=30).stdout.strip()
+        both = subprocess.run(["ps", "-p", pid[0], "-wwE", "-o", "command="],
+                              capture_output=True, text=True, errors="replace",
+                              timeout=30).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return None
+    if not argv or not both.startswith(argv):
+        return None                     # raced, or truncated differently
     env = {}
-    for token in (ps.stdout or "").split():
+    for token in both[len(argv):].split():
         if "=" in token:
             k, v = token.split("=", 1)
             env.setdefault(k, v)
@@ -717,41 +756,58 @@ def server_env(port):
 
 
 def lib_ollama_llama_server(exe):
-    """The llama-server that `exe` would spawn, or None.
+    """The llama-server `exe` would spawn, or None.
 
-    Mirrors ml/path.go libOllamaPathCandidates() for darwin, in its order. Two
-    deliberate differences, both toward refusing rather than guessing:
-    path.go takes the first candidate DIRECTORY that exists and this takes the
-    first that actually holds a llama-server (an empty lib/ollama makes ollama
-    fail to spawn, which every other check already catches); and the two
-    candidates path.go derives from the server's working directory are omitted,
-    because the harness cannot know it.
+    Mirrors ml/path.go libOllamaPathCandidates() for darwin, INCLUDING where it
+    stops: libOllamaPathExists() is os.Stat().IsDir(), so ollama takes the first
+    candidate DIRECTORY that exists and looks no further. Walking past an empty
+    lib/ollama to find some other llama-server would report on a binary ollama
+    would never load. The returned path may therefore not exist, and the caller
+    is expected to surface that rather than read it as "no tensor kernels".
+
+    EvalSymlinks first, as path.go does: the deploy flow archives binaries and
+    swaps them by name, so searching beside the symlink is searching the wrong
+    directory. The two candidates path.go derives from the server's working
+    directory are omitted, because the harness cannot know it.
     """
     if not exe:
         return None
-    d = os.path.dirname(exe)
+    d = os.path.dirname(os.path.realpath(exe))
     for cand in (os.path.join(d, "lib", "ollama"),
                  os.path.join(d, "..", "lib", "ollama"),
                  os.path.join(d, "build", "lib", "ollama"),
                  os.path.join(d, "dist", "darwin-arm64", "lib", "ollama"),
                  os.path.join(d, "dist", "darwin"),
                  d):
-        path = os.path.normpath(os.path.join(cand, "llama-server"))
-        if os.path.exists(path):
-            return path
+        cand = os.path.normpath(cand)
+        if os.path.isdir(cand):
+            return os.path.join(cand, "llama-server")
     return None
 
 
 def binary_marker_count(path, needle):
     """`strings -a <path> | grep -c <needle>` — how many strings in a compiled
-    artefact contain <needle>. Same idiom as grep_binary_marker, and the same
-    caveat: this is a BUILD-side fact. It says the payload carries the tensor
-    kernels, never that the host will run them."""
+    artefact contain <needle>.
+
+    Raises ProbeError when the artefact cannot be read at all. `grep -c` prints
+    0 on empty input and the `|| true` swallows the exit status, so a missing
+    file, a missing `strings`, or a path the deploy flow has since archived
+    would otherwise all count as zero — reported as "this payload has no tensor
+    kernels", a FAIL against a healthy build, and the opposite of what the host
+    check does with a missing toolchain.
+
+    Same caveat as grep_binary_marker: this is a BUILD-side fact. It says the
+    payload carries the kernels, never that the host will run them.
+    """
+    if not os.path.exists(path):
+        raise ProbeError(f"no llama-server at {path}")
     cmd = ("strings -a " + shlex.quote(path) + " | grep -c -- "
            + shlex.quote(needle) + " || true")
     proc = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True,
-                          timeout=300)
+                          errors="replace", timeout=300)
+    if proc.stderr.strip():
+        raise ProbeError(f"strings failed on {path}: {proc.stderr.strip()[:200]}")
     digits = re.findall(r"\d+", proc.stdout or "")
     if not digits:
-        raise ProbeError(f"no count from strings|grep: {(proc.stdout + proc.stderr)[:300]!r}")
+        raise ProbeError(f"no count from strings|grep: {(proc.stdout)[:200]!r}")
     return int(digits[0])

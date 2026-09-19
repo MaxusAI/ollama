@@ -186,9 +186,11 @@ def check_patch_marker(profile, container, exec_cmd=None):
 #            recordPersistentRunnerEnv). One WARN at startup, then half the
 #            prefill for the life of the process.
 #
-# All three read nothing but `expect_metal_tensor_api` from the profile, and all
-# three skip loudly when it is absent — a profile that has not declared what it
-# was measured with is not silently passed.
+# All three are gated on `expect_metal_tensor_api` and skip loudly when it is
+# absent — a profile that has not declared what it was measured with is not
+# silently passed. They read one other field, `platform`, and only to tell the
+# two silences apart: a cuda profile has no Metal tensor API to lose, and
+# telling its operator to add the field would be wrong advice.
 
 LOCAL_HOSTNAMES = {"127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"}
 TENSOR_UNDECLARED = (
@@ -198,8 +200,14 @@ TENSOR_UNDECLARED = (
 
 
 def local_port(host):
-    """The port, when `host` names THIS machine; None otherwise. Same crude
-    split preflight.py already uses to find the container by port."""
+    """The port, when `host` names THIS machine; None otherwise.
+
+    Deliberately not preflight.py's `rsplit(":", 1)[-1].split("/")[0]`, which
+    only wants a port and does not care whose: this also has to reject a host
+    that is not us, so it keeps the hostname. The two disagree on a URL carrying
+    a path — preflight reads 11437 from http://127.0.0.1:11437/api, this reads
+    nothing — and a skip is the right answer to a --host the rest of the harness
+    would also mis-parse."""
     hostname, sep, port = (host or "").rstrip("/").rsplit("/", 1)[-1].rpartition(":")
     if not sep or not port.isdigit():
         return None
@@ -210,7 +218,38 @@ def local_port(host):
 # three checks are not a coverage gap to be closed but a question that does not
 # arise, and the phrase is load-bearing: release_matrix.effective() reads "does
 # not apply" as N/A, which is neutral in a column instead of dragging it down.
-METAL_PLATFORMS = {"metal", "mlx-metal", "apple-silicon", "apple-silicon-mlx"}
+# The profile's own `platform` field, not a --platform argument: preflight.py's
+# PLATFORM_ALIASES rewrites the deprecated apple-silicon* spellings before any
+# profile resolves, so a profile dict can only ever carry these two.
+METAL_PLATFORMS = {"metal", "mlx-metal"}
+
+
+def _tensor_local_ollama(name, host, container, expected):
+    """(port, exe, skip). The three checks that touch this machine share one
+    precondition: the thing listening on `host` is a NATIVE, LOCAL ollama.
+
+    The ssh case is why the executable is checked and not just the address:
+    `ssh -L 11437:localhost:11437 remote` makes a remote server answer on
+    127.0.0.1, and both routes would then describe this laptop — nax_probe its
+    GPU, lib_ollama_llama_server ssh's own directory."""
+    port = local_port(host)
+    if container or not port:
+        return None, None, result(
+            name, SKIP, f"{host} is not a native server on this machine",
+            expected=expected,
+            diagnosis="nax_probe measures the machine the harness runs on, and "
+                      "the payload and environment are read from the process "
+                      "listening on that port. For a remote or containerised "
+                      "server all three would describe something else.")
+    exe = local_listener_exe(port)
+    if exe and "ollama" not in os.path.basename(exe):
+        return port, exe, result(
+            name, SKIP, f"the process listening on :{port} is {exe}, not ollama",
+            expected=expected,
+            diagnosis="A forwarded port (ssh -L) answers on 127.0.0.1 while the "
+                      "server is elsewhere. Measuring this machine would answer "
+                      "about the wrong one.")
+    return port, exe, None
 
 
 def _tensor_undeclared(name, profile):
@@ -244,16 +283,10 @@ def check_metal_tensor_host(profile, host, container=None):
     undeclared = _tensor_undeclared("metal_tensor_host", profile)
     if undeclared:
         return undeclared
-    port = local_port(host)
-    if container or not port:
-        return result("metal_tensor_host", SKIP,
-                      f"{host} is not a native server on this machine",
-                      expected=expected,
-                      diagnosis="nax_probe measures the machine the harness runs "
-                                "on, and the environment it reads belongs to the "
-                                "process listening on that port. For a remote or "
-                                "containerised server both would describe "
-                                "something else, so it is not run at all.")
+    port, _exe, skip = _tensor_local_ollama("metal_tensor_host", host, container,
+                                            expected)
+    if skip:
+        return skip
     if sys.platform != "darwin":
         return result("metal_tensor_host", SKIP,
                       f"{sys.platform} has no Metal tensor API", expected=expected)
@@ -262,10 +295,14 @@ def check_metal_tensor_host(profile, host, container=None):
     # variables, not the operator's. A variable the server does not have is
     # deleted rather than inherited, or an export in the operator's shell would
     # report every server on the box as degraded.
+    # An unreadable environment is NOT a reason to fall back on the operator's:
+    # the m5 doc's own A/B has them export GGML_METAL_TENSOR_DISABLE=1, and
+    # inheriting it would fail a healthy host from that shell. Both variables
+    # are cleared instead, so the answer is about the machine and says so.
     env = server_env(port)
-    overlay = {v: env.get(v) for v in TENSOR_ENV_VARS} if env is not None else None
+    overlay = {v: (env or {}).get(v) for v in TENSOR_ENV_VARS}
     whose = ("the server's environment" if env is not None
-             else "the harness's environment (the server's could not be read)")
+             else "no tensor variables (the server's environment could not be read)")
     try:
         probe = nax_probe(env=overlay)
     except ProbeError as exc:
@@ -314,24 +351,19 @@ def check_metal_tensor_payload(profile, host, container, since, log_cmd=None):
     undeclared = _tensor_undeclared("metal_tensor_payload", profile)
     if undeclared:
         return undeclared
-    port = local_port(host)
-    if container or not port:
-        # `strings` runs on the HARNESS host. A path the server printed from
-        # inside a container either does not exist here or, worse, exists and
-        # belongs to something else — a confident answer about the wrong file.
-        # README.md's "the payload proof never inspects the binary" is about
-        # exactly this, and the images carry no `strings` anyway.
-        return result("metal_tensor_payload", SKIP,
-                      "the payload is not on the machine running the harness",
-                      expected=expected,
-                      diagnosis="This half reads the binary directly, so it only "
-                                "answers for a server on this host. For a remote "
-                                "or containerised one, run the harness there.")
+    # `strings` runs on the HARNESS host, so a path the server printed from
+    # inside a container either does not exist here or, worse, exists and
+    # belongs to something else. README.md's "the payload proof never inspects
+    # the binary" is about exactly this, and the images carry no `strings`.
+    port, exe, skip = _tensor_local_ollama("metal_tensor_payload", host, container,
+                                           expected)
+    if skip:
+        return skip
     launched = launched_runner_paths(container, since, log_cmd) if log_cmd else []
     if launched:
         path, route = launched[-1], "launched by this run"
     else:
-        path = lib_ollama_llama_server(local_listener_exe(port))
+        path = lib_ollama_llama_server(exe)
         route = f"resolved from the executable listening on :{port}"
     if not path:
         return result("metal_tensor_payload", SKIP,
@@ -350,16 +382,21 @@ def check_metal_tensor_payload(profile, host, container, since, log_cmd=None):
             "metal_tensor_payload", FAIL,
             f"{path} carries {count} {TENSOR_MARKER} strings ({route})",
             expected=expected, actual=count,
-            diagnosis="0 means this payload has no Metal tensor kernels to "
-                      "enable: a llama.cpp older than b10864, or one built "
-                      "without the Metal 4 source. The host probe cannot see "
-                      "this — it asks whether the MACHINE would use them.")
+            diagnosis=("0 means this payload has no Metal tensor kernels to "
+                       "enable: a llama.cpp older than b10864, or one built "
+                       "without the Metal 4 source."
+                       if expected else
+                       "This profile was measured on a payload with no tensor "
+                       "kernels and this one has them — a llama.cpp move. "
+                       "Re-measure and update the profile deliberately.")
+                      + " The host probe cannot see this either way: it asks "
+                        "whether the MACHINE would use them.")
     return result("metal_tensor_payload", PASS,
                   f"{count} {TENSOR_MARKER} strings in {path} ({route})",
                   expected=expected, actual=count, path=path)
 
 
-def check_metal_tensor_runtime(profile, container, log_cmd=None):
+def check_metal_tensor_runtime(profile, host, container, log_cmd=None):
     """Did THIS server process give up on the accelerators at startup?
 
     The one of the three that varies per boot, and the only one caused by our
@@ -381,19 +418,21 @@ def check_metal_tensor_runtime(profile, container, log_cmd=None):
                       "log", expected=expected,
                       diagnosis="Pass --log-cmd 'cat <serve log>' on a native "
                                 "run. Same requirement as mlx_payload_pin.")
+    port = (host or "").rstrip("/").rsplit("/", 1)[-1].rpartition(":")[2]
     try:
-        seen = metal_tensor_discovery(container, log_cmd)
+        seen = metal_tensor_discovery(container, port, log_cmd)
     except Exception as exc:
         return result("metal_tensor_runtime", ERROR, f"could not read logs: {exc}",
                       expected=expected)
     if not seen["anchored"]:
+        found = ", ".join(seen.get("ports") or []) or "none"
         return result("metal_tensor_runtime", SKIP,
-                      "no server-start line in the log; cannot tell this "
-                      "process's discovery from the last one's",
-                      expected=expected,
-                      diagnosis="Pass --log-cmd so the harness can read the "
-                                "server log. Without the anchor a fallback line "
-                                "could belong to any of the restarts in the file.")
+                      f"no server-start line for :{port} in this log "
+                      f"(ports found: {found})", expected=expected,
+                      diagnosis="Without an anchor for the server under test, a "
+                                "fallback line could belong to any restart of "
+                                "any of the servers sharing this host. Point "
+                                "--log-cmd at this server's own log.")
     if seen["fallback"]:
         return result(
             "metal_tensor_runtime", FAIL,

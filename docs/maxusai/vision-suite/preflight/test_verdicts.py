@@ -9,6 +9,7 @@ fail if the diagnosis is ever wired to the shape alone instead of the arch.
     python3 test_verdicts.py
 """
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -1714,7 +1715,9 @@ class TestMetalTensorGate(unittest.TestCase):
           "pipeline_ms": 96.1, "has_tensor": True}
 
     ANCHOR = ('time=2026-09-19T17:44:41.135+10:00 level=INFO source=routes.go:2380 '
-              'msg="Listening on [::]:11435 (version 0.34.0-maxusai-8a7ba949)"\n')
+              'msg="Listening on [::]:11437 (version 0.34.0-maxusai-8a7ba949)"\n')
+    OTHER = ('time=2026-09-19T17:44:41.135+10:00 level=INFO source=routes.go:2380 '
+             'msg="Listening on [::]:11435 (version 0.34.0-maxusai-8a7ba949)"\n')
     DISCOVER = ('time=2026-09-19T17:44:41.136+10:00 level=INFO source=runner.go:60 '
                 'msg="discovering available GPUs..."\n')
     RETRY = ('time=2026-09-19T17:44:41.200+10:00 level=WARN source=runner.go:511 '
@@ -1727,12 +1730,15 @@ class TestMetalTensorGate(unittest.TestCase):
 
     # ---- host: does this machine enable the accelerators at all ----
 
+    ENV = {"PATH": "/usr/bin"}          # a readable environment, nothing set
+
     def host(self, profile=None, host=None, platform="darwin", container=None,
-             server_env={"PATH": "/usr/bin"}, **probe_kw):
+             server_env=ENV, exe="/opt/github/MaxusAI/ollama/ollama", **probe_kw):
         """The platform is pinned because these tests must answer the same on a
         Linux CI runner as on the Mac host — and the check's darwin gate is
         real, so it gets a test of its own rather than a free pass here."""
         with mock.patch("sys.platform", platform), \
+             mock.patch.object(checks, "local_listener_exe", return_value=exe), \
              mock.patch.object(checks, "server_env", return_value=server_env), \
              mock.patch.object(checks, "nax_probe", **probe_kw) as probe:
             r = checks.check_metal_tensor_host(
@@ -1760,13 +1766,28 @@ class TestMetalTensorGate(unittest.TestCase):
         _, probe = self.host(return_value=self.OK, server_env={"PATH": "/usr/bin"})
         self.assertIsNone(probe.call_args.kwargs["env"]["GGML_METAL_TENSOR_DISABLE"])
 
-    def test_an_unreadable_server_environment_is_named_in_the_result(self):
-        """Another user's process: the hardware half of the answer is still
-        good, so it runs — but it must not silently claim to have read an
-        environment it could not."""
+    def test_an_unreadable_server_environment_never_inherits_the_harnesss(self):
+        """The hardware half of the answer is still good, so it runs — but the
+        operator's shell must not stand in for the server's environment. The
+        m5 doc's own A/B has the operator export GGML_METAL_TENSOR_DISABLE=1;
+        inheriting it would fail a healthy host from that shell, and inheriting
+        an exported _ENABLE would mask a real loss. Both variables are cleared,
+        and the result says the environment could not be read."""
         r, probe = self.host(return_value=self.OK, server_env=None)
-        self.assertIsNone(probe.call_args.kwargs["env"])
-        self.assertIn("harness", r["summary"] + (r.get("diagnosis") or ""))
+        self.assertEqual(probe.call_args.kwargs["env"],
+                         {"GGML_METAL_TENSOR_DISABLE": None,
+                          "GGML_METAL_TENSOR_ENABLE": None})
+        self.assertEqual(r["status"], PASS)
+        self.assertIn("could not be read", r["summary"])
+
+    def test_a_listener_that_is_not_ollama_skips(self):
+        """`ssh -L 11437:localhost:11437 remote` makes a REMOTE server answer on
+        127.0.0.1. The probe would then measure this laptop's GPU and call it
+        the server's, and the payload route would resolve ssh's own directory."""
+        r, probe = self.host(return_value=self.OK, exe="/usr/bin/ssh")
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("ssh", r["summary"] + (r.get("diagnosis") or ""))
+        probe.assert_not_called()
 
     def test_host_that_accelerates_passes(self):
         r, _ = self.host(return_value=self.OK)
@@ -1930,10 +1951,11 @@ class TestMetalTensorGate(unittest.TestCase):
 
     # ---- runtime: did THIS server process turn the path off ----
 
-    def runtime(self, log, profile=None):
+    def runtime(self, log, profile=None, host=None):
         with mock.patch.object(probes, "container_logs", return_value=log):
             return checks.check_metal_tensor_runtime(
-                self.PROF if profile is None else profile, None, log_cmd="cat serve.log")
+                self.PROF if profile is None else profile, host or self.LOCAL,
+                None, log_cmd="cat serve.log")
 
     def test_clean_discovery_passes(self):
         r = self.runtime(self.ANCHOR + self.DISCOVER + self.LAUNCH)
@@ -1953,6 +1975,21 @@ class TestMetalTensorGate(unittest.TestCase):
         r = self.runtime(self.ANCHOR + self.RETRY + self.ANCHOR + self.DISCOVER)
         self.assertEqual(r["status"], PASS, r["summary"])
 
+    def test_an_anchor_for_a_different_server_is_not_this_one(self):
+        """Four ollama servers share this host and one launchd log. Anchoring on
+        the last "Listening on" of whatever file the operator names attributes
+        another server's discovery to the build under test — and, because the
+        anchor is the LAST one, a fallback logged by the server under test then
+        falls outside the window and reads PASS. The anchor carries the port;
+        use it."""
+        r = self.runtime(self.ANCHOR + self.RETRY + self.OTHER + self.DISCOVER)
+        self.assertEqual(r["status"], FAIL, r["summary"])
+
+    def test_a_log_naming_only_another_server_skips(self):
+        r = self.runtime(self.OTHER + self.DISCOVER)
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("11437", r["summary"] + (r.get("diagnosis") or ""))
+
     def test_no_listen_anchor_skips(self):
         """Without the anchor there is no way to tell this process's discovery
         from the previous one's, and a guess either way is worse than a skip."""
@@ -1964,7 +2001,8 @@ class TestMetalTensorGate(unittest.TestCase):
         --log-cmd alone; forget it and the check must say "no log source", the
         way mlx_payload_pin does. It reached `docker logs ... None` instead and
         came back ERROR, which fails the whole run on a healthy server."""
-        r = checks.check_metal_tensor_runtime(self.PROF, None, log_cmd=None)
+        r = checks.check_metal_tensor_runtime(self.PROF, self.LOCAL, None,
+                                              log_cmd=None)
         self.assertEqual(r["status"], SKIP, r["summary"])
         self.assertIn("--log-cmd", r["summary"] + r.get("diagnosis", ""))
 
@@ -1987,6 +2025,130 @@ class TestMetalTensorGate(unittest.TestCase):
         self.assertEqual(r["status"], FAIL)
 
 
+class TestTensorProbeRoutes(unittest.TestCase):
+    """The routes the three checks take to their evidence. Each of these was a
+    real defect in this file's first draft, and every one of them fails toward
+    a confident wrong answer rather than a loud one.
+    """
+
+    # ---- server_env: the environment, and nothing but the environment ----
+
+    def ps(self, cmd, both):
+        """`ps -ww -o command=` and `ps -wwE -o command=` for one pid."""
+        calls = []
+
+        def fake_run(argv, **kw):
+            calls.append(argv)
+            out = both if "-wwE" in argv else cmd
+            return subprocess.CompletedProcess(argv, 0, stdout=out + "\n", stderr="")
+
+        with mock.patch.object(probes, "local_listener_exe", return_value="/x/ollama"), \
+             mock.patch.object(probes.subprocess, "run", fake_run):
+            return probes.server_env(11435)
+
+    def test_the_environment_is_the_suffix_after_the_command_line(self):
+        """Captured from this host: ps -wwE prints argv and env run together
+        with no delimiter, so the only safe split is the argv prefix."""
+        cmd = "/opt/github/MaxusAI/ollama/ollama serve"
+        env = self.ps(cmd, cmd + " OSLogRateLimit=64 OLLAMA_HOST=0.0.0.0:11435 "
+                            "GGML_METAL_TENSOR_DISABLE=1")
+        self.assertEqual(env["GGML_METAL_TENSOR_DISABLE"], "1")
+        self.assertEqual(env["OLLAMA_HOST"], "0.0.0.0:11435")
+
+    def test_an_equals_in_the_command_line_is_not_an_environment_variable(self):
+        """`sh -c 'OLLAMA_HOST=... ollama serve'` puts a VAR=VALUE token in
+        argv. Harvesting every =-bearing token would read it as environment —
+        and, worse, make an unreadable environment look readable, which then
+        DELETES the variables the probe was supposed to honour."""
+        cmd = "/bin/sh -c GGML_METAL_TENSOR_DISABLE=1 ollama serve"
+        self.assertIsNone(self.ps(cmd, cmd))
+
+    def test_an_invisible_environment_is_none_not_empty(self):
+        """macOS hides it for platform binaries (codesign 'Platform
+        identifier'), so this is a real state and not a hypothetical. None and
+        {} must not collapse: {} would read as "the server sets nothing"."""
+        self.assertIsNone(self.ps("/bin/sleep 8", "/bin/sleep 8"))
+
+    # ---- launched_runner_paths: the window has to be real ----
+
+    LAUNCH = ('time=%s level=INFO source=llama_server.go:436 '
+              'msg="starting llama-server" cmd="%s --model /m"\n')
+
+    def launched(self, text, since):
+        with mock.patch.object(probes, "container_logs", return_value=text):
+            return probes.launched_runner_paths("c", since, log_cmd="cat serve.log")
+
+    def test_a_launch_from_a_previous_run_is_not_this_runs_binary(self):
+        """`cat <serve log>` cannot apply {since}, so container_logs returns the
+        WHOLE file — 69 restarts of it. mlx_build's docstring records this exact
+        trap costing a PASS from a month-old line; filtering per line on its own
+        slog timestamp is the fix there and here."""
+        old = self.LAUNCH % ("2026-09-19T18:16:04.610+10:00", "/archived/llama-server")
+        new = self.LAUNCH % ("2026-09-20T09:00:00.000+10:00", "/under-test/llama-server")
+        cutoff = datetime.datetime.fromisoformat("2026-09-20T08:00:00+10:00").timestamp()
+        self.assertEqual(self.launched(old + new, cutoff), ["/under-test/llama-server"])
+        self.assertEqual(self.launched(old, cutoff), [])
+
+    def test_an_untimestamped_launch_is_outside_the_window(self):
+        """Cannot-confirm must never read as confirmed."""
+        self.assertEqual(self.launched('msg="starting llama-server" cmd="/x/llama-server"\n',
+                                       1_700_000_000), [])
+
+    def test_the_newest_launch_wins_not_the_first_seen(self):
+        a = self.LAUNCH % ("2026-09-20T09:00:00.000+10:00", "/a/llama-server")
+        b = self.LAUNCH % ("2026-09-20T09:30:00.000+10:00", "/b/llama-server")
+        again = self.LAUNCH % ("2026-09-20T10:00:00.000+10:00", "/a/llama-server")
+        self.assertEqual(self.launched(a + b + again, 0)[-1], "/a/llama-server")
+
+    # ---- binary_marker_count: zero matches is not "cannot read" ----
+
+    def test_an_unreadable_binary_raises_rather_than_counting_zero(self):
+        """`strings missing | grep -c` prints 0 and `|| true` swallows the exit
+        code, so a missing file, a missing `strings`, or a path that has since
+        been archived all read as "this payload has no tensor kernels" — a FAIL
+        against a healthy build, and one that contradicts the host check, which
+        deliberately SKIPs when the toolchain is absent."""
+        with self.assertRaises(probes.ProbeError):
+            probes.binary_marker_count("/no/such/binary", "GGML_METAL_HAS_TENSOR")
+
+    def test_a_real_binary_without_the_marker_counts_zero(self):
+        """The other side of it: zero must still be reachable, or the check
+        could never go red."""
+        self.assertEqual(probes.binary_marker_count("/bin/ls", "GGML_METAL_HAS_TENSOR"), 0)
+
+    # ---- lib_ollama_llama_server: mirror path.go, including where it stops ----
+
+    def test_a_symlinked_executable_resolves_like_ollama_does(self):
+        """ml/path.go EvalSymlinks() before deriving exeDir, and the deploy flow
+        archives binaries and swaps them by name. Searching beside the symlink
+        looks in the wrong directory."""
+        with tempfile.TemporaryDirectory() as d:
+            real = os.path.join(d, "binaries")
+            os.makedirs(os.path.join(real, "lib", "ollama"))
+            open(os.path.join(real, "lib", "ollama", "llama-server"), "w").close()
+            os.makedirs(os.path.join(d, "current"))
+            link = os.path.join(d, "current", "ollama")
+            os.symlink(os.path.join(real, "ollama-0.34"), link)
+            open(os.path.join(real, "ollama-0.34"), "w").close()
+            # realpath, because that is the point: macOS symlinks /var to
+            # /private/var, and ollama resolves before it searches.
+            self.assertEqual(probes.lib_ollama_llama_server(link),
+                             os.path.realpath(os.path.join(real, "lib", "ollama"))
+                             + "/llama-server")
+
+    def test_it_stops_where_ollama_stops_even_if_that_directory_is_empty(self):
+        """libOllamaPathExists() is os.Stat().IsDir(): path.go takes the first
+        existing DIRECTORY and looks no further. Walking past it to find some
+        other llama-server reports PASS about a binary ollama would never load."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "lib", "ollama"))              # empty
+            os.makedirs(os.path.join(d, "build", "lib", "ollama"))
+            open(os.path.join(d, "build", "lib", "ollama", "llama-server"), "w").close()
+            self.assertEqual(probes.lib_ollama_llama_server(os.path.join(d, "ollama")),
+                             os.path.realpath(os.path.join(d, "lib", "ollama"))
+                             + "/llama-server")
+
+
 class TestMetalTensorDiscoveryParse(unittest.TestCase):
     """The log shapes the runtime check stands on, pinned separately so a
     format drift names itself instead of surfacing as a mysterious skip."""
@@ -1994,7 +2156,7 @@ class TestMetalTensorDiscoveryParse(unittest.TestCase):
     def test_anchor_is_the_last_listen_line(self):
         text = ('msg="Listening on [::]:11435 (version a)"\nfirst\n'
                 'msg="Listening on [::]:11435 (version b)"\nsecond\n')
-        d = probes.parse_metal_tensor_discovery(text)
+        d = probes.parse_metal_tensor_discovery(text, "11435")
         self.assertTrue(d["anchored"])
         self.assertIn("second", d["window"])
         self.assertNotIn("first", d["window"])
@@ -2003,11 +2165,12 @@ class TestMetalTensorDiscoveryParse(unittest.TestCase):
         text = ('msg="Listening on [::]:11435 (version a)"\n'
                 'time=t level=WARN msg="retrying llama-server GPU discovery with '
                 'Metal tensor API disabled" error="e" detail="d"\n')
-        d = probes.parse_metal_tensor_discovery(text)
+        d = probes.parse_metal_tensor_discovery(text, "11435")
         self.assertIn('detail="d"', d["fallback"])
 
     def test_no_fallback_is_none_not_empty(self):
-        d = probes.parse_metal_tensor_discovery('msg="Listening on [::]:11435 (version a)"\n')
+        d = probes.parse_metal_tensor_discovery(
+            'msg="Listening on [::]:11435 (version a)"\n', "11435")
         self.assertIsNone(d["fallback"])
 
 

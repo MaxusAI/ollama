@@ -109,6 +109,11 @@ the listening process (`ps -wwE`) and runs `nax_probe` under those, rather than 
 the shell's. It cuts both ways: an operator who exports the variable to test something
 would otherwise have every later preflight report a healthy server as degraded.
 
+macOS shows a process's environment only for ordinary binaries: `ps -wwE` on `/bin/sleep`
+prints none, because it is a platform binary (`codesign -dv` says so), while an ollama
+server — ad-hoc signed — prints all of it. Where it cannot be read the check clears both
+variables rather than falling back on the operator's shell, and says so in its summary.
+
 `preflight.py` now asserts all three halves — host, payload, and this — as
 `metal_tensor_host`, `metal_tensor_payload` and `metal_tensor_runtime`, gated on a
 profile's `expect_metal_tensor_api`, and `release_matrix.py` renders them as one
