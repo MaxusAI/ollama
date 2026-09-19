@@ -50,7 +50,7 @@ and nothing re-pulls on its own.
 
 1. Cite the manifest digest, not the tag, in anything that records a number.
    `python3 vision-suite/store_audit.py --digests gemma4:31b` prints them. This is now
-   [ADR 0037](adr/0037-a-model-is-identified-by-its-manifest-digest.md) and SPEC
+   [ADR 0038](adr/0038-a-model-is-identified-by-its-manifest-digest.md) and SPEC
    `vision-harness-reuse` H15.
 2. Run the audit before trusting a cross-host comparison — the other host may hold a
    different artifact under the same name. That is the first thing the Metal session
@@ -94,7 +94,7 @@ python3 docs/maxusai/vision-suite/store_audit.py gemma4
 
 A host that pulled after the re-publish cannot get the 4-bit tower back: the registry
 serves only the current content, and no other tag carries it. If the Metal host still has
-it, that copy is an archive worth keeping — see [ADR 0037](adr/0037-a-model-is-identified-by-its-manifest-digest.md).
+it, that copy is an archive worth keeping — see [ADR 0038](adr/0038-a-model-is-identified-by-its-manifest-digest.md).
 
 ## What is measured
 

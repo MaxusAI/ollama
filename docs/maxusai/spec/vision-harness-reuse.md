@@ -168,7 +168,7 @@ format nothing enforces; an emitted one cannot drift.
 by what it contains.** Two hosts holding the same tag do not hold the same
 weights: `gemma4:31b-nvfp4` was re-published with a bf16 vision tower while this
 store kept the nvfp4 one — 194 layers different, the config blob identical, and
-`ollama show` silent about all of it (ADR 0037). A number attributed to a tag
+`ollama show` silent about all of it (ADR 0038). A number attributed to a tag
 therefore attributes nothing. `vision-suite/store_audit.py --digests` prints the
 digest to cite, and the same tool run on both hosts is what makes a cross-host
 comparison mean anything.

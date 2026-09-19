@@ -1,4 +1,4 @@
-# ADR 0037: a measured model is identified by its manifest digest, not its tag
+# ADR 0038: a measured model is identified by its manifest digest, not its tag
 
 - **Status:** proposed 2026-09-19. Awaiting Glenn.
 - **Date:** 2026-09-19
