@@ -102,8 +102,9 @@ Rules:
   sources it in a subshell and takes only `VERSION`; the `-maxusai-` native stamp is
   retired. `STAMP_ONLY=1` prints the stamp and builds nothing, which is what
   `test_verdicts.py::TestMetalStampFollowsADR0032` uses to hold the two in lockstep —
-  with `PATH` cut to `/usr/bin:/bin` so the test cannot start a real build even if the
-  knob regresses.
+  with `PATH` a temporary directory holding only `git`, `sed` and `dirname`, so the test
+  cannot start a real build on any host even if the knob regresses. It skips where
+  `build-macos.sh` and `scripts/env.sh` are absent, as on a `preflight/`-only tree.
 - **A fold's builds, on every surface, come after its fold tag.** A Metal build made
   first now stamps `0.34.0-dynres-<n>-g<sha>` for 0.34.1 code, and
   `mlx-metal-0-34-0`'s `version_pattern` refuses it, so the mistake stops at preflight.
