@@ -570,8 +570,18 @@ LIMIT=200 THINK=false SLEEP=1 \
 
 **OCRBench is the right first external benchmark**: 1,000 items at 0.07 GB, ungated,
 judge-free contains-match scoring, and it is the *only* rerunnable benchmark for which one of
-our models has published both-think-modes numbers (nemotron3: 88.3 off / 86.6 on). A 200-item
-slice takes minutes and yields a number comparable to a model card. Add `countbenchqa` (491
+our models has published both-think-modes numbers (nemotron3: 88.3 off / 86.6 on).
+
+> **A 200-item slice is not comparable to a model card, and this paragraph used to say it
+> was.** Measured 2026-09-19: the set is ordered by task, so rows 0–200 are four of its ten
+> categories — regular, irregular, artistic and handwriting recognition, 50 each — with no
+> VQA, key-information extraction, digit strings or handwritten maths. A slice score is an
+> accuracy on the categories it covers and nothing more; published OCRBench numbers are out
+> of 1,000 across all ten. Use the full set, or a stratified window, before setting a number
+> beside a model card, and name the rows either way (SPEC `vision-harness-reuse` H15).
+> `ocrbench_table.py --categories` prints the split. The first ladder run on this slice is
+> [ocrbench-quantisation-ladder.md](ocrbench-quantisation-ladder.md): gemma4:31b across six
+> quantisations, where every arm lands between 0.845 and 0.860 and no pair resolves. Add `countbenchqa` (491
 items, 0.02 GB) when you want a counting check, and `refcoco` when you want to cross-validate
 the bbox scorer against external ground truth.
 

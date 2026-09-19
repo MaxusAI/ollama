@@ -164,6 +164,24 @@ fragments were WRONG about the recommended shape — they showed
 actually uses named coordinate fields. A hand-typed example asserts a wire
 format nothing enforces; an emitted one cannot drift.
 
+**H15 — A reported model is named by its manifest digest, and a slice is named
+by what it contains.** Two hosts holding the same tag do not hold the same
+weights: `gemma4:31b-nvfp4` was re-published with a bf16 vision tower while this
+store kept the nvfp4 one — 194 layers different, the config blob identical, and
+`ollama show` silent about all of it (ADR 0037). A number attributed to a tag
+therefore attributes nothing. `vision-suite/store_audit.py --digests` prints the
+digest to cite, and the same tool run on both hosts is what makes a cross-host
+comparison mean anything.
+
+The second half is the benchmark's own scope. External sets are ordered by
+task, so a `LIMIT`/`OFFSET` window is a stratum, not a sample: OCRBench rows
+0–200 are four of its ten categories — regular, irregular, artistic and
+handwriting recognition — and contain no VQA, key-information extraction,
+digit strings or handwritten maths. A slice result names its rows and its
+categories, and is never called by the benchmark's name alone or set beside a
+published score for the whole set. `ocrbench_table.py --categories` prints the
+split from the cached rows.
+
 **H13 — Report footers derive provenance from the score files, and a MIXED
 footer blocks publication.** T1 and T2 print host(s) and build(s) collected
 from the H11 fields of every file they render. A file that loaded but carries
@@ -389,3 +407,4 @@ something previously hidden:
 | H11 | `host` / `server_version` on every score block, written unconditionally by `client.generate()`; absence marks a pre-2026-08-20 cell |
 | H10 | `client.RETRY_BACKOFF` = 5/15/30s with `_retries` recorded per cell; `test_client.py::TestTransportRetry` asserts a 400 calls `urlopen` exactly once while a 503 retries. `client.evict_others()` polls `/api/ps` until the eviction is observable and returns what it could not evict; `run_engine_compare.sh` calls it before each model when `RESTART_CMD` is absent, `COLD_START=0` opts out |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |
+| H15 | `store_audit.py` diffs the store against the registry and `--digests` prints the manifest digest to cite (`test_store_audit.py`); `ocrbench_table.py --categories` prints a slice's question-type split from the cached rows (`test_ocrbench_table.py::TestCategories`) |

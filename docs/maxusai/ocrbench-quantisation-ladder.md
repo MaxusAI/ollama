@@ -49,7 +49,9 @@ and nothing re-pulls on its own.
 **What to do about it.**
 
 1. Cite the manifest digest, not the tag, in anything that records a number.
-   `python3 vision-suite/store_audit.py --digests gemma4:31b` prints them.
+   `python3 vision-suite/store_audit.py --digests gemma4:31b` prints them. This is now
+   [ADR 0037](adr/0037-a-model-is-identified-by-its-manifest-digest.md) and SPEC
+   `vision-harness-reuse` H15.
 2. Run the audit before trusting a cross-host comparison — the other host may hold a
    different artifact under the same name. That is the first thing the Metal session
    should run below.
@@ -64,6 +66,35 @@ those weights. Whether upstream did it for that reason or for quality, a bf16 to
 sidesteps the whole class of problem.
 
 ---
+
+## Which checkpoint produced the 0.860, and when the Metal number is comparable
+
+The `mlx-cuda` 0.860 came from **this store's `gemma4:31b-nvfp4`, manifest
+`sha256:637cc0ff15709212de4aa694be67e3af5e80533ca538c86ad69c53c511e40840`, pulled
+2026-08-17** (blob mtimes; the manifest was written 00:57 that morning). Its vision tower
+is **4-bit**: `model.vision_tower.encoder.layers.*.mlp.down_proj.linear.weight` is
+2.79 MB per layer, which is nvfp4 for a [1152 × 4304] tensor. bf16 would be 9.92 MB, and
+that is what the library serves under the same tag today
+(`sha256:a22a363052da…`, the separate row in the table below).
+
+**So the Metal 0.875 is comparable to the 0.860 only if the Metal host also holds a
+4-bit tower.** The check is one command on that host:
+
+```bash
+python3 docs/maxusai/vision-suite/store_audit.py gemma4
+```
+
+- `gemma4:31b-nvfp4` listed as **changed, vision ~191, 3.5× — nvfp4 → bf16**: the host
+  holds the 4-bit-tower artifact, the same class as ours, and the numbers are comparable.
+  `--digests` then gives the exact digest to record; if it is `637cc0ff1570…` it is
+  byte-identical to ours.
+- `gemma4:31b-nvfp4` **not listed** (identical to the registry): the host holds the
+  bf16-tower artifact, and its number belongs on the `nvfp4 / bf16 tower` row instead —
+  ours scored 0.850 there, not 0.860.
+
+A host that pulled after the re-publish cannot get the 4-bit tower back: the registry
+serves only the current content, and no other tag carries it. If the Metal host still has
+it, that copy is an archive worth keeping — see [ADR 0037](adr/0037-a-model-is-identified-by-its-manifest-digest.md).
 
 ## What is measured
 
@@ -131,7 +162,7 @@ is nvfp4 too. It is reported as its own row, because it differs from the library
 | nvfp4 / bf16 tower (run 2) | mlx-cuda | `gemma4:31b-nvfp4` (library) | 170 / 200 | **0.850** | 0.025 | 1.5 | 1.5 | 1115 |
 | mxfp8 / bf16 tower (run 1) | mlx-cuda | `gemma4:31b-mxfp8` | 169 / 200 | **0.845** | 0.026 | 1.3 | 1.2 | 1115 |
 | mxfp8 / bf16 tower (run 2) | mlx-cuda | `gemma4:31b-mxfp8` | 169 / 200 | **0.845** | 0.026 | 1.3 | 1.2 | 1115 |
-| bf16 | mlx-cuda | `gemma4:31b-mlx-bf16` | _pulling_ | | | | | |
+| bf16 | mlx-cuda | `gemma4:31b-mlx-bf16` | **not run** — refused admission, see below | | | | | |
 
 **Repeats**
 
@@ -153,6 +184,27 @@ run-to-run movement does not appear at all, which is a stronger control than
 | nvfp4 / nvfp4 tower | nvfp4 / bf16 tower | 0.860 | 0.850 | 3 | 1 | 0.625 | no |
 | nvfp4 / nvfp4 tower | mxfp8 / bf16 tower | 0.860 | 0.845 | 4 | 1 | 0.375 | no |
 | nvfp4 / bf16 tower | mxfp8 / bf16 tower | 0.850 | 0.845 | 1 | 0 | 1.000 | no |
+
+**The MLX bf16 arm did not run: the scheduler refused it, and the reserve is why.**
+Verbatim from the runner, 2026-09-19 07:28:
+
+```
+gpu memory id=0 library=CUDA available="62.7 GiB" free="79.2 GiB" minimum="457.0 MiB" overhead="16.0 GiB"
+Load failed error="model requires 75.0 GiB (weights 59.1 GiB + KV cache 1.4 GiB at num_ctx 8192
++ 14.5 GiB headroom) but only 62.7 GiB are available (after 16.4 GiB overhead)"
+```
+
+Other tenants held 15.8 GiB of the card, and the 16 GiB reserve ([ADR 0034](adr/0034-mlx-admission-prices-the-context-rung.md)
+prices MLX admission as weights + KV + a per-architecture headroom) takes the budget to
+62.7 GiB against a 75.0 GiB ask — short by 12.3 GiB. Lowering `num_ctx` does not close it:
+KV is 1.4 GiB of the 75. It was not forced, because dropping the reserve on a shared card
+to fit one benchmark arm trades other people's work for a row in this table.
+
+It is not impossible, only not now: with the card otherwise idle the same ask is 75.0 GiB
+against about 78.6 GiB available **with the reserve intact**, so the arm runs whenever
+GPU0 is quiet. The GGUF bf16 arm did run, at the same 58 GiB of weights, because
+llama.cpp's admission prices weights + KV without MLX's headroom term — which is worth
+noting on its own: two engines, the same model size, one admitted and one refused.
 
 **Quantising the vision tower costs 39 % of the time per image and buys nothing here.**
 The two `nvfp4` rows share a language model and differ only in the tower: ours is nvfp4,
