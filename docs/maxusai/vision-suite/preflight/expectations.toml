@@ -124,7 +124,17 @@ arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # corroboration: the meter (llama/compat/801) was enabled on the container and
 # reported clean over 33 nodes, so the fp16-accumulate class is now asserted at
 # v.blk.31.ffn_down itself rather than inferred from the decoded text.
-llama_cpp_build = "5d806aa25"   # b10864, v0.34.1 fold 2026-09-17 (b10760 0f3a71be1 before it). Asserted by the fold's preflight before the ladders below are trusted on it
+llama_cpp_build = "391fac164"   # b10969, v0.34.2 fold 2026-09-19 (b10864 5d806aa25 before it). Asserted by the fold's preflight before the ladders below are trusted on it
+# Why this pin moved without the rows below moving with it. The v0.34.2 canary
+# ran with the pin still naming b10864: payload_pin failed, and every check it
+# gates ran anyway and passed on b10969 — all three token ladders 5/5 within
+# +/-2, all three payload proofs, both applicable pinned budgets (gemma4
+# 560 -> 529, nemotron 3328 -> 3270) and all three text baselines (19/19/13).
+# So the ladders were verified against the new payload BEFORE this line was
+# edited, which is the order the check's own message demands; the values are
+# unchanged because the payload did not change them, not because they were
+# made green. Run: preflight-runs/full-0342-canary.{log,json}, image
+# maxusai/ollama:sync-0.34.2 (0.34.1-dynres-26-g3dade56), FAIL=1 PASS=20 SKIP=4.
 # The MLX payload identity. These CUDA images ship `mlx_cuda_v13` beside the
 # llama.cpp payload, so this profile serves BOTH stacks even though its platform
 # is "cuda". It carried no MLX pin until 2026-09-12, so mlx_payload_pin skipped

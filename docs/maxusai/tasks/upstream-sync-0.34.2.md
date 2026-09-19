@@ -9,8 +9,8 @@ Branch `task/upstream-sync-0.34.2`, worktree `claude-scratch/wt-sync0342`.
 | 1, the merge | **done** — `go build` clean, `go vet` clean, `go test` 57 packages ok |
 | 2, docs and paths | **done** — 53 files re-pointed, link check clean |
 | 3, the patch series against b10969 | **done** — 6 of 7 apply clean; 906 retired as obsolete |
-| 4, image build | pending |
-| 5, preflight | pending |
+| 4, image build | **done** — `maxusai/ollama:sync-0.34.2`, 2 h 16 m, rc=0 |
+| 5, preflight | **PASS 21 / SKIP 4** on a canary, after the payload pin moved with evidence |
 | 6, campaigns | pending |
 
 ## What v0.34.2 changes for the fork
@@ -105,6 +105,40 @@ which is exactly what its own header instructed ("Drop this patch when the paylo
 past d4389a4dd92"). The defect it guarded, wrong output past `n_ubatch` on gfx1151, stays
 fixed by upstream's code rather than by ours.
 
+## Gates 4 and 5: the image and the canary (2026-09-19)
+
+**Build**: `maxusai/ollama:sync-0.34.2`, 19:56 → 22:12 (2 h 16 m), rc=0, 5.43 GB, stamp
+`0.34.1-dynres-26-g3dade56`, llama.cpp b10969, MLX `d9add9d1`, MLX-C `ebc88f10`, 222 payload
+files — the same count as the deployed image. Twelve stages hit cache; the MLX stage did
+**not**, despite an unchanged pin, because the stage's cache key covers the source tree and
+this fold moved 300 files. That cost is specific to this fold.
+
+**Preflight on a canary** (`:11530`, GPU0, 16 GiB reserve, never `:11497`):
+
+| run | result |
+|---|---|
+| first, pin still naming b10864 | **FAIL 1 / PASS 20 / SKIP 4** — `payload_pin` only |
+| after moving the pin with evidence | **PASS 21 / SKIP 4**, `VERDICT: PASS` |
+
+The failure was the harness working: it pins the payload every ladder below it was measured
+on and refuses to trust them when it moves. What makes the update honest is the order — the
+pin failed while everything it gates still ran and passed on b10969:
+
+- token ladders 5/5 within ±2 on **all three** arches (nemotron_h_omni, gemma4, qwen35)
+- payload proofs on all three: the fork's budget flags still reach llama.cpp
+- pinned budgets: gemma4 560 → 529, nemotron 3328 → 3270
+- text baselines 19 / 19 / 13, unchanged
+- the qwen2.5vl fp16-accumulate poison probe decodes healthily
+
+So the rows were verified against the new payload *before* the pin line was edited, which
+is the order `payload_pin`'s own message demands, and they are unchanged because b10969 did
+not change them. The four skips are correct: three arches have no aspect-ladder expectation
+recorded, and qwen35's pinned budget is arch-gated away.
+
+Runs: `preflight-runs/full-0342-canary.{log,json}`, `canary-0342{,-rerun}.log`.
+
 ## Next
 
-Gate 4: build the image on the `bigdisk` builder, then preflight and campaigns.
+Gate 6, the campaigns: GGUF and MLX cells against the deployed build, per ADR 0012. Then
+Glenn's calls — the release tag, and whether ADR 0039 (the nvfp4 global-scale
+representation) lands before or after the deploy.
