@@ -110,7 +110,7 @@ temperature (0.0/0.7/1.0) and top_k (0/40/64/None) but, on the published evidenc
 ## Evidence 3 — the failure is stochastic, even at `temperature: 0`
 
 `gemma4:12b-nvfp4`, `finetext`, think-on, same rung, minutes apart. Both paths send
-the *same prompt object* — [vision_suite.py:340](vision-suite/vision_suite.py:340)
+the *same prompt object* — [vision_suite.py:340](vision-suite/vision_suite.py#L340)
 imports it: `from finetext_probe import PROMPT as FINETEXT_PROMPT` — with identical
 `num_predict=28672`, `num_ctx=32768`, `temperature=0`, `format:"json"`, endpoint.
 
@@ -147,7 +147,7 @@ Retracted or fixed after an adversarial audit:
 | claim | status |
 |---|---|
 | "at ~73 tok/s, 122 880 tokens cannot finish in 30 min" | **wrong number.** Measured `gen_tps` is 56.5 → 36.2 min. The conclusion held on a figure that, as written (122880/73 = 28 min), refuted it. |
-| "Measured on … `/api/generate`" | **wrong for the matrix.** [run_engine_compare.sh:126](vision-suite/run_engine_compare.sh:126) sets `ENDPOINT="${ENDPOINT:-chat}"`. Only the hand probes used `generate`. |
+| "Measured on … `/api/generate`" | **wrong for the matrix.** [run_engine_compare.sh:126](vision-suite/run_engine_compare.sh#L126) sets `ENDPOINT="${ENDPOINT:-chat}"`. Only the hand probes used `generate`. |
 | The 5×4 think-on matrix | **withdrawn.** Cells are single observations of a stochastic process (Evidence 3), and `num_predict` varied up to 7× across rows (8 192 → 57 344) — 2.3× between the two `gemma4:12b` rows carrying its central claim — undisclosed. |
 | "gemma4:12b caps on both engines" → "the determining factors are the model and the workload" | **contradicted by its own table.** For `gemma4:12b`, `document_single` capped on GGUF but passed on MLX, and `finetext` did the reverse. |
 | The degenerate-loop transcript as the mechanism for all capped cells | **over-generalized.** Reasoning text was captured for one model, one test, one budget. |
@@ -159,9 +159,9 @@ Retracted or fixed after an adversarial audit:
 
 1. **Sample on-policy for think-on cells.** `temperature: 0` is hardcoded in three
    places with no env knob and no `presence_penalty` anywhere:
-   [vision_suite.py:37](vision-suite/vision_suite.py:37),
-   [finetext_probe.py:111](vision-suite/finetext_probe.py:111),
-   [preflight/probes.py:135](vision-suite/preflight/probes.py:135).
+   [vision_suite.py:37](vision-suite/vision_suite.py#L37),
+   [finetext_probe.py:111](vision-suite/finetext_probe.py#L111),
+   [preflight/probes.py:135](vision-suite/preflight/probes.py#L135).
    Follow the [ADR 0005](adr/0005-per-model-kv-cache-type.md) precedent: per-model
    configuration from each model card rather than one global constant.
 2. **Run n ≥ 3 per think-on cell.** On-policy sampling is stochastic by design, and

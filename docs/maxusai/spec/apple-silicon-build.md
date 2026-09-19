@@ -25,7 +25,7 @@ So: native for speed, container for distribution to other M-family Macs.
 ## The patch mechanism is shared
 
 Both artifacts get the full patch set from one place.
-[`llama/compat/apply-patch.cmake`](../../../llama/compat/apply-patch.cmake) uses
+[`llama/compat/compat.cmake`](../../../llama/compat/compat.cmake) uses
 `file(GLOB_RECURSE)` over `llama/compat/*.patch` and applies the results in
 numeric filename order during llama.cpp's `FetchContent`, wired in by
 [`compat.cmake`](../../../llama/compat/compat.cmake) at
@@ -188,7 +188,7 @@ patch is live.
 | Metal live (native) | `build/lib/ollama` contents; serve logs | `mlx_metal_v4` present, Metal backend selected |
 | Container identity | `docker run --rm <img> --version` | fork version string |
 
-A `FATAL_ERROR` from `apply-patch.cmake` means a patch no longer fits the pinned
+A `FATAL_ERROR` from `compat.cmake` means a patch no longer fits the pinned
 `LLAMA_CPP_VERSION` (currently `b10091`) and must be regenerated — the message says
 so explicitly. Because it is fatal, a build that *completes* has necessarily applied
 every patch. That is the strongest guarantee available, and it is worth more than

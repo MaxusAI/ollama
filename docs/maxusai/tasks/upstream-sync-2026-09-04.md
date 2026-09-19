@@ -651,7 +651,7 @@ every "runner CPU" figure we have quoted. Bumping `MLX_VERSION` past `4452` with
 picks it up; it cannot be a Go-only binary swap because MLX is part of the native payload.
 
 Nothing in those 24 commits touches the prefill matmul kernel, so none of them addresses the
-mixed-input kernel's speed ([the dequant-GEMM task](mlx-prefill-dequant-gemm.md)), and MLX's open
+mixed-input kernel's speed ([the dequant-GEMM work](https://github.com/MaxusAI/ollama/pull/287)), and MLX's open
 Blackwell defects (notably #3879, mxfp4 numerically wrong on sm_120/121/110) are still open.
 
 ### One deliberate divergence to carry into the sync: `runnerRef.LogValue`
