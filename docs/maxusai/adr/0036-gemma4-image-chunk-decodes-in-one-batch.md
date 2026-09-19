@@ -56,6 +56,18 @@ still wins; embedding loads and the constrained-CUDA-without-flash-attention pat
 - The generation batch for gemma4 vision at the 8192 rung is 2048, with `generationBatchSurcharge`'s 2 GiB
   budgeted at admission; on a card without that headroom the batch steps down and the split returns, logged as
   "generation batch below the image chunk".
+- **Measured 2026-09-19 (`../ocrbench-gemma4-quant-ladder.md`): the floor is denied at every
+  quantization on gfx1151, so this ADR is currently inert on the fork's own production hardware.**
+  `gemma4:31b` logged `num_batch=1024 image_chunk_batch=2048` (q4_K_M, `-np 1`), `512` (q8_0 and
+  bf16), and `512` at `-np 2`. Not for want of memory: the scheduler logs `available="95.4 GiB"` of
+  GPU while `availableMemoryForLoad` returns the 31 GiB system figure instead, because its iGPU
+  branch prefers live system memory whenever it is smaller than shared GPU free. That branch's
+  premise — iGPU free memory is "a static or slowly refreshed device baseline" — does not hold on a
+  Strix Halo carve-out, where the 96 GiB is real and not shared with the 31 GiB the host sees. Until
+  that sizing is revisited, the 1.5–1.9× prefill gain above is unavailable on gfx1151 and the split
+  is what ships there. Consequence worth stating explicitly, because it was briefly assumed
+  otherwise: the chunk still exceeds `n_ubatch`, so this ADR does **not** mask the HIP MMQ race and
+  `llama/compat/906-revert-hip-integrated-flag.patch` remains load-bearing for gemma4.
 - gemma4 e2b and e4b decode images causally since llama.cpp #28335, so the split never hurt them; they get the same
   batch because the family and the vision capability are what the scheduler can see, and their compute buffers are small.
 - `nemotron_h_omni`'s ceiling (3328) exceeds the batch ladder; it stays on the context rung, out of scope here.

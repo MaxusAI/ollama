@@ -544,3 +544,39 @@ same binary and window.
   revert a kernel that is wrong on 232722/294912 elements at this shape. Both
   caught only because the bf16 checkpoint was already in the store and took
   ~4 minutes to measure.
+
+### 2026-09-19 — Two accuracies cannot tell "these differ" from "they disagree on coin-flips"
+Aggregate scores on a shared row set throw away the only information that can
+separate a real difference from sampling noise: **which** items each arm got
+right. Reporting 0.855 against 0.845 invites an ordering that the data does not
+support; the paired discordant counts settle it in one line.
+
+- **Evidence** — OCRBench 200 rows, `gemma4:31b` on ROCm/GGUF, one binary
+  `0.34.1-dynres-16649e8c`, think off, `-c 16384 -np 1`
+  (`ocrbench-gemma4-quant-ladder.md`):
+
+  | pair | both ✓ | both ✗ | A only | B only | McNemar exact p |
+  |---|---|---|---|---|---|
+  | q4_K_M vs q8_0 | 168 | 28 | 3 | 1 | 0.625 |
+  | q8_0 vs bf16 | 169 | 31 | 0 | 0 | 1.000 |
+
+  `q8_0` and `bf16` are identical on **every one of the 200 items** — zero
+  discordant pairs — so 8-bit costs nothing here and `q8_0` is a usable stand-in
+  for the unquantized arm on this benchmark. The q4 "lead" is 3 items won and 1
+  lost. At n=200 the 95% interval on 0.855 is ±0.049, so all three arms *and*
+  MLX-Metal's 0.875 sit inside each other's intervals; only the shared row set
+  is sharp, and only for arms we ran ourselves.
+- **The GGUF ladder is flat where the MLX ladder was not.** The 2026-09-18 entry
+  above found nvfp4 and bf16 differing by a 9 px tier on Metal once the kernel
+  was fixed. Same model family, same benchmark family, opposite result — so
+  "quantization is costing us a tier" is a finding about a specific
+  quantization and kernel, never a general property of the checkpoint.
+- **Enforced by** — `summarize_extbench.py --paired` (H7 generator) computes the
+  discordant counts and an **exact** McNemar. Exact, not chi-square: at 3-vs-1
+  the continuity-corrected approximation gives p≈0.317 against the true 0.625,
+  and 0.317 is the kind of number that gets reported as "trending".
+  `test_summarizers.py::TestExtbenchSummary` pins both the exact values and the
+  H13 footer behaviour.
+- **Cost** — none this time, because the paired columns were computed before
+  the numbers were written up. The near-miss is that the first draft of the
+  status report quoted 171 vs 175 across backends as if the gap meant something.

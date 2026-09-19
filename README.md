@@ -105,6 +105,8 @@ decision and its measurements live (`docs/maxusai/`).
 |---|---|---|---|
 | **MLX admission** | weights against free device memory (and, since v0.34.1, a system-memory bound on integrated GPUs) | weights + KV priced at the requested `num_ctx` + a per-architecture headroom; an explicit rung that does not fit is refused, an automatic one is clamped | ADR 0034 |
 | **MLX memory ceiling** | none | `OLLAMA_MLX_MEMORY_LIMIT` and a cache limit, set per runner from the admitted budget | runner knobs |
+| **nvfp4 global scales** | — | held in MLX's `m × 2688` representation and divided back out by every wrapper that applies the scale itself, which is not the identity in float32 (17 of 31b's 191 vision scales move one ulp) | ADR 0039 (proposed) |
+| **model identity in a record** | a tag | the manifest digest: the library re-published `gemma4:*-nvfp4` with bf16 vision towers under unchanged tags and config blobs | ADR 0038 (proposed) |
 | **gemma4 image chunk vs. generation batch (GGUF)** | the batch follows `num_ctx` (1024 above 4096), so a top-rung gemma4 image (up to 1120 tokens) is decoded in two pieces, bidirectional only within each | a gemma4 vision runner starts from the batch rung that holds its image ceiling (2048 at 1120) and steps down only when it does not fit | ADR 0036 |
 | **gemma4 on MLX** | upstream's own vision and audio tower with a fixed per-checkpoint soft-token set, no per-request budget | vision through upstream's `MediaModel` with a per-request budget seam; audio not shipped | ADR 0021 |
 | **media prompts on MLX** | — | prefill chunks span-aligned around image blocks; a late image is refused | ADR 0014 |
