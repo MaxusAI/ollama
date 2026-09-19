@@ -111,11 +111,20 @@ discordant 16   exact McNemar two-tailed p = 0.8036
   `31b-mlx-bf16` `fb3f25b3…`) and preserved under tower-qualified tags
   (`gemma4:31b-nvfp4-tower-nvfp4`, `-mxfp8-tower-mxfp8`, `-mlx-bf16-tower-bf16`), whose manifest digests
   match the originals, so a pull cannot silently replace what was measured.
-- **The build stamps disagree with ADR 0032.** The Metal build script stamps `0.34.0-maxusai-<sha>`; the
-  fold and the CUDA image stamp `0.34.1-dynres-0-g<sha>` for the same commit. `release_matrix.py
-  --version 0.34.1-dynres` would therefore drop the Metal run. Not fixed here; the mlx-metal matrix row
-  is generated from its own run and recorded alongside the CUDA row.
-- **Still open:** the nvfp4 global-scale representation (raw `m` vs `× 2688 / 2688`), which blocks #287
-  and is independent of this decision — the round trip measurably moves the encoder by one f32 ulp on 17
-  of 31b's 191 vision scales and provably does not move the 9 px tier.
+- **The build stamps disagreed with ADR 0032 — resolved 2026-09-19.** The Metal build stamped
+  `0.34.0-maxusai-<sha>` where the CUDA image stamps `0.34.1-dynres-0-g<sha>` for the same commit, so
+  one `--version` could not render both matrix rows. `build-macos.sh` now stamps through
+  `scripts/env.sh`, `mlx-metal-0-34-0` admits both stamps of the deployed build and refuses a fold build
+  made before its tag, `release_matrix.py --version` is repeatable, and the equivalence
+  `0.34.0-maxusai-8a7ba949` ≡ `0.34.1-dynres-0-g8a7ba94` is recorded
+  ([ADR 0032](0032-fork-version-identity-tags-each-upstream-fold.md), 2026-09-19 amendment).
+- **The Metal deploy lacked `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` — resolved 2026-09-19.** The CUDA
+  container carries it (ADR 0033; the fold's finding that drafting under a grammar retains memory without
+  bound). It was added to the launchd environment and the service re-bootstrapped at 17:44:40; the running
+  server's own environment shows it.
+- **Parked 2026-09-19:** the nvfp4 global-scale representation (raw `m` vs `× 2688 / 2688`), and with it
+  #287 (Glenn: "park #287 for now"). Independent of this decision — the round trip moves the encoder by
+  one f32 ulp on 17 of 31b's 191 vision scales and provably does not move the 9 px tier. A proposed ADR on
+  exactly this question, "nvfp4 global scales are stored as the checkpoint multiplier", sits in #323 and is
+  parked with it.
 - **Retirement:** none. This is upstream's fix, carried by the pin, not a fork change.
