@@ -47,3 +47,9 @@ _Nothing pending. `x/structured` moved to "Already retired" below on 2026-09-17.
 - ADR 0007 (gemma4 default budget 560) — superseded by ADR 0008.
 - The integrated-GPU admission bound — upstream's, absorbed into `admit()` in the 0.34.1 fold.
 - gemma4's default image-token limits — upstream adopted 70/1120 in b10864; our flags still pass them, per request.
+- **compat patch 906** (revert of "restore `prop.integrated` on HIP builds") — retired in the v0.34.2 fold. The patch
+  carried upstream llama.cpp's own revert `d4389a4dd92`, which our b10864 payload missed by 78 minutes; b10969 ships
+  it, so the source already reads `info.devices[id].integrated = false` and the patch no longer applies. Dropping it
+  on that evidence is what the patch's own header asked for: "Drop this patch when the payload advances past
+  d4389a4dd92." The defect it guarded — an MMQ tile-barrier race on gfx1151 producing wrong output past `n_ubatch`,
+  measured here as gemma4:31b `name_bbox_mean_iou` 0.728 → 0.000 at the 1120 budget — stays fixed by upstream's code.

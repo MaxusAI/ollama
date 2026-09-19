@@ -8,7 +8,7 @@ Branch `task/upstream-sync-0.34.2`, worktree `claude-scratch/wt-sync0342`.
 |---|---|
 | 1, the merge | **done** — `go build` clean, `go vet` clean, `go test` 57 packages ok |
 | 2, docs and paths | **done** — 53 files re-pointed, link check clean |
-| 3, the patch series against b10969 | pending |
+| 3, the patch series against b10969 | **done** — 6 of 7 apply clean; 906 retired as obsolete |
 | 4, image build | pending |
 | 5, preflight | pending |
 | 6, campaigns | pending |
@@ -87,8 +87,24 @@ as written, because there is nowhere to point them. The link checker reports zer
 relative links introduced by this fold; the 43 in `docs/design/gemma4-vision-token-budgets.md`
 use an `ollama/`-prefixed convention and were already broken on main.
 
+## Gate 3: the patch series against b10969
+
+Dry-run with plain `git apply --check` on a b10969 checkout before building anything, per
+the lesson the 0.34.1 fold learned the expensive way.
+
+| patch | result |
+|---|---|
+| 001 hooks, 002 nemotron-dynres, 004 gemma4 budget-fill, 005 dynres pinned overshoot | apply clean |
+| 801 clip node-stats meter, 903 MMQ ids padding | apply clean |
+| **906 revert HIP integrated flag** | **does not apply — and should not** |
+
+906 carried upstream's own revert `d4389a4dd92`, which our b10864 payload missed by 78
+minutes. b10969 ships it: the source already reads `info.devices[id].integrated = false`
+and no HIP-conditional assignment remains, so the patch is redundant and is retired here —
+which is exactly what its own header instructed ("Drop this patch when the payload advances
+past d4389a4dd92"). The defect it guarded, wrong output past `n_ubatch` on gfx1151, stays
+fixed by upstream's code rather than by ours.
+
 ## Next
 
-Gate 3 first: apply the seven `llama/compat` patches to b10969 with plain `git apply`
-before building anything ([[moved-pin-check-the-patch-series-on-a-checkout-first]] — the
-0.34.1 fold lost a build to skipping this).
+Gate 4: build the image on the `bigdisk` builder, then preflight and campaigns.
