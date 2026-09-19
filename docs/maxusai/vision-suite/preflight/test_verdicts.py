@@ -1503,24 +1503,34 @@ class TestMetalStampFollowsADR0032(unittest.TestCase):
         """One definition of the stamp. STAMP_ONLY=1 prints the version and exits
         before any build, so this costs a `git describe`, not an MLX compile.
 
-        PATH is cut to /usr/bin:/bin — git, but no cmake and no go — so this test
-        CANNOT start a real build, whatever state the script is in. Its first
-        draft could: run before STAMP_ONLY existed, it launched cmake and an MLX
-        compile. A test that builds the product when the code under test is
-        missing is a test whose red state is dangerous."""
+        PATH is a temporary directory holding only git, sed and dirname — all the
+        script touches before STAMP_ONLY exits — so this test CANNOT start a real
+        build on any host, whatever state the script is in. Its first draft could:
+        run before STAMP_ONLY existed, it launched cmake and an MLX compile. A test
+        whose red state builds the product is a hazard; this one's exits 127."""
+        import shutil
         repo = pathlib.Path(__file__).resolve().parents[4]
         script = repo / "docs/maxusai/vision-suite/build-macos.sh"
+        if not (script.exists() and (repo / "scripts/env.sh").exists()):
+            self.skipTest("release lineages ship preflight/ alone (CI's 'preflight/ "
+                          "alone' step); build-macos.sh and scripts/env.sh are outside it")
+        tools = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tools, True)
+        for tool in ("git", "sed", "dirname"):
+            found = shutil.which(tool)
+            if not found:
+                self.skipTest(f"{tool} is not on PATH")
+            os.symlink(found, os.path.join(tools, tool))
         env = {k: v for k, v in os.environ.items() if k != "VERSION"}
-        env["PATH"] = "/usr/bin:/bin"
-        got = subprocess.run(["sh", str(script)], cwd=repo, capture_output=True, text=True,
-                             env={**env, "STAMP_ONLY": "1"}, timeout=60)
+        env["PATH"] = tools
+        got = subprocess.run(["/bin/sh", str(script)], cwd=repo, capture_output=True,
+                             text=True, env={**env, "STAMP_ONLY": "1"}, timeout=60)
         self.assertEqual(got.returncode, 0, got.stderr)
-        want = subprocess.run(["sh", "-c", '. scripts/env.sh >/dev/null 2>&1; printf %s "$VERSION"'],
+        want = subprocess.run(["/bin/sh", "-c", '. scripts/env.sh >/dev/null 2>&1; printf %s "$VERSION"'],
                               cwd=repo, capture_output=True, text=True, env=env, timeout=60).stdout
         self.assertTrue(want, "env.sh produced no VERSION")
         self.assertEqual(got.stdout.strip(), want)
         self.assertNotIn("-maxusai-", got.stdout)
-
 
 class TestReleaseMatrixEquivalentStamps(unittest.TestCase):
     """A release matrix filters runs by version prefix, and ADR 0032 records
