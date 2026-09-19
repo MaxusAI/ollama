@@ -21,6 +21,14 @@ scores_*.json
 scores_*.json.*.tmp
 scores_*.json.corrupt
 ext_*.json
+# ...except the arms a published table cites. Those are committed, so the table
+# re-renders from the repo alone:
+#     ocrbench_table.py --dir bench-runs/ocrbench "label=<tag>"
+# Score files elsewhere stay run output. Dataset ROWS are deliberately not
+# committed — `--categories` reads extbench's local row cache, so it needs a
+# fetch on the host rendering it, and this repo does not redistribute the
+# benchmark's content.
+!bench-runs/ocrbench/ext_*_ocrbench.json
 __pycache__/
 ft_*.json
 
