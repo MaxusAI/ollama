@@ -1,0 +1,2429 @@
+{
+ "summary": {
+  "tag": "ocr31b_metal_bf16_r2",
+  "model": "gemma4:31b-mlx-bf16-tower-bf16",
+  "benchmark": "ocrbench",
+  "dataset": "echo840/OCRBench",
+  "split": "test",
+  "offset": 0,
+  "requested": 200,
+  "scored": 200,
+  "errors": 0,
+  "empty_responses": 0,
+  "think_env": "false",
+  "think_on": false,
+  "endpoint": "generate",
+  "host": [
+   "http://127.0.0.1:11436"
+  ],
+  "server_version": [
+   "0.34.0-maxusai-8a7ba949"
+  ],
+  "correct": 169,
+  "accuracy": 0.845
+ },
+ "records": [
+  {
+   "i": 0,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Century",
+   "secs": 22.8,
+   "prompt_eval_count": 1138,
+   "eval_count": 1,
+   "gold": [
+    "CENTRE"
+   ],
+   "ok": false
+  },
+  {
+   "i": 1,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Friend",
+   "secs": 5.5,
+   "prompt_eval_count": 1133,
+   "eval_count": 1,
+   "gold": [
+    "FRIEND"
+   ],
+   "ok": true
+  },
+  {
+   "i": 2,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Chain",
+   "secs": 5.2,
+   "prompt_eval_count": 1137,
+   "eval_count": 1,
+   "gold": [
+    "CHAIN"
+   ],
+   "ok": true
+  },
+  {
+   "i": 3,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "CLOSE",
+   "secs": 5.2,
+   "prompt_eval_count": 1097,
+   "eval_count": 1,
+   "gold": [
+    "CLOSE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 4,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "MARKET",
+   "secs": 5.6,
+   "prompt_eval_count": 1138,
+   "eval_count": 2,
+   "gold": [
+    "MARKET"
+   ],
+   "ok": true
+  },
+  {
+   "i": 5,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "EXTRA",
+   "secs": 5.2,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "EXTRA"
+   ],
+   "ok": true
+  },
+  {
+   "i": 6,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "mobi",
+   "secs": 5.2,
+   "prompt_eval_count": 1113,
+   "eval_count": 2,
+   "gold": [
+    "MOBI"
+   ],
+   "ok": true
+  },
+  {
+   "i": 7,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "COTTAGE",
+   "secs": 5.1,
+   "prompt_eval_count": 1077,
+   "eval_count": 2,
+   "gold": [
+    "COTTAGE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 8,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "AHEAD",
+   "secs": 5.3,
+   "prompt_eval_count": 1116,
+   "eval_count": 2,
+   "gold": [
+    "AHEAD"
+   ],
+   "ok": true
+  },
+  {
+   "i": 9,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "TIMES",
+   "secs": 5.1,
+   "prompt_eval_count": 1108,
+   "eval_count": 1,
+   "gold": [
+    "TIMES"
+   ],
+   "ok": true
+  },
+  {
+   "i": 10,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "aires",
+   "secs": 5.9,
+   "prompt_eval_count": 1137,
+   "eval_count": 1,
+   "gold": [
+    "AIRES"
+   ],
+   "ok": true
+  },
+  {
+   "i": 11,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Kari",
+   "secs": 5.4,
+   "prompt_eval_count": 1108,
+   "eval_count": 2,
+   "gold": [
+    "KARI"
+   ],
+   "ok": true
+  },
+  {
+   "i": 12,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "VOTE",
+   "secs": 5.3,
+   "prompt_eval_count": 1125,
+   "eval_count": 2,
+   "gold": [
+    "VOTE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 13,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "WONDERS.",
+   "secs": 5.5,
+   "prompt_eval_count": 1138,
+   "eval_count": 4,
+   "gold": [
+    "WONDERS"
+   ],
+   "ok": true
+  },
+  {
+   "i": 14,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "GROUP",
+   "secs": 5.2,
+   "prompt_eval_count": 1116,
+   "eval_count": 1,
+   "gold": [
+    "GROUP"
+   ],
+   "ok": true
+  },
+  {
+   "i": 15,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "UNDER",
+   "secs": 8.7,
+   "prompt_eval_count": 1128,
+   "eval_count": 1,
+   "gold": [
+    "under"
+   ],
+   "ok": true
+  },
+  {
+   "i": 16,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Palace",
+   "secs": 6.5,
+   "prompt_eval_count": 1131,
+   "eval_count": 2,
+   "gold": [
+    "palace"
+   ],
+   "ok": true
+  },
+  {
+   "i": 17,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "HIGH",
+   "secs": 6.5,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "high"
+   ],
+   "ok": true
+  },
+  {
+   "i": 18,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "GROCERY",
+   "secs": 6.4,
+   "prompt_eval_count": 1095,
+   "eval_count": 3,
+   "gold": [
+    "grocery"
+   ],
+   "ok": true
+  },
+  {
+   "i": 19,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "GALLERY",
+   "secs": 5.3,
+   "prompt_eval_count": 1083,
+   "eval_count": 2,
+   "gold": [
+    "gallery"
+   ],
+   "ok": true
+  },
+  {
+   "i": 20,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "MOTORSPORTS",
+   "secs": 5.9,
+   "prompt_eval_count": 1128,
+   "eval_count": 3,
+   "gold": [
+    "motorsports"
+   ],
+   "ok": true
+  },
+  {
+   "i": 21,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "UNITED",
+   "secs": 5.2,
+   "prompt_eval_count": 1104,
+   "eval_count": 1,
+   "gold": [
+    "united"
+   ],
+   "ok": true
+  },
+  {
+   "i": 22,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "WESTERN",
+   "secs": 7.7,
+   "prompt_eval_count": 1116,
+   "eval_count": 2,
+   "gold": [
+    "western"
+   ],
+   "ok": true
+  },
+  {
+   "i": 23,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Colorado",
+   "secs": 5.3,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "colorado"
+   ],
+   "ok": true
+  },
+  {
+   "i": 24,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "HOLLYWOOD",
+   "secs": 5.1,
+   "prompt_eval_count": 1087,
+   "eval_count": 3,
+   "gold": [
+    "hollywood"
+   ],
+   "ok": true
+  },
+  {
+   "i": 25,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "AVENUE",
+   "secs": 5.5,
+   "prompt_eval_count": 1146,
+   "eval_count": 3,
+   "gold": [
+    "avenue"
+   ],
+   "ok": true
+  },
+  {
+   "i": 26,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "ZERO",
+   "secs": 5.1,
+   "prompt_eval_count": 1104,
+   "eval_count": 1,
+   "gold": [
+    "zero"
+   ],
+   "ok": true
+  },
+  {
+   "i": 27,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "COLLEGE",
+   "secs": 5.3,
+   "prompt_eval_count": 1113,
+   "eval_count": 3,
+   "gold": [
+    "college"
+   ],
+   "ok": true
+  },
+  {
+   "i": 28,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "zula",
+   "secs": 5.2,
+   "prompt_eval_count": 1122,
+   "eval_count": 2,
+   "gold": [
+    "zula"
+   ],
+   "ok": true
+  },
+  {
+   "i": 29,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Fitting",
+   "secs": 5.5,
+   "prompt_eval_count": 1133,
+   "eval_count": 1,
+   "gold": [
+    "fitting"
+   ],
+   "ok": true
+  },
+  {
+   "i": 30,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "FAHRENHEIT",
+   "secs": 5.7,
+   "prompt_eval_count": 1137,
+   "eval_count": 5,
+   "gold": [
+    "fahrenheit"
+   ],
+   "ok": true
+  },
+  {
+   "i": 31,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "CALIFORNIA",
+   "secs": 7.8,
+   "prompt_eval_count": 1099,
+   "eval_count": 2,
+   "gold": [
+    "california"
+   ],
+   "ok": true
+  },
+  {
+   "i": 32,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Richtungsangabe",
+   "secs": 8.6,
+   "prompt_eval_count": 1143,
+   "eval_count": 4,
+   "gold": [
+    "richtungsangabe"
+   ],
+   "ok": true
+  },
+  {
+   "i": 33,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "TIMES",
+   "secs": 7.4,
+   "prompt_eval_count": 1095,
+   "eval_count": 1,
+   "gold": [
+    "times"
+   ],
+   "ok": true
+  },
+  {
+   "i": 34,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Tawney",
+   "secs": 4.5,
+   "prompt_eval_count": 1097,
+   "eval_count": 3,
+   "gold": [
+    "tawney"
+   ],
+   "ok": true
+  },
+  {
+   "i": 35,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "NATIONAL",
+   "secs": 4.8,
+   "prompt_eval_count": 1098,
+   "eval_count": 1,
+   "gold": [
+    "national"
+   ],
+   "ok": true
+  },
+  {
+   "i": 36,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Contractors",
+   "secs": 4.9,
+   "prompt_eval_count": 1125,
+   "eval_count": 2,
+   "gold": [
+    "contractors"
+   ],
+   "ok": true
+  },
+  {
+   "i": 37,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "CANARY",
+   "secs": 4.7,
+   "prompt_eval_count": 1083,
+   "eval_count": 2,
+   "gold": [
+    "canary"
+   ],
+   "ok": true
+  },
+  {
+   "i": 38,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "EURO",
+   "secs": 5.0,
+   "prompt_eval_count": 1133,
+   "eval_count": 1,
+   "gold": [
+    "euro"
+   ],
+   "ok": true
+  },
+  {
+   "i": 39,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Students",
+   "secs": 4.9,
+   "prompt_eval_count": 1121,
+   "eval_count": 1,
+   "gold": [
+    "students"
+   ],
+   "ok": true
+  },
+  {
+   "i": 40,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "COPIES",
+   "secs": 5.3,
+   "prompt_eval_count": 1138,
+   "eval_count": 3,
+   "gold": [
+    "copies"
+   ],
+   "ok": true
+  },
+  {
+   "i": 41,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Vollmar",
+   "secs": 5.4,
+   "prompt_eval_count": 1138,
+   "eval_count": 3,
+   "gold": [
+    "vollmar"
+   ],
+   "ok": true
+  },
+  {
+   "i": 42,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "PIGEONS",
+   "secs": 5.1,
+   "prompt_eval_count": 1073,
+   "eval_count": 3,
+   "gold": [
+    "pigeons"
+   ],
+   "ok": true
+  },
+  {
+   "i": 43,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "GELD",
+   "secs": 5.1,
+   "prompt_eval_count": 1113,
+   "eval_count": 2,
+   "gold": [
+    "geld"
+   ],
+   "ok": true
+  },
+  {
+   "i": 44,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "music",
+   "secs": 4.8,
+   "prompt_eval_count": 1093,
+   "eval_count": 1,
+   "gold": [
+    "music"
+   ],
+   "ok": true
+  },
+  {
+   "i": 45,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "systems",
+   "secs": 4.9,
+   "prompt_eval_count": 1105,
+   "eval_count": 1,
+   "gold": [
+    "systems"
+   ],
+   "ok": true
+  },
+  {
+   "i": 46,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "lead",
+   "secs": 4.9,
+   "prompt_eval_count": 1114,
+   "eval_count": 1,
+   "gold": [
+    "lead"
+   ],
+   "ok": true
+  },
+  {
+   "i": 47,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Under",
+   "secs": 4.9,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "under"
+   ],
+   "ok": true
+  },
+  {
+   "i": 48,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "orange",
+   "secs": 5.2,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "orange"
+   ],
+   "ok": true
+  },
+  {
+   "i": 49,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "BOROUGH",
+   "secs": 5.3,
+   "prompt_eval_count": 1125,
+   "eval_count": 2,
+   "gold": [
+    "borough"
+   ],
+   "ok": true
+  },
+  {
+   "i": 50,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "JOINT",
+   "secs": 5.0,
+   "prompt_eval_count": 1131,
+   "eval_count": 2,
+   "gold": [
+    "JOINT"
+   ],
+   "ok": true
+  },
+  {
+   "i": 51,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Thank",
+   "secs": 5.1,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "THANK"
+   ],
+   "ok": true
+  },
+  {
+   "i": 52,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "coffee",
+   "secs": 4.9,
+   "prompt_eval_count": 1111,
+   "eval_count": 1,
+   "gold": [
+    "COFFEE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 53,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "EXPERIENCE",
+   "secs": 5.0,
+   "prompt_eval_count": 1133,
+   "eval_count": 2,
+   "gold": [
+    "EXPERIENCE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 54,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "SALE",
+   "secs": 4.9,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "SALE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 55,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "exciting",
+   "secs": 4.9,
+   "prompt_eval_count": 1133,
+   "eval_count": 2,
+   "gold": [
+    "EXCITING"
+   ],
+   "ok": true
+  },
+  {
+   "i": 56,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Nothing is written in the image.",
+   "secs": 5.3,
+   "prompt_eval_count": 1089,
+   "eval_count": 7,
+   "gold": [
+    "NEXT"
+   ],
+   "ok": false
+  },
+  {
+   "i": 57,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "CLOSING DOWN",
+   "secs": 5.3,
+   "prompt_eval_count": 1125,
+   "eval_count": 3,
+   "gold": [
+    "CLOSING"
+   ],
+   "ok": true
+  },
+  {
+   "i": 58,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "THREAD",
+   "secs": 4.8,
+   "prompt_eval_count": 1089,
+   "eval_count": 1,
+   "gold": [
+    "THREADS"
+   ],
+   "ok": false
+  },
+  {
+   "i": 59,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "WORLD",
+   "secs": 4.8,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "WORLD"
+   ],
+   "ok": true
+  },
+  {
+   "i": 60,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "CAR ROLL",
+   "secs": 5.0,
+   "prompt_eval_count": 1104,
+   "eval_count": 2,
+   "gold": [
+    "CARROLL"
+   ],
+   "ok": false
+  },
+  {
+   "i": 61,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Parliament",
+   "secs": 5.0,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "PARLIAMENT"
+   ],
+   "ok": true
+  },
+  {
+   "i": 62,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "FITNESS",
+   "secs": 4.9,
+   "prompt_eval_count": 1125,
+   "eval_count": 2,
+   "gold": [
+    "FITNESS"
+   ],
+   "ok": true
+  },
+  {
+   "i": 63,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Alien",
+   "secs": 4.9,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "ALLEN"
+   ],
+   "ok": false
+  },
+  {
+   "i": 64,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "rent",
+   "secs": 5.0,
+   "prompt_eval_count": 1122,
+   "eval_count": 1,
+   "gold": [
+    "RENT"
+   ],
+   "ok": true
+  },
+  {
+   "i": 65,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "METHODIST",
+   "secs": 4.8,
+   "prompt_eval_count": 1087,
+   "eval_count": 2,
+   "gold": [
+    "METHODIST"
+   ],
+   "ok": true
+  },
+  {
+   "i": 66,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "triple",
+   "secs": 4.9,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "TRIPLE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 67,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "ARTETA",
+   "secs": 4.8,
+   "prompt_eval_count": 1104,
+   "eval_count": 2,
+   "gold": [
+    "arteta"
+   ],
+   "ok": true
+  },
+  {
+   "i": 68,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "HUTCHINSON",
+   "secs": 5.2,
+   "prompt_eval_count": 1143,
+   "eval_count": 4,
+   "gold": [
+    "hutchinson"
+   ],
+   "ok": true
+  },
+  {
+   "i": 69,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "BIERHOFF",
+   "secs": 5.1,
+   "prompt_eval_count": 1133,
+   "eval_count": 4,
+   "gold": [
+    "bierhoff"
+   ],
+   "ok": true
+  },
+  {
+   "i": 70,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "TABLE",
+   "secs": 4.9,
+   "prompt_eval_count": 1121,
+   "eval_count": 1,
+   "gold": [
+    "table"
+   ],
+   "ok": true
+  },
+  {
+   "i": 71,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "mobile",
+   "secs": 5.5,
+   "prompt_eval_count": 1116,
+   "eval_count": 1,
+   "gold": [
+    "mobile"
+   ],
+   "ok": true
+  },
+  {
+   "i": 72,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "INVEST",
+   "secs": 5.1,
+   "prompt_eval_count": 1135,
+   "eval_count": 1,
+   "gold": [
+    "invest"
+   ],
+   "ok": true
+  },
+  {
+   "i": 73,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "WIGAN",
+   "secs": 5.2,
+   "prompt_eval_count": 1097,
+   "eval_count": 2,
+   "gold": [
+    "wigan"
+   ],
+   "ok": true
+  },
+  {
+   "i": 74,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "DAIRY",
+   "secs": 5.2,
+   "prompt_eval_count": 1113,
+   "eval_count": 2,
+   "gold": [
+    "dairy"
+   ],
+   "ok": true
+  },
+  {
+   "i": 75,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "SHOW",
+   "secs": 5.3,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "show"
+   ],
+   "ok": true
+  },
+  {
+   "i": 76,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Virgin",
+   "secs": 5.0,
+   "prompt_eval_count": 1121,
+   "eval_count": 1,
+   "gold": [
+    "Virgin"
+   ],
+   "ok": true
+  },
+  {
+   "i": 77,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "VITALITY",
+   "secs": 5.5,
+   "prompt_eval_count": 1116,
+   "eval_count": 3,
+   "gold": [
+    "ATTACK"
+   ],
+   "ok": false
+  },
+  {
+   "i": 78,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "David Jason",
+   "secs": 5.1,
+   "prompt_eval_count": 1093,
+   "eval_count": 2,
+   "gold": [
+    "DAVIDSON"
+   ],
+   "ok": false
+  },
+  {
+   "i": 79,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "I cannot read the text in this image because it is too blurry.",
+   "secs": 5.8,
+   "prompt_eval_count": 1116,
+   "eval_count": 14,
+   "gold": [
+    "VALVE"
+   ],
+   "ok": false
+  },
+  {
+   "i": 80,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Nothing is written in the image.",
+   "secs": 5.5,
+   "prompt_eval_count": 1108,
+   "eval_count": 7,
+   "gold": [
+    "Crisp"
+   ],
+   "ok": false
+  },
+  {
+   "i": 81,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "OVERNITE",
+   "secs": 5.0,
+   "prompt_eval_count": 1128,
+   "eval_count": 3,
+   "gold": [
+    "overnite"
+   ],
+   "ok": true
+  },
+  {
+   "i": 82,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "kids",
+   "secs": 4.8,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "KiDS"
+   ],
+   "ok": true
+  },
+  {
+   "i": 83,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "this",
+   "secs": 4.8,
+   "prompt_eval_count": 1099,
+   "eval_count": 1,
+   "gold": [
+    "this"
+   ],
+   "ok": true
+  },
+  {
+   "i": 84,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Antonio's",
+   "secs": 4.6,
+   "prompt_eval_count": 1104,
+   "eval_count": 3,
+   "gold": [
+    "ANTONIOS",
+    "ANTONIO'S"
+   ],
+   "ok": true
+  },
+  {
+   "i": 85,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "TELEPHONE",
+   "secs": 4.8,
+   "prompt_eval_count": 1133,
+   "eval_count": 2,
+   "gold": [
+    "TELEPHONE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 86,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "CORRIDORS",
+   "secs": 4.7,
+   "prompt_eval_count": 1113,
+   "eval_count": 3,
+   "gold": [
+    "CORNERS"
+   ],
+   "ok": false
+  },
+  {
+   "i": 87,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "COUNTY",
+   "secs": 4.7,
+   "prompt_eval_count": 1097,
+   "eval_count": 2,
+   "gold": [
+    "COUNTY"
+   ],
+   "ok": true
+  },
+  {
+   "i": 88,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "TOREADOR",
+   "secs": 5.0,
+   "prompt_eval_count": 1104,
+   "eval_count": 3,
+   "gold": [
+    "TOREADOR"
+   ],
+   "ok": true
+  },
+  {
+   "i": 89,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "GAMBOA",
+   "secs": 4.9,
+   "prompt_eval_count": 1133,
+   "eval_count": 3,
+   "gold": [
+    "GAMBOA"
+   ],
+   "ok": true
+  },
+  {
+   "i": 90,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Coffee",
+   "secs": 4.9,
+   "prompt_eval_count": 1149,
+   "eval_count": 1,
+   "gold": [
+    "Coffee"
+   ],
+   "ok": true
+  },
+  {
+   "i": 91,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "LITTLETON",
+   "secs": 4.7,
+   "prompt_eval_count": 1087,
+   "eval_count": 3,
+   "gold": [
+    "LITTLETON"
+   ],
+   "ok": true
+  },
+  {
+   "i": 92,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "ATHENS",
+   "secs": 5.2,
+   "prompt_eval_count": 1104,
+   "eval_count": 2,
+   "gold": [
+    "ATHENS"
+   ],
+   "ok": true
+  },
+  {
+   "i": 93,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "CORONA",
+   "secs": 5.1,
+   "prompt_eval_count": 1113,
+   "eval_count": 2,
+   "gold": [
+    "CORONAD"
+   ],
+   "ok": false
+  },
+  {
+   "i": 94,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "SUPER",
+   "secs": 5.0,
+   "prompt_eval_count": 1133,
+   "eval_count": 1,
+   "gold": [
+    "SUPER"
+   ],
+   "ok": true
+  },
+  {
+   "i": 95,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Security",
+   "secs": 4.9,
+   "prompt_eval_count": 1104,
+   "eval_count": 1,
+   "gold": [
+    "Security"
+   ],
+   "ok": true
+  },
+  {
+   "i": 96,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "HECHT",
+   "secs": 5.2,
+   "prompt_eval_count": 1135,
+   "eval_count": 2,
+   "gold": [
+    "HECHT"
+   ],
+   "ok": true
+  },
+  {
+   "i": 97,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "SHOP",
+   "secs": 4.9,
+   "prompt_eval_count": 1106,
+   "eval_count": 1,
+   "gold": [
+    "SHOP"
+   ],
+   "ok": true
+  },
+  {
+   "i": 98,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "BAKERO",
+   "secs": 5.4,
+   "prompt_eval_count": 1122,
+   "eval_count": 3,
+   "gold": [
+    "BAKERY"
+   ],
+   "ok": false
+  },
+  {
+   "i": 99,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "BRIDGE",
+   "secs": 4.9,
+   "prompt_eval_count": 1111,
+   "eval_count": 1,
+   "gold": [
+    "BRIDGE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 100,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Marilyn",
+   "secs": 5.0,
+   "prompt_eval_count": 1104,
+   "eval_count": 3,
+   "gold": [
+    "marilyn"
+   ],
+   "ok": true
+  },
+  {
+   "i": 101,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Scottlynn",
+   "secs": 5.7,
+   "prompt_eval_count": 1133,
+   "eval_count": 3,
+   "gold": [
+    "Scottynn"
+   ],
+   "ok": false
+  },
+  {
+   "i": 102,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Home",
+   "secs": 5.0,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "Home"
+   ],
+   "ok": true
+  },
+  {
+   "i": 103,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "WORLD",
+   "secs": 5.3,
+   "prompt_eval_count": 1138,
+   "eval_count": 1,
+   "gold": [
+    "WORLD"
+   ],
+   "ok": true
+  },
+  {
+   "i": 104,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "BEACH",
+   "secs": 5.0,
+   "prompt_eval_count": 1133,
+   "eval_count": 2,
+   "gold": [
+    "BEACH"
+   ],
+   "ok": true
+  },
+  {
+   "i": 105,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Rustic",
+   "secs": 4.9,
+   "prompt_eval_count": 1099,
+   "eval_count": 1,
+   "gold": [
+    "Rustic"
+   ],
+   "ok": true
+  },
+  {
+   "i": 106,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "teach",
+   "secs": 5.2,
+   "prompt_eval_count": 1093,
+   "eval_count": 1,
+   "gold": [
+    "teach"
+   ],
+   "ok": true
+  },
+  {
+   "i": 107,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Jasmine",
+   "secs": 5.3,
+   "prompt_eval_count": 1087,
+   "eval_count": 2,
+   "gold": [
+    "Jasmine"
+   ],
+   "ok": true
+  },
+  {
+   "i": 108,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "LOVE",
+   "secs": 5.2,
+   "prompt_eval_count": 1135,
+   "eval_count": 1,
+   "gold": [
+    "LOVE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 109,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Thankful",
+   "secs": 5.1,
+   "prompt_eval_count": 1146,
+   "eval_count": 2,
+   "gold": [
+    "thankful"
+   ],
+   "ok": true
+  },
+  {
+   "i": 110,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "LINE",
+   "secs": 5.7,
+   "prompt_eval_count": 1138,
+   "eval_count": 1,
+   "gold": [
+    "LINE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 111,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "NEWS AGENCY",
+   "secs": 4.9,
+   "prompt_eval_count": 1089,
+   "eval_count": 2,
+   "gold": [
+    "NEWSAGENCY",
+    "NEWS AGENCY"
+   ],
+   "ok": true
+  },
+  {
+   "i": 112,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "WOODZILLA",
+   "secs": 4.7,
+   "prompt_eval_count": 1121,
+   "eval_count": 3,
+   "gold": [
+    "WOODZILLA"
+   ],
+   "ok": true
+  },
+  {
+   "i": 113,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Playin'",
+   "secs": 7.4,
+   "prompt_eval_count": 1111,
+   "eval_count": 3,
+   "gold": [
+    "Playin'"
+   ],
+   "ok": true
+  },
+  {
+   "i": 114,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Poppi",
+   "secs": 7.1,
+   "prompt_eval_count": 1111,
+   "eval_count": 2,
+   "gold": [
+    "Poppi"
+   ],
+   "ok": true
+  },
+  {
+   "i": 115,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Times",
+   "secs": 7.3,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "Times"
+   ],
+   "ok": true
+  },
+  {
+   "i": 116,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Wedding",
+   "secs": 11.7,
+   "prompt_eval_count": 1121,
+   "eval_count": 1,
+   "gold": [
+    "Wedding"
+   ],
+   "ok": true
+  },
+  {
+   "i": 117,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "appetit",
+   "secs": 11.3,
+   "prompt_eval_count": 1114,
+   "eval_count": 3,
+   "gold": [
+    "appetit"
+   ],
+   "ok": true
+  },
+  {
+   "i": 118,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Christmas",
+   "secs": 11.9,
+   "prompt_eval_count": 1104,
+   "eval_count": 1,
+   "gold": [
+    "christmas"
+   ],
+   "ok": true
+  },
+  {
+   "i": 119,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "FOOD",
+   "secs": 10.8,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "FOOD"
+   ],
+   "ok": true
+  },
+  {
+   "i": 120,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Soul",
+   "secs": 6.1,
+   "prompt_eval_count": 1108,
+   "eval_count": 1,
+   "gold": [
+    "soul"
+   ],
+   "ok": true
+  },
+  {
+   "i": 121,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "GOOD",
+   "secs": 5.4,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "GOOD"
+   ],
+   "ok": true
+  },
+  {
+   "i": 122,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "begins.",
+   "secs": 5.9,
+   "prompt_eval_count": 1097,
+   "eval_count": 3,
+   "gold": [
+    "begins."
+   ],
+   "ok": true
+  },
+  {
+   "i": 123,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "chaos",
+   "secs": 5.3,
+   "prompt_eval_count": 1111,
+   "eval_count": 1,
+   "gold": [
+    "chaos"
+   ],
+   "ok": true
+  },
+  {
+   "i": 124,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "BOGUS",
+   "secs": 5.7,
+   "prompt_eval_count": 1138,
+   "eval_count": 3,
+   "gold": [
+    "BOGUS"
+   ],
+   "ok": true
+  },
+  {
+   "i": 125,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "GOOOD",
+   "secs": 5.3,
+   "prompt_eval_count": 1097,
+   "eval_count": 3,
+   "gold": [
+    "GOOD"
+   ],
+   "ok": false
+  },
+  {
+   "i": 126,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "CONDENSED",
+   "secs": 5.4,
+   "prompt_eval_count": 1105,
+   "eval_count": 3,
+   "gold": [
+    "CONDENSED"
+   ],
+   "ok": true
+  },
+  {
+   "i": 127,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "YOUR",
+   "secs": 5.5,
+   "prompt_eval_count": 1140,
+   "eval_count": 1,
+   "gold": [
+    "YOUR"
+   ],
+   "ok": true
+  },
+  {
+   "i": 128,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "GAFFNER",
+   "secs": 6.0,
+   "prompt_eval_count": 1138,
+   "eval_count": 3,
+   "gold": [
+    "GAFFNER"
+   ],
+   "ok": true
+  },
+  {
+   "i": 129,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "lioness",
+   "secs": 5.6,
+   "prompt_eval_count": 1121,
+   "eval_count": 2,
+   "gold": [
+    "Lioness"
+   ],
+   "ok": true
+  },
+  {
+   "i": 130,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Fucks",
+   "secs": 5.3,
+   "prompt_eval_count": 1113,
+   "eval_count": 2,
+   "gold": [
+    "Fucks"
+   ],
+   "ok": true
+  },
+  {
+   "i": 131,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Willie",
+   "secs": 5.8,
+   "prompt_eval_count": 1133,
+   "eval_count": 2,
+   "gold": [
+    "willie"
+   ],
+   "ok": true
+  },
+  {
+   "i": 132,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Christmas",
+   "secs": 5.4,
+   "prompt_eval_count": 1095,
+   "eval_count": 1,
+   "gold": [
+    "Christmas"
+   ],
+   "ok": true
+  },
+  {
+   "i": 133,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Together",
+   "secs": 5.7,
+   "prompt_eval_count": 1137,
+   "eval_count": 1,
+   "gold": [
+    "Together"
+   ],
+   "ok": true
+  },
+  {
+   "i": 134,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "LIVE",
+   "secs": 5.6,
+   "prompt_eval_count": 1140,
+   "eval_count": 1,
+   "gold": [
+    "LIVE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 135,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Welcome",
+   "secs": 5.6,
+   "prompt_eval_count": 1116,
+   "eval_count": 1,
+   "gold": [
+    "Welcome"
+   ],
+   "ok": true
+  },
+  {
+   "i": 136,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Order",
+   "secs": 5.6,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "Order"
+   ],
+   "ok": true
+  },
+  {
+   "i": 137,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Friday",
+   "secs": 6.1,
+   "prompt_eval_count": 1111,
+   "eval_count": 1,
+   "gold": [
+    "Friday"
+   ],
+   "ok": true
+  },
+  {
+   "i": 138,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "CHARTRES",
+   "secs": 6.1,
+   "prompt_eval_count": 1128,
+   "eval_count": 3,
+   "gold": [
+    "CHARTRES"
+   ],
+   "ok": true
+  },
+  {
+   "i": 139,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "CRUNCHY",
+   "secs": 5.7,
+   "prompt_eval_count": 1095,
+   "eval_count": 3,
+   "gold": [
+    "CRUNCHY"
+   ],
+   "ok": true
+  },
+  {
+   "i": 140,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "NAILS",
+   "secs": 5.8,
+   "prompt_eval_count": 1089,
+   "eval_count": 2,
+   "gold": [
+    "NAILS"
+   ],
+   "ok": true
+  },
+  {
+   "i": 141,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "KERN",
+   "secs": 6.1,
+   "prompt_eval_count": 1111,
+   "eval_count": 1,
+   "gold": [
+    "KERN"
+   ],
+   "ok": true
+  },
+  {
+   "i": 142,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "When",
+   "secs": 5.8,
+   "prompt_eval_count": 1091,
+   "eval_count": 1,
+   "gold": [
+    "When"
+   ],
+   "ok": true
+  },
+  {
+   "i": 143,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "BEFORE",
+   "secs": 5.6,
+   "prompt_eval_count": 1098,
+   "eval_count": 1,
+   "gold": [
+    "BEFORE"
+   ],
+   "ok": true
+  },
+  {
+   "i": 144,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "CLUB",
+   "secs": 6.0,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "CLUB"
+   ],
+   "ok": true
+  },
+  {
+   "i": 145,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "rainbow",
+   "secs": 5.8,
+   "prompt_eval_count": 1116,
+   "eval_count": 1,
+   "gold": [
+    "Rainbow"
+   ],
+   "ok": true
+  },
+  {
+   "i": 146,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Springs",
+   "secs": 6.1,
+   "prompt_eval_count": 1137,
+   "eval_count": 2,
+   "gold": [
+    "Springs"
+   ],
+   "ok": true
+  },
+  {
+   "i": 147,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "face",
+   "secs": 6.5,
+   "prompt_eval_count": 1122,
+   "eval_count": 1,
+   "gold": [
+    "face"
+   ],
+   "ok": true
+  },
+  {
+   "i": 148,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Fear stronger",
+   "secs": 5.9,
+   "prompt_eval_count": 1125,
+   "eval_count": 2,
+   "gold": [
+    "Fear"
+   ],
+   "ok": true
+  },
+  {
+   "i": 149,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "BOOTS",
+   "secs": 5.7,
+   "prompt_eval_count": 1125,
+   "eval_count": 2,
+   "gold": [
+    "BOOTS"
+   ],
+   "ok": true
+  },
+  {
+   "i": 150,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "communities",
+   "secs": 5.7,
+   "prompt_eval_count": 1089,
+   "eval_count": 1,
+   "gold": [
+    "communities"
+   ],
+   "ok": true
+  },
+  {
+   "i": 151,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "their",
+   "secs": 6.0,
+   "prompt_eval_count": 1151,
+   "eval_count": 1,
+   "gold": [
+    "their"
+   ],
+   "ok": true
+  },
+  {
+   "i": 152,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "bread",
+   "secs": 5.8,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "bread"
+   ],
+   "ok": true
+  },
+  {
+   "i": 153,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "playing",
+   "secs": 5.9,
+   "prompt_eval_count": 1137,
+   "eval_count": 1,
+   "gold": [
+    "playing"
+   ],
+   "ok": true
+  },
+  {
+   "i": 154,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "becour",
+   "secs": 6.5,
+   "prompt_eval_count": 1111,
+   "eval_count": 2,
+   "gold": [
+    "become"
+   ],
+   "ok": false
+  },
+  {
+   "i": 155,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "grimly",
+   "secs": 5.7,
+   "prompt_eval_count": 1113,
+   "eval_count": 2,
+   "gold": [
+    "grimly"
+   ],
+   "ok": true
+  },
+  {
+   "i": 156,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "booth",
+   "secs": 6.1,
+   "prompt_eval_count": 1104,
+   "eval_count": 2,
+   "gold": [
+    "both"
+   ],
+   "ok": false
+  },
+  {
+   "i": 157,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "measure",
+   "secs": 6.2,
+   "prompt_eval_count": 1099,
+   "eval_count": 1,
+   "gold": [
+    "measure"
+   ],
+   "ok": true
+  },
+  {
+   "i": 158,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "medium",
+   "secs": 6.0,
+   "prompt_eval_count": 1113,
+   "eval_count": 1,
+   "gold": [
+    "medium"
+   ],
+   "ok": true
+  },
+  {
+   "i": 159,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "brought",
+   "secs": 5.9,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "brought"
+   ],
+   "ok": true
+  },
+  {
+   "i": 160,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Omyg",
+   "secs": 6.5,
+   "prompt_eval_count": 1113,
+   "eval_count": 2,
+   "gold": [
+    "Drugs"
+   ],
+   "ok": false
+  },
+  {
+   "i": 161,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "tmic hrues",
+   "secs": 7.0,
+   "prompt_eval_count": 1086,
+   "eval_count": 5,
+   "gold": [
+    "strictures"
+   ],
+   "ok": false
+  },
+  {
+   "i": 162,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "lord",
+   "secs": 6.0,
+   "prompt_eval_count": 1143,
+   "eval_count": 1,
+   "gold": [
+    "Lord"
+   ],
+   "ok": true
+  },
+  {
+   "i": 163,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "seen",
+   "secs": 6.7,
+   "prompt_eval_count": 1083,
+   "eval_count": 1,
+   "gold": [
+    "seem"
+   ],
+   "ok": false
+  },
+  {
+   "i": 164,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "think",
+   "secs": 5.7,
+   "prompt_eval_count": 1111,
+   "eval_count": 1,
+   "gold": [
+    "think"
+   ],
+   "ok": true
+  },
+  {
+   "i": 165,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Cornes",
+   "secs": 7.1,
+   "prompt_eval_count": 1113,
+   "eval_count": 2,
+   "gold": [
+    "corners"
+   ],
+   "ok": false
+  },
+  {
+   "i": 166,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "TALK",
+   "secs": 6.3,
+   "prompt_eval_count": 1104,
+   "eval_count": 2,
+   "gold": [
+    "talk"
+   ],
+   "ok": true
+  },
+  {
+   "i": 167,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "vacuum",
+   "secs": 7.4,
+   "prompt_eval_count": 1139,
+   "eval_count": 1,
+   "gold": [
+    "vacuum"
+   ],
+   "ok": true
+  },
+  {
+   "i": 168,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "experimental",
+   "secs": 6.0,
+   "prompt_eval_count": 1105,
+   "eval_count": 1,
+   "gold": [
+    "experimenta"
+   ],
+   "ok": true
+  },
+  {
+   "i": 169,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "construction",
+   "secs": 8.1,
+   "prompt_eval_count": 1069,
+   "eval_count": 1,
+   "gold": [
+    "construction"
+   ],
+   "ok": true
+  },
+  {
+   "i": 170,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "\u0639\u0635\u0627\u0645",
+   "secs": 9.5,
+   "prompt_eval_count": 1097,
+   "eval_count": 3,
+   "gold": [
+    "higher"
+   ],
+   "ok": false
+  },
+  {
+   "i": 171,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "absence",
+   "secs": 8.6,
+   "prompt_eval_count": 1135,
+   "eval_count": 1,
+   "gold": [
+    "absence"
+   ],
+   "ok": true
+  },
+  {
+   "i": 172,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "will",
+   "secs": 7.5,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "will"
+   ],
+   "ok": true
+  },
+  {
+   "i": 173,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Sho CV",
+   "secs": 8.1,
+   "prompt_eval_count": 1113,
+   "eval_count": 2,
+   "gold": [
+    "shock"
+   ],
+   "ok": false
+  },
+  {
+   "i": 174,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "thoroughly",
+   "secs": 7.1,
+   "prompt_eval_count": 1095,
+   "eval_count": 3,
+   "gold": [
+    "thoroughly"
+   ],
+   "ok": true
+  },
+  {
+   "i": 175,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "selmed",
+   "secs": 8.5,
+   "prompt_eval_count": 1087,
+   "eval_count": 2,
+   "gold": [
+    "seemed"
+   ],
+   "ok": false
+  },
+  {
+   "i": 176,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "world",
+   "secs": 5.8,
+   "prompt_eval_count": 1095,
+   "eval_count": 1,
+   "gold": [
+    "would"
+   ],
+   "ok": false
+  },
+  {
+   "i": 177,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "beer",
+   "secs": 5.8,
+   "prompt_eval_count": 1116,
+   "eval_count": 1,
+   "gold": [
+    "beer"
+   ],
+   "ok": true
+  },
+  {
+   "i": 178,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Jump",
+   "secs": 5.4,
+   "prompt_eval_count": 1106,
+   "eval_count": 1,
+   "gold": [
+    "jump"
+   ],
+   "ok": true
+  },
+  {
+   "i": 179,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "quarrel",
+   "secs": 5.5,
+   "prompt_eval_count": 1133,
+   "eval_count": 3,
+   "gold": [
+    "quarrel"
+   ],
+   "ok": true
+  },
+  {
+   "i": 180,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "MACLEOD",
+   "secs": 5.1,
+   "prompt_eval_count": 1086,
+   "eval_count": 3,
+   "gold": [
+    "MACLEOD"
+   ],
+   "ok": true
+  },
+  {
+   "i": 181,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "planned",
+   "secs": 5.5,
+   "prompt_eval_count": 1114,
+   "eval_count": 1,
+   "gold": [
+    "planed"
+   ],
+   "ok": false
+  },
+  {
+   "i": 182,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "new \u221a",
+   "secs": 6.4,
+   "prompt_eval_count": 1121,
+   "eval_count": 2,
+   "gold": [
+    "news"
+   ],
+   "ok": false
+  },
+  {
+   "i": 183,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "tread",
+   "secs": 5.5,
+   "prompt_eval_count": 1087,
+   "eval_count": 2,
+   "gold": [
+    "tread"
+   ],
+   "ok": true
+  },
+  {
+   "i": 184,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "through",
+   "secs": 5.6,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "through"
+   ],
+   "ok": true
+  },
+  {
+   "i": 185,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "every",
+   "secs": 5.7,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "every"
+   ],
+   "ok": true
+  },
+  {
+   "i": 186,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "service",
+   "secs": 5.8,
+   "prompt_eval_count": 1093,
+   "eval_count": 1,
+   "gold": [
+    "service"
+   ],
+   "ok": true
+  },
+  {
+   "i": 187,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "while",
+   "secs": 5.9,
+   "prompt_eval_count": 1125,
+   "eval_count": 1,
+   "gold": [
+    "while"
+   ],
+   "ok": true
+  },
+  {
+   "i": 188,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "most",
+   "secs": 5.8,
+   "prompt_eval_count": 1108,
+   "eval_count": 1,
+   "gold": [
+    "most"
+   ],
+   "ok": true
+  },
+  {
+   "i": 189,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Saul",
+   "secs": 5.9,
+   "prompt_eval_count": 1106,
+   "eval_count": 2,
+   "gold": [
+    "soul"
+   ],
+   "ok": false
+  },
+  {
+   "i": 190,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "facts",
+   "secs": 5.5,
+   "prompt_eval_count": 1099,
+   "eval_count": 1,
+   "gold": [
+    "facts"
+   ],
+   "ok": true
+  },
+  {
+   "i": 191,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Scung lit",
+   "secs": 6.4,
+   "prompt_eval_count": 1113,
+   "eval_count": 3,
+   "gold": [
+    "sought"
+   ],
+   "ok": false
+  },
+  {
+   "i": 192,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "understand",
+   "secs": 5.7,
+   "prompt_eval_count": 1143,
+   "eval_count": 1,
+   "gold": [
+    "understand"
+   ],
+   "ok": true
+  },
+  {
+   "i": 193,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "humes",
+   "secs": 6.0,
+   "prompt_eval_count": 1111,
+   "eval_count": 2,
+   "gold": [
+    "knew"
+   ],
+   "ok": false
+  },
+  {
+   "i": 194,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "Dover",
+   "secs": 6.4,
+   "prompt_eval_count": 1133,
+   "eval_count": 2,
+   "gold": [
+    "Dover"
+   ],
+   "ok": true
+  },
+  {
+   "i": 195,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "homage",
+   "secs": 9.4,
+   "prompt_eval_count": 1099,
+   "eval_count": 2,
+   "gold": [
+    "homage"
+   ],
+   "ok": true
+  },
+  {
+   "i": 196,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "narrated",
+   "secs": 8.5,
+   "prompt_eval_count": 1111,
+   "eval_count": 2,
+   "gold": [
+    "saturated"
+   ],
+   "ok": false
+  },
+  {
+   "i": 197,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "mail",
+   "secs": 5.7,
+   "prompt_eval_count": 1133,
+   "eval_count": 1,
+   "gold": [
+    "male"
+   ],
+   "ok": false
+  },
+  {
+   "i": 198,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "said",
+   "secs": 5.7,
+   "prompt_eval_count": 1137,
+   "eval_count": 1,
+   "gold": [
+    "said"
+   ],
+   "ok": true
+  },
+  {
+   "i": 199,
+   "prompt": "what is written in the image?\nAnswer the question using a single word or phrase.",
+   "pred": "introduced",
+   "secs": 5.7,
+   "prompt_eval_count": 1139,
+   "eval_count": 1,
+   "gold": [
+    "introduced"
+   ],
+   "ok": true
+  }
+ ]
+}
