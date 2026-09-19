@@ -39,9 +39,9 @@ fp16 or cuBLAS commits, and ollama/ollama#18070 is still open. The
 | `.github/workflows/test.yaml` | union of both path filters — done |
 | `llm/llama_server.go` | keep our `applyCompletionFormat` helper, adopt upstream's removal of the dead `req.Grammar` branch (`7027546c` deleted the field) — done |
 | `llama/compat/README.md` | we added the 8xx band, upstream edited it in `ad94d529` — trivial union |
-| `x/mlxrunner/runner.go` | h1 union imports; h3 **union** (our 181 lines of memory/cache config vs their 23-line `logitsWidth` — disjoint additions, not a collision); h4 keep our `fatalRunnerError`/`recoverRequest` plus their `defer request.Grammar.close()`; **h2 blocked** |
-| `x/mlxrunner/pipeline.go` | **blocked** |
-| `x/mlxrunner/speculate.go` | **blocked** |
+| `mlxrunner/runner.go` | h1 union imports; h3 **union** (our 181 lines of memory/cache config vs their 23-line `logitsWidth` — disjoint additions, not a collision); h4 keep our `fatalRunnerError`/`recoverRequest` plus their `defer request.Grammar.close()`; **h2 blocked** |
+| `mlxrunner/pipeline.go` | **blocked** |
+| `mlxrunner/speculate.go` | **blocked** |
 
 Most of it is union of disjoint additions. The blocked hunks are all one thing.
 
@@ -88,7 +88,7 @@ Glenn's call, not the merger's.
 2. ☑ Merge with the resolutions in the table; zero remaining conflicts.
 3. ☑ `go test ./server/ ./model/... ./llm/` green in `golang:1.26`
    (`-u 1000:1000`, `-buildvcs=false`).
-4. ☑ `go test ./x/mlxrunner/` green — the semantic gate on the three
+4. ☑ `go test ./mlxrunner/` green — the semantic gate on the three
    mlxrunner conflicts.
 5. ☑ 903 functionally revalidated at b10630 (2026-08-28), by source
    inspection rather than by provoking the fault. **Still required and still

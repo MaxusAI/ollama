@@ -166,10 +166,10 @@ it.
 
 The repo has two independent MLX bindings, which meet that requirement differently:
 
-- **`x/mlxrunner/mlx`** — all work runs on one pinned worker goroutine.
-  `mlxthread.Start` (`x/internal/mlxthread`) calls `runtime.LockOSThread` and
+- **`mlx`** — all work runs on one pinned worker goroutine.
+  `mlxthread.Start` (`mlx/mlxthread`) calls `runtime.LockOSThread` and
   deliberately never unlocks, so the thread belongs to that worker for its life;
-  `x/mlxrunner` starts it in `Execute`, and `ollama create` pins its own worker
+  `mlxrunner` starts it in `Execute`, and `ollama create` pins its own worker
   with a bare `runtime.LockOSThread`. The Go-side default-stream cache is a plain
   package global, sound only because a single pinned owner ever touches it.
 - **`x/imagegen/mlx`** — no claim call. Its cached streams are `__thread` in the
@@ -187,7 +187,7 @@ Two rules follow when writing MLX tests:
   `There is no Stream(gpu, N) in current thread`.
 
 Failure modes differ by binding, which matters when you are chasing one:
-`x/mlxrunner/mlx` installs an error-capturing handler and panics with that
+`mlx` installs an error-capturing handler and panics with that
 message, while `x/imagegen/mlx` has none, so a failed eval leaves an unevaluated
 array and faults with a SIGSEGV inside `mlx_array_data_*` instead. Either way the
 process dies and every later test is hidden, so sweep per test (`-run '^Name$'` in

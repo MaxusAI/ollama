@@ -4,13 +4,13 @@
 - **Date:** 2026-08-11
 - **Deciders:** MaxusAI fork maintainers
 - **Related:** [ADR 0017](0017-mlx-work-runs-on-a-permanently-claimed-os-thread.md)
-  (the same invariant, solved differently in `x/mlxrunner`)
+  (the same invariant, solved differently in `mlxrunner`)
 
 ## Context
 
 [ADR 0017](0017-mlx-work-runs-on-a-permanently-claimed-os-thread.md) established
 that MLX streams and their command encoders are thread-local, so an array can
-only be evaluated on the thread that built it. It fixed `x/mlxrunner/mlx` and
+only be evaluated on the thread that built it. It fixed `mlx` and
 left `x/imagegen` — a second, independent MLX binding with its own cgo layer and
 generated wrappers — recorded as an unaudited surface.
 
@@ -47,12 +47,12 @@ Make the two cached streams thread-local (`static __thread`), so each OS thread
 resolves its own. Nothing else changes: the lazy-resolve shape, the call sites,
 and `set_default_stream` all stay as they were.
 
-`__thread` is already used in this tree's cgo (`x/mlxrunner/mlx/mlx.go`) and is
+`__thread` is already used in this tree's cgo (`mlx/mlx.go`) and is
 supported by every compiler we build with, including mingw on Windows.
 
 ## Alternatives considered
 
-- **Port `ClaimOSThread` from `x/mlxrunner`** — the mechanism ADR 0017 chose.
+- **Port `ClaimOSThread` from `mlxrunner`** — the mechanism ADR 0017 chose.
   Rejected because it would not have fixed this crash: `x/imagegen`'s callers
   *already* pin (`InitMLX` locks the main goroutine, the test helper locks per
   test). The missing piece was never the pin, it was the cache, and a claim API
@@ -71,7 +71,7 @@ supported by every compiler we build with, including mingw on Windows.
   removing a crash.
 - Positive: `set_default_stream` is now per-thread, matching `mlx_set_default_stream`,
   which was already thread-local. The two previously disagreed about scope.
-- Negative: the two bindings now solve one invariant two ways — `x/mlxrunner` pins
+- Negative: the two bindings now solve one invariant two ways — `mlxrunner` pins
   the goroutine and resets a Go-side cache on claim, `x/imagegen` keeps the cache
   per thread in C. The asymmetry is forced: `x/imagegen`'s cache lives in C where
   `__thread` exists, while Go has no goroutine-local storage, so the Go-side cache

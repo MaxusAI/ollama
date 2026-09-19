@@ -53,7 +53,7 @@ iterations=121 drafted=1 accepted=0 acceptance=0.00 avg_draft=0.01 max_draft=1 .
 proposals. `grammar_no_legal_draft=0` and `grammar_truncated=0`, so the
 `errNoLegalDraft` fallback never fired either. Nothing was ever proposed.
 
-The loop that produces this, all in `x/mlxrunner/speculate.go`:
+The loop that produces this, all in `mlxrunner/speculate.go`:
 
 - a round only proposes when `s.limit > 0` (`speculate.go:232`);
 - `s.limit` is refreshed **only** in `endRound`, from `depth.next()` (`speculate.go:170`);
@@ -90,8 +90,8 @@ the gate should stay off. It ships off; nothing is enabled by default.
 
 - n=3 per arm, one model, one image, one prompt. Enough to act on; not a campaign.
 - Measured with a **Go-only binary swap** over `maxusai/ollama:0.32.14-rc0-dynres-mlxfix`.
-  The branch changes only `x/mlxrunner/*.go`; `git diff eb0ad43...HEAD` over
-  `x/mlxrunner/mlx`, `MLX_VERSION`, `MLX_C_VERSION`, `CMakeLists.txt`, `cmake/`,
+  The branch changes only `mlxrunner/*.go`; `git diff eb0ad43...HEAD` over
+  `mlx`, `MLX_VERSION`, `MLX_C_VERSION`, `CMakeLists.txt`, `cmake/`,
   `llama/` and `ml/` is empty apart from two Go files and a README, so the native
   payload is identical and the swap is sound. Verified by `sha256sum` inside the image,
   and by `main` reproducing the published baseline through the same path.

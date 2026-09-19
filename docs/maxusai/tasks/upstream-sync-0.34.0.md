@@ -2,7 +2,7 @@
 
 Branch `task/upstream-sync-0.34.0` (worktree `claude-scratch/wt-sync034`), cut from `main` at
 `7d230fdc` (#293). Upstream v0.34.0 (`d8ab4b4f`, released 2026-09-05) adds 21 commits across
-88 files. They are mostly `app/`, `cmd/`, `server/` and `x/mlxrunner`, where the changes are
+88 files. They are mostly `app/`, `cmd/`, `server/` and `mlxrunner`, where the changes are
 structured output compiled as xgrammar structural tags and speculative decoding under a grammar.
 First look: [upstream-sync-2026-09-04.md](upstream-sync-2026-09-04.md), section "Next fold".
 **PR #297**, opened 2026-09-13 against `main`. Not merged; the deploy stays held.
@@ -29,9 +29,9 @@ for the idle runner that pins a CPU core. The decision is below (2026-09-11 23:3
   upstream's `refMu.TryLock()`, which drops `name`, `inference`, `pid` and `num_ctx` at the eleven
   log sites that already hold `refMu`. Adopted upstream's `slices.Clone` of the GPU list inside
   the lock.
-- **`x/mlxrunner/client.go`.** Took upstream's `requestGrammar`, which sends structured output as
+- **`mlxrunner/client.go`.** Took upstream's `requestGrammar`, which sends structured output as
   an xgrammar structural tag. This follows ADR 0033's adoption of upstream's grammar engine.
-- **`x/mlxrunner/speculate.go`.** Took upstream's `accept()`, which lets a constrained session
+- **`mlxrunner/speculate.go`.** Took upstream's `accept()`, which lets a constrained session
   draft. Kept the fork's comments. Rewrote the `park()` note that said a constrained session never
   drafts; the parked step must still be masked, and it still is.
 
@@ -47,7 +47,7 @@ for the idle runner that pins a CPU core. The decision is below (2026-09-11 23:3
   every non-empty format survives as a constraint, and a malformed or unwrapped format is an
   error. Rejecting a format the compiler cannot honour, such as `"yaml"`, now happens in the
   native compile, and can only be checked live on a rebuilt payload.
-- **Green after the fixes:** `go build ./...`; `go vet` on `x/mlxrunner/...` and `server`;
+- **Green after the fixes:** `go build ./...`; `go vet` on `mlxrunner/...` and `server`;
   `go test` on every package but one; `go test -race ./server/`; the preflight's
   `test_verdicts.py` (102 tests, 6 skipped). golangci-lint 2.13.2 reported only the type error
   that the port fixes.
@@ -489,8 +489,8 @@ needs repeats on both builds, three or more as here. Amending §4 is Glenn's cal
 ## Gate 3: why the Go-only swap covers only the GGUF half
 
 The MLX, MLX-C and llama.cpp pins are byte-identical to v0.33.3. But upstream changed the xgrammar
-shim that this repo builds itself: `x/mlxrunner/xgrammar/native`, which ships in the MLX payload
-as `libollama_xgrammar.so`. The 0.34.0 loader (`x/mlxrunner/xgrammar/dynamic.c`) looks up ten
+shim that this repo builds itself: `mlxrunner/xgrammar/native`, which ships in the MLX payload
+as `libollama_xgrammar.so`. The 0.34.0 loader (`mlxrunner/xgrammar/dynamic.c`) looks up ten
 symbols in that library. Two are missing from the 0.33.3 build, both for speculative decoding
 under a grammar: `ollama_xgrammar_matcher_rollback` and `ollama_xgrammar_matcher_is_terminated`.
 The rebuilt payload has all ten. An earlier version of this section said five. The other three

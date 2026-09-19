@@ -149,7 +149,7 @@ Automated (`server/routes_generate_test.go`):
 - `Test{Nemotron3Nano,Qwen35}Parser*ThinkingCloseMarker` — marker exposure (R4).
 - `TestReclassifyConstrainedThinking` — §4.
 
-Runner-side (`x/mlxrunner/client_format_test.go`):
+Runner-side (`mlxrunner/client_format_test.go`):
 
 - `TestRequestCompileFormat` — absent, `null`, and the empty string all leave
   the MLX runner unconstrained, over the real wire values (§3, R9). The Go

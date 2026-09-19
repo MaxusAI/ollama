@@ -23,7 +23,7 @@
   (payload llama.cpp b10760 `0f3a71be1`, MLX `37c26e57`, patchset 903 + fork band)
   with `main`'s Go binary swapped in (`0.33.3-dynres-10-ga523d60`); the native
   payload is byte-identical to the tagged image, verified with
-  `git diff --name-only 0c4f09d4..a523d60b -- x/mlxrunner/mlx MLX_VERSION MLX_C_VERSION CMakeLists.txt cmake/ llama/ ml/ Dockerfile`.
+  `git diff --name-only 0c4f09d4..a523d60b -- mlx MLX_VERSION MLX_C_VERSION CMakeLists.txt cmake/ llama/ ml/ Dockerfile`.
   What `main` adds over the tag: #271 (two-pass structured-output metrics on
   `/api/generate`) and #276 (MLX admission prices weights + KV(`num_ctx`) +
   calibrated headroom; explicit rungs refuse, automatic rungs clamp).

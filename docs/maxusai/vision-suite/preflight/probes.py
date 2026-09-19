@@ -390,7 +390,7 @@ def parse_load_segments(text):
 # that drift reads this file.
 MLX_VERSION_RE = re.compile(r'"MLX version"=(\S+)')
 SLOG_TIME_RE = re.compile(r"\btime=(\S+)")
-# x/mlxrunner/mlx/CMakeLists.txt runs `git describe --tags --first-parent
+# mlx/CMakeLists.txt runs `git describe --tags --first-parent
 # --abbrev=7 --long --dirty --always`. --long guarantees the -g<sha> suffix even
 # at an exact tag, so a MISSING suffix means --always fired with no reachable
 # tag; --dirty appends after it, which is why the sha group is not $-anchored.

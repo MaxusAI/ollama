@@ -12,7 +12,7 @@ MaxusAI-fork reference. Measured 2026-08-17/18 on CUDA (RTX PRO 6000 Blackwell),
 
 > **Code references removed 2026-09-04 (ADR 0033 follow-up).** The measured
 > behaviour still holds — a constrained MLX session never drafts — but upstream's
-> grammar engine now enforces it, and `x/mlxrunner/constrain.go`
+> grammar engine now enforces it, and `mlxrunner/constrain.go`
 > (`constrainedDecoder`, `constraintBias` and both benchmarks) has been deleted.
 > The excerpts below describe the 0.32.14 implementation, not HEAD.
 
@@ -33,7 +33,7 @@ rate.
 
 ## The cause is structural, not the mask
 
-`constrainedDecoder.next` (`x/mlxrunner/constrain.go:130`) returns exactly one
+`constrainedDecoder.next` (`mlxrunner/constrain.go:130`) returns exactly one
 `sampler.Result` per call and feeds exactly one token into `forward`:
 
 ```go

@@ -48,7 +48,7 @@ bump.
 | `f348c7e3` Honor model generation defaults | GGUF `general.sampling.*` applied live at load | **verified inert on our fleet** (below) |
 | `ba064c36`, `c36adebc` mlxrunner: check every mlx-c call / single error buffer | `mlxCall` and the `__thread` error buffer deleted | our `ClaimOSThread` (ADR 0017) and `memory.go` sit on `mlxCall` |
 | `e5e43771` ci: MLX unit tests for PR runs | `mlxtest.Setup` → `mlxtest.Run` | 18 call sites in 10 fork files, incl. the vision goldens |
-| `3ffc9a68` shared audio decoding | new `x/mlxrunner/model/audio/` | clean add |
+| `3ffc9a68` shared audio decoding | new `mlxrunner/model/audio/` | clean add |
 | `5ec58043`, `b1d1ccc9` llama.cpp b10729, b10760 | vendor bump; upstream re-cut its `001` hooks patch | compat band verified (below) |
 | `3ba380d0` MLX, MLX-C bump; `ef117cfc` dedup deps; `205a0426` go-license step | build/packaging | `cmake/mlx` conflict (one line) |
 | `882387a5`, `e37a00a8` | test fix, typos | none |
@@ -85,9 +85,9 @@ commits), the MLX/MLX-C bump, and CI that runs MLX unit tests on PRs.
   only `qwen3.8:27b-q4_K_M` carries `general.sampling.*` (temp/top_k/top_p),
   and its params blob already sets them at higher precedence. Re-run this
   check after any new `ollama pull`.
-- **Four compile breaks hide behind clean auto-merges:** `x/mlxrunner/mlx/memory.go`
+- **Four compile breaks hide behind clean auto-merges:** `mlx/memory.go`
   (`mlxCall` ×3 — the VRAM/cache ceiling), `ClaimOSThread()` callers
-  (`x/create/mlxthread.go:32`, `x/mlxrunner/server.go:43`, `mlxtest.go:47`),
+  (`create/mlxthread.go:32`, `mlxrunner/server.go:43`, `mlxtest.go:47`),
   `mlxtest.Setup` (18 sites / 10 files, incl. `vision_golden_test.go`,
   `vision_e2e_test.go`, `constrain_bench_test.go`), and `isGemma4Renderer`
   (`server/images.go:487`, `server/model_list_cache.go:410`).
@@ -105,10 +105,10 @@ done, not what was planned.
 
 | file(s) | planned resolution | resolved as |
 |---|---|---|
-| `x/models/gemma4/{media,vision,media_test,vision_test}.go` (add/add), `gemma4.go`, `gemma4_test.go`, `gemma4_moe_test.go` | **D1**, whole-file per side; never hand-merged | **D1-A.** The four add/add files: ours whole-file. `gemma4.go`: ours, taking only upstream's package doc line — every other upstream hunk is vision/audio wiring (`parseMultimodalConfig`, `buildMasks` threaded through `DecoderLayer`/`Attention`, media-placeholder embed masking, `loadAudioWeights`) and does not compile against our tower. `gemma4_test.go` / `gemma4_moe_test.go`: theirs (pure `mlxtest` port, no vision content); `vision_test.go`'s nine `useMLXTestThread` sites ported to `mlxtest.Run`, since upstream deleted that helper along with `gemma4_moe_test.go`. Exclusions below. |
-| `server/routes.go` (old 2747–2801), `x/mlxrunner/pipeline.go`, `x/mlxrunner/client.go`, `llm/llama_server.go` | **D2**; preserve `guardClose` call sites, the `stopper` block, `applyCompletionFormat`, `visionServerArgs`, `kvCacheFlagValues`, `ggmlCublasComputeTypeEnv`, `mlxRunnerEnvDefaults` | **D2.** Upstream's plumbing kept whole: `IncludeIntermediateMetrics` end to end, `includeIntermediateMetrics := req.Format != nil && currentFormat == nil`, the `firstPassMetrics` capture with its non-terminal blanking, `PromptEvalCachedCount` everywhere, and `pipeline.go`'s `cachedPromptCount = len(session.inputs) - len(session.remaining)` plus per-chunk metric enrichment. Upstream's `else if Applying && r.Done` fold is dropped — ADR 0004's `pass1` summing does the same job and both would count pass one twice. New `reportedPassMetrics()` prefers the runner's own pass-one report over ADR 0010's textual reconstruction at the transition site (that report is the cache-inclusive prefill, image tokens included); `transitionPassMetrics()`/`transitionPromptDelta` stay as the fallback, and the delta is still computed only from a reconstructed pass. #238's `deferring` gate kept on both sites. Every named symbol preserved; all `guardClose` call sites and the `stopper` block intact. |
-| `x/mlxrunner/mlx/{mlx,stream}.go`, `mlx/thread_test.go` | take theirs; re-express ADR 0017's guarantee on `x/internal/mlxthread` (upstream's own answer); port `memory.go` off `mlxCall` onto `mlxError`; confirm `mlx_set_cache_limit` / `mlx_set_memory_limit` / `mlx_get_memory_limit` survive the MLX-C regeneration | Theirs. `ClaimOSThread` and `__thread _mlx_thread_owned` deleted with their four callers (`x/create/mlxthread.go`, `x/mlxrunner/server.go`, `vision_golden_test.go`, `vision_e2e_test.go`); ADR 0017 carries a status amendment and AGENTS.md / `docs/development.md` now point at `mlxthread` and `mlxtest.Run`. **All three MLX-C symbols confirmed present** with unchanged signatures (`x/mlxrunner/mlx/generated.h:5301-5316`, `include/mlx/c/memory.h:34-38`); `memory.go`'s three functions ported onto `mlxError`. `memory_test.go`'s fork-only `SetCacheLimit` test ported onto upstream's `withMLXThread(t, func(*mlxthreadtest.T))`. |
-| `x/internal/mlxtest/mlxtest.go`, `x/mlxrunner/cache/*_test.go`, `model/embedding_test.go`, `sample/sample_test.go`, `x/models/{laguna,qwen3_5}/*_test.go`, `x/mlxrunner/client_test.go` (add/add) | take theirs; port the 18 `Setup` sites to `Run`/`RunSubtest`; concatenate the two `client_test.go` | Theirs; the two `client_test.go` concatenated (one package clause, union of imports, both bodies). 17 of the 18 `Setup` sites turned out to sit in upstream-owned files and upstream ported them itself. The 18th, `constrain_bench_test.go`, cannot be ported — it calls `mlxtest.Setup(b)` and the new API takes only `*testing.T` — so it and `constrain_test.go` (whose `skipIfNoMLX` came from an upstream file that no longer defines it) are **deleted**, bringing forward part of ADR 0033's follow-up. `constrain.go` and the four non-MLX `constrain_*_test.go` are left for that PR. |
+| `mlxrunner/model/gemma4/{media,vision,media_test,vision_test}.go` (add/add), `gemma4.go`, `gemma4_test.go`, `gemma4_moe_test.go` | **D1**, whole-file per side; never hand-merged | **D1-A.** The four add/add files: ours whole-file. `gemma4.go`: ours, taking only upstream's package doc line — every other upstream hunk is vision/audio wiring (`parseMultimodalConfig`, `buildMasks` threaded through `DecoderLayer`/`Attention`, media-placeholder embed masking, `loadAudioWeights`) and does not compile against our tower. `gemma4_test.go` / `gemma4_moe_test.go`: theirs (pure `mlxtest` port, no vision content); `vision_test.go`'s nine `useMLXTestThread` sites ported to `mlxtest.Run`, since upstream deleted that helper along with `gemma4_moe_test.go`. Exclusions below. |
+| `server/routes.go` (old 2747–2801), `mlxrunner/pipeline.go`, `mlxrunner/client.go`, `llm/llama_server.go` | **D2**; preserve `guardClose` call sites, the `stopper` block, `applyCompletionFormat`, `visionServerArgs`, `kvCacheFlagValues`, `ggmlCublasComputeTypeEnv`, `mlxRunnerEnvDefaults` | **D2.** Upstream's plumbing kept whole: `IncludeIntermediateMetrics` end to end, `includeIntermediateMetrics := req.Format != nil && currentFormat == nil`, the `firstPassMetrics` capture with its non-terminal blanking, `PromptEvalCachedCount` everywhere, and `pipeline.go`'s `cachedPromptCount = len(session.inputs) - len(session.remaining)` plus per-chunk metric enrichment. Upstream's `else if Applying && r.Done` fold is dropped — ADR 0004's `pass1` summing does the same job and both would count pass one twice. New `reportedPassMetrics()` prefers the runner's own pass-one report over ADR 0010's textual reconstruction at the transition site (that report is the cache-inclusive prefill, image tokens included); `transitionPassMetrics()`/`transitionPromptDelta` stay as the fallback, and the delta is still computed only from a reconstructed pass. #238's `deferring` gate kept on both sites. Every named symbol preserved; all `guardClose` call sites and the `stopper` block intact. |
+| `mlx/{mlx,stream}.go`, `mlx/thread_test.go` | take theirs; re-express ADR 0017's guarantee on `mlx/mlxthread` (upstream's own answer); port `memory.go` off `mlxCall` onto `mlxError`; confirm `mlx_set_cache_limit` / `mlx_set_memory_limit` / `mlx_get_memory_limit` survive the MLX-C regeneration | Theirs. `ClaimOSThread` and `__thread _mlx_thread_owned` deleted with their four callers (`create/mlxthread.go`, `mlxrunner/server.go`, `vision_golden_test.go`, `vision_e2e_test.go`); ADR 0017 carries a status amendment and AGENTS.md / `docs/development.md` now point at `mlxthread` and `mlxtest.Run`. **All three MLX-C symbols confirmed present** with unchanged signatures (`mlx/generated.h:5301-5316`, `include/mlx/c/memory.h:34-38`); `memory.go`'s three functions ported onto `mlxError`. `memory_test.go`'s fork-only `SetCacheLimit` test ported onto upstream's `withMLXThread(t, func(*mlxthreadtest.T))`. |
+| `mlx/mlxtest/mlxtest.go`, `mlxrunner/cache/*_test.go`, `model/embedding_test.go`, `sample/sample_test.go`, `mlxrunner/model/{laguna,qwen3_5}/*_test.go`, `mlxrunner/client_test.go` (add/add) | take theirs; port the 18 `Setup` sites to `Run`/`RunSubtest`; concatenate the two `client_test.go` | Theirs; the two `client_test.go` concatenated (one package clause, union of imports, both bodies). 17 of the 18 `Setup` sites turned out to sit in upstream-owned files and upstream ported them itself. The 18th, `constrain_bench_test.go`, cannot be ported — it calls `mlxtest.Setup(b)` and the new API takes only `*testing.T` — so it and `constrain_test.go` (whose `skipIfNoMLX` came from an upstream file that no longer defines it) are **deleted**, bringing forward part of ADR 0033's follow-up. `constrain.go` and the four non-MLX `constrain_*_test.go` are left for that PR. |
 | `server/images.go`, `server/images_test.go`, `server/model_list_cache.go` | take upstream's deletion of the gemma4 capability suppression; resolve `isGemma4Renderer` consistently with D1 (restore it under D1-A; drop the branch under D1-B) | Upstream's removal of the gemma4 **vision** suppression taken. `isGemma4Renderer` restored in `server/renderer_resolution.go` (D1-A). **Hidden break caught:** the auto-merge had silently taken upstream's deletion of the gemma4 branch in `suppressAudioCapability` too, which would have advertised an audio modality this fork cannot serve; restored. `model_list_cache.go`'s mirror kept; `images_test.go` keeps the fork's "keeps vision, suppresses audio" cases. |
 | `cmake/mlx/CMakeLists.txt` | union: keep our `$ORIGIN` RPATH block and **`quadmath`**, take `cusolver cusparse nv[Jj]it[Ll]ink`, `OLLAMA_LIB_DIR`, license installs. Losing `quadmath` = a CUDA MLX payload that fails `CheckInit()` | Union exactly as planned; `quadmath` retained. |
 | `.github/workflows/test.yaml` | union of path filters (as #232) + upstream's MLX unit-test job | Union: fork path filters + upstream's `go_mod_changed` filter, `go_license` job, `race` job and the MLX Darwin payload cache/prepare steps. |
@@ -121,18 +121,18 @@ define (`multimodalConfig`, `MultimodalEmbedder`, `makeClippableLinear`,
 `m.MM` / `m.Vision` / `m.Audio`, `visionSoftTokenBudget`) and therefore do not
 compile against our package. The D1-B spike starts from this list:
 
-- `x/models/gemma4/audio.go` — the conformer audio tower and its weight
+- `mlxrunner/model/gemma4/audio.go` — the conformer audio tower and its weight
   loading (`loadAudioWeights`, `encodeAudio`, `audioAttentionMask`).
-- `x/models/gemma4/audio_test.go` — `prepareAudioMedia`, `parseAudioConfig`
+- `mlxrunner/model/gemma4/audio_test.go` — `prepareAudioMedia`, `parseAudioConfig`
   and the attention-mask tests for it.
-- `x/models/gemma4/process_image.go` — upstream's image preprocessing:
+- `mlxrunner/model/gemma4/process_image.go` — upstream's image preprocessing:
   `visionTargetSize`, `preprocessImage`, `patchify`, `ImageGeometry`. This is
   the direct competitor to ADR 0008's `BudgetFillSize` ladder, and the file
   the B spike has to reconcile.
 
-**Also excluded under D1-A (2026-09-04, after Gate 2):** `x/models/gemma4/process_audio.go`
+**Also excluded under D1-A (2026-09-04, after Gate 2):** `mlxrunner/model/gemma4/process_audio.go`
 and `process_audio_test.go`. They were first kept because they compile standalone
-against the new `x/mlxrunner/model/audio` package, but golangci-lint's `unused`
+against the new `mlxrunner/model/audio` package, but golangci-lint's `unused`
 flagged `processUnifiedAudio` at repo root — dead code that trips the lint gate is
 worse than a file the D1-B spike can restore from the tag. The D1-B spike's
 starting set is therefore all five upstream files: `audio.go`, `audio_test.go`,
@@ -141,7 +141,7 @@ starting set is therefore all five upstream files: `audio.go`, `audio_test.go`,
 Also removed with `ClaimOSThread`: `TestMLXOperationsSurviveRescheduling`
 (ADR 0017's conformance test) went with `mlx/thread_test.go`. It existed to
 drive MLX from an *unpinned* goroutine, which upstream's shared-thread model
-makes invalid; the contract is now pinned by `x/internal/mlxthread`'s own
+makes invalid; the contract is now pinned by `mlx/mlxthread`'s own
 `thread_affinity_test.go` / `TestDoUsesSameOSThread`.
 
 ## THE DECISIONS
@@ -160,9 +160,9 @@ mask designs (`buildMasks` + `use_bidirectional_attention` upstream vs our
 
 | option | cost | risk |
 |---|---|---|
-| **A. Keep ours for this fold; no gemma4 audio yet.** Take upstream's `gemma4.go` changes only where they do not touch vision/audio wiring; keep our four vision files; leave `x/mlxrunner/model/audio` unused; restore `isGemma4Renderer`. | The conflict recurs at v0.33.4; no audio. | **Lowest.** Same vision code as deployed; goldens, flat/aspect ladders and the budget knob all remain valid instruments — the MLX pin bump is the only thing they test. |
+| **A. Keep ours for this fold; no gemma4 audio yet.** Take upstream's `gemma4.go` changes only where they do not touch vision/audio wiring; keep our four vision files; leave `mlxrunner/model/audio` unused; restore `isGemma4Renderer`. | The conflict recurs at v0.33.4; no audio. | **Lowest.** Same vision code as deployed; goldens, flat/aspect ladders and the budget knob all remain valid instruments — the MLX pin bump is the only thing they test. |
 | **B. Adopt upstream, re-graft the budget seam.** Supersede ADR 0021 by ADR; implement `MediaBudgetModel` on upstream's model (map `image_min/max_tokens` onto the fixed budget set, or onto `maxPatches` in `visionTargetSize`); re-baseline goldens and `mlx-metal` ladders (`aspect_ladder` values 1066/1058/1091 *will* move — upstream floors sides differently). | 2–3 days + a full MLX re-baseline; ADR 0003/0007/0008 policy re-stated on upstream's resize. | Medium: a measured change to the fork's oldest vision claim. Must be a spike with numbers first. |
-| C. Adopt upstream as-is. | none | **Rejected**: `image_max_tokens` becomes a silent no-op on MLX gemma4 (the type assertion at `x/mlxrunner/media.go:291` fails quietly) — exactly what ADR 0021 decision 3 forbids. |
+| C. Adopt upstream as-is. | none | **Rejected**: `image_max_tokens` becomes a silent no-op on MLX gemma4 (the type assertion at `mlxrunner/media.go:291` fails quietly) — exactly what ADR 0021 decision 3 forbids. |
 
 **Recommendation: A for this fold, B as its own task.** A folds everything
 else to 0.33.3 without touching a measured surface; B is decided on a spike
@@ -185,10 +185,10 @@ instead supersedes ADR 0010 and re-records every `think + format` cell.
 
 ## Pre-fold housekeeping (shrinks the conflict surface; each its own PR)
 
-1. **Merge #211** — `x/mlxrunner/client.go:578`, `unwind.go:40`,
+1. **Merge #211** — `mlxrunner/client.go:578`, `unwind.go:40`,
    `client_env_test.go:22` cite `docs/maxusai/mlx-thrash-check-masks-as-cudagraph.md`,
    which exists only there. Add the one-line status ("implemented in #212").
-2. **Delete `x/mlxrunner/constrain.go`, its `speculate.go` call sites and the
+2. **Delete `mlxrunner/constrain.go`, its `speculate.go` call sites and the
    `constrain*_test.go` files** (ADR 0033's stated follow-up; `attachGrammar`
    has one match — its own definition). Removes one of the 18 `mlxtest.Setup`
    ports before it has to be made.
@@ -226,17 +226,17 @@ housekeeping PRs above are merged, and this branch is rebased on them.
 **Gate 1 — mechanical merge, no build.** `git merge v0.33.3`; resolve in this
 order: `mlxtest.go` (theirs + port 18 sites) → `mlx/{mlx,stream}.go` (theirs;
 `memory.go` off `mlxCall`; `ClaimOSThread` callers onto `mlxthread`) →
-`x/models/gemma4/*` per D1, whole files → `server/{images,model_list_cache}.go`
+`mlxrunner/model/gemma4/*` per D1, whole files → `server/{images,model_list_cache}.go`
 + `isGemma4Renderer` per D1 → `llm/llama_server.go`, `server/routes.go`,
-`x/mlxrunner/{pipeline,client}.go` per D2 → `cmake/mlx` union → workflows.
+`mlxrunner/{pipeline,client}.go` per D2 → `cmake/mlx` union → workflows.
 Exit check: `git grep -n 'mlxCall(\|ClaimOSThread()\|mlxtest\.Setup\|isGemma4Renderer'`
 returns only what D1 intends.
 
 Resolution recipes, read from v0.33.3 so Gate 1 is mechanical:
 
 - **`ClaimOSThread` → `mlxthread`.** Upstream's runner already pins the MLX
-  thread with `mlxthread.Start("mlxrunner", init)` (`x/mlxrunner/server.go`)
-  and `x/create/mlxthread.go` uses `runtime.LockOSThread()` for the process
+  thread with `mlxthread.Start("mlxrunner", init)` (`mlxrunner/server.go`)
+  and `create/mlxthread.go` uses `runtime.LockOSThread()` for the process
   lifetime — that *is* ADR 0017's guarantee, expressed upstream's way. Drop the
   fork's `ClaimOSThread` and its `__thread _mlx_thread_owned` flag; keep the
   invariant text in AGENTS.md/ADR 0017 pointing at `mlxthread`.
@@ -248,7 +248,7 @@ Resolution recipes, read from v0.33.3 so Gate 1 is mechanical:
   MLX-C bindings before assuming the port is a rename.
 - **`mlxtest`.** New API: `mlxtest.Run(t, func(*mlxtest.T))`,
   `mlxtest.RunSubtest(t, name, fn)`, `mlxtest.SkipIfUnavailable(t)`; the
-  callback runs on the package's shared MLX thread (`x/internal/mlxthreadtest`).
+  callback runs on the package's shared MLX thread (`mlx/mlxthread/mlxthreadtest`).
   Port the 18 `Setup` sites by wrapping the body; AGENTS.md's "build arrays
   inside the subtest" rule maps onto `RunSubtest`.
 - **D2 union.** Upstream adds `IncludeIntermediateMetrics` to the runner
@@ -268,7 +268,7 @@ the 8 TB array):
 ```sh
 go build ./... && go vet ./...
 go test ./llm/ -run 'TestImageTokensForSize|TestKVCacheType'
-go test ./server/ ./model/... ./llm/ ./api/ ./convert/ ./x/structured/ ./x/mlxrunner/... ./x/internal/...
+go test ./server/ ./model/... ./llm/ ./api/ ./convert/ ./x/structured/ ./mlxrunner/... ./x/internal/...
 python3 docs/maxusai/vision-suite/preflight/test_verdicts.py
 ```
 MLX-tagged tests skip without a payload — a skip is not a pass.
@@ -298,7 +298,7 @@ setsid nohup python3 docs/maxusai/vision-suite/preflight/preflight.py --host htt
 `--allow-unmeasured` past it). Metal host: new `[profile.mlx-metal-0-33-3]`
 (`version_pattern '^0\.33\.3-maxusai-…'`, `mlx_build = "37c26e5755da…"`),
 seeded from `0-33-2` then re-measured incl. `aspect_ladder`;
-`OLLAMA_VISION_E2E=1 go test ./x/mlxrunner/ -run TestVisionGoldenParity`
+`OLLAMA_VISION_E2E=1 go test ./mlxrunner/ -run TestVisionGoldenParity`
 against the four goldens (the MLX pin moved fused-kernel rounding once
 before — #225).
 
@@ -337,7 +337,7 @@ Once #264 passes the CUDA gates, the Apple side is the same three steps as
    (`measure_ladder.py`, incl. `aspect_ladder`); never widen `0-33-2`'s
    pattern (ADR 0011 rule 5). Then the full `--platform mlx-metal` preflight,
    detached, exit 0 required.
-3. `OLLAMA_VISION_E2E=1 go test ./x/mlxrunner/ -run 'TestVisionGoldenParity|TestVisionEndToEnd'`
+3. `OLLAMA_VISION_E2E=1 go test ./mlxrunner/ -run 'TestVisionGoldenParity|TestVisionEndToEnd'`
    against the four goldens — the MLX pin moved fused-kernel rounding once
    before (#225: bound raised with a `gemma4:26b-mlx-bf16` control); a
    recalibration needs the same control, not a bound edit.
@@ -354,7 +354,7 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
 - `GGML_CUDA_CUBLAS_COMPUTE_TYPE` / `applyArchServerEnvs` — do not simplify.
 - `quadmath` in `MLX_INCLUDE_REGEXES` — the symptom appears far from the cause.
 - `801` — the instrument behind `poison_probe`'s node evidence.
-- `x/mlxrunner/prefix_cache.go` `mediaRestoreFloor` — untouched upstream; if
+- `mlxrunner/prefix_cache.go` `mediaRestoreFloor` — untouched upstream; if
   D1-B, re-verify it against upstream's `buildMasks` (no `SeqOffsets[0]==0`
   assumption there).
 - gemma4 audio — under D1-A not shipped; under D1-B ships unmeasured unless a
@@ -374,7 +374,7 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    only `isGemma4Renderer` in code — its definition in
    `server/renderer_resolution.go` and its two uses in `server/images.go` and
    `server/model_list_cache.go` — plus prose in ADR 0017, ADR 0021 and this
-   doc. `git diff --name-status v0.33.3 HEAD -- x/models/gemma4` is the D1-A
+   doc. `git diff --name-status v0.33.3 HEAD -- mlxrunner/model/gemma4` is the D1-A
    shape: `D` on `audio.go`, `audio_test.go`, `process_image.go`; `M` on
    `gemma4.go`, `media.go`, `media_test.go`, `vision.go`, `vision_test.go`;
    `assistant.go`, `gemma4_test.go`, `gemma4_moe_test.go` identical to upstream;
@@ -390,7 +390,7 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    8 TB array). `go build ./...` clean. `go test ./llm/ -run
    'TestImageTokensForSize|TestKVCacheType'` clean. The full set
    (`./server/ ./model/... ./llm/ ./api/ ./convert/ ./x/structured/...
-   ./x/mlxrunner/... ./x/internal/... ./x/models/... ./x/create/...`):
+   ./mlxrunner/... ./x/internal/... ./mlxrunner/model/... ./create/...`):
    **4230 pass, 0 fail, 237 skip**. `test_verdicts.py`: 94 tests OK, 6
    skipped (quality arm — pre-existing, `summarize_engine_compare` import).
    Two caveats, both pre-existing and both verified against a control run of
@@ -604,19 +604,19 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
   Go-only binary swap (see the memory note) measures 0.34.0 without a CUDA rebuild.
   **Corrected 2026-09-11, at the fold's first GPU gate: the MLX half does need a native rebuild.**
   The three version pins are unchanged, but upstream changed the xgrammar shim this repo builds
-  itself (`x/mlxrunner/xgrammar/native`), which ships in the MLX payload as
+  itself (`mlxrunner/xgrammar/native`), which ships in the MLX payload as
   `libollama_xgrammar.so`. The 0.34.0 loader needs two symbols the 0.33.3 library lacks,
   `ollama_xgrammar_matcher_rollback` and `ollama_xgrammar_matcher_is_terminated`, both for
   speculative decoding under a grammar. On a Go-only swap the runner logs "Structured output is
   unavailable" and answers every MLX request that carries a format with HTTP 501. The GGUF half
   is unaffected. The check that missed it listed native paths by hand and omitted this one.
-- Scope: 88 files, 21 commits. Mostly `app/` (36), `x/mlxrunner` (14, largely `xgrammar` and
+- Scope: 88 files, 21 commits. Mostly `app/` (36), `mlxrunner` (14, largely `xgrammar` and
   `speculate`), `cmd/` (11), `server/` (8). Headline features are ChatGPT Desktop integration,
   OpenAI-compatible tool search and response compaction, and Apple-silicon structured output.
-- `x/mlxrunner/client.go` gains `requestGrammar` (wraps `req.Format` into a `json_schema`
+- `mlxrunner/client.go` gains `requestGrammar` (wraps `req.Format` into a `json_schema`
   structural tag). It does **not** touch admission, so #276's pricing is unaffected.
-- **Untouched by 0.34.0, so no conflict from our side:** `x/models/nn/nn.go`,
-  `x/mlxrunner/mlx/ops_extra.go`, `x/mlxrunner/mlx/generated.{c,h}`.
+- **Untouched by 0.34.0, so no conflict from our side:** `mlxrunner/nn/nn.go`,
+  `mlx/ops_extra.go`, `mlx/generated.{c,h}`.
 
 ### Bump MLX with the fold: an idle runner pins a CPU core, and the fix is already upstream
 

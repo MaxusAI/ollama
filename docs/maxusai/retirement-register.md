@@ -42,7 +42,7 @@ _Nothing pending. `x/structured` moved to "Already retired" below on 2026-09-17.
 - **`x/structured`** (ADR 0009/0013), deleted 2026-09-17 in the v0.34.1 fold on Glenn's word, after the parity gate
   found 0 regressions against xgrammar v0.2.5 in 108 verdicts. Its one finding — `allOf` with several branches is
   permissive on xgrammar — is recorded in ADR 0033's amendment and pinned by
-  `x/mlxrunner/xgrammar/engine_behaviour_test.go`, with the ADR 0013 bound kept there as a budget test.
+  `mlxrunner/xgrammar/engine_behaviour_test.go`, with the ADR 0013 bound kept there as a budget test.
 - ADR 0017's mechanism (`mlx.ClaimOSThread`) — upstream's `mlxthread.Start` carries the guarantee since the 0.33.3 fold.
 - ADR 0007 (gemma4 default budget 560) — superseded by ADR 0008.
 - The integrated-GPU admission bound — upstream's, absorbed into `admit()` in the 0.34.1 fold.

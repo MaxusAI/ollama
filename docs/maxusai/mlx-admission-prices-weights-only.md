@@ -38,7 +38,7 @@ workload* is too big, and nothing checked".
 
 ## Cause 1 — the admission check prices weights only
 
-`x/mlxrunner/client.go:65`:
+`mlxrunner/client.go:65`:
 
 ```go
 c.memory.Store(uint64(modelManifest.TotalTensorSize()))
@@ -64,7 +64,7 @@ why a rung that will not fit is refused there and merely fatal here.
 
 ## Cause 2 — the KV cache is grown, not pre-sized
 
-`x/mlxrunner/cache/kvcache.go:38` starts at `step: 256`, and `Update` grows on
+`mlxrunner/cache/kvcache.go:38` starts at `step: 256`, and `Update` grows on
 demand:
 
 ```go
@@ -150,7 +150,7 @@ Two independent changes, smaller one first.
    double-buffer at growth, makes the footprint flat, and is the precondition
    for (1)'s estimate being accurate rather than approximate.
 
-Neither is a knob; both are work in `x/mlxrunner`. Until one lands, the operable
+Neither is a knob; both are work in `mlxrunner`. Until one lands, the operable
 mitigation for a large model on a shared card is `OLLAMA_MLX_MEMORY_LIMIT`, with
 its throughput cost acknowledged and its arm labelled.
 

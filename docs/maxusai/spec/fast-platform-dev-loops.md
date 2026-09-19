@@ -115,7 +115,7 @@ profile stays a valid control.
 - **MLX variant fallback.** `tryLoadFromMLXSubdirs` globs `lib/ollama/mlx_*` and
   reverse-sorts, so `metal_v4` always wins; `isCompatibleMLXVariant` refuses v4 below
   macOS 26 and falls through to stock v3. Both the skip and the load are `slog.Debug`
-  (`x/mlxrunner/mlx/dynamic.go:236-285`), so without `OLLAMA_DEBUG=1` there is no output
+  (`mlx/dynamic.go:236-285`), so without `OLLAMA_DEBUG=1` there is no output
   distinguishing "loaded your rebuild" from "silently used stock". Pin with
   `OLLAMA_LLM_LIBRARY=mlx_metal_v3|v4`.
 - **Development-tree search.** The MLX loader also searches `$CWD/build/lib/ollama`,

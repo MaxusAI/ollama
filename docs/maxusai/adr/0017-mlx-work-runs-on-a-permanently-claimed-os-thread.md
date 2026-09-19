@@ -6,21 +6,21 @@
   `mlx.ClaimOSThread` and its `__thread _mlx_thread_owned` flag with them. **The
   guarantee below is unchanged**; it is now carried by upstream's own answer —
   the "funnel every MLX operation to one dedicated thread" alternative this ADR
-  rejected in 2026-08. `x/internal/mlxthread`'s `Start` locks its worker
-  goroutine and deliberately never unlocks (runner init, `x/create` the same
+  rejected in 2026-08. `mlx/mlxthread`'s `Start` locks its worker
+  goroutine and deliberately never unlocks (runner init, `create` the same
   with a bare `runtime.LockOSThread`), and tests reach that worker through
-  `x/internal/mlxtest`'s `Run` / `RunSubtest` on `x/internal/mlxthreadtest`.
+  `mlx/mlxtest`'s `Run` / `RunSubtest` on `mlx/mlxthread/mlxthreadtest`.
   Read decision points 1–4 as descriptions of the guarantee, not of live API:
   `TestMLXOperationsSurviveRescheduling` went with `ClaimOSThread` (it existed to
   drive MLX from an *unpinned* goroutine, which is now simply invalid), and the
-  contract is pinned instead by `x/internal/mlxthread`'s own
+  contract is pinned instead by `mlx/mlxthread`'s own
   `thread_affinity_test.go` / `TestDoUsesSameOSThread`.
 - **Date:** 2026-08-10
 - **Deciders:** MaxusAI fork maintainers
 
 ## Context
 
-`x/mlxrunner` panicked intermittently with
+`mlxrunner` panicked intermittently with
 
 ```
 mlx: There is no Stream(gpu, 0) in current thread. at mlx/c/transforms.cpp:73
@@ -67,12 +67,12 @@ Two facts about MLX force the decision:
 
 Two defects followed from that, and both had to go:
 
-1. `DefaultStream()` (`x/mlxrunner/mlx/stream.go`) cached MLX's thread-local
+1. `DefaultStream()` (`mlx/stream.go`) cached MLX's thread-local
    stream in a *process-global*. That is what put `Stream(gpu, 0)` — the first
    thread's handle — into every panic: later threads were handed a stream they
    could never evaluate on.
 2. Nothing pinned the goroutines that were *not* the runner worker. `mlxCall`
-   (`x/mlxrunner/mlx/mlx.go`) locked and unlocked the OS thread around a *single*
+   (`mlx/mlx.go`) locked and unlocked the OS thread around a *single*
    C call, which cannot hold an invariant that spans calls. To be fair to it, that
    lock was never meant to: it was added in `d3e67e30` (2026-04-13) for the
    `__thread` error-message buffer, three weeks before the repo crossed the
@@ -85,8 +85,8 @@ Two defects followed from that, and both had to go:
 without ever passing through it.
 
 **What was already protected.** The runner worker was *not* unpinned:
-`x/internal/mlxthread` locks its worker goroutine and deliberately never unlocks
-(`thread.go`), and `x/create`'s worker did the same with a bare
+`mlx/mlxthread` locks its worker goroutine and deliberately never unlocks
+(`thread.go`), and `create`'s worker did the same with a bare
 `runtime.LockOSThread()`. Both arrived with upstream's `534342e7`. The observed
 crashes were in **tests**, whose goroutines were unpinned and inherited the cached
 stream. So worker pinning was necessary and already present; what it could not fix
@@ -119,7 +119,7 @@ once during setup, before its first MLX operation.
    fixtures in the parent and evaluates them in subtests is invalid. Fixtures are
    built inside the subtest.
 
-Callers: `x/mlxrunner/server.go` and `x/create/mlxthread.go` worker init, plus the
+Callers: `mlxrunner/server.go` and `create/mlxthread.go` worker init, plus the
 `skipIfNoMLX` helper in every package whose tests drive MLX.
 
 ## Alternatives considered
@@ -158,17 +158,17 @@ Callers: `x/mlxrunner/server.go` and `x/create/mlxthread.go` worker init, plus t
 
 - Positive: thread affinity is structural rather than probabilistic. Verified with
   GC on: the deterministic reproducer failed 5/5 before and passes after;
-  `./x/mlxrunner/` is 25/25 on this branch and 25/25 on the branch that was 4/20,
+  `./mlxrunner/` is 25/25 on this branch and 25/25 on the branch that was 4/20,
   and 12/12 under `GOGC=1`. `GOGC=off` is no longer needed.
 - Positive: cross-goroutine MLX sharing now fails **immediately and always**
   instead of flaking. That surfaced six latent test bugs (parent-built fixtures
-  consumed by `t.Run` subtests) in `x/mlxrunner/cache` and `x/models/nn`, all fixed
+  consumed by `t.Run` subtests) in `mlxrunner/cache` and `mlxrunner/nn`, all fixed
   here.
 - Negative: a goroutine that forgets to claim gets MLX's cryptic message rather
   than a named one, and the discipline is convention, not a compile-time check.
 - Negative: each claiming thread creates its own MLX stream holding a Metal command
   queue, and a test binary claims once per MLX test (42 sites in
-  `x/mlxrunner/cache`). Measured, this is not a practical ceiling: 300 sequential
+  `mlxrunner/cache`). Measured, this is not a practical ceiling: 300 sequential
   claims produced 300 streams with no failure, and the device accepted 4096
   simultaneous command queues. Thread exit is the release — pthread TSD destructors
   run when a locked goroutine exits, so live encoders stay bounded. Wrapping
@@ -190,11 +190,11 @@ Callers: `x/mlxrunner/server.go` and `x/create/mlxthread.go` worker init, plus t
 
 ## Conformance
 
-- `TestMLXOperationsSurviveRescheduling` (`x/mlxrunner/mlx/thread_test.go`) drives
+- `TestMLXOperationsSurviveRescheduling` (`mlx/thread_test.go`) drives
   MLX from a plain goroutine while every P is saturated and the goroutine yields
   between operations. It is load-bearing: with `ClaimOSThread` stubbed out it
   reproduces the exact panic.
-- `x/internal/mlxthread` `TestDoUsesSameOSThread` continues to pin the worker
+- `mlx/mlxthread` `TestDoUsesSameOSThread` continues to pin the worker
   contract.
 - Full `./x/...` (excluding the pre-existing `x/imagegen` SIGSEGV) green over 6
   consecutive sweeps; every test in every claiming package also passes when run

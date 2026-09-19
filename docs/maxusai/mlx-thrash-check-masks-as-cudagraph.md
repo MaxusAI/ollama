@@ -82,10 +82,10 @@ it by splitting `commit_impl()` and resetting on any exception.
 ### 3. Ollama masks the first panic with the second
 
 `mlx.Eval` → `mlxCheck` panics with the thrash message. The request pipeline has
-`defer session.close()` (`x/mlxrunner/pipeline.go:131`), and `close()` calls
+`defer session.close()` (`mlxrunner/pipeline.go:131`), and `close()` calls
 `mlx.AsyncEval(arrays...)` (`prefix_cache.go:588`) — a second commit, on the
 poisoned encoder — which panics with `cudaGraphAddDependencies`. The MLX worker's
-recover site (`x/internal/mlxthread/thread.go`):
+recover site (`mlx/mlxthread/thread.go`):
 
 ```go
 func run(fn func() error) (res result) {
@@ -146,7 +146,7 @@ bump in #208 did not introduce this.
 
 ## Mitigation
 
-MLX reads three knobs in our pinned `device.cpp`, and `x/mlxrunner/client.go:388`
+MLX reads three knobs in our pinned `device.cpp`, and `mlxrunner/client.go:388`
 passes `os.Environ()` to the runner subprocess, so a container env reaches MLX:
 
 | knob | effect | cost |
@@ -182,15 +182,15 @@ turn a slow path into a dead request.
 >
 > **Implemented in #212** (branch `fix/mlx-thrash-check-default-off`): the runner
 > subprocess now starts with `MLX_ENABLE_CACHE_THRASHING_CHECK=0` unless the operator
-> exported the variable (`x/mlxrunner/client.go`, `mlxRunnerEnvDefaults`), and the
-> pipeline's deferred cleanups go through `guardClose` (`x/mlxrunner/unwind.go`) so a
+> exported the variable (`mlxrunner/client.go`, `mlxRunnerEnvDefaults`), and the
+> pipeline's deferred cleanups go through `guardClose` (`mlxrunner/unwind.go`) so a
 > cleanup that fails during unwinding no longer replaces the first panic in the log.
 > Images built before that commit (including `sync-0.32.15`) still need the env set
 > on the container.
 
 1. **Set `MLX_ENABLE_CACHE_THRASHING_CHECK=0` for the MLX runner subprocess by
    default** (next to the `CUDA_PATH` / `CUDA_HOME` `setEnv` calls in
-   `x/mlxrunner/client.go`), overridable by an operator who wants the advisory.
+   `mlxrunner/client.go`), overridable by an operator who wants the advisory.
    One line; removes the failure entirely.
 2. **Log the first panic, not just the last.** `mlxthread.run()` could capture the
    original panic value when a deferred cleanup panics during unwinding, so the

@@ -44,7 +44,7 @@ too, so almost every layer differs and no size ratio is meaningful.
 
 **What this costs us.** Every gemma4 vision measurement in this repo that names
 `gemma4:*-nvfp4` — the #312 encoder work, the vision goldens in
-`x/mlxrunner/testdata`, the fine-text tiers, this ladder — was taken against a
+`mlxrunner/testdata`, the fine-text tiers, this ladder — was taken against a
 **quantised tower**. A host that pulls that tag today gets a bf16 tower and will not
 reproduce them. Production is unaffected: `:11497` serves from the store as it stands,
 and nothing re-pulls on its own.
@@ -216,7 +216,7 @@ images at an identical 1115-token mean prefill. The bf16 tower is 3.5× the byte
 is not weight bandwidth — the tower is about half a gigabyte either way. It is kernel
 throughput: the image encode is compute-bound, and MLX's quantised matmul on sm_120 runs
 at roughly half the rate of the dense bf16 path, which is what
-[`sm120-mixed-input-gemm`](../../x/mlxrunner/bench/qqmm) measured directly. Accuracy does
+[`sm120-mixed-input-gemm`](../../mlxrunner/bench/qqmm) measured directly. Accuracy does
 not move with it: three items separate the two towers, p = 0.625.
 
 Language-model precision does not move accuracy either — `nvfp4` and `mxfp8` over the

@@ -28,7 +28,7 @@ an import branch.
 
 Consequences we verified rather than assumed:
 
-- `x/models/qwen3_5` already runs this architecture, including MTP self-draft,
+- `mlxrunner/model/qwen3_5` already runs this architecture, including MTP self-draft,
   packed GDN projections, packed gate_up experts and per-expert quantization.
   Nothing is version-gated against a 3.8 config.
 - Qwen3.8 keeps the **parser name** `qwen3.5`; only the *renderer* name changes.
@@ -46,21 +46,21 @@ Consequences we verified rather than assumed:
 
 The renderer and parser live at the routes/model layer and are **engine-agnostic**:
 a GGUF model takes its renderer from the manifest's `Config.Renderer`, so the same
-cherry-picks serve llama-server and MLX alike. Only the `x/create` import half is
+cherry-picks serve llama-server and MLX alike. Only the `create` import half is
 MLX-specific.
 
 | | **CUDA** | **ROCm (gfx1151)** | **Apple Silicon MLX** | **Apple Silicon Metal** |
 | --- | --- | --- | --- | --- |
-| Engine | llama-server subprocess (GGUF) | llama-server subprocess (GGUF) | `x/mlxrunner`, in-process (safetensors) | llama-server subprocess (GGUF) |
-| Model impl | llama.cpp `qwen35`/`qwen35moe` — present in the payload | b9888 payload — unverified | `x/models/qwen3_5` — present | llama.cpp `qwen35`/`qwen35moe` |
-| The 3 picks give | renderer + parser | — (not backported) | renderer + parser + `x/create` import | renderer + parser |
-| How a model arrives | `ollama pull` | `ollama pull` | `ollama pull` **or** `x/create` import | `ollama pull` |
+| Engine | llama-server subprocess (GGUF) | llama-server subprocess (GGUF) | `mlxrunner`, in-process (safetensors) | llama-server subprocess (GGUF) |
+| Model impl | llama.cpp `qwen35`/`qwen35moe` — present in the payload | b9888 payload — unverified | `mlxrunner/model/qwen3_5` — present | llama.cpp `qwen35`/`qwen35moe` |
+| The 3 picks give | renderer + parser | — (not backported) | renderer + parser + `create` import | renderer + parser |
+| How a model arrives | `ollama pull` | `ollama pull` | `ollama pull` **or** `create` import | `ollama pull` |
 | Preflight arches | `nemotron_h_omni`, `gemma4` | `nemotron_h_omni`, `gemma4` | + **`qwen35`** (added, measured) | `gemma4`, `qwen35moe` |
 | Status now | **works**, verified live; baseline outstanding | **blocked — see below** | **works**, verified live and baselined | **works**, verified live; unmeasured |
 
 **`ollama pull` works for MLX.** `Model.IsMLX()` is `Config.ModelFormat ==
 "safetensors"` (`server/images.go:84`), a manifest field, so a pulled model
-self-declares as MLX and routes to `x/mlxrunner`. `x/create` is the alternative
+self-declares as MLX and routes to `mlxrunner`. `create` is the alternative
 path for local or unpublished checkpoints, not a prerequisite.
 
 **ROCm is doubly blocked, and neither block is about Qwen3.8.** ADR 0006: `main`
@@ -85,7 +85,7 @@ against a pinned value) and would confound every number produced during a model
 bring-up. Keep the payload still.
 
 Two conflicts reported during investigation are **not real** and should not be
-budgeted for: the `x/models/qwen3_5/qwen3_5_test.go` collision is an artifact of
+budgeted for: the `mlxrunner/model/qwen3_5/qwen3_5_test.go` collision is an artifact of
 `git apply` versus cherry-pick's 3-way merge, and the "xhigh reasoning collides
 with ADR 0023" claim does not survive contact with the code.
 
@@ -127,7 +127,7 @@ What this changes:
 - **`model_format: "safetensors"` confirms `ollama pull` routes to the MLX runner**
   — `IsMLX()` reads exactly this field.
 - **The renderer comes from the manifest for pulled models.** Template-marker
-  detection only runs on `x/create` import of a local directory, which narrows the
+  detection only runs on `create` import of a local directory, which narrows the
   blast radius of any detection bug to that path.
 - **The "silent wrong renderer" risk is refuted for this checkpoint.** The concern
   assumed `readChatTemplate` consults only `chat_template.jinja`; it consults
@@ -147,8 +147,8 @@ What this changes:
 Three picks on a branch off `main`.
 
 **Gate:** CI's existing `test:` job already runs the new `qwen38_test.go`,
-renderer, parser and `x/create` tests — no new harness needed. Locally,
-`go test ./model/renderers/... ./model/parsers/... ./x/create/... ./server/...`.
+renderer, parser and `create` tests — no new harness needed. Locally,
+`go test ./model/renderers/... ./model/parsers/... ./create/... ./server/...`.
 Note `go build ./...` is known-broken here (`app/dist` embed); build the touched
 packages instead.
 

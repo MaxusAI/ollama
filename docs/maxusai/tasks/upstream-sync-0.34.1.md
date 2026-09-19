@@ -25,7 +25,7 @@ Dry-run conflict list: `claude-scratch/sync0341-dryrun-conflicts.txt`.
   `cmake/local.cmake`, and the Dockerfile's mlx stage now copies `mlx/compat`. We never changed `cmake/local.cmake`,
   so that merged clean. **The Go-only swap-validity input list gains `mlx/compat/`.**
 - **The array-lifetime model is replaced** (`13037ecb1`, "scope array lifetimes instead of pinning and sweeping").
-  `Pin`, `Unpin`, `Sweep`, `LogArrays` and the `tensors total:` trace line are gone; `x/mlxrunner/mlx/scope.go` adds
+  `Pin`, `Unpin`, `Sweep`, `LogArrays` and the `tensors total:` trace line are gone; `mlx/scope.go` adds
   function scopes (`Scoped`, `ScopedEval`, …) and held scopes (`NewScope`/`Attach`/`Discard`/`Close`). The runner
   logs one `memory` line per request: `peak`, and `held` — MLX's active memory after the request's scope ended and
   the cache was cleared. Upstream also releases the buffers weight loading leaves in the pool (`b68b112bd`).
@@ -49,9 +49,9 @@ Dry-run conflict list: `claude-scratch/sync0341-dryrun-conflicts.txt`.
 | `convert/convert_nemotron_h.go` + test | +5/−1 | deleted | deletion accepted (D3) |
 | `server/model_list_cache.go` | +4/−1 | deleted | deletion accepted; the rule already lives in `images.go` |
 | `llm/llama_server.go` | +680/−74 | +51/−44 | one hunk: upstream's repeat-limit error in our `(result, error)` arity |
-| `x/mlxrunner/client.go` | +356/−35 | +25/−23 | six hunks: our admission signature and fields plus upstream's `closed` flag, `CheckRuntime`, and the locked closed-check before `Start`; upstream's integrated-GPU clamp folded into `admit`, which now takes `systemInfo` (10 test callers updated) |
-| `x/mlxrunner/runner.go` | +257/−3 | +95/−79 | model setup moved to upstream's `loadModel`; only `configureCacheLimit()` kept, after the weights are resident |
-| `x/mlxrunner/pipeline.go` | +58/−11 | +106/−102 | teardown: our `guardClose` discipline on upstream's scoped shape, logging `memory peak/held`; streaming: upstream's scoped loop already records-before-streaming, so our stop-sequence handling was ported into it (`stop.feed`, empty-chunk skip, `stopMatched` break) |
+| `mlxrunner/client.go` | +356/−35 | +25/−23 | six hunks: our admission signature and fields plus upstream's `closed` flag, `CheckRuntime`, and the locked closed-check before `Start`; upstream's integrated-GPU clamp folded into `admit`, which now takes `systemInfo` (10 test callers updated) |
+| `mlxrunner/runner.go` | +257/−3 | +95/−79 | model setup moved to upstream's `loadModel`; only `configureCacheLimit()` kept, after the weights are resident |
+| `mlxrunner/pipeline.go` | +58/−11 | +106/−102 | teardown: our `guardClose` discipline on upstream's scoped shape, logging `memory peak/held`; streaming: upstream's scoped loop already records-before-streaming, so our stop-sequence handling was ported into it (`stop.feed`, empty-chunk skip, `stopMatched` break) |
 | `server/routes_debug_test.go` | +12/−6 | +5/−5 | our `vision.block_count` fixture lines on upstream's `gguftest` types |
 | `server/routes_generate_test.go` | +1617/−34 | +100/−35 | our `newTensors()` helper on `gguftest` types; `ggml.KV` is gone at v0.34.1, so the four residual fixtures migrated and the unused import dropped |
 
@@ -212,7 +212,7 @@ every quality cell identical across all six models, contract matrices identical,
 
 Three files of ours used it; everything else was upstream-owned and came rewritten.
 
-- `x/mlxrunner/bench/qqmm/main.go` (11 sites): each shape's weights live in a function scope, each `m`'s inputs in a
+- `mlxrunner/bench/qqmm/main.go` (11 sites): each shape's weights live in a function scope, each `m`'s inputs in a
   nested one, and `measure` wraps every timed call and the error check in its own scope, so nothing is pinned or
   swept by hand. `QuantizedMatmul` also gained a trailing global-scale argument with the carry patch.
 - `vision_e2e_test.go`, `vision_golden_test.go` (1 each): the worker's stop hook no longer sweeps; the runner's
@@ -230,12 +230,12 @@ Three files of ours used it; everything else was upstream-owned and came rewritt
   drafting-leak finding of the v0.34.0 fold was of the old model and is re-measured on this build, not carried.
 - **D6 — `x/structured` deleted (Glenn, 2026-09-17).** The parity gate found 0 regressions in 108 verdicts; the
   package had no importers. Its findings are in ADR 0033's amendment and pinned by
-  `x/mlxrunner/xgrammar/engine_behaviour_test.go`; the register moves it to retired.
+  `mlxrunner/xgrammar/engine_behaviour_test.go`; the register moves it to retired.
 - **D5 — the knob stays.** Upstream still drafts under a grammar; ADR 0033 is unchanged.
 
 - **D7 — v0.34.2 is its own fold; `ec3cc2307` came forward on evidence (Glenn, 2026-09-18; probe below).**
   Upstream v0.34.2 (15 commits, 365 files, +3.7k/−70k) moves the MLX engine out of `x/`, re-lays out the models
-  and bumps llama.cpp to b10969 — every fork path under `x/mlxrunner` re-homes, a structural fold, not widened into
+  and bumps llama.cpp to b10969 — every fork path under `mlxrunner` re-homes, a structural fold, not widened into
   this one. Its 5-line "Release freed KV buffers during speculative decode" (`ec3cc2307`, the pool release firing on
   crossing a 256-token boundary instead of landing on one) is cherry-picked into this fold if the two memory probes
   below say it is the residual, and left to the 0.34.2 fold otherwise.
@@ -245,9 +245,9 @@ The capability-level table — what the fork does that upstream does not, one ro
 upstream v0.34.1 at llama.cpp b10864 — is the README's "What differs from upstream, concretely", rewritten in this
 fold. This section only sizes the divergence for the merge: `git diff v0.34.1 task/upstream-sync-0.34.1` is 425
 files, +91,641/−2,696; outside `docs/maxusai`, 123 files, +21,874/−2,696. The merge-base with `upstream/main` is the
-tag itself, so all of it is fork-authored. The largest non-docs areas are `x/mlxrunner` (23 files), `server` (11),
-`x/structured` (11, +3,829 — **no importers since ADR 0033; dead code, Glenn's call**), `x/models/gemma4` (10, our
-vision with upstream's tower excluded), `x/mlxrunner/kvsize` (9), `llama/compat` (6 patches), `llm` (4).
+tag itself, so all of it is fork-authored. The largest non-docs areas are `mlxrunner` (23 files), `server` (11),
+`x/structured` (11, +3,829 — **no importers since ADR 0033; dead code, Glenn's call**), `mlxrunner/model/gemma4` (10, our
+vision with upstream's tower excluded), `mlxrunner/kvsize` (9), `llama/compat` (6 patches), `llm` (4).
 
 ## The gemma4 image-token limits (Glenn's question, 2026-09-17)
 
@@ -441,7 +441,7 @@ built from a worktree at the tag on the `bigdisk` builder — every native stage
 - **ADR 0036 deployed 22:30:18** (Glenn's word the same evening, after #320 merged) by `deploy-adr0036.sh`, the same
   mirror-by-`docker inspect` script: container `ollama-0.34.1-dynres-16-g16649e8`, image
   `maxusai/ollama:0.34.1-dynres-16-g16649e8` = the release image with a Go-only binary swap from `main` `16649e8`
-  (`publish-go` on the `bigdisk` builder, seconds; `git diff 8a7ba949...16649e8` over every native input — `x/mlxrunner/mlx`,
+  (`publish-go` on the `bigdisk` builder, seconds; `git diff 8a7ba949...16649e8` over every native input — `mlx`,
   the MLX and llama.cpp pins, `cmake/`, `llama/`, `ml/`, the Dockerfile — is empty apart from the HIP-only compat 906
   patch, which the CUDA payload compiles to the same `integrated = false` either way), same env (`OLLAMA_HOST` +
   `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`), 54 tags before and after, 11 s of no service. `ollama-0.34.1-dynres-0-g8a7ba94`
@@ -483,8 +483,8 @@ Two causes, one per backend:
   is affected** — mlx-cuda never ran the Metal kernel, so the nvfp4 campaigns here
   (`vision-campaign-2026-08-28-mlx0330-nvfp4.md`, `…-08-31-mlx0332-nvfp4.md`) stand; Metal-side 26b/31b vision numbers
   from before `8a7ba949` were measured through the corrupted kernel.
-- **Shared Go code, small.** The fold's `ToMLXGlobalScale` (`x/mlxrunner/model/quant.go`) holds every nvfp4 global
-  scale as `f32(m × 2688)` (MLX's representation, 2688 = 448 × 6) and `scaleAndCast` (`x/mlxrunner/mlx/ops_extra.go`)
+- **Shared Go code, small.** The fold's `ToMLXGlobalScale` (`mlxrunner/model/quant.go`) holds every nvfp4 global
+  scale as `f32(m × 2688)` (MLX's representation, 2688 = 448 × 6) and `scaleAndCast` (`mlx/ops_extra.go`)
   applies `f32(f32(m × 2688) / 2688)`, which is one f32 ulp off `m` for 17 of 31b's 191 vision global scales and exact
   for both of 12b's; 26b's tower has none. Control: `8a7ba949` with a two-line revert of only that arithmetic
   (`claude-scratch/wt-gsexact`), same 0.34.1 payload, reproduces `2b95b4a5`'s 31b line to every digit. Inside the
@@ -498,7 +498,7 @@ check every kernel fix's selection condition against the served models' quantize
 safetensors headers (nvfp4: `weight` U32 columns × 8 = K, `.scale` U8 columns × 16 = K). A fix selected by shape moves
 one backend for a subset of models and reads exactly like a shared-code drift.
 
-Running `x/mlxrunner` tests against the CUDA payload outside the image (`claude-scratch/golden312.sh`): `golang:1.26.0`
+Running `mlxrunner` tests against the CUDA payload outside the image (`claude-scratch/golden312.sh`): `golang:1.26.0`
 with `-u 1000:1000` and `--gpus '"device=0"'`; the payload from `docker cp <image>:/usr/lib/ollama/mlx_cuda_v13`
 symlinked at `<wt>/build/lib/ollama/mlx_cuda_v13` **plus** `<wt>/build/lib/ollama/include → mlx_cuda_v13/include`
 (MLX finds CCCL relative to the library's parent, not `CUDA_PATH`; without it the first JIT fails on
@@ -510,6 +510,6 @@ rebuild, which is #307's point. 12b ≈ 130 s cold, 31b ≈ 25 s warm.
 
 - The Metal half: MLX and MLX-C moved, so the Metal payload changes too; held by Glenn.
 - `v0.34.2-rc1` (8 commits further) moves the MLX engine out of `x/` and re-lays out the models; every fork path
-  under `x/mlxrunner` re-homes. That is a separate, structural fold.
+  under `mlxrunner` re-homes. That is a separate, structural fold.
 - PR #301 (Glenn's whitespace bound, renumbered to ADR 0035, green): merging it before this branch lands means a
   small merge of `client.go` here; after, it rebases onto the resolved file. Either is fine.

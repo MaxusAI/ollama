@@ -35,7 +35,7 @@ request. It does not hold for a *conversation* that fills the rung:
 
 Mechanism, from the code and the runner's own refusal (`image request needs a 1.0 GiB
 attention mask (16596-token prompt); reduce the prompt length or the image-token budget`,
-`x/mlxrunner/media.go:205-245`, ADR 0014 `81a517a3`): bidirectional media (gemma4 images)
+`mlxrunner/media.go:205-245`, ADR 0014 `81a517a3`): bidirectional media (gemma4 images)
 prefills with a dense float32 mask over an opening chunk that *"grows to cover every image
 block"* (`extendChunk`); the mask is chunk × promptLen × 4 B and the attention scores over
 that widened chunk are quadratic in the prompt. The guard caps only the **mask** at 1 GiB
@@ -97,7 +97,7 @@ Single-image requests (the teacher-v3 loop) never approach either.
    constant admitted them, which is the point (GGML's fit-derived default does the same).
 2. **Per-request pricing of the dense overlay.** The ADR 0014 guard should charge the widened
    chunk's *scores* (chunk × promptLen × heads × bytes for the widest layer), not the mask, against
-   the remaining budget, and keep its actionable message. `x/mlxrunner/media.go`, unit-testable.
+   the remaining budget, and keep its actionable message. `mlxrunner/media.go`, unit-testable.
 3. **Bound the dense region** — ADR 0014's own deferred follow-up: make `visionChunkMask`
    offset-aware and the bidirectional branch cache-history-aware so the dense span is one image
    block, not the prompt. The real fix for image chats; a gemma4 model-layer change.

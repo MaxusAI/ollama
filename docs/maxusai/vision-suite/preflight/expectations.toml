@@ -263,7 +263,7 @@ notes = """
 Successor to mlx-metal-0-32-14 after the #208 payload move. Every row below
 was measured fresh on 0.33.0-maxusai-21cfe88e (llama.cpp b10488, MLX
 27fec909) against the build-under-test on :11437. Vision golden parity at
-this MLX pin is pinned in x/mlxrunner/vision_golden_test.go: the bf16
+this MLX pin is pinned in mlxrunner/vision_golden_test.go: the bf16
 control measures <=0.06 per element while fused-nvfp4 drift reaches <=0.19
 — quantisation and runner regressions must not be conflated.
 """
@@ -301,14 +301,14 @@ leaves those four fields as TODO here — mlx-metal-0-33-0 filled them by operat
 instead, checked against the code that actually computes each family's bounds:
 
   gemma4/gemma4_unified  llm/llama_server.go gemma4Ladder {70,140,280,560,1120}
-                         + BudgetFillSize, reached via x/models/gemma4/vision.go
-  qwen35/qwen35moe       x/models/qwen3_5/process_image.go visionMinPixels 65536
+                         + BudgetFillSize, reached via mlxrunner/model/gemma4/vision.go
+  qwen35/qwen35moe       mlxrunner/model/qwen3_5/process_image.go visionMinPixels 65536
                          / visionMaxPixels 16777216, via smartResizeBounded
 
 `git diff 21cfe88e..2b95b4a5` is empty for all of llm/llama_server.go's sizing
 model (its only hunk is applyCompletionFormat, the ADR 0033 grammar
-passthrough), x/models/qwen3_5/process_image.go, x/models/gemma4/vision.go,
-x/models/gemma4/media.go and x/models/base/media.go, and `go test ./llm/ -run
+passthrough), mlxrunner/model/qwen3_5/process_image.go, mlxrunner/model/gemma4/vision.go,
+mlxrunner/model/gemma4/media.go and mlxrunner/model/base/media.go, and `go test ./llm/ -run
 TestImageTokensForSize` passes on this build. An earlier draft of this note
 cited only llm/llama_server.go, which does not govern the qwen bounds at all —
 right conclusion, wrong evidence for half the profile.

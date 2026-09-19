@@ -56,7 +56,7 @@ load-bearing for the effort estimate:
 ## Overlap analysis (why zero conflicts still needs review)
 
 The fork's delta vs the upstream base intersects upstream's delta in exactly
-two files: `x/mlxrunner/pipeline.go` and `x/mlxrunner/prefix_cache.go`. Both
+two files: `mlxrunner/pipeline.go` and `mlxrunner/prefix_cache.go`. Both
 auto-merge textually. The fork carries +4.4k lines of its own mlxrunner
 layer (vision goldens, e2e, stopper tests) around them, so the gate for
 *semantic* compatibility is the fork's own mlx test suite and the
@@ -85,11 +85,11 @@ branch on top.
 2. ✅ `go test ./server/ ./model/renderers/ ./model/parsers/ ./llm/` green in
    the `golang:1.26` container (`-u 1000:1000`, `-buildvcs=false`; the
    fileutil root-caveat and the app/dist embed baseline from #208 apply).
-3. ✅ (unit layer) `go test ./x/mlxrunner/` on the merged tree: 244 tests
+3. ✅ (unit layer) `go test ./mlxrunner/` on the merged tree: 244 tests
    pass in-container — including upstream's new 390-line
    `prefix_cache_scenario_test.go` and the fork's unit layer, i.e. the
    targeted semantic gate for the two overlapping files. ✅ (native layer,
-   2026-08-27, 10.8.0.3) `go test ./x/mlxrunner/ -p 1` green natively;
+   2026-08-27, 10.8.0.3) `go test ./mlxrunner/ -p 1` green natively;
    `TestDFlash*` — which cover the draft-cache-settling commit directly —
    all pass with real MLX. The 12b/26b/31b vision goldens pass after the
    `d53d33a5` recalibration: the 27fec909 MLX pin changed fused-nvfp4

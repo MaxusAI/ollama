@@ -17,11 +17,11 @@ differences at the edges, one of them unverified.**
 **Third answer, not originally asked but the most consequential:** upstream ollama has
 **three open PRs** covering the same ground as this fork's gemma4 work, including a
 maintainer's gemma4 MLX vision PR open since 2026-07-31. Two of them conflict with each
-other on `x/mlxrunner/`. See §2. Sizing remains the one part nobody else has touched.
+other on `mlxrunner/`. See §2. Sizing remains the one part nobody else has touched.
 
 ## 1. What this fork actually has
 
-[`x/models/gemma4/vision.go`](../../x/models/gemma4/vision.go) is a **Go port of
+[`mlxrunner/model/gemma4/vision.go`](../../mlxrunner/model/gemma4/vision.go) is a **Go port of
 mlx-vlm's gemma4 vision**, not an independent design. Its own header:
 
 > Vision support for Gemma 4 MLX checkpoints, ported from mlx_vlm (main branch)
@@ -35,7 +35,7 @@ It covers both lineages the model card describes:
 | `gemma4_vision` | 26B / 31B | 27-layer encoder over 16px patches, 2D RoPE attention (scale 1.0), 3×3 average pooling + standardization |
 
 Both project into the text hidden size through `embed_vision` (weightless RMSNorm →
-linear). Tests: `vision_test.go`, plus `x/mlxrunner/vision_e2e_test.go` and
+linear). Tests: `vision_test.go`, plus `mlxrunner/vision_e2e_test.go` and
 `vision_golden_test.go`.
 
 **The one deliberate deviation**, stated in the header:
@@ -86,18 +86,18 @@ contributions has an upstream counterpart currently open.**
 
 | PR | author | opened | size | subject | fork counterpart |
 |---|---|---|---|---|---|
-| [#17487](https://github.com/ollama/ollama/pull/17487) | **@dhiltgen** (maintainer) | 2026-07-31 | +2394/−25 | **mlx: add Gemma4 vision support** | `x/models/gemma4/vision.go` |
+| [#17487](https://github.com/ollama/ollama/pull/17487) | **@dhiltgen** (maintainer) | 2026-07-31 | +2394/−25 | **mlx: add Gemma4 vision support** | `mlxrunner/model/gemma4/vision.go` |
 | [#17600](https://github.com/ollama/ollama/pull/17600) | **@jessegross** (maintainer) | 2026-08-07 | +2014/−115 | **mlxrunner: Add image input support** | the MLX media plumbing |
 | [#17154](https://github.com/ollama/ollama/pull/17154) | @yatishgoel | 2026-07-13 | +323/−0 | **llm: raise and expose Gemma 4 image token budget** | ADR 0003's `image_{min,max}_tokens` |
 
 **The two maintainer PRs conflict with each other.** #17600 implements **Qwen 3.5/3.6
-only** (`x/models/qwen3_5/vision.go`); it touches `x/create/gemma4.go` but not gemma4
-vision. #17487 does gemma4 (`x/models/gemma4/gemma4.go`). They collide on
-**`x/mlxrunner/client.go`, `pipeline.go`, `runner.go`**, and they take *different*
+only** (`mlxrunner/model/qwen3_5/vision.go`); it touches `create/gemma4.go` but not gemma4
+vision. #17487 does gemma4 (`mlxrunner/model/gemma4/gemma4.go`). They collide on
+**`mlxrunner/client.go`, `pipeline.go`, `runner.go`**, and they take *different*
 architectural approaches to the same layer:
 
-- jessegross: `x/mlxrunner/media.go` + `x/mlxrunner/model/base/media.go`
-- dhiltgen: `x/mlxrunner/multimodal.go` + `x/mlxrunner/model/base/media_cache.go`
+- jessegross: `mlxrunner/media.go` + `mlxrunner/model/media.go`
+- dhiltgen: `mlxrunner/multimodal.go` + `mlxrunner/model/media_cache.go`
 
 Whichever lands first sets the interface any downstream port must match. As of
 2026-08-07 both are open and neither has review comments.
@@ -112,7 +112,7 @@ of the same model works. jessegross's own PR description states the cause plainl
 > MLX vision checkpoints are already exposed as image-capable, but the client does not
 > send media to the runner and the prompt is processed as ordinary text.
 
-**This fork already fixed that** — it is what `x/models/gemma4/vision.go` is for.
+**This fork already fixed that** — it is what `mlxrunner/model/gemma4/vision.go` is for.
 
 ### On sizing specifically, still nobody
 
@@ -255,7 +255,7 @@ about control flow; quote the lines.
 
 ## 6. What would close the gap
 
-1. **Golden test pinning both engines on extreme aspects.** The `x/mlxrunner`
+1. **Golden test pinning both engines on extreme aspects.** The `mlxrunner`
    golden-test harness already exists. Pin ≥100:1 and ≥1:100 at budgets 70 and 140,
    where the clamp fires, and assert the MLX and llama-server grids match.
 2. **Read `max_side_length`** in `processing_gemma4.py` and decide whether the fallback
@@ -267,7 +267,7 @@ about control flow; quote the lines.
 4. **Track the two upstream MLX PRs — the merge surface is about to move.** Both
    [#17487](https://github.com/ollama/ollama/pull/17487) and
    [#17600](https://github.com/ollama/ollama/pull/17600) rewrite
-   `x/mlxrunner/{client,pipeline,runner}.go`, which this fork's MLX vision work sits on
+   `mlxrunner/{client,pipeline,runner}.go`, which this fork's MLX vision work sits on
    top of. Syncing past either will be a genuine merge, not a fast-forward, and the two
    PRs disagree with each other on the media interface. Decide before syncing whether to
    rebase onto whichever lands or to keep diverging.

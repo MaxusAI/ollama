@@ -13,14 +13,14 @@ MLX wants that scale in its own representation, `m × 448 × 6` — `Nvfp4MaxPro
 because its kernels fold the maxima of the E4M3 and E2M1 ranges into the scale.
 
 The v0.34 fold made that representation the **stored** form.
-`ToMLXGlobalScale` (`x/mlxrunner/model/quant.go`) converts once at load:
+`ToMLXGlobalScale` (`mlxrunner/model/quant.go`) converts once at load:
 
 ```go
 return mlx.MulScalar(flat, mlx.Nvfp4MaxProduct)   // holds f32(m × 2688)
 ```
 
 and every wrapper that applies the scale itself divides it back out, in `scaleAndCast`
-(`x/mlxrunner/mlx/ops_extra.go`):
+(`mlx/ops_extra.go`):
 
 ```go
 return Mul(out, DivScalar(scale, Nvfp4MaxProduct)).AsType(out.DType())
@@ -83,7 +83,7 @@ MLX, and nowhere else.**
 ## Consequences
 
 - On CUDA the vision encoder returns to bit-parity with the pre-fold build and with
-  `mlx-vlm`, which is what the goldens in `x/mlxrunner/testdata` were generated against.
+  `mlx-vlm`, which is what the goldens in `mlxrunner/testdata` were generated against.
   The 31b golden expectations move back (`max Δ 0.1094 → 0.0898`) and should be re-taken
   in the same change.
 - **#287 inherits the fix.** Its prefill path dequantises nvfp4 weights to bf16 through

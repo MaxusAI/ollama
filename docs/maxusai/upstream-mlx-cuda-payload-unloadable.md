@@ -30,7 +30,7 @@ Two independent causes, both in CMake:
    literally by the ELF loader, which resolves nothing. The ELF spelling is
    `$ORIGIN`. So no library in the payload can find its siblings, and the payload
    directory is on no system search path by design. `cmake/mlx/CMakeLists.txt`
-   guards the setting with `if(APPLE)`, but `x/mlxrunner/mlx/CMakeLists.txt` sets
+   guards the setting with `if(APPLE)`, but `mlx/CMakeLists.txt` sets
    it **unconditionally** and is directory-scoped, so it wins for the targets it
    creates and stamps the Mach-O token onto the Linux build.
 2. `MLX_INCLUDE_REGEXES` bundles `gfortran` but not `quadmath`. `libgfortran`
@@ -108,7 +108,7 @@ endif()
 set(MLX_INCLUDE_REGEXES cublas cublasLt cudart cufft nvrtc nvrtc-builtins cudnn nccl openblas gfortran)
 ```
 
-`x/mlxrunner/mlx/CMakeLists.txt` sets the Mach-O spelling *unconditionally*:
+`mlx/CMakeLists.txt` sets the Mach-O spelling *unconditionally*:
 
 ```cmake
 set(CMAKE_INSTALL_RPATH "@loader_path")
@@ -120,7 +120,7 @@ resolves nothing.
 
 ### Why nothing else recovers this on Linux
 
-`x/mlxrunner/mlx/dynamic.go` has a mechanism that looks like it should:
+`mlx/dynamic.go` has a mechanism that looks like it should:
 
 ```go
 // prependLibraryPath prepends dir to the platform's dynamic library search
@@ -212,7 +212,7 @@ and is the fastest model measured here, while `qwen3_5_moe` trips **three** —
 correct output. The warnings mark a missing fast path, not a missing capability,
 and must not be reported as a serving blocker.
 
-Note also that a file-level grep for these kernels under `x/models/` does **not**
+Note also that a file-level grep for these kernels under `mlxrunner/model/` does **not**
 predict which architectures hit them: `qwen3_5_moe` shows no direct reference and
 trips the most warnings of the three. Read the load log, not the call sites.
 

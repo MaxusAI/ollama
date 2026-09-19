@@ -23,7 +23,7 @@ The evidence, all measured on Apple Silicon `10.8.0.3` against the deployed buil
 `0.34.0-maxusai-8a7ba949` and the archived `0.33.2-maxusai-2b95b4a5`:
 
 **The fixed kernel is arithmetically correct and the old one was not.** The guard test
-(`x/mlxrunner/mlx/fp_qmm_t_kmod32_test.go`, #315) compares `QuantizedMatmul` against
+(`mlx/fp_qmm_t_kmod32_test.go`, #315) compares `QuantizedMatmul` against
 dequantize-then-matmul at M = 256, N = 1152, group 16:
 
 ```
