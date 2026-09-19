@@ -2031,5 +2031,65 @@ class TestExtbenchSummary(unittest.TestCase):
         self.assertAlmostEqual(sxb.mcnemar_exact(5, 0), 0.0625, places=6)
 
 
+
+class TestExtbenchArmsAndSlices(unittest.TestCase):
+    """The repeat, timing and category tables added when the three OCRBench runs merged."""
+
+    def _write(self, d, tag, verdicts, model="gemma4:31b-nvfp4"):
+        recs = [{"i": i, "pred": "x", "secs": 2.0, "prompt_eval_count": 1100,
+                 "eval_count": 3, "gold": ["x"], "ok": bool(v)} for i, v in enumerate(verdicts)]
+        doc = {"summary": {"tag": tag, "model": model, "benchmark": "ocrbench",
+                           "dataset": "echo840/OCRBench", "split": "test", "offset": 0,
+                           "requested": len(verdicts), "scored": len(verdicts), "errors": 0,
+                           "empty_responses": 0, "think_env": "false", "think_on": False,
+                           "endpoint": "generate", "correct": sum(bool(v) for v in verdicts),
+                           "accuracy": round(sum(bool(v) for v in verdicts) / len(verdicts), 4)},
+               "records": recs}
+        with open(os.path.join(d, f"ext_{tag}_ocrbench.json"), "w") as f:
+            json.dump(doc, f)
+
+    def test_an_arm_spec_splits_label_from_its_repeats(self):
+        self.assertEqual(sxb.parse_arm("q4=a,b"), ("q4", ["a", "b"]))
+        self.assertEqual(sxb.parse_arm("solo"), ("solo", ["solo"]))
+
+    def test_stderr_is_the_binomial_form(self):
+        self.assertAlmostEqual(sxb.stderr(174, 200), 0.0238, places=3)
+        self.assertEqual(sxb.stderr(0, 0), 0.0)
+
+    def test_repeats_count_items_that_changed_verdict(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "r1", [1, 1, 0, 0])
+            self._write(d, "r2", [1, 0, 1, 0])          # items 1 and 2 flipped
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                sys.argv = ["x", "--dir", d, "--repeats", "ocrbench", "q4=r1,r2"]
+                sxb.main()
+            self.assertIn("| q4 | 2 | 0.500, 0.500 | 2 |", out.getvalue())
+
+    def test_categories_come_from_the_cached_row_slice(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "extimgs", "ocrbench"))
+            with open(os.path.join(d, "extimgs", "ocrbench", "rows_0_4.json"), "w") as f:
+                json.dump([{"question_type": "hand"}, {"question_type": "hand"},
+                           {"question_type": "regular"}, {}], f)
+            self._write(d, "a", [1, 0, 1, 1])
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                sys.argv = ["x", "--dir", d, "--categories", "ocrbench", "A=a"]
+                sxb.main()
+            got = out.getvalue()
+            self.assertIn("| hand | 2 | 1/2 |", got)
+            self.assertIn("| unlabelled | 1 | 1/1 |", got, "a row with no type is still an item")
+
+    def test_a_missing_row_slice_is_a_comment_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "a", [1, 0])
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                sys.argv = ["x", "--dir", d, "--categories", "ocrbench", "A=a"]
+                sxb.main()
+            self.assertIn("no cached row slice", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

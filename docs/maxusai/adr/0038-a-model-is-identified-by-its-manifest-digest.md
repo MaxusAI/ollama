@@ -1,6 +1,7 @@
-# ADR 0037: a measured model is identified by its manifest digest, not its tag
+# ADR 0038: a measured model is identified by its manifest digest, not its tag
 
-- **Status:** proposed 2026-09-19. Awaiting Glenn.
+- **Status:** proposed 2026-09-19. Awaiting Glenn. Enforces SPEC `vision-harness-reuse` H17,
+  which the mlx-metal campaign wrote from the other direction on the same day.
 - **Date:** 2026-09-19
 - **Deciders:** MaxusAI fork maintainers
 

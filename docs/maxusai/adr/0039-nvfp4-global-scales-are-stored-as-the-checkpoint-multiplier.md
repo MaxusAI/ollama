@@ -1,4 +1,4 @@
-# ADR 0038: nvfp4 global scales are stored as the checkpoint multiplier
+# ADR 0039: nvfp4 global scales are stored as the checkpoint multiplier
 
 - **Status:** proposed 2026-09-19. Awaiting Glenn. Arises from
   [#312](https://github.com/MaxusAI/ollama/issues/312) and gates part of

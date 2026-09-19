@@ -47,8 +47,8 @@ first is image accounting and the second is generation length.
   moved, which tensor groups they are in, and the size ratio (≈3.55× is nvfp4 → bf16).
   `--digests` prints the local manifest digest to cite in a record instead of the tag.
   See [../ocrbench-quantisation-ladder.md](../ocrbench-quantisation-ladder.md).
-- `ocrbench_table.py <label=tag[,tag]> ...` — renders an OCRBench ladder from
-  `extbench.py` score files: the arms, the repeat spread, and every pair compared on the
+- `summarize_extbench.py [--paired] [--repeats] [--categories] [--timing]` — renders
+  external-benchmark runs from `extbench.py` score files: the arms, the repeat spread, and every pair compared on the
   items both answered. A 200-item slice carries a ±0.024 standard error, so the paired
   discordant counts and the exact McNemar p are what resolve two arms, not the accuracy
   column.

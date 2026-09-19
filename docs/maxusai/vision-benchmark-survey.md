@@ -579,7 +579,7 @@ our models has published both-think-modes numbers (nemotron3: 88.3 off / 86.6 on
 > accuracy on the categories it covers and nothing more; published OCRBench numbers are out
 > of 1,000 across all ten. Use the full set, or a stratified window, before setting a number
 > beside a model card, and name the rows either way (SPEC `vision-harness-reuse` H15).
-> `ocrbench_table.py --categories` prints the split. The first ladder run on this slice is
+> `summarize_extbench.py --categories` prints the split. The first ladder run on this slice is
 > [ocrbench-quantisation-ladder.md](ocrbench-quantisation-ladder.md): gemma4:31b across six
 > quantisations, where every arm lands between 0.845 and 0.860 and no pair resolves. Add `countbenchqa` (491
 items, 0.02 GB) when you want a counting check, and `refcoco` when you want to cross-validate

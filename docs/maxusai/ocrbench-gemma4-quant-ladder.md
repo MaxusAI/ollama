@@ -1,5 +1,8 @@
 # OCRBench on ROCm/GGUF: gemma4:31b across q4_K_M, q8_0 and bf16
 
+> Part of the fork's OCRBench set — shared method, format and cross-host results in
+> [ocrbench.md](ocrbench.md).
+
 **Date:** 2026-09-19 · **Host:** gfx1151 (Strix Halo, 96 GiB GPU carve-out, 31 GiB system RAM)
 **Build:** `0.34.1-dynres-16649e8c` — 0.34.1 + `906-revert-hip-integrated-flag` + `OLLAMA_IGPU_DIRECT_IO` + ADR 0036
 

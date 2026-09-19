@@ -166,24 +166,6 @@ fragments were WRONG about the recommended shape — they showed
 actually uses named coordinate fields. A hand-typed example asserts a wire
 format nothing enforces; an emitted one cannot drift.
 
-**H15 — A reported model is named by its manifest digest, and a slice is named
-by what it contains.** Two hosts holding the same tag do not hold the same
-weights: `gemma4:31b-nvfp4` was re-published with a bf16 vision tower while this
-store kept the nvfp4 one — 194 layers different, the config blob identical, and
-`ollama show` silent about all of it (ADR 0037). A number attributed to a tag
-therefore attributes nothing. `vision-suite/store_audit.py --digests` prints the
-digest to cite, and the same tool run on both hosts is what makes a cross-host
-comparison mean anything.
-
-The second half is the benchmark's own scope. External sets are ordered by
-task, so a `LIMIT`/`OFFSET` window is a stratum, not a sample: OCRBench rows
-0–200 are four of its ten categories — regular, irregular, artistic and
-handwriting recognition — and contain no VQA, key-information extraction,
-digit strings or handwritten maths. A slice result names its rows and its
-categories, and is never called by the benchmark's name alone or set beside a
-published score for the whole set. `ocrbench_table.py --categories` prints the
-split from the cached rows.
-
 **H13 — Report footers derive provenance from the score files, and a MIXED
 footer blocks publication.** T1 and T2 print host(s) and build(s) collected
 from the H11 fields of every file they render. A file that loaded but carries
@@ -298,6 +280,18 @@ window.
 > was not the checkpoint's 83.5 %.
 
 ## 3. Before writing anything
+
+
+**H19 — A slice names its rows and its categories.** External sets are ordered
+by task, so a `LIMIT`/`OFFSET` window is a stratum, not a sample: OCRBench rows
+0–200 are four of its ten categories — regular, irregular, artistic and
+handwriting recognition — and contain no VQA, key-information extraction,
+digit strings or handwritten maths. A slice result names its rows and its
+categories, and is never called by the benchmark's name alone or set beside a
+published score for the whole set — H17's sibling problem, one level up: there a
+tag did not identify the weights, here a benchmark's name does not identify the
+questions. `summarize_extbench.py --categories` prints the split from the cached
+rows.
 
 **H8 — Check the inventory first.** `vision-suite/README.md` §Files lists every
 script and what it does. Read it before adding a script or a helper. Three
@@ -483,7 +477,7 @@ before asserting what two checkpoints have in common.
 | H10 | `client.RETRY_BACKOFF` = 5/15/30s with `_retries` recorded per cell; `test_client.py::TestTransportRetry` asserts a 400 calls `urlopen` exactly once while a 503 retries. `client.evict_others()` polls `/api/ps` until the eviction is observable and returns what it could not evict; `run_engine_compare.sh` calls it before each model when `RESTART_CMD` is absent, `COLD_START=0` opts out |
 | H15 | **Nothing enforces this.** The 2026-09-18 replication (`bench-runs/finetext-9px-31b-quant-reps-2026-09-18.json`) is the worked example of reporting a rate |
 | H16 | **Not enforced, and the renderer works against it:** `summarize_engine_compare.py` renders the suite arm and shows the probe arm only as a fallback. A render that reported both arms, or flagged their disagreement, would enforce it |
-| H17 | Partly: `quant_dims.py` (#316) lists a checkpoint's quantized weights and their K. Nothing records the manifest digest on a score block, and nothing diffs two checkpoints' layer sets; the config digest a reader might reach for instead identifies the architecture, not the checkpoint |
+| H17 | `store_audit.py` diffs a store's manifests against the registry and names what moved, which tensor group and the size ratio; `--digests` prints the digest to cite (`test_store_audit.py`). It found the case that motivates the rule: `gemma4:31b-nvfp4` re-published with a bf16 vision tower, 194 layers different under an unchanged tag and config blob (ADR 0038). `quant_dims.py` (#316) still lists a checkpoint's quantized weights and their K. Score blocks do not yet carry the digest — that is the remaining gap |
 | H18 | **Nothing enforces this.** `extbench.py` produces per-item records that a paired test can use; `bench-runs/ocrbench-v1-1000-gemma4-31b-nvfp4-0340-vs-0332.json` carries the paired items and the exact McNemar result |
 | H8 | **Nothing enforces this.** It is a reading habit, and it is the one that would have prevented all three incidents |
-| H15 | `store_audit.py` diffs the store against the registry and `--digests` prints the manifest digest to cite (`test_store_audit.py`); `ocrbench_table.py --categories` prints a slice's question-type split from the cached rows (`test_ocrbench_table.py::TestCategories`) |
+| H19 | `summarize_extbench.py --categories` prints a slice's question-type split from the cached row file (`test_summarizers.py`); `extbench.py` caches that file per `(offset, limit)` so the rows a run answered are recoverable |
