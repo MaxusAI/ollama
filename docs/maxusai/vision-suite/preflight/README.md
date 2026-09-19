@@ -87,6 +87,9 @@ payload and behaves as measured.
 | `image_tag` | the container serving this port runs the named image | FAIL |
 | `go_patch_marker` | `grep -c -- --image-max-tokens /usr/bin/ollama` is 1 | 0 means a stock binary |
 | `poison_probe` | the synthetic 1.06×-fp16-ceiling checkerboard (#214) decodes healthily on a fresh slot and leaves no residue — asserts the qwen25vl `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` runner gate is live | FAIL means the fp16-accumulate path is back; SKIP when the profile records no `[poison.<profile>]` entry |
+| `metal_tensor_host` | `nax_probe.m` replicates ggml's own `has_tensor` decision — Metal 4 family, `GGML_METAL_TENSOR_DISABLE`, the M5/M6/A19/A20 name allowlist, a runtime compile of its dummy `matmul2d` — in ~100 ms with no model load | FAIL when the host's answer is not the one the profile was measured on; SKIP for a remote server (the probe measures the harness's GPU) or a missing compiler |
+| `metal_tensor_payload` | the `llama-server` this server actually runs carries `GGML_METAL_HAS_TENSOR` | FAIL at 0 — a llama.cpp older than b10864, or one built without the Metal 4 source; SKIP when the payload is not on the harness's own host |
+| `metal_tensor_runtime` | this server process did **not** retry GPU discovery with `GGML_METAL_TENSOR_DISABLE=1`, which would pin the slow path on every runner it spawns | FAIL on the WARN line, bounded by the last `Listening on`; SKIP without that anchor |
 | `payload_proof` | `load_hparams: image_{min,max}_pixels: N (custom value)` where `N == tokens * S²`, on the bounds `custom_bounds` declares | FAIL, with the derivation printed |
 | `token_ladder` | same image at five 16:9 geometries vs a text-only baseline | FAIL, **per-arch** verdict |
 | `pinned_image_token_budget` | pinning the **image** token budget (`image_min_tokens == image_max_tokens`) never delivers more than the ceiling — pre-005 nemotron pinned to 3328 delivered 3390. Input-side sizing; unrelated to `was_capped`, which is about generation stopping at `num_predict` | FAIL, the 005 defect class |
@@ -94,7 +97,7 @@ payload and behaves as measured.
 | `extraction_quality` | `vision_suite.py` scores clear their floors (`--quality`) | FAIL |
 | `endpoint_exclusive` | no other client was competing for the slot | CONTENTION, exit 3 |
 
-### Two things the checks deliberately do *not* do
+### Three things the checks deliberately do *not* do
 
 **The payload proof never inspects the binary.** Static inspection of
 `libmtmd.so` is unreliable and must not be reintroduced: `strings` is absent from
@@ -103,6 +106,16 @@ the ollama images, so in-container greps return misleading zeros, and
 occurrence-count delta (`fixed_size` 9→8) was suggestive but never proof. The
 model-load log is the proof, and the harness forces a fresh model load first so
 it cannot read a *previous* build's line.
+
+**The tensor-API checks never infer one half from another.** The host may be
+able to use the M5 Neural Accelerators while the payload carries no kernels to
+enable, and both may be fine while *this server process* has already given up on
+them — three independent ways to lose 2.14× prefill, so three checks. They also
+refuse rather than reach: `metal_tensor_payload` inspects a binary, which the
+rule above forbids in the images and for good reason, so it runs only when the
+payload is on the harness's own host and it names the path and the route it took
+to find it. `metal_tensor_host` runs a probe on the machine the *harness* is on,
+so against a remote server it skips instead of answering about the wrong GPU.
 
 **The ladder verdict is per-arch and is never shared.** A flat ladder means an
 unpatched payload for `nemotron_h_omni`, but is the *correct* result for `gemma4`

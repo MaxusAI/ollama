@@ -362,6 +362,18 @@ mlx_build = "d9add9d11f3154111a4c85f267ec2fd307ecd18e"
 patchset = []                     # llama.cpp compat patches do not apply to MLX
 reference_image = "native macOS build — no container"
 expect_patch_marker = 1
+# The M5 Neural Accelerators, measured 2026-09-19 on this build and this host
+# (Apple M5 Max, macOS 26.6.2): nax_probe reports has_tensor true, the payload's
+# llama-server carries 28 GGML_METAL_HAS_TENSOR strings, and the GGUF A/B put
+# the path at 2.14x prefill — 275.2 vs 128.6 tok/s with
+# GGML_METAL_TENSOR_DISABLE=1 (docs/maxusai/m5-neural-accelerators.md).
+#
+# Deliberately NOT set on the metal-* and mlx-metal-0-3[23]-* profiles: their
+# llama.cpp predates b10864 and has no tensor kernels to enable, so claiming
+# true there would assert something that was never measured and could not be.
+# It says nothing about the MLX arches below, which do not use llama.cpp at all
+# — it guards the GGUF path this same binary serves.
+expect_metal_tensor_api = true
 arches = ["gemma4", "gemma4_unified", "qwen35moe", "qwen35"]
 notes = """
 Successor to mlx-metal-0-33-2 after the v0.34.0 + v0.34.1 folds.

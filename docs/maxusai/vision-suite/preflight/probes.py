@@ -13,9 +13,11 @@ import datetime
 import json
 import os
 import re
+import shlex
 import shutil
 import struct
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -307,6 +309,13 @@ def container_logs(container, since_epoch, log_cmd=None):
         since='2026-08-17T06:05:31'   -> 51 load_hparams lines
         since='2026-08-17T06:05:31Z'  ->  0 load_hparams lines
 
+    `errors="replace"` is load-bearing too, for a different reason: a serve log
+    carries the runner's raw stdout, and one undecodable byte in 25 MB made the
+    default strict decode raise UnicodeDecodeError — turning every log-derived
+    check on that host into an ERROR about a server that was perfectly healthy.
+    Every consumer of this text is a regex over ASCII log lines, so a U+FFFD
+    where a stray byte was costs nothing and keeps the window readable.
+
     Both failure modes are silent. The early window is the dangerous one,
     because a caller that would otherwise see no lines and report `TODO` or
     SKIP instead receives a complete, plausible, wrong answer belonging to a
@@ -315,11 +324,12 @@ def container_logs(container, since_epoch, log_cmd=None):
     since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since_epoch))
     if log_cmd:
         cmd = log_cmd.format(container=container, since=since)
-        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
+        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                              errors="replace", timeout=120)
     else:
         proc = subprocess.run(
             ["docker", "logs", "--since", since, container],
-            capture_output=True, text=True, timeout=120)
+            capture_output=True, text=True, errors="replace", timeout=120)
     return (proc.stdout or "") + (proc.stderr or "")
 
 
@@ -517,4 +527,190 @@ def grep_binary_marker(container, path="/usr/bin/ollama", exec_cmd=None):
     digits = re.findall(r"\d+", proc.stdout or "")
     if not digits:
         raise ProbeError(f"no count from grep: {(proc.stdout + proc.stderr)[:300]!r}")
+    return int(digits[0])
+
+
+# --------------------------------------------------------------------------
+# The Metal tensor API — the M5 Neural Accelerators
+# --------------------------------------------------------------------------
+# Worth 2.14x prefill on the GGUF path (docs/maxusai/m5-neural-accelerators.md)
+# and silent in every direction when it is lost. The three routes below are the
+# three places the answer lives: the HOST (nax_probe), the PAYLOAD (the marker
+# in the built llama-server) and the RUNNING SERVER (the discovery fallback
+# this fork logs once at startup).
+
+NAX_PROBE_SRC = os.path.join(DIR, "nax_probe.m")
+TENSOR_MARKER = "GGML_METAL_HAS_TENSOR"
+_NAX_BUILD = []          # [TemporaryDirectory, exe] — built once per process
+
+
+def nax_probe(env=None, src=None, timeout=180):
+    """Build nax_probe.m, run it, return its JSON verdict.
+
+    The distinction this function exists to keep: a probe that CANNOT BE BUILT
+    raises ProbeError — that is a gap in the harness (no clang, no Metal
+    framework) and must never read as a verdict about the host. A probe that
+    builds and answers no returns a dict with has_tensor False, which is a
+    verdict and belongs in a FAIL.
+
+    `env` overlays the process environment; a None value deletes a variable, so
+    a caller can ask the counterfactual (GGML_METAL_TENSOR_DISABLE=1) without
+    disturbing its own environment.
+    """
+    src = src or NAX_PROBE_SRC
+    if not os.path.exists(src):
+        raise ProbeError(f"nax_probe source is missing: {src}")
+    if not _NAX_BUILD:
+        tmp = tempfile.TemporaryDirectory(prefix="nax_probe.")
+        exe = os.path.join(tmp.name, "nax_probe")
+        cmd = ["xcrun", "clang", "-fobjc-arc", "-framework", "Foundation",
+               "-framework", "Metal", src, "-o", exe]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ProbeError(f"cannot build nax_probe ({cmd[0]} {cmd[1]}): {exc}")
+        if proc.returncode != 0 or not os.path.exists(exe):
+            raise ProbeError("cannot build nax_probe: "
+                             + ((proc.stderr or proc.stdout).strip()[:400] or "no output"))
+        _NAX_BUILD.extend([tmp, exe])   # the TemporaryDirectory must outlive the call
+    run_env = dict(os.environ)
+    for k, v in (env or {}).items():
+        if v is None:
+            run_env.pop(k, None)
+        else:
+            run_env[k] = v
+    try:
+        proc = subprocess.run([_NAX_BUILD[1]], capture_output=True, text=True,
+                              timeout=timeout, env=run_env)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProbeError(f"cannot run nax_probe: {exc}")
+    try:
+        return json.loads(proc.stdout)
+    except ValueError:
+        raise ProbeError("nax_probe emitted no JSON: "
+                         + ((proc.stdout + proc.stderr).strip()[:300] or "no output"))
+
+
+# routes.go logs this once per server start, and discovery runs AFTER it (the
+# order is Listening -> "discovering available GPUs..."), which is what makes it
+# usable as the boundary between this process's discovery and the last one's.
+LISTEN_RE = re.compile(r'msg="Listening on [^"]*"')
+# discover/runner.go, reached from llm.ShouldRetryWithMetalTensorDisabled. The
+# retry sets GGML_METAL_TENSOR_DISABLE=1 for discovery AND, via
+# recordPersistentRunnerEnv, for every runner this server process later spawns.
+TENSOR_FALLBACK_RE = re.compile(
+    r'^.*msg="retrying llama-server GPU discovery with Metal tensor API disabled".*$',
+    re.M)
+
+
+def parse_metal_tensor_discovery(text):
+    """{'anchored': bool, 'window': str, 'fallback': str|None}
+
+    Only the CURRENT server process's discovery counts. serve.err.log on the Mac
+    host is 25 MB spanning 69 restarts; searching all of it would attribute a
+    long-dead process's fallback to the build under test — the misattribution
+    parse_load_segments exists to prevent, in a file that is never rotated.
+    Without an anchor there is nothing to attribute to, so `anchored` is False
+    and the caller must skip rather than guess.
+    """
+    anchors = list(LISTEN_RE.finditer(text or ""))
+    if not anchors:
+        return {"anchored": False, "window": "", "fallback": None}
+    window = text[anchors[-1].end():]
+    m = TENSOR_FALLBACK_RE.search(window)
+    return {"anchored": True, "window": window,
+            "fallback": m.group(0).strip() if m else None}
+
+
+def metal_tensor_discovery(container, log_cmd=None):
+    """parse_metal_tensor_discovery over the WHOLE log — deliberately unwindowed.
+
+    Discovery happens at server start, which is before any preflight window
+    opens; a `since` here would reliably return nothing. The anchor is what
+    bounds it instead.
+    """
+    return parse_metal_tensor_discovery(container_logs(container, 0, log_cmd))
+
+
+def launched_runner_paths(container, since_epoch, log_cmd=None):
+    """The llama-server executables this window's runner launches actually ran,
+    in log order, deduped.
+
+    This is the only route that cannot name the wrong binary: it is the path the
+    server itself printed. A path containing a space would split wrongly here —
+    the Go side logs an unquoted command line, so there is nothing better to
+    parse, and the fallback in checks.py covers the case where this finds none.
+    """
+    out, seen = [], set()
+    for m in LAUNCH_RE.finditer(container_logs(container, since_epoch, log_cmd)):
+        cmd = m.group(1).split()
+        if not cmd or cmd[0] in seen:
+            continue
+        seen.add(cmd[0])
+        out.append(cmd[0])
+    return out
+
+
+def local_listener_exe(port):
+    """Absolute path of the executable listening on <port> on THIS machine.
+
+    darwin-only by construction: `ps -o comm=` prints the full path there, while
+    Linux truncates comm to 15 characters. Returns None rather than raising —
+    every caller treats "cannot tell" as a skip.
+    """
+    try:
+        pids = subprocess.run(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
+                              capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    pid = (pids.stdout or "").split()
+    if not pid:
+        return None
+    try:
+        ps = subprocess.run(["ps", "-p", pid[0], "-o", "comm="],
+                            capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    exe = (ps.stdout or "").strip()
+    return exe if exe.startswith("/") else None
+
+
+def lib_ollama_llama_server(exe):
+    """The llama-server that `exe` would spawn, or None.
+
+    Mirrors ml/path.go libOllamaPathCandidates() for darwin, in its order. Two
+    deliberate differences, both toward refusing rather than guessing:
+    path.go takes the first candidate DIRECTORY that exists and this takes the
+    first that actually holds a llama-server (an empty lib/ollama makes ollama
+    fail to spawn, which every other check already catches); and the two
+    candidates path.go derives from the server's working directory are omitted,
+    because the harness cannot know it.
+    """
+    if not exe:
+        return None
+    d = os.path.dirname(exe)
+    for cand in (os.path.join(d, "lib", "ollama"),
+                 os.path.join(d, "..", "lib", "ollama"),
+                 os.path.join(d, "build", "lib", "ollama"),
+                 os.path.join(d, "dist", "darwin-arm64", "lib", "ollama"),
+                 os.path.join(d, "dist", "darwin"),
+                 d):
+        path = os.path.normpath(os.path.join(cand, "llama-server"))
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def binary_marker_count(path, needle):
+    """`strings -a <path> | grep -c <needle>` — how many strings in a compiled
+    artefact contain <needle>. Same idiom as grep_binary_marker, and the same
+    caveat: this is a BUILD-side fact. It says the payload carries the tensor
+    kernels, never that the host will run them."""
+    cmd = ("strings -a " + shlex.quote(path) + " | grep -c -- "
+           + shlex.quote(needle) + " || true")
+    proc = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True,
+                          timeout=300)
+    digits = re.findall(r"\d+", proc.stdout or "")
+    if not digits:
+        raise ProbeError(f"no count from strings|grep: {(proc.stdout + proc.stderr)[:300]!r}")
     return int(digits[0])

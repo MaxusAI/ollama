@@ -491,6 +491,31 @@ class TestContainerLogsWindow(unittest.TestCase):
             probes.container_logs("c", epoch, log_cmd="SINCE={since}")
         return seen["cmd"].split("=", 1)[1]
 
+    def test_a_log_with_undecodable_bytes_is_still_readable(self):
+        """Found on the Mac host, not in a mock: serve.err.log carries raw
+        llama-server output, and byte 0xc4 at offset 20,335,768 made text=True
+        raise UnicodeDecodeError. Every windowed reader had been lucky — docker
+        --since and the per-arch fresh logs kept them clear of it — but a
+        reader of the WHOLE file hits it, and an ERROR there is a check that
+        reports nothing about a server that is perfectly healthy.
+
+        Losing a few bytes to U+FFFD costs nothing here: every consumer is a
+        regex over ASCII log lines.
+        """
+        with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as fh:
+            fh.write(b'msg="Listening on [::]:11435 (version v)"\n'
+                     b'cmn common_param: \xc4\xff raw runner bytes\n'
+                     b'level=WARN msg="retrying llama-server GPU discovery '
+                     b'with Metal tensor API disabled"\n')
+            path = fh.name
+        try:
+            text = probes.container_logs("c", 0, log_cmd=f"cat {path}")
+            self.assertIn("Listening on", text)
+            self.assertIn("Metal tensor API disabled", text)
+            self.assertIn("\ufffd", text)
+        finally:
+            os.unlink(path)
+
     def test_since_carries_an_explicit_zone(self):
         self.assertTrue(self.since_arg(1_755_000_000).endswith("Z"),
                         "a zoneless timestamp is read as docker's local time")
@@ -1600,6 +1625,275 @@ class TestReleaseMatrixEquivalentStamps(unittest.TestCase):
         self.assertEqual(got.returncode, 0, got.stderr)
         self.assertIn(self.METAL[1], got.stdout)
         self.assertIn(self.CUDA[1], got.stdout)
+
+class TestMetalTensorGate(unittest.TestCase):
+    """The M5 Neural Accelerators are worth 2.14x prefill on the GGUF path
+    (docs/maxusai/m5-neural-accelerators.md, measured 2026-09-19: 275.2 vs
+    128.6 tok/s) and every way of losing them is SILENT.
+
+    Three independent ways, which is why this is three checks and not one:
+
+      host     ggml disables the tensor path when its dummy matmul2d kernel
+               fails to compile at runtime — a toolchain or OS regression
+               costs 2x prefill with nothing in the log. nax_probe.m asks the
+               same four questions in the same order, in ~100 ms.
+      payload  a llama.cpp that predates b10864, or one built without the
+               Metal 4 source, carries no tensor kernels at all. The built
+               llama-server holds GGML_METAL_HAS_TENSOR; a payload without
+               them holds none.
+      runtime  THIS fork turns the path off for every runner of a server
+               process when GPU discovery hits a Metal init error
+               (discover/runner.go recordPersistentRunnerEnv, via
+               llm.ShouldRetryWithMetalTensorDisabled). One WARN line at
+               startup, then half the prefill for the life of the process.
+
+    A green preflight and half the prefill is the exact shape of a defect this
+    suite exists to refuse.
+    """
+
+    PROF = {"expect_metal_tensor_api": True}
+    LOCAL = "http://127.0.0.1:11437"
+    OK = {"device": "Apple M5 Max", "supports_metal4_family": True,
+          "name_allowlisted": True, "dummy_kernel_compiles": True,
+          "pipeline_ms": 96.1, "has_tensor": True}
+
+    ANCHOR = ('time=2026-09-19T17:44:41.135+10:00 level=INFO source=routes.go:2380 '
+              'msg="Listening on [::]:11435 (version 0.34.0-maxusai-8a7ba949)"\n')
+    DISCOVER = ('time=2026-09-19T17:44:41.136+10:00 level=INFO source=runner.go:60 '
+                'msg="discovering available GPUs..."\n')
+    RETRY = ('time=2026-09-19T17:44:41.200+10:00 level=WARN source=runner.go:511 '
+             'msg="retrying llama-server GPU discovery with Metal tensor API disabled" '
+             'error="failed to initialize ggml backend device: Metal" '
+             'detail="input types must match cooperative tensor types"\n')
+    LAUNCH = ('time=2026-09-19T18:16:04.610+10:00 level=INFO source=llama_server.go:436 '
+              'msg="starting llama-server" cmd="/srv/build-under-test/lib/ollama/llama-server '
+              '--model /m/blob --image-max-tokens 3328"\n')
+
+    # ---- host: does this machine enable the accelerators at all ----
+
+    def host(self, profile=None, host=None, platform="darwin", **probe_kw):
+        """The platform is pinned because these tests must answer the same on a
+        Linux CI runner as on the Mac host — and the check's darwin gate is
+        real, so it gets a test of its own rather than a free pass here."""
+        with mock.patch("sys.platform", platform), \
+             mock.patch.object(checks, "nax_probe", **probe_kw) as probe:
+            r = checks.check_metal_tensor_host(
+                self.PROF if profile is None else profile, host or self.LOCAL)
+        return r, probe
+
+    def test_host_that_accelerates_passes(self):
+        r, _ = self.host(return_value=self.OK)
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertIn("Apple M5 Max", r["summary"])
+
+    def test_a_host_with_no_metal_at_all_skips(self):
+        """The Linux side of the fleet runs this same harness."""
+        r, probe = self.host(return_value=self.OK, platform="linux")
+        self.assertEqual(r["status"], SKIP)
+        probe.assert_not_called()
+
+    def test_host_that_should_accelerate_and_does_not_fails(self):
+        """The whole point: this must go red, not print."""
+        probe = dict(self.OK, dummy_kernel_compiles=False, has_tensor=False,
+                     error="program_source:7:10: fatal error: 'metal_tensor' file not found")
+        r, _ = self.host(return_value=probe)
+        self.assertEqual(r["status"], FAIL)
+        # and it must say WHICH of the four gate steps said no, or the operator
+        # is left bisecting a toolchain by hand
+        self.assertIn("dummy_kernel_compiles", r.get("diagnosis", "") + r["summary"])
+        self.assertIn("metal_tensor", r.get("diagnosis", "") + r["summary"])
+
+    def test_probe_toolchain_missing_skips_rather_than_fails(self):
+        """No compiler on the host is a gap in the harness, not a verdict about
+        the host. Failing here would train the operator to ignore the check."""
+        r, _ = self.host(side_effect=probes.ProbeError(
+            'xcrun: error: unable to find utility "clang"'))
+        self.assertEqual(r["status"], SKIP, r["summary"])
+        self.assertIn("clang", r["summary"] + r.get("diagnosis", ""))
+
+    def test_no_expectation_skips_loudly(self):
+        """Same contract as payload_pin: a profile that declares nothing is not
+        silently passed, and is told what to add."""
+        r, _ = self.host(profile={}, return_value=self.OK)
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("expect_metal_tensor_api", r.get("diagnosis", ""))
+
+    def test_remote_server_skips_because_the_probe_measures_the_wrong_machine(self):
+        """nax_probe runs where the HARNESS runs. Against a server on another
+        host that is a different GPU, and a PASS would be a lie."""
+        r, probe = self.host(return_value=self.OK, host="http://10.8.0.6:11437")
+        self.assertEqual(r["status"], SKIP)
+        probe.assert_not_called()
+
+    def test_unexpected_acceleration_also_fails(self):
+        """Symmetric, for the same reason payload_pin is: the profile records
+        the conditions its numbers were measured under. A host that gained the
+        accelerators is a re-measure, not a shrug."""
+        r, _ = self.host(profile={"expect_metal_tensor_api": False},
+                         return_value=self.OK)
+        self.assertEqual(r["status"], FAIL)
+
+    def test_a_trailing_slash_does_not_make_a_local_host_look_remote(self):
+        """http://127.0.0.1:11437/ is the same machine. Reading it as remote
+        would turn the gate into a silent skip on the host it was written for."""
+        for h in ("http://127.0.0.1:11437", "http://127.0.0.1:11437/",
+                  "http://localhost:11435", "127.0.0.1:11436"):
+            self.assertTrue(checks.local_port(h), h)
+        for h in ("http://10.8.0.6:11437", "http://10.8.0.6:11437/", "", None):
+            self.assertIsNone(checks.local_port(h), h)
+
+    # ---- payload: does the built llama-server carry the tensor kernels ----
+
+    def payload(self, count, log="", exe=None, profile=None):
+        with mock.patch.object(probes, "container_logs", return_value=log), \
+             mock.patch.object(checks, "binary_marker_count", return_value=count) as c, \
+             mock.patch.object(checks, "local_listener_exe", return_value=exe):
+            r = checks.check_metal_tensor_payload(
+                self.PROF if profile is None else profile,
+                self.LOCAL, None, 0, log_cmd="cat serve.log")
+        return r, c
+
+    def test_payload_carrying_the_kernels_passes(self):
+        r, _ = self.payload(28, log=self.LAUNCH)
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_payload_without_the_kernels_fails(self):
+        """A pre-b10864 llama.cpp, or one built without the Metal 4 source."""
+        r, _ = self.payload(0, log=self.LAUNCH)
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("GGML_METAL_HAS_TENSOR", r["summary"])
+        self.assertEqual(r["actual"], 0)
+
+    def test_the_inspected_binary_is_the_one_the_server_launched(self):
+        """Not a llama-server found by searching: the one this run's log names.
+        Inspecting a checkout's build/ while the server under test runs from a
+        self-contained dir elsewhere is how a check reports PASS about a binary
+        nothing is running."""
+        r, c = self.payload(28, log=self.LAUNCH)
+        c.assert_called_once()
+        self.assertEqual(c.call_args[0][0],
+                         "/srv/build-under-test/lib/ollama/llama-server")
+        self.assertIn("/srv/build-under-test/lib/ollama/llama-server", r["summary"])
+
+    def test_no_runner_launched_falls_back_to_the_servers_own_payload(self):
+        """An all-MLX profile never spawns llama-server — every model in
+        mlx-metal-0-34-0 is nvfp4 or mlx-bf16 — so the log names nothing. The
+        fallback resolves the payload the way ollama itself does, from the
+        executable that is listening (ml/path.go)."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "lib", "ollama"))
+            open(os.path.join(d, "lib", "ollama", "llama-server"), "w").close()
+            r, c = self.payload(28, log="", exe=os.path.join(d, "ollama"))
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertTrue(c.call_args[0][0].endswith("lib/ollama/llama-server"))
+
+    def test_unresolvable_payload_skips(self):
+        """Nothing in the log, nothing listening we can read: say so."""
+        r, c = self.payload(28, log="", exe=None)
+        self.assertEqual(r["status"], SKIP)
+        c.assert_not_called()
+
+    def test_a_containerised_server_skips_rather_than_reading_a_local_path(self):
+        """The one way this check could tell a confident lie. `strings` runs on
+        the HARNESS host, so an in-container path like
+        /usr/lib/ollama/llama-server either does not exist here or — far worse —
+        exists and belongs to something else entirely. README.md already says
+        binary inspection is not to be trusted inside the images; this is the
+        boundary that keeps that true.
+        """
+        log = ('msg="starting llama-server" cmd="/usr/lib/ollama/llama-server '
+               '--model /m"\n')
+        with mock.patch.object(probes, "container_logs", return_value=log), \
+             mock.patch.object(checks, "binary_marker_count", return_value=0) as c:
+            r = checks.check_metal_tensor_payload(
+                self.PROF, "http://10.8.0.6:11434", "ollama-cuda", 0,
+                log_cmd="docker logs {container}")
+        self.assertEqual(r["status"], SKIP, r["summary"])
+        c.assert_not_called()
+
+    def test_all_three_checks_are_actually_called_by_the_driver(self):
+        """A check that exists and is never called is a check that never runs.
+        This file has shipped exactly that before — PoisonNodeCorroboration's
+        six tests sat below unittest.main() and were silently uncollected
+        between #230 and the comment that now guards the main block."""
+        driver = pathlib.Path(__file__).with_name("preflight.py").read_text()
+        for name in ("check_metal_tensor_host", "check_metal_tensor_payload",
+                     "check_metal_tensor_runtime"):
+            self.assertIn(f"checks.{name}(", driver, f"{name} is never called")
+
+    # ---- runtime: did THIS server process turn the path off ----
+
+    def runtime(self, log, profile=None):
+        with mock.patch.object(probes, "container_logs", return_value=log):
+            return checks.check_metal_tensor_runtime(
+                self.PROF if profile is None else profile, None, log_cmd="cat serve.log")
+
+    def test_clean_discovery_passes(self):
+        r = self.runtime(self.ANCHOR + self.DISCOVER + self.LAUNCH)
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_discovery_fallback_fails(self):
+        r = self.runtime(self.ANCHOR + self.DISCOVER + self.RETRY)
+        self.assertEqual(r["status"], FAIL)
+        # the operator needs the cause, which the WARN carries in `detail`
+        self.assertIn("cooperative tensor", r.get("actual", "") + r.get("diagnosis", ""))
+
+    def test_a_fallback_from_a_previous_server_process_is_not_this_one(self):
+        """25 MB of serve.err.log on the Mac host spans 69 restarts. Reading
+        the whole file for this line would attribute a long-dead process's
+        discovery to the build under test — the same misattribution
+        parse_load_segments exists to prevent."""
+        r = self.runtime(self.ANCHOR + self.RETRY + self.ANCHOR + self.DISCOVER)
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_no_listen_anchor_skips(self):
+        """Without the anchor there is no way to tell this process's discovery
+        from the previous one's, and a guess either way is worse than a skip."""
+        r = self.runtime(self.RETRY)
+        self.assertEqual(r["status"], SKIP)
+
+    def test_no_log_skips(self):
+        r = self.runtime("")
+        self.assertEqual(r["status"], SKIP)
+
+    def test_runtime_without_an_expectation_skips(self):
+        """Gated on the same field as the other two, so a cuda or rocm profile
+        gets a skip and not a vacuous PASS about a Metal path it never had."""
+        r = self.runtime(self.ANCHOR + self.DISCOVER, profile={})
+        self.assertEqual(r["status"], SKIP)
+
+    def test_fallback_fails_even_where_no_accelerators_are_expected(self):
+        """expect_metal_tensor_api = false says the profile was measured without
+        them, not that a Metal init failure is fine. The line means discovery
+        asked and failed, which is a defect on any Metal host."""
+        r = self.runtime(self.ANCHOR + self.RETRY,
+                         profile={"expect_metal_tensor_api": False})
+        self.assertEqual(r["status"], FAIL)
+
+
+class TestMetalTensorDiscoveryParse(unittest.TestCase):
+    """The log shapes the runtime check stands on, pinned separately so a
+    format drift names itself instead of surfacing as a mysterious skip."""
+
+    def test_anchor_is_the_last_listen_line(self):
+        text = ('msg="Listening on [::]:11435 (version a)"\nfirst\n'
+                'msg="Listening on [::]:11435 (version b)"\nsecond\n')
+        d = probes.parse_metal_tensor_discovery(text)
+        self.assertTrue(d["anchored"])
+        self.assertIn("second", d["window"])
+        self.assertNotIn("first", d["window"])
+
+    def test_fallback_line_is_returned_whole(self):
+        text = ('msg="Listening on [::]:11435 (version a)"\n'
+                'time=t level=WARN msg="retrying llama-server GPU discovery with '
+                'Metal tensor API disabled" error="e" detail="d"\n')
+        d = probes.parse_metal_tensor_discovery(text)
+        self.assertIn('detail="d"', d["fallback"])
+
+    def test_no_fallback_is_none_not_empty(self):
+        d = probes.parse_metal_tensor_discovery('msg="Listening on [::]:11435 (version a)"\n')
+        self.assertIsNone(d["fallback"])
+
 
 # The main block must stay at the END of the file: unittest.main() runs the
 # classes defined ABOVE it, so a class appended after it silently never runs
