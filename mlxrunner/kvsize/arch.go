@@ -3,18 +3,18 @@ package kvsize
 import "strings"
 
 // targetRules maps a target architecture to its cache rule. The keys are the
-// names the model packages register with base.Register (x/models/*/init), plus
+// names the model packages register with base.Register (mlxrunner/model/*/init), plus
 // the model_type aliases they also register, because dispatch falls back to
 // model_type exactly as base.New does.
 var targetRules = map[string]rule{
-	// x/models/gemma4
+	// mlxrunner/model/gemma4
 	"Gemma4ForCausalLM":                     gemma4Rule,
 	"Gemma4ForConditionalGeneration":        gemma4Rule,
 	"Gemma4UnifiedForCausalLM":              gemma4Rule,
 	"Gemma4UnifiedForConditionalGeneration": gemma4Rule,
 	"gemma4_unified":                        gemma4Rule,
 
-	// x/models/qwen3_5 and x/models/qwen3_5_moe (same Model, same NewCaches)
+	// mlxrunner/model/qwen3_5 and mlxrunner/model/qwen3_5_moe (same Model, same NewCaches)
 	"Qwen3_5ForCausalLM":                   qwen35Rule,
 	"Qwen3_5ForConditionalGeneration":      qwen35Rule,
 	"Qwen3NextForCausalLM":                 qwen35Rule,
@@ -24,38 +24,38 @@ var targetRules = map[string]rule{
 	"Qwen3NextMoeForCausalLM":              qwen35Rule,
 	"Qwen3NextMoeForConditionalGeneration": qwen35Rule,
 
-	// x/models/qwen4_exp
+	// mlxrunner/model/qwen4_exp
 	"Qwen4ExpForConditionalGeneration": qwen4ExpRule,
 
-	// x/models/nemotron_h
+	// mlxrunner/model/nemotron_h
 	"NemotronHForCausalLM":             nemotronHRule,
 	"NemotronH_Nano_VL_V2":             nemotronHRule,
 	"NemotronH_Nano_Omni_Reasoning_V3": nemotronHRule,
 
-	// x/models/cohere2_moe, glimmer, laguna: sliding/global splits
+	// mlxrunner/model/cohere2_moe, glimmer, laguna: sliding/global splits
 	"Cohere2MoeForCausalLM":               cohere2MoeRule,
 	"MuseGlimmerForConditionalGeneration": glimmerRule,
 	"LagunaForCausalLM":                   lagunaRule,
 
-	// x/models/llama, qwen3: a full KV cache on every layer
+	// mlxrunner/model/llama, qwen3: a full KV cache on every layer
 	"LlamaForCausalLM": denseRule,
 	"Qwen3ForCausalLM": denseRule,
 
-	// x/models/glm4_moe_lite: MLA, one compressed latent per layer
+	// mlxrunner/model/glm4_moe_lite: MLA, one compressed latent per layer
 	"Glm4MoeLiteForCausalLM": mlaRule,
 	"GLM4MoeLite":            mlaRule,
 }
 
 // draftRules maps a draft architecture (base.RegisterDraft) to its rule.
 var draftRules = map[string]rule{
-	// x/models/gemma4/assistant.go NewCaches returns nil: the assistant keeps
+	// mlxrunner/model/gemma4/assistant.go NewCaches returns nil: the assistant keeps
 	// no KV of its own and re-attends the target's caches read-only.
 	"Gemma4AssistantForCausalLM":        noCacheRule,
 	"Gemma4UnifiedAssistantForCausalLM": noCacheRule,
 	"gemma4_assistant":                  noCacheRule,
 	"gemma4_unified_assistant":          noCacheRule,
 
-	// x/models/dflash: a per-layer context cache, sliding or full.
+	// mlxrunner/model/dflash: a per-layer context cache, sliding or full.
 	"DFlashDraftModel":          dflashRule,
 	"DFlashLagunaForCausalLM":   dflashRule,
 	"MuseGlimmerAssistantModel": dflashRule,
@@ -84,7 +84,7 @@ func (c *config) headDim() int {
 	return 0
 }
 
-// gemma4Rule mirrors x/models/gemma4/gemma4.go NewCaches (1116-1134).
+// gemma4Rule mirrors mlxrunner/model/gemma4/gemma4.go NewCaches (1116-1134).
 //
 // Three decisions, all read from the config the same way the model reads them:
 //
@@ -186,7 +186,7 @@ func gemma4CacheLayers(cfg *config) int {
 	return layers
 }
 
-// qwen35Rule mirrors x/models/qwen3_5/qwen3_5.go NewCaches (1312-1324): a
+// qwen35Rule mirrors mlxrunner/model/qwen3_5/qwen3_5.go NewCaches (1312-1324): a
 // recurrent cache on every linear-attention layer, a full KV cache on the rest.
 // Shared by qwen3_5 and qwen3_5_moe, which register the same constructor.
 //
@@ -249,7 +249,7 @@ func qwenRecurrentBytes(cfg *config, elem int) uint64 {
 		cfg.text.LinearNumValueHeads, cfg.text.LinearValueHeadDim, cfg.text.LinearKeyHeadDim, elem)
 }
 
-// qwen4ExpRule mirrors x/models/qwen4_exp/qwen4_exp.go NewCaches (88-118).
+// qwen4ExpRule mirrors mlxrunner/model/qwen4_exp/qwen4_exp.go NewCaches (88-118).
 // It is qwen3.5's split plus two things qwen3.5 has not got:
 //
 //   - one extra full KV cache per full-attention layer, holding the raw QSA
@@ -285,7 +285,7 @@ func qwen4ExpRule(cfg *config, numCtx int) (Estimate, bool) {
 	return est, true
 }
 
-// nemotronHRule mirrors x/models/nemotron_h/nemotron_h.go newLayerCache
+// nemotronHRule mirrors mlxrunner/model/nemotron_h/nemotron_h.go newLayerCache
 // (1454-1466): hybrid_override_pattern names each layer's kind. 'M' is a Mamba
 // layer with a constant recurrent state, '*' and 'A' are attention layers with
 // a full KV cache, and 'E'/'-' (MoE and dense MLP layers) own no cache.
@@ -338,7 +338,7 @@ func nemotronHRule(cfg *config, numCtx int) (Estimate, bool) {
 	return est, true
 }
 
-// cohere2MoeRule mirrors x/models/cohere2_moe/cohere2_moe.go NewCaches
+// cohere2MoeRule mirrors mlxrunner/model/cohere2_moe/cohere2_moe.go NewCaches
 // (764-775) and layerIsSliding (298-300), including the layer_types the parse
 // derives when the config omits them (254-266): the first first_k_dense_replace
 // layers follow prefix_dense_sliding_window_pattern, the rest follow
@@ -379,7 +379,7 @@ func cohere2MoeRule(cfg *config, numCtx int) (Estimate, bool) {
 	return slidingSplit(cfg, numCtx, window, isSliding), true
 }
 
-// glimmerRule mirrors x/models/glimmer/glimmer.go NewCaches (625-637): the
+// glimmerRule mirrors mlxrunner/model/glimmer/glimmer.go NewCaches (625-637): the
 // layer_types list decides, and the parse rejects a config whose list does not
 // cover every layer, so a missing list means every layer is global here.
 func glimmerRule(cfg *config, numCtx int) (Estimate, bool) {
@@ -390,7 +390,7 @@ func glimmerRule(cfg *config, numCtx int) (Estimate, bool) {
 	return slidingSplit(cfg, numCtx, cfg.text.SlidingWindow, isSliding), true
 }
 
-// lagunaRule mirrors x/models/laguna/laguna.go NewCaches (1446-1455) and
+// lagunaRule mirrors mlxrunner/model/laguna/laguna.go NewCaches (1446-1455) and
 // layerIsSliding (521-526), which requires layer_types to cover every layer and
 // reports global otherwise.
 func lagunaRule(cfg *config, numCtx int) (Estimate, bool) {
@@ -401,7 +401,7 @@ func lagunaRule(cfg *config, numCtx int) (Estimate, bool) {
 	return slidingSplit(cfg, numCtx, cfg.text.SlidingWindow, isSliding), true
 }
 
-// dflashRule mirrors x/models/dflash/dflash.go NewCaches (532-542): the draft
+// dflashRule mirrors mlxrunner/model/dflash/dflash.go NewCaches (532-542): the draft
 // keeps its own per-layer context caches, sliding where layer_types says so.
 // dflash.go:212-217 defaults an absent layer_types to all-full.
 func dflashRule(cfg *config, numCtx int) (Estimate, bool) {
@@ -412,7 +412,7 @@ func dflashRule(cfg *config, numCtx int) (Estimate, bool) {
 	return slidingSplit(cfg, numCtx, cfg.text.SlidingWindow, isSliding), true
 }
 
-// denseRule mirrors x/models/llama and x/models/qwen3 NewCaches: one full KV
+// denseRule mirrors mlxrunner/model/llama and mlxrunner/model/qwen3 NewCaches: one full KV
 // cache per layer, num_key_value_heads x head_dim wide.
 func denseRule(cfg *config, numCtx int) (Estimate, bool) {
 	layers := cfg.text.NumHiddenLayers
@@ -422,7 +422,7 @@ func denseRule(cfg *config, numCtx int) (Estimate, bool) {
 	return slidingSplit(cfg, numCtx, 0, func(int) bool { return false }), true
 }
 
-// mlaRule mirrors x/models/glm4_moe_lite/glm4_moe_lite.go: a full KV cache per
+// mlaRule mirrors mlxrunner/model/glm4_moe_lite/glm4_moe_lite.go: a full KV cache per
 // layer (NewCaches 771-778), but MLA stores one compressed latent per token
 // rather than per-head K and V. MLAAttention.Forward (118-128) writes keys
 // [1, 1, T, kv_lora_rank + qk_rope_head_dim] with a zero-width value array, so

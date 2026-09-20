@@ -8,7 +8,7 @@ Runs the *reference* vision forward (vendored verbatim from mlx-vlm main:
 mlx_vlm/models/gemma4/vision.py and models/gemma4_unified/gemma4_unified.py,
 plus the shared MultimodalEmbedder) over the ollama-quantized weights, on a
 deterministic fixture whose budget-fill factor is exactly 1.0 — so the Go
-side (x/models/gemma4 EncodeVision) sees pixel-identical patches and every
+side (mlxrunner/model/gemma4 EncodeVision) sees pixel-identical patches and every
 delta is model math.
 
 Sizing is pinned to ADR 0008's budget-fill (llm.BudgetFillSize); mlx-vlm's
