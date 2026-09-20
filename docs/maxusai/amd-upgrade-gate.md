@@ -223,6 +223,54 @@ llama.cpp default floor and small images stay cheap (313 rather than 1049 tokens
 CUDA) is unaffected by clause 3 and may track a different version; note that #17475 was
 reported on CUDA, so clauses 1–2 still apply there.
 
+## Decision 2026-09-21 — 0.34.2 promoted, ROCm 10.0.0 declined on measurement
+
+**Outcome: promoted.** `ollama-rocm` moved from `0.34.1-dynres-16649e8c` to
+`0.34.2-dynres-f67b1aef` (llama.cpp b10969, `391fac164`) at 09:48 on 2026-09-21. The previous
+image is retained; rollback is one `docker run` with the same arguments and the old tag, and the
+promotion script refuses to start unless **both** images are present, because discovering the
+rollback is gone after `docker rm -f` is too late.
+
+Compat **906 is not in this build and is not needed**: b10969 ships upstream's own revert of the
+HIP `prop.integrated` change, so the carry-patch was retired (`3dade569`). Scene IoU is at or
+above the 0.32.1 baseline on all three models the 906 defect destroyed.
+
+### Clause outcomes
+
+| clause | outcome |
+|---|---|
+| 1–2 | **As 2026-09-19.** Both overridden on evidence; nothing has changed upstream. |
+| 3. `--direct-io` | **Satisfied under (c) on b10969.** Re-validated because the payload moved. 0/54 blocks differ between dio-on and dio-off, both arms verified to differ at the runner flag line. |
+| 4. Vision A/B, ≥6 consecutive rows, 0 degenerate | **PASSED on the promoted image**, five models, think off. Zero degenerate rows. |
+| 5. `make proof` | **Waived — still does not exist.** |
+
+### What the promotion buys, and what it does not
+
+`qwen3.6`'s 7px fine-text tier — one of the two losses the 2026-09-19 decision recorded as open —
+**comes back** on this payload, N=5, zero variance. `nemotron3`'s 9px does not; it stays open.
+
+Prefill on `gemma4:31b` also improves sharply in practice, 301.6s → 117.0s across the 27-block
+suite, but **this is a KV-cache-hit change, not a faster encoder**: cold-prefill compute is
+167 → 172 tok/s and what moved is 5 of 27 blocks hitting cache against 20 of 27. Recorded
+because reading it as compute is exactly the error SPEC H22 was written to stop.
+
+### Why not ROCm 10.0.0
+
+ROCm 10.0.0 was built, run and measured on gfx1151 for the first time in this cycle, and it is
+**sound**: all 13 preset architectures compile with device code verified in the binary, clause 3
+passes 0/54, clause 4 passes with zero degenerate rows, preflight returns PASS 15/0/14 with all
+three token ladders unmoved, and the two moved fine-text cells are identical to 7.2.4.
+
+It was declined anyway, on the only question that matters for this deployment: **it is slower
+where vision work is bound.** Against a ±0.4% noise floor measured from two direct-I/O pairs on
+this host, prefill on blocks that actually encoded is down on **all five** models — −3.3% to
+−10.4% — against a decode gain of +0.5% to +6.4%
+([rocm-10-throughput-2026-09-20.md](rocm-10-throughput-2026-09-20.md)). It also exists only on an
+unmerged branch, so promoting it would have made production non-reproducible from `main`.
+
+Soundness is not superiority. The ROCm 10 evidence stands as a validated future option, and the
+upgrade is declined on measurement rather than deferred on doubt.
+
 ## Decision 2026-09-19 — the gate lifts on evidence
 
 **Outcome: promoted.** `ollama-rocm` moved from `0.32.1-dynres-5d5b7a72` (b9888) to
