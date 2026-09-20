@@ -288,6 +288,27 @@ temperature 0 the fine-text probe is deterministic: five captures per cell retur
 value five times out of five, in all six cells, on both builds. Applying another platform's
 variance to this one would have retired a real regression as sampling noise.
 
+**Which glyphs.** The probe records per-tier recall but not the codes it returned, so
+"one item at 9px" named nothing diagnosable. One request per model per build recovers it, and
+both losses are a single misread code, not a dropped one:
+
+| model | tier | ground truth | 0.32.1 | promoted `16649e8c` |
+|---|---|---|---|---|
+| `nemotron3:33b` | 9px | `RNK-0391-DW18` | read correctly | **`JRK-0391-DW18`** |
+| `qwen3.6:35b-a3b` | 7px | `AYK-9301-CK10` | read correctly | **`AYK-9901-CK10`** |
+
+`qwen3.6` returns 20 codes and 439 answer characters on both builds — byte-identical output
+length, one digit different (`3` → `9`). `nemotron3` returns 19–20 against 20 and a shorter
+answer (438 → 334 chars), so it drops a code as well as misreading the prefix.
+
+**`RNK-0391-DW18` is the fixture's knife-edge glyph on every platform, and that is worth
+knowing before anyone reads a 9px tier move as a finding.** The Metal campaign's one differing
+cell across three models, five tiers and three builds was this same code — `RMK` against a
+ground truth of `RNK` (`vision-campaign-2026-09-18-mlx8a7ba949-nvfp4.md`). Here it corrupts to
+`JRK` on ROCm. Two platforms, two payloads, two different corruptions of one nine-pixel string.
+A 9px tier that moves by one is, more often than not, this glyph — which is an argument for
+reading the codes rather than the recall count.
+
 **The trade, stated plainly.** The promotion costs one fine-text item at 9px on `nemotron3`
 and one at 7px on `qwen3.6`, and gains one at 9px on `qwen3.8`, against a payload fix worth
 0.065 → 1.000 scene IoU on `qwen3.8` and 0.161 → 0.862 on `nemotron3`. That is worth taking,
