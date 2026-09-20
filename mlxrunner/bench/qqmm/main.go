@@ -109,7 +109,7 @@ type result struct {
 func main() {
 	shapesFlag := flag.String("shapes", "gemma4-31b,qwen3.8-27b", "comma-separated presets, or custom name=K:N entries")
 	mFlag := flag.String("m", "1,8,64,512,2048,4096", "comma-separated row counts (1 = decode, 2048 = the prefill chunk)")
-	methodsFlag := flag.String("methods", "bf16,qmm,qqmm,dequant", "comma-separated subset of bf16,qmm,qqmm,dequant")
+	methodsFlag := flag.String("methods", "bf16,qmm,qqmm,dequant", "comma-separated subset of bf16,qmm,qqmm,dequant,affine64,affine128")
 	iters := flag.Int("iters", 20, "timed calls per cell")
 	warmup := flag.Int("warmup", 3, "untimed calls per cell before the timed ones (the first is reported as first_ms)")
 	seed := flag.Uint64("seed", 1, "seed for the normal-distributed operands")
@@ -164,6 +164,19 @@ func main() {
 			w32 := mlx.FromValues(randn(rng, sh.n*sh.k, 0.02), sh.n, sh.k)
 			wbf := w32.AsType(mlx.DTypeBFloat16)
 			wq, ws, wb := mlx.Quantize(wbf, groupSize, bits, mode)
+			// Affine int4, for the M5 comparison. The Neural-Accelerator dense
+			// matmul kernels in the shipped metallib exist only for affine
+			// (affine_qmm_t_nax / affine_qmm_n_nax, gs 64/128); nvfp4's dense
+			// path has none, because upstream disabled qmm_n_nax for
+			// group_size < 64 (ml-explore/mlx#4202) and nvfp4 is group 16.
+			// Quantised here per shape so the affine arms cost the same setup
+			// as the nvfp4 ones and the timing compares kernels, not plumbing.
+			affine := map[int][3]*mlx.Array{}
+			for _, gs := range []int{64, 128} {
+				aq, as, ab := mlx.Quantize(wbf, gs, 4, "affine")
+				mlx.Eval(aq, as)
+				affine[gs] = [3]*mlx.Array{aq, as, ab}
+			}
 			w32T := w32.Transpose(1, 0)
 			wbfT := wbf.Transpose(1, 0)
 			mlx.Eval(w32, wbf, wq, ws)
@@ -185,6 +198,15 @@ func main() {
 							f = func() *mlx.Array {
 								// The trailing nil is the global scale MLX-C gained with the qmm carry patch (v0.34.1).
 								return mlx.QuantizedMatmul(xbf, wq, ws, wb, true, groupSize, bits, mode, nil)
+							}
+						case "affine64", "affine128":
+							gs := 64
+							if method == "affine128" {
+								gs = 128
+							}
+							a := affine[gs]
+							f = func() *mlx.Array {
+								return mlx.QuantizedMatmul(xbf, a[0], a[1], a[2], true, gs, 4, "affine", nil)
 							}
 						case "qqmm":
 							f = func() *mlx.Array { return mlx.QQMM(xbf, wq, ws, groupSize, bits, mode, nil, nil) }

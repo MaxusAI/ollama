@@ -1071,25 +1071,53 @@ const ggmlCublasComputeTypeEnv = "GGML_CUDA_CUBLAS_COMPUTE_TYPE"
 // llama-server subprocess. Each runner serves one model, so a process-wide
 // ggml knob is effectively model-scoped here.
 //
-// qwen25vl: the mtmd/clip vision tower/merger runs its f16-weight matmuls as
-// fp16-accumulate cuBLAS GEMMs on CUDA/HIP, and the partial sums overflow on
-// specific images — qwen2.5vl:3b returns '?'x31 garbage and poisons the
-// runner slot — while the CPU backend always accumulates in fp32 and serves
-// the same image correctly. Forcing f32 compute keeps every cuBLAS GEMM in
-// fp32 accumulation, matching CPU numerics. Text-side cost is negligible for
-// quantized tags (MMQ/MMVQ carry the quantized matmuls and the f16 decode
-// vector kernels already accumulate in fp32); -fp16 text tags pay an
-// fp32-GEMM prefill cost. qwen2vl shares the clip graph builder but has no
-// measured trigger; add it here if one shows up. Diagnosis:
+// qwen2vl, qwen25vl: the mtmd/clip vision tower/merger runs its f16-weight
+// matmuls as fp16-accumulate cuBLAS GEMMs on CUDA/HIP, and the partial sums
+// overflow on specific images — qwen2.5vl:3b returns '?'x31 garbage and
+// poisons the runner slot — while the CPU backend always accumulates in fp32
+// and serves the same image correctly. Forcing f32 compute keeps every cuBLAS
+// GEMM in fp32 accumulation, matching CPU numerics. Text-side cost is
+// negligible for quantized tags (MMQ/MMVQ carry the quantized matmuls and the
+// f16 decode vector kernels already accumulate in fp32); -fp16 text tags pay
+// an fp32-GEMM prefill cost. Diagnosis:
 // docs/maxusai/qwen25vl-3b-poison-image-garbage-decode.md (PR #214); knob
 // details: docs/maxusai/qwen25vl-cublas-f32-env.md.
+//
+// Both spellings are listed because general.architecture records who
+// converted the file, not which model it holds. llama.cpp's converter
+// registers Qwen2VLForConditionalGeneration, Qwen2_5_VLForConditionalGeneration
+// and Qwen2_5OmniModel on one Qwen2VLModel whose model_arch is
+// MODEL_ARCH.QWEN2VL, so every self-converted file in that family reads
+// "qwen2vl"; Ollama's registry conversion of Qwen2.5-VL reads "qwen25vl".
+// Keying on "qwen25vl" alone therefore left self-converted Qwen2.5-VL on
+// stock fp16 accumulation, which is the exposure PR #214 exists to close.
+// Read off a local conversion of allenai/olmOCR-2-7B-1025: its GGUF says
+// general.architecture = "qwen2vl" while its mmproj says
+// clip.projector_type = "qwen2.5vl_merger". Community
+// richardyoung/olmocr2:7b-q8 is reported the same.
+//
+// This supersedes the earlier "qwen2vl stays stock" choice, which read the
+// string as denoting Qwen2-VL and rested on that model having no measured
+// trigger. The string cannot carry that distinction, so genuine Qwen2-VL is
+// gated too, deliberately: clip.cpp builds both through the same
+// clip_graph_qwen2vl, so it is the same fp16-accumulate stage, and the
+// diagnosis doc's correction is that trigger sets are per-graph and disjoint —
+// an unprobed member of the class is unmeasured, not clean. The price is
+// bounded and reversible (f32 vision-encode GEMMs, plus fp32 prefill on -fp16
+// text tags; operators can set =f16 per deployment), against a failure mode
+// that is garbage output and a poisoned slot. (Converter facts and the graph
+// dispatch read at pin b10864: conversion/qwenvl.py, tools/mtmd/clip.cpp.)
+//
+// The arch switches below list both spellings too, but that is not why they
+// are listed here: a token floor is right for either family, while this one
+// changes numerics and had to be argued on the class above.
 //
 // An operator-set GGML_CUDA_CUBLAS_COMPUTE_TYPE always wins: without this
 // guard SetupLlamaServerCommandEnv would overwrite the inherited value with
 // ours, and =f16 is the documented way to reproduce stock behavior.
 func applyArchServerEnvs(serverEnvs map[string]string, modelArch string) {
 	switch modelArch {
-	case "qwen25vl":
+	case "qwen2vl", "qwen25vl":
 		if _, ok := os.LookupEnv(ggmlCublasComputeTypeEnv); !ok {
 			serverEnvs[ggmlCublasComputeTypeEnv] = "f32"
 		}

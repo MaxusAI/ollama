@@ -9,6 +9,7 @@ fail if the diagnosis is ever wired to the shape alone instead of the arch.
     python3 test_verdicts.py
 """
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -490,6 +491,31 @@ class TestContainerLogsWindow(unittest.TestCase):
         with mock.patch.object(probes.subprocess, "run", fake_run):
             probes.container_logs("c", epoch, log_cmd="SINCE={since}")
         return seen["cmd"].split("=", 1)[1]
+
+    def test_a_log_with_undecodable_bytes_is_still_readable(self):
+        """Found on the Mac host, not in a mock: serve.err.log carries raw
+        llama-server output, and byte 0xc4 at offset 20,335,768 made text=True
+        raise UnicodeDecodeError. Every windowed reader had been lucky — docker
+        --since and the per-arch fresh logs kept them clear of it — but a
+        reader of the WHOLE file hits it, and an ERROR there is a check that
+        reports nothing about a server that is perfectly healthy.
+
+        Losing a few bytes to U+FFFD costs nothing here: every consumer is a
+        regex over ASCII log lines.
+        """
+        with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as fh:
+            fh.write(b'msg="Listening on [::]:11435 (version v)"\n'
+                     b'cmn common_param: \xc4\xff raw runner bytes\n'
+                     b'level=WARN msg="retrying llama-server GPU discovery '
+                     b'with Metal tensor API disabled"\n')
+            path = fh.name
+        try:
+            text = probes.container_logs("c", 0, log_cmd=f"cat {path}")
+            self.assertIn("Listening on", text)
+            self.assertIn("Metal tensor API disabled", text)
+            self.assertIn("\ufffd", text)
+        finally:
+            os.unlink(path)
 
     def test_since_carries_an_explicit_zone(self):
         self.assertTrue(self.since_arg(1_755_000_000).endswith("Z"),
@@ -1532,6 +1558,62 @@ class TestMetalStampFollowsADR0032(unittest.TestCase):
         self.assertEqual(got.stdout.strip(), want)
         self.assertNotIn("-maxusai-", got.stdout)
 
+class TestReleaseMatrixTensorColumn(unittest.TestCase):
+    """A gate nothing renders is a gate nobody reads. release_matrix.py is the
+    fold's headline artifact, and a check absent from GROUPS is simply not in
+    it — the quiet version of the false green TestReleaseMatrixColumns exists
+    to forbid.
+    """
+
+    COLUMN = "M5 tensor path"
+
+    def render(self, results, platform):
+        return TestReleaseMatrixColumns.render(
+            TestReleaseMatrixColumns(), results, platform=platform,
+            version="0.34.1-dynres-0-gsynthet")
+
+    @staticmethod
+    def rec(check, status, summary="synthetic"):
+        return {"check": check, "arch": None, "status": status, "summary": summary}
+
+    BASE = [{"check": "version", "arch": None, "status": PASS, "summary": "s"},
+            {"check": "token_ladder", "arch": "gemma4", "status": PASS, "summary": "s"}]
+
+    def test_a_healthy_metal_host_reads_green(self):
+        row = self.render(self.BASE + [
+            self.rec("metal_tensor_host", PASS),
+            self.rec("metal_tensor_payload", PASS),
+            self.rec("metal_tensor_runtime", PASS)], "mlx-metal")
+        self.assertEqual(row[self.COLUMN], "green")
+
+    def test_a_lost_tensor_path_is_not_green(self):
+        """The whole point of rendering it: 2.14x of prefill, gone, with every
+        other column legitimately green beside it."""
+        row = self.render(self.BASE + [
+            self.rec("metal_tensor_host", PASS),
+            self.rec("metal_tensor_payload", PASS),
+            self.rec("metal_tensor_runtime", FAIL,
+                     summary="this server disabled the Metal tensor API")], "mlx-metal")
+        self.assertEqual(row[self.COLUMN], "**FAIL**")
+        self.assertEqual(row["Image size ladder"], "green")
+
+    def test_a_surface_with_no_metal_reads_n_a_not_a_gap(self):
+        """cuda cannot have this path. N/A is neutral; a plain skip would read
+        as coverage this surface owes and does not."""
+        row = self.render(self.BASE + [
+            self.rec("metal_tensor_host", SKIP, summary="does not apply on cuda"),
+            self.rec("metal_tensor_payload", SKIP, summary="does not apply on cuda"),
+            self.rec("metal_tensor_runtime", SKIP, summary="does not apply on cuda")],
+            "cuda")
+        self.assertEqual(row[self.COLUMN], "n/a")
+        self.assertEqual(row["Image size ladder"], "green")
+
+    def test_an_older_run_reads_not_run_rather_than_green(self):
+        """Every run recorded before this gate existed carries none of the three."""
+        row = self.render(self.BASE, "mlx-metal")
+        self.assertEqual(row[self.COLUMN], "not run")
+
+
 class TestReleaseMatrixEquivalentStamps(unittest.TestCase):
     """A release matrix filters runs by version prefix, and ADR 0032 records
     equivalent stamps of one build. For the v0.34.1 fold the CUDA run stamps
@@ -1600,6 +1682,513 @@ class TestReleaseMatrixEquivalentStamps(unittest.TestCase):
         self.assertEqual(got.returncode, 0, got.stderr)
         self.assertIn(self.METAL[1], got.stdout)
         self.assertIn(self.CUDA[1], got.stdout)
+
+class TestMetalTensorGate(unittest.TestCase):
+    """The M5 Neural Accelerators are worth 2.14x prefill on the GGUF path
+    (docs/maxusai/m5-neural-accelerators.md, measured 2026-09-19: 275.2 vs
+    128.6 tok/s) and every way of losing them is SILENT.
+
+    Three independent ways, which is why this is three checks and not one:
+
+      host     ggml disables the tensor path when its dummy matmul2d kernel
+               fails to compile at runtime — a toolchain or OS regression
+               costs 2x prefill with nothing in the log. nax_probe.m asks the
+               same four questions in the same order, in ~100 ms.
+      payload  a llama.cpp that predates b10864, or one built without the
+               Metal 4 source, carries no tensor kernels at all. The built
+               llama-server holds GGML_METAL_HAS_TENSOR; a payload without
+               them holds none.
+      runtime  THIS fork turns the path off for every runner of a server
+               process when GPU discovery hits a Metal init error
+               (discover/runner.go recordPersistentRunnerEnv, via
+               llm.ShouldRetryWithMetalTensorDisabled). One WARN line at
+               startup, then half the prefill for the life of the process.
+
+    A green preflight and half the prefill is the exact shape of a defect this
+    suite exists to refuse.
+    """
+
+    PROF = {"expect_metal_tensor_api": True}
+    LOCAL = "http://127.0.0.1:11437"
+    OK = {"device": "Apple M5 Max", "supports_metal4_family": True,
+          "name_allowlisted": True, "dummy_kernel_compiles": True,
+          "pipeline_ms": 96.1, "has_tensor": True}
+
+    ANCHOR = ('time=2026-09-19T17:44:41.135+10:00 level=INFO source=routes.go:2380 '
+              'msg="Listening on [::]:11437 (version 0.34.0-maxusai-8a7ba949)"\n')
+    OTHER = ('time=2026-09-19T17:44:41.135+10:00 level=INFO source=routes.go:2380 '
+             'msg="Listening on [::]:11435 (version 0.34.0-maxusai-8a7ba949)"\n')
+    DISCOVER = ('time=2026-09-19T17:44:41.136+10:00 level=INFO source=runner.go:60 '
+                'msg="discovering available GPUs..."\n')
+    RETRY = ('time=2026-09-19T17:44:41.200+10:00 level=WARN source=runner.go:511 '
+             'msg="retrying llama-server GPU discovery with Metal tensor API disabled" '
+             'error="failed to initialize ggml backend device: Metal" '
+             'detail="input types must match cooperative tensor types"\n')
+    LAUNCH = ('time=2026-09-19T18:16:04.610+10:00 level=INFO source=llama_server.go:436 '
+              'msg="starting llama-server" cmd="/srv/build-under-test/lib/ollama/llama-server '
+              '--model /m/blob --image-max-tokens 3328"\n')
+
+    # ---- host: does this machine enable the accelerators at all ----
+
+    ENV = {"PATH": "/usr/bin"}          # a readable environment, nothing set
+
+    def host(self, profile=None, host=None, platform="darwin", container=None,
+             server_env=ENV, exe="/opt/github/MaxusAI/ollama/ollama", **probe_kw):
+        """The platform is pinned because these tests must answer the same on a
+        Linux CI runner as on the Mac host — and the check's darwin gate is
+        real, so it gets a test of its own rather than a free pass here."""
+        with mock.patch("sys.platform", platform), \
+             mock.patch.object(checks, "local_listener_exe", return_value=exe), \
+             mock.patch.object(checks, "server_env", return_value=server_env), \
+             mock.patch.object(checks, "nax_probe", **probe_kw) as probe:
+            r = checks.check_metal_tensor_host(
+                self.PROF if profile is None else profile, host or self.LOCAL,
+                container)
+        return r, probe
+
+    def test_the_probe_answers_for_the_servers_environment_not_the_harnesss(self):
+        """nax_probe reads GGML_METAL_TENSOR_* from its OWN environment, so a
+        server started by launchd with GGML_METAL_TENSOR_DISABLE=1 would be
+        running without the accelerators while a probe launched from the
+        operator's shell cheerfully reported true. The one variable that turns
+        the path off is the one the check has to read from the SERVER."""
+        r, probe = self.host(return_value=dict(self.OK, has_tensor=False),
+                             server_env={"GGML_METAL_TENSOR_DISABLE": "1",
+                                         "PATH": "/usr/bin"})
+        self.assertEqual(probe.call_args.kwargs["env"]["GGML_METAL_TENSOR_DISABLE"], "1")
+        self.assertEqual(r["status"], FAIL)
+
+    def test_a_variable_the_server_lacks_is_removed_not_inherited(self):
+        """The mirror image, and the one that would produce a FALSE ALARM: the
+        operator exports the variable in their own shell to test something, and
+        every preflight run after that reports the server has lost the
+        accelerators. None means delete."""
+        _, probe = self.host(return_value=self.OK, server_env={"PATH": "/usr/bin"})
+        self.assertIsNone(probe.call_args.kwargs["env"]["GGML_METAL_TENSOR_DISABLE"])
+
+    def test_an_unreadable_server_environment_never_inherits_the_harnesss(self):
+        """The hardware half of the answer is still good, so it runs — but the
+        operator's shell must not stand in for the server's environment. The
+        m5 doc's own A/B has the operator export GGML_METAL_TENSOR_DISABLE=1;
+        inheriting it would fail a healthy host from that shell, and inheriting
+        an exported _ENABLE would mask a real loss. Both variables are cleared,
+        and the result says the environment could not be read."""
+        r, probe = self.host(return_value=self.OK, server_env=None)
+        self.assertEqual(probe.call_args.kwargs["env"],
+                         {"GGML_METAL_TENSOR_DISABLE": None,
+                          "GGML_METAL_TENSOR_ENABLE": None})
+        self.assertEqual(r["status"], PASS)
+        self.assertIn("could not be read", r["summary"])
+
+    def test_a_listener_that_is_not_ollama_skips(self):
+        """`ssh -L 11437:localhost:11437 remote` makes a REMOTE server answer on
+        127.0.0.1. The probe would then measure this laptop's GPU and call it
+        the server's, and the payload route would resolve ssh's own directory."""
+        r, probe = self.host(return_value=self.OK, exe="/usr/bin/ssh")
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("ssh", r["summary"] + (r.get("diagnosis") or ""))
+        probe.assert_not_called()
+
+    def test_host_that_accelerates_passes(self):
+        r, _ = self.host(return_value=self.OK)
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertIn("Apple M5 Max", r["summary"])
+
+    def test_a_host_with_no_metal_at_all_skips(self):
+        """The Linux side of the fleet runs this same harness."""
+        r, probe = self.host(return_value=self.OK, platform="linux")
+        self.assertEqual(r["status"], SKIP)
+        probe.assert_not_called()
+
+    def test_host_that_should_accelerate_and_does_not_fails(self):
+        """The whole point: this must go red, not print."""
+        probe = dict(self.OK, dummy_kernel_compiles=False, has_tensor=False,
+                     error="program_source:7:10: fatal error: 'metal_tensor' file not found")
+        r, _ = self.host(return_value=probe)
+        self.assertEqual(r["status"], FAIL)
+        # and it must say WHICH of the four gate steps said no, or the operator
+        # is left bisecting a toolchain by hand
+        self.assertIn("dummy_kernel_compiles", r.get("diagnosis", "") + r["summary"])
+        self.assertIn("metal_tensor", r.get("diagnosis", "") + r["summary"])
+
+    def test_probe_toolchain_missing_skips_rather_than_fails(self):
+        """No compiler on the host is a gap in the harness, not a verdict about
+        the host. Failing here would train the operator to ignore the check."""
+        r, _ = self.host(side_effect=probes.ProbeError(
+            'xcrun: error: unable to find utility "clang"'))
+        self.assertEqual(r["status"], SKIP, r["summary"])
+        self.assertIn("clang", r["summary"] + r.get("diagnosis", ""))
+
+    def test_a_metal_profile_that_declares_nothing_skips_loudly(self):
+        """Same contract as payload_pin: a profile that declares nothing is not
+        silently passed, and is told what to add."""
+        r, _ = self.host(profile={"platform": "mlx-metal"}, return_value=self.OK)
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("expect_metal_tensor_api", r.get("diagnosis", ""))
+
+    def test_a_non_metal_profile_says_does_not_apply(self):
+        """cuda and rocm have no Metal tensor API to lose, and telling their
+        operator to add a field would be wrong advice. The exact phrase matters:
+        release_matrix.effective() reads "does not apply" to mean N/A, which is
+        neutral in a column rather than a coverage gap dragging it down."""
+        r, _ = self.host(profile={"platform": "cuda"}, return_value=self.OK)
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("does not apply", r["summary"])
+        self.assertNotIn("expect_metal_tensor_api", r.get("diagnosis", "") or "")
+
+    def test_remote_server_skips_because_the_probe_measures_the_wrong_machine(self):
+        """nax_probe runs where the HARNESS runs. Against a server on another
+        host that is a different GPU, and a PASS would be a lie."""
+        r, probe = self.host(return_value=self.OK, host="http://10.8.0.6:11437")
+        self.assertEqual(r["status"], SKIP)
+        probe.assert_not_called()
+
+    def test_a_containerised_server_skips_here_too(self):
+        """A container published on a local port passes the localhost test and
+        is still not this machine's GPU: lsof would find the port forwarder and
+        the probe would describe the host kernel. Today no Metal profile runs in
+        a container — which is exactly what was assumed about the payload half
+        before it was caught reading a container path off the harness's disk."""
+        r, probe = self.host(return_value=self.OK, container="ollama-metal?")
+        self.assertEqual(r["status"], SKIP)
+        probe.assert_not_called()
+
+    def test_unexpected_acceleration_also_fails(self):
+        """Symmetric, for the same reason payload_pin is: the profile records
+        the conditions its numbers were measured under. A host that gained the
+        accelerators is a re-measure, not a shrug."""
+        r, _ = self.host(profile={"expect_metal_tensor_api": False},
+                         return_value=self.OK)
+        self.assertEqual(r["status"], FAIL)
+
+    def test_a_trailing_slash_does_not_make_a_local_host_look_remote(self):
+        """http://127.0.0.1:11437/ is the same machine. Reading it as remote
+        would turn the gate into a silent skip on the host it was written for."""
+        for h in ("http://127.0.0.1:11437", "http://127.0.0.1:11437/",
+                  "http://localhost:11435", "127.0.0.1:11436"):
+            self.assertTrue(checks.local_port(h), h)
+        for h in ("http://10.8.0.6:11437", "http://10.8.0.6:11437/", "", None):
+            self.assertIsNone(checks.local_port(h), h)
+
+    # ---- payload: does the built llama-server carry the tensor kernels ----
+
+    def payload(self, count, log="", exe=None, profile=None):
+        with mock.patch.object(probes, "container_logs", return_value=log), \
+             mock.patch.object(checks, "binary_marker_count", return_value=count) as c, \
+             mock.patch.object(checks, "local_listener_exe", return_value=exe):
+            r = checks.check_metal_tensor_payload(
+                self.PROF if profile is None else profile,
+                self.LOCAL, None, 0, log_cmd="cat serve.log")
+        return r, c
+
+    def test_payload_carrying_the_kernels_passes(self):
+        r, _ = self.payload(28, log=self.LAUNCH)
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_payload_without_the_kernels_fails(self):
+        """A pre-b10864 llama.cpp, or one built without the Metal 4 source."""
+        r, _ = self.payload(0, log=self.LAUNCH)
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("GGML_METAL_HAS_TENSOR", r["summary"])
+        self.assertEqual(r["actual"], 0)
+
+    def test_the_inspected_binary_is_the_one_the_server_launched(self):
+        """Not a llama-server found by searching: the one this run's log names.
+        Inspecting a checkout's build/ while the server under test runs from a
+        self-contained dir elsewhere is how a check reports PASS about a binary
+        nothing is running."""
+        r, c = self.payload(28, log=self.LAUNCH)
+        c.assert_called_once()
+        self.assertEqual(c.call_args[0][0],
+                         "/srv/build-under-test/lib/ollama/llama-server")
+        self.assertIn("/srv/build-under-test/lib/ollama/llama-server", r["summary"])
+
+    def test_no_runner_launched_falls_back_to_the_servers_own_payload(self):
+        """An all-MLX profile never spawns llama-server — every model in
+        mlx-metal-0-34-0 is nvfp4 or mlx-bf16 — so the log names nothing. The
+        fallback resolves the payload the way ollama itself does, from the
+        executable that is listening (ml/path.go)."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "lib", "ollama"))
+            open(os.path.join(d, "lib", "ollama", "llama-server"), "w").close()
+            r, c = self.payload(28, log="", exe=os.path.join(d, "ollama"))
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertTrue(c.call_args[0][0].endswith("lib/ollama/llama-server"))
+
+    def test_unresolvable_payload_skips(self):
+        """Nothing in the log, nothing listening we can read: say so."""
+        r, c = self.payload(28, log="", exe=None)
+        self.assertEqual(r["status"], SKIP)
+        c.assert_not_called()
+
+    def test_a_containerised_server_skips_rather_than_reading_a_local_path(self):
+        """The one way this check could tell a confident lie. `strings` runs on
+        the HARNESS host, so an in-container path like
+        /usr/lib/ollama/llama-server either does not exist here or — far worse —
+        exists and belongs to something else entirely. README.md already says
+        binary inspection is not to be trusted inside the images; this is the
+        boundary that keeps that true.
+        """
+        log = ('msg="starting llama-server" cmd="/usr/lib/ollama/llama-server '
+               '--model /m"\n')
+        with mock.patch.object(probes, "container_logs", return_value=log), \
+             mock.patch.object(checks, "binary_marker_count", return_value=0) as c:
+            r = checks.check_metal_tensor_payload(
+                self.PROF, "http://10.8.0.6:11434", "ollama-cuda", 0,
+                log_cmd="docker logs {container}")
+        self.assertEqual(r["status"], SKIP, r["summary"])
+        c.assert_not_called()
+
+    def test_all_three_checks_are_actually_called_by_the_driver(self):
+        """A check that exists and is never called is a check that never runs.
+        This file has shipped exactly that before — PoisonNodeCorroboration's
+        six tests sat below unittest.main() and were silently uncollected
+        between #230 and the comment that now guards the main block."""
+        driver = pathlib.Path(__file__).with_name("preflight.py").read_text()
+        for name in ("check_metal_tensor_host", "check_metal_tensor_payload",
+                     "check_metal_tensor_runtime"):
+            self.assertIn(f"checks.{name}(", driver, f"{name} is never called")
+
+    # ---- runtime: did THIS server process turn the path off ----
+
+    def runtime(self, log, profile=None, host=None):
+        with mock.patch.object(probes, "container_logs", return_value=log):
+            return checks.check_metal_tensor_runtime(
+                self.PROF if profile is None else profile, host or self.LOCAL,
+                None, log_cmd="cat serve.log")
+
+    def test_clean_discovery_passes(self):
+        r = self.runtime(self.ANCHOR + self.DISCOVER + self.LAUNCH)
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_discovery_fallback_fails(self):
+        r = self.runtime(self.ANCHOR + self.DISCOVER + self.RETRY)
+        self.assertEqual(r["status"], FAIL)
+        # the operator needs the cause, which the WARN carries in `detail`
+        self.assertIn("cooperative tensor", r.get("actual", "") + r.get("diagnosis", ""))
+
+    def test_a_fallback_from_a_previous_server_process_is_not_this_one(self):
+        """25 MB of serve.err.log on the Mac host spans 69 restarts. Reading
+        the whole file for this line would attribute a long-dead process's
+        discovery to the build under test — the same misattribution
+        parse_load_segments exists to prevent."""
+        r = self.runtime(self.ANCHOR + self.RETRY + self.ANCHOR + self.DISCOVER)
+        self.assertEqual(r["status"], PASS, r["summary"])
+
+    def test_an_anchor_for_a_different_server_is_not_this_one(self):
+        """Four ollama servers share this host and one launchd log. Anchoring on
+        the last "Listening on" of whatever file the operator names attributes
+        another server's discovery to the build under test — and, because the
+        anchor is the LAST one, a fallback logged by the server under test then
+        falls outside the window and reads PASS. The anchor carries the port;
+        use it."""
+        r = self.runtime(self.ANCHOR + self.RETRY + self.OTHER + self.DISCOVER)
+        self.assertEqual(r["status"], FAIL, r["summary"])
+
+    def test_a_log_naming_only_another_server_skips(self):
+        r = self.runtime(self.OTHER + self.DISCOVER)
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("11437", r["summary"] + (r.get("diagnosis") or ""))
+
+    def test_no_listen_anchor_skips(self):
+        """Without the anchor there is no way to tell this process's discovery
+        from the previous one's, and a guess either way is worse than a skip."""
+        r = self.runtime(self.RETRY)
+        self.assertEqual(r["status"], SKIP)
+
+    def test_no_container_and_no_log_cmd_skips(self):
+        """The invocation this harness actually uses on the Mac host is
+        --log-cmd alone; forget it and the check must say "no log source", the
+        way mlx_payload_pin does. It reached `docker logs ... None` instead and
+        came back ERROR, which fails the whole run on a healthy server."""
+        r = checks.check_metal_tensor_runtime(self.PROF, self.LOCAL, None,
+                                              log_cmd=None)
+        self.assertEqual(r["status"], SKIP, r["summary"])
+        self.assertIn("--log-cmd", r["summary"] + r.get("diagnosis", ""))
+
+    def test_no_log_skips(self):
+        r = self.runtime("")
+        self.assertEqual(r["status"], SKIP)
+
+    def test_runtime_without_an_expectation_skips(self):
+        """Gated on the same field as the other two, so a cuda or rocm profile
+        gets a skip and not a vacuous PASS about a Metal path it never had."""
+        r = self.runtime(self.ANCHOR + self.DISCOVER, profile={})
+        self.assertEqual(r["status"], SKIP)
+
+    def test_fallback_fails_even_where_no_accelerators_are_expected(self):
+        """expect_metal_tensor_api = false says the profile was measured without
+        them, not that a Metal init failure is fine. The line means discovery
+        asked and failed, which is a defect on any Metal host."""
+        r = self.runtime(self.ANCHOR + self.RETRY,
+                         profile={"expect_metal_tensor_api": False})
+        self.assertEqual(r["status"], FAIL)
+
+
+class TestTensorProbeRoutes(unittest.TestCase):
+    """The routes the three checks take to their evidence. Each of these was a
+    real defect in this file's first draft, and every one of them fails toward
+    a confident wrong answer rather than a loud one.
+    """
+
+    # ---- server_env: the environment, and nothing but the environment ----
+
+    def ps(self, cmd, both):
+        """`ps -ww -o command=` and `ps -wwE -o command=` for one pid."""
+        calls = []
+
+        def fake_run(argv, **kw):
+            calls.append(argv)
+            if argv[0] == "lsof":
+                out = "12345"
+            else:
+                out = both if "-wwE" in argv else cmd
+            return subprocess.CompletedProcess(argv, 0, stdout=out + "\n", stderr="")
+
+        with mock.patch.object(probes, "local_listener_exe", return_value="/x/ollama"), \
+             mock.patch.object(probes.subprocess, "run", fake_run):
+            return probes.server_env(11435)
+
+    def test_the_environment_is_the_suffix_after_the_command_line(self):
+        """Captured from this host: ps -wwE prints argv and env run together
+        with no delimiter, so the only safe split is the argv prefix."""
+        cmd = "/opt/github/MaxusAI/ollama/ollama serve"
+        env = self.ps(cmd, cmd + " OSLogRateLimit=64 OLLAMA_HOST=0.0.0.0:11435 "
+                            "GGML_METAL_TENSOR_DISABLE=1")
+        self.assertEqual(env["GGML_METAL_TENSOR_DISABLE"], "1")
+        self.assertEqual(env["OLLAMA_HOST"], "0.0.0.0:11435")
+
+    def test_an_equals_in_the_command_line_is_not_an_environment_variable(self):
+        """`sh -c 'OLLAMA_HOST=... ollama serve'` puts a VAR=VALUE token in
+        argv. Harvesting every =-bearing token would read it as environment —
+        and, worse, make an unreadable environment look readable, which then
+        DELETES the variables the probe was supposed to honour."""
+        cmd = "/bin/sh -c GGML_METAL_TENSOR_DISABLE=1 ollama serve"
+        self.assertIsNone(self.ps(cmd, cmd))
+
+    def test_an_invisible_environment_is_none_not_empty(self):
+        """macOS hides it for platform binaries (codesign 'Platform
+        identifier'), so this is a real state and not a hypothetical. None and
+        {} must not collapse: {} would read as "the server sets nothing"."""
+        self.assertIsNone(self.ps("/bin/sleep 8", "/bin/sleep 8"))
+
+    def test_two_processes_on_one_port_is_cannot_tell(self):
+        """During a kickstart the old and new servers both appear for a moment.
+        Taking the first would let a dying process supply the binary AND the
+        environment for a verdict about the new one — and the two lsof calls
+        could even disagree about which. Ambiguous is not an answer."""
+        def two_pids(argv, **kw):
+            out = "111\n222\n" if argv[0] == "lsof" else "/x/ollama\n"
+            return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+
+        with mock.patch.object(probes.subprocess, "run", two_pids):
+            self.assertIsNone(probes.local_listener_exe(11435))
+            self.assertIsNone(probes.server_env(11435))
+
+    # ---- launched_runner_paths: the window has to be real ----
+
+    LAUNCH = ('time=%s level=INFO source=llama_server.go:436 '
+              'msg="starting llama-server" cmd="%s --model /m"\n')
+
+    def launched(self, text, since):
+        with mock.patch.object(probes, "container_logs", return_value=text):
+            return probes.launched_runner_paths("c", since, log_cmd="cat serve.log")
+
+    def test_a_launch_from_a_previous_run_is_not_this_runs_binary(self):
+        """`cat <serve log>` cannot apply {since}, so container_logs returns the
+        WHOLE file — 69 restarts of it. mlx_build's docstring records this exact
+        trap costing a PASS from a month-old line; filtering per line on its own
+        slog timestamp is the fix there and here."""
+        old = self.LAUNCH % ("2026-09-19T18:16:04.610+10:00", "/archived/llama-server")
+        new = self.LAUNCH % ("2026-09-20T09:00:00.000+10:00", "/under-test/llama-server")
+        cutoff = datetime.datetime.fromisoformat("2026-09-20T08:00:00+10:00").timestamp()
+        self.assertEqual(self.launched(old + new, cutoff), ["/under-test/llama-server"])
+        self.assertEqual(self.launched(old, cutoff), [])
+
+    def test_an_untimestamped_launch_is_outside_the_window(self):
+        """Cannot-confirm must never read as confirmed."""
+        self.assertEqual(self.launched('msg="starting llama-server" cmd="/x/llama-server"\n',
+                                       1_700_000_000), [])
+
+    def test_the_newest_launch_wins_not_the_first_seen(self):
+        a = self.LAUNCH % ("2026-09-20T09:00:00.000+10:00", "/a/llama-server")
+        b = self.LAUNCH % ("2026-09-20T09:30:00.000+10:00", "/b/llama-server")
+        again = self.LAUNCH % ("2026-09-20T10:00:00.000+10:00", "/a/llama-server")
+        self.assertEqual(self.launched(a + b + again, 0)[-1], "/a/llama-server")
+
+    # ---- binary_marker_count: zero matches is not "cannot read" ----
+
+    def test_an_unreadable_binary_raises_rather_than_counting_zero(self):
+        """`strings missing | grep -c` prints 0 and `|| true` swallows the exit
+        code, so a missing file, a missing `strings`, or a path that has since
+        been archived all read as "this payload has no tensor kernels" — a FAIL
+        against a healthy build, and one that contradicts the host check, which
+        deliberately SKIPs when the toolchain is absent."""
+        with self.assertRaises(probes.ProbeError):
+            probes.binary_marker_count("/no/such/binary", "GGML_METAL_HAS_TENSOR")
+
+    def test_a_real_binary_without_the_marker_counts_zero(self):
+        """The other side of it: zero must still be reachable, or the check
+        could never go red."""
+        self.assertEqual(probes.binary_marker_count("/bin/ls", "GGML_METAL_HAS_TENSOR"), 0)
+
+    # ---- lib_ollama_llama_server: mirror path.go, including where it stops ----
+
+    def test_a_symlinked_executable_resolves_like_ollama_does(self):
+        """ml/path.go EvalSymlinks() before deriving exeDir, and the deploy flow
+        archives binaries and swaps them by name. Searching beside the symlink
+        looks in the wrong directory."""
+        with tempfile.TemporaryDirectory() as d:
+            real = os.path.join(d, "binaries")
+            os.makedirs(os.path.join(real, "lib", "ollama"))
+            open(os.path.join(real, "lib", "ollama", "llama-server"), "w").close()
+            os.makedirs(os.path.join(d, "current"))
+            link = os.path.join(d, "current", "ollama")
+            os.symlink(os.path.join(real, "ollama-0.34"), link)
+            open(os.path.join(real, "ollama-0.34"), "w").close()
+            # realpath, because that is the point: macOS symlinks /var to
+            # /private/var, and ollama resolves before it searches.
+            self.assertEqual(probes.lib_ollama_llama_server(link),
+                             os.path.realpath(os.path.join(real, "lib", "ollama"))
+                             + "/llama-server")
+
+    def test_it_stops_where_ollama_stops_even_if_that_directory_is_empty(self):
+        """libOllamaPathExists() is os.Stat().IsDir(): path.go takes the first
+        existing DIRECTORY and looks no further. Walking past it to find some
+        other llama-server reports PASS about a binary ollama would never load."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "lib", "ollama"))              # empty
+            os.makedirs(os.path.join(d, "build", "lib", "ollama"))
+            open(os.path.join(d, "build", "lib", "ollama", "llama-server"), "w").close()
+            self.assertEqual(probes.lib_ollama_llama_server(os.path.join(d, "ollama")),
+                             os.path.realpath(os.path.join(d, "lib", "ollama"))
+                             + "/llama-server")
+
+
+class TestMetalTensorDiscoveryParse(unittest.TestCase):
+    """The log shapes the runtime check stands on, pinned separately so a
+    format drift names itself instead of surfacing as a mysterious skip."""
+
+    def test_anchor_is_the_last_listen_line(self):
+        text = ('msg="Listening on [::]:11435 (version a)"\nfirst\n'
+                'msg="Listening on [::]:11435 (version b)"\nsecond\n')
+        d = probes.parse_metal_tensor_discovery(text, "11435")
+        self.assertTrue(d["anchored"])
+        self.assertIn("second", d["window"])
+        self.assertNotIn("first", d["window"])
+
+    def test_fallback_line_is_returned_whole(self):
+        text = ('msg="Listening on [::]:11435 (version a)"\n'
+                'time=t level=WARN msg="retrying llama-server GPU discovery with '
+                'Metal tensor API disabled" error="e" detail="d"\n')
+        d = probes.parse_metal_tensor_discovery(text, "11435")
+        self.assertIn('detail="d"', d["fallback"])
+
+    def test_no_fallback_is_none_not_empty(self):
+        d = probes.parse_metal_tensor_discovery(
+            'msg="Listening on [::]:11435 (version a)"\n', "11435")
+        self.assertIsNone(d["fallback"])
+
 
 # The main block must stay at the END of the file: unittest.main() runs the
 # classes defined ABOVE it, so a class appended after it silently never runs

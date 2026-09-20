@@ -428,7 +428,10 @@ ollama#17687 — which therefore now has a reproducer requiring no private data.
 fires: with the gate active the runner env carries
 `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` and both failing images decode correctly.
 Caution for anyone reading GGUF metadata directly: its *clip* metadata reports
-`qwen2vl` after mmproj translation, which is not the string the gate keys on.
+`qwen2vl` after mmproj translation, which is not the string the gate keys on —
+the gate reads the model's top-level `general.architecture`. (2026-09-19: it
+now matches `qwen2vl` there as well, so that trap no longer decides whether the
+mitigation fires; see the note at the end of this section.)
 
 Its trigger set is narrower than the base model's (2/7 versus 7/7) —
 consistent with a fine-tune shifting activation scales rather than removing
@@ -523,6 +526,18 @@ observed in five tries each, under conditions harsher than any deployment,
 with the detector demonstrably working.
 
 That is the standard the `qwen25vl`-only scoping now rests on.
+
+> **Note (2026-09-19): the gate also matches the `qwen2vl` spelling now**
+> (`docs/maxusai/qwen25vl-cublas-f32-env.md`, scope amendment). That string is
+> what llama.cpp's converter writes for Qwen2-VL, Qwen2.5-VL and
+> Qwen2.5-Omni alike, so **self-converted** Qwen2.5-VL — olmOCR-2 among them —
+> was never gated at all. Nothing measured in this section moves: the seven
+> models hardened above keep their negatives and stay out of scope. The
+> standard does cut the other way for genuine Qwen2-VL, which the widened gate
+> now covers: it has no observations here, not clean ones, so it could not have
+> been excluded on the terms this section sets. Probing it to this standard
+> (n=5, three aggressive images, forced `=f16`, positive control in the same
+> container) is the open measurement.
 
 
 ## Running these probes yourself

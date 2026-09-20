@@ -13,9 +13,11 @@ import datetime
 import json
 import os
 import re
+import shlex
 import shutil
 import struct
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -307,6 +309,13 @@ def container_logs(container, since_epoch, log_cmd=None):
         since='2026-08-17T06:05:31'   -> 51 load_hparams lines
         since='2026-08-17T06:05:31Z'  ->  0 load_hparams lines
 
+    `errors="replace"` is load-bearing too, for a different reason: a serve log
+    carries the runner's raw stdout, and one undecodable byte in 25 MB made the
+    default strict decode raise UnicodeDecodeError — turning every log-derived
+    check on that host into an ERROR about a server that was perfectly healthy.
+    Every consumer of this text is a regex over ASCII log lines, so a U+FFFD
+    where a stray byte was costs nothing and keeps the window readable.
+
     Both failure modes are silent. The early window is the dangerous one,
     because a caller that would otherwise see no lines and report `TODO` or
     SKIP instead receives a complete, plausible, wrong answer belonging to a
@@ -315,11 +324,12 @@ def container_logs(container, since_epoch, log_cmd=None):
     since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since_epoch))
     if log_cmd:
         cmd = log_cmd.format(container=container, since=since)
-        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
+        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                              errors="replace", timeout=120)
     else:
         proc = subprocess.run(
             ["docker", "logs", "--since", since, container],
-            capture_output=True, text=True, timeout=120)
+            capture_output=True, text=True, errors="replace", timeout=120)
     return (proc.stdout or "") + (proc.stderr or "")
 
 
@@ -517,4 +527,291 @@ def grep_binary_marker(container, path="/usr/bin/ollama", exec_cmd=None):
     digits = re.findall(r"\d+", proc.stdout or "")
     if not digits:
         raise ProbeError(f"no count from grep: {(proc.stdout + proc.stderr)[:300]!r}")
+    return int(digits[0])
+
+
+# --------------------------------------------------------------------------
+# The Metal tensor API — the M5 Neural Accelerators
+# --------------------------------------------------------------------------
+# Worth 2.14x prefill on the GGUF path (docs/maxusai/m5-neural-accelerators.md)
+# and silent in every direction when it is lost. The three routes below are the
+# three places the answer lives: the HOST (nax_probe), the PAYLOAD (the marker
+# in the built llama-server) and the RUNNING SERVER (the discovery fallback
+# this fork logs once at startup).
+
+NAX_PROBE_SRC = os.path.join(DIR, "nax_probe.m")
+TENSOR_MARKER = "GGML_METAL_HAS_TENSOR"
+_NAX_BUILD = []          # [TemporaryDirectory, exe] — built once per process
+
+
+def nax_probe(env=None, src=None, timeout=180):
+    """Build nax_probe.m, run it, return its JSON verdict.
+
+    The distinction this function exists to keep: a probe that CANNOT BE BUILT
+    raises ProbeError — that is a gap in the harness (no clang, no Metal
+    framework) and must never read as a verdict about the host. A probe that
+    builds and answers no returns a dict with has_tensor False, which is a
+    verdict and belongs in a FAIL.
+
+    `env` overlays the process environment; a None value deletes a variable, so
+    a caller can ask the counterfactual (GGML_METAL_TENSOR_DISABLE=1) without
+    disturbing its own environment.
+    """
+    src = src or NAX_PROBE_SRC
+    if not os.path.exists(src):
+        raise ProbeError(f"nax_probe source is missing: {src}")
+    if not _NAX_BUILD:
+        tmp = tempfile.TemporaryDirectory(prefix="nax_probe.")
+        exe = os.path.join(tmp.name, "nax_probe")
+        cmd = ["xcrun", "clang", "-fobjc-arc", "-framework", "Foundation",
+               "-framework", "Metal", src, "-o", exe]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ProbeError(f"cannot build nax_probe ({cmd[0]} {cmd[1]}): {exc}")
+        if proc.returncode != 0 or not os.path.exists(exe):
+            raise ProbeError("cannot build nax_probe: "
+                             + ((proc.stderr or proc.stdout).strip()[:400] or "no output"))
+        _NAX_BUILD.extend([tmp, exe])   # the TemporaryDirectory must outlive the call
+    run_env = dict(os.environ)
+    for k, v in (env or {}).items():
+        if v is None:
+            run_env.pop(k, None)
+        else:
+            run_env[k] = v
+    try:
+        proc = subprocess.run([_NAX_BUILD[1]], capture_output=True, text=True,
+                              timeout=timeout, env=run_env)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProbeError(f"cannot run nax_probe: {exc}")
+    try:
+        return json.loads(proc.stdout)
+    except ValueError:
+        raise ProbeError("nax_probe emitted no JSON: "
+                         + ((proc.stdout + proc.stderr).strip()[:300] or "no output"))
+
+
+# routes.go logs this once per server start, and discovery runs AFTER it (the
+# order is Listening -> "discovering available GPUs..."), which is what makes it
+# usable as the boundary between this process's discovery and the last one's.
+LISTEN_RE = re.compile(r'msg="Listening on (\S+) \(version[^"]*"')
+# discover/runner.go, reached from llm.ShouldRetryWithMetalTensorDisabled. The
+# retry sets GGML_METAL_TENSOR_DISABLE=1 for discovery AND, via
+# recordPersistentRunnerEnv, for every runner this server process later spawns.
+TENSOR_FALLBACK_RE = re.compile(
+    r'^.*msg="retrying llama-server GPU discovery with Metal tensor API disabled".*$',
+    re.M)
+
+
+def parse_metal_tensor_discovery(text, port):
+    """{'anchored': bool, 'window': str, 'fallback': str|None, 'ports': [...]}
+
+    Only the CURRENT server process's discovery counts, and only the server
+    under test's. serve.err.log on the Mac host is 25 MB spanning 69 restarts of
+    a server that shares the file with nothing — but four ollama servers share
+    the host, an operator names the log by hand, and the anchor taken as "the
+    last Listening on line" would then attribute another server's discovery to
+    the build under test. Worse, being the LAST one, it would put a fallback
+    logged by the server under test OUTSIDE the window and report PASS. The
+    anchor line carries the port; this matches on it.
+
+    Without an anchor for `port` there is nothing to attribute to, so `anchored`
+    is False and the caller must skip rather than guess. `ports` is what the log
+    did contain, so the skip can say what it found instead.
+    """
+    anchors, ports = [], []
+    for m in LISTEN_RE.finditer(text or ""):
+        seen = m.group(1).rpartition(":")[2]
+        if seen not in ports:
+            ports.append(seen)
+        if seen == str(port):
+            anchors.append(m)
+    if not anchors:
+        return {"anchored": False, "window": "", "fallback": None, "ports": ports}
+    window = text[anchors[-1].end():]
+    m = TENSOR_FALLBACK_RE.search(window)
+    return {"anchored": True, "window": window, "ports": ports,
+            "fallback": m.group(0).strip() if m else None}
+
+
+def metal_tensor_discovery(container, port, log_cmd=None):
+    """parse_metal_tensor_discovery over the WHOLE log — deliberately unwindowed.
+
+    Discovery happens at server start, which is before any preflight window
+    opens; a `since` here would reliably return nothing. The anchor for this
+    server's own port is what bounds it instead.
+    """
+    return parse_metal_tensor_discovery(container_logs(container, 0, log_cmd), port)
+
+
+def launched_runner_paths(container, since_epoch, log_cmd=None):
+    """The llama-server executables THIS window's runner launches ran, oldest
+    first.
+
+    THE WINDOW IS ENFORCED HERE, per line, for the reason mlx_build's docstring
+    already records: `cat <serve log>` — the only --log-cmd form that works on
+    the native macOS path — cannot substitute {since}, so container_logs returns
+    the whole file, 69 restarts of it. Trusting it unfiltered means inspecting a
+    binary some earlier run launched, since archived by the deploy flow, and
+    labelling it "launched by this run".
+
+    A launch whose timestamp will not parse is treated as OUTSIDE the window:
+    cannot-confirm must never read as confirmed. A path containing a space would
+    split wrongly — the Go side logs an unquoted command line, so there is
+    nothing better to parse, and checks.py falls back to the listening
+    executable when this finds nothing.
+    """
+    out = []
+    for line in container_logs(container, since_epoch, log_cmd).splitlines():
+        m = LAUNCH_RE.search(line)
+        if not m:
+            continue
+        cmd = m.group(1).split()
+        if not cmd:
+            continue
+        t = SLOG_TIME_RE.search(line)
+        if not t:
+            continue
+        try:
+            when = datetime.datetime.fromisoformat(t.group(1)).timestamp()
+        except ValueError:
+            continue
+        if when >= since_epoch:
+            out.append(cmd[0])
+    return out
+
+
+def local_listener_exe(port):
+    """Absolute path of the executable listening on <port> on THIS machine.
+
+    darwin-only by construction: `ps -o comm=` prints the full path there, while
+    Linux truncates comm to 15 characters. Returns None rather than raising —
+    every caller treats "cannot tell" as a skip.
+    """
+    try:
+        pids = subprocess.run(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
+                              capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    pid = (pids.stdout or "").split()
+    # Two processes on one port is the kickstart window, when the outgoing and
+    # incoming servers overlap. Taking the first would let a dying process
+    # supply the binary for a verdict about the new one. Ambiguous is not an
+    # answer; every caller treats None as a skip.
+    if len(pid) != 1:
+        return None
+    try:
+        ps = subprocess.run(["ps", "-p", pid[0], "-o", "comm="],
+                            capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    exe = (ps.stdout or "").strip()
+    return exe if exe.startswith("/") else None
+
+
+# The two variables that decide the gate from outside ggml. A server started by
+# launchd with DISABLE=1 runs without the accelerators and says nothing about
+# it anywhere — no log line, no API field — so the only way to see it is to read
+# the environment of the process that is actually serving.
+TENSOR_ENV_VARS = ("GGML_METAL_TENSOR_DISABLE", "GGML_METAL_TENSOR_ENABLE")
+
+
+def server_env(port):
+    """The environment of the process listening on <port>, or None when macOS
+    will not show it.
+
+    `ps -wwE` prints argv and the environment run together with no delimiter, so
+    the environment is recovered as the SUFFIX after the same process's plain
+    `command=`. Harvesting every =-bearing token instead reads argv as
+    environment — `sh -c 'OLLAMA_HOST=... ollama serve'` is enough — and that is
+    worse than failing: it makes an unreadable environment look readable, so the
+    caller confidently DELETES the variables it was supposed to honour.
+
+    None and {} are NOT the same answer and the caller must not collapse them.
+    The kernel hides the environment of PLATFORM binaries (`codesign -dv` prints
+    "Platform identifier"), which is why `ps -wwE` on /bin/sleep shows nothing
+    while an ollama server — an ordinary ad-hoc signed binary — shows all of it.
+    Measured on macOS 26.6.2, both cases.
+    """
+    if not local_listener_exe(port):
+        return None
+    try:
+        pids = subprocess.run(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
+                              capture_output=True, text=True, timeout=30)
+        pid = (pids.stdout or "").split()
+        if len(pid) != 1:          # same reason as local_listener_exe
+            return None
+        argv = subprocess.run(["ps", "-p", pid[0], "-ww", "-o", "command="],
+                              capture_output=True, text=True, errors="replace",
+                              timeout=30).stdout.strip()
+        both = subprocess.run(["ps", "-p", pid[0], "-wwE", "-o", "command="],
+                              capture_output=True, text=True, errors="replace",
+                              timeout=30).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if not argv or not both.startswith(argv):
+        return None                     # raced, or truncated differently
+    env = {}
+    for token in both[len(argv):].split():
+        if "=" in token:
+            k, v = token.split("=", 1)
+            env.setdefault(k, v)
+    return env or None
+
+
+def lib_ollama_llama_server(exe):
+    """The llama-server `exe` would spawn, or None.
+
+    Mirrors ml/path.go libOllamaPathCandidates() for darwin, INCLUDING where it
+    stops: libOllamaPathExists() is os.Stat().IsDir(), so ollama takes the first
+    candidate DIRECTORY that exists and looks no further. Walking past an empty
+    lib/ollama to find some other llama-server would report on a binary ollama
+    would never load. The returned path may therefore not exist, and the caller
+    is expected to surface that rather than read it as "no tensor kernels".
+
+    EvalSymlinks first, as path.go does: the deploy flow archives binaries and
+    swaps them by name, so searching beside the symlink is searching the wrong
+    directory. The two candidates path.go derives from the server's working
+    directory are omitted, because the harness cannot know it.
+    """
+    if not exe:
+        return None
+    d = os.path.dirname(os.path.realpath(exe))
+    for cand in (os.path.join(d, "lib", "ollama"),
+                 os.path.join(d, "..", "lib", "ollama"),
+                 os.path.join(d, "build", "lib", "ollama"),
+                 os.path.join(d, "dist", "darwin-arm64", "lib", "ollama"),
+                 os.path.join(d, "dist", "darwin"),
+                 d):
+        cand = os.path.normpath(cand)
+        if os.path.isdir(cand):
+            return os.path.join(cand, "llama-server")
+    return None
+
+
+def binary_marker_count(path, needle):
+    """`strings -a <path> | grep -c <needle>` — how many strings in a compiled
+    artefact contain <needle>.
+
+    Raises ProbeError when the artefact cannot be read at all. `grep -c` prints
+    0 on empty input and the `|| true` swallows the exit status, so a missing
+    file, a missing `strings`, or a path the deploy flow has since archived
+    would otherwise all count as zero — reported as "this payload has no tensor
+    kernels", a FAIL against a healthy build, and the opposite of what the host
+    check does with a missing toolchain.
+
+    Same caveat as grep_binary_marker: this is a BUILD-side fact. It says the
+    payload carries the kernels, never that the host will run them.
+    """
+    if not os.path.exists(path):
+        raise ProbeError(f"no llama-server at {path}")
+    cmd = ("strings -a " + shlex.quote(path) + " | grep -c -- "
+           + shlex.quote(needle) + " || true")
+    proc = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True,
+                          errors="replace", timeout=300)
+    if proc.stderr.strip():
+        raise ProbeError(f"strings failed on {path}: {proc.stderr.strip()[:200]}")
+    digits = re.findall(r"\d+", proc.stdout or "")
+    if not digits:
+        raise ProbeError(f"no count from strings|grep: {(proc.stdout)[:200]!r}")
     return int(digits[0])

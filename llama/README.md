@@ -52,7 +52,7 @@ For build prerequisites, platform notes, and backend selection, see the
   `--main-gpu`, split-mode behavior, and scheduler-sensitive flags consumed by
   `llm/llama_server.go` or `server/sched.go`. Also the arch-gated env knobs
   the launcher sets for the subprocess (`applyArchServerEnvs`):
-  `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` for qwen25vl assumes the pinned ggml
+  `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` for qwen2vl/qwen25vl assumes the pinned ggml
   still reads that variable in `ggml/src/ggml-cuda/ggml-cuda.cu` — see
   `docs/maxusai/qwen25vl-cublas-f32-env.md`.
 - Streaming: any new SSE frame shape, heartbeat, keepalive ping, completion

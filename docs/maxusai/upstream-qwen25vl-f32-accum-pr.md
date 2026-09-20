@@ -6,6 +6,17 @@
 gh pr create --repo ollama/ollama --head MaxusAI:qwen25vl-cublas-f32-accum --base main --title "llm: force fp32 cuBLAS accumulation for qwen2.5-vl runners" --body-file docs/maxusai/upstream-qwen25vl-f32-accum-pr.md
 ```
 
+**Fork scope widened 2026-09-19; the body below is unchanged and now trails the
+fork.** Two of its claims need refreshing before #18070 is updated or refiled: "`qwen2vl`
+shares the graph builder but has no measured trigger and is deliberately left stock" reads
+`general.architecture` as naming the model, when it names the converter — llama.cpp maps
+`Qwen2VLForConditionalGeneration`, `Qwen2_5_VLForConditionalGeneration` and
+`Qwen2_5OmniModel` onto one `MODEL_ARCH.QWEN2VL`, so self-converted Qwen2.5-VL GGUFs say
+`"qwen2vl"` and were never gated; and "no behavior change for any other model" becomes "no
+behavior change outside the shared `clip_graph_qwen2vl`", since the fork's gate now matches
+both spellings and therefore covers genuine Qwen2-VL too. Scope amendment and its evidence:
+`docs/maxusai/qwen25vl-cublas-f32-env.md`.
+
 Everything below the rule is the PR body, verbatim.
 
 ---

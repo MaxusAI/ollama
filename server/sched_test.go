@@ -1706,6 +1706,66 @@ func TestAvailableMemoryForLoadUsesWorstSharedMemoryMeasurement(t *testing.T) {
 	}
 }
 
+// TestAvailableMemoryDedicatedIntegratedPool covers an integrated GPU whose
+// memory is a fixed carve-out rather than a share of system RAM. Measured on
+// gfx1151 (Strix Halo): 96 GiB of GPU memory beside 31 GiB of system memory on
+// a 128 GiB machine. Clamping to system free there costs the whole batch
+// ladder -- gemma4 held at 512-1024 against a 2048 floor with 95 GiB free.
+func TestAvailableMemoryDedicatedIntegratedPool(t *testing.T) {
+	const (
+		gpuTotal    = 96 * format.GibiByte
+		gpuFree     = 95 * format.GibiByte
+		systemTotal = 31 * format.GibiByte
+		systemFree  = 30 * format.GibiByte
+	)
+	strixHalo := []ml.DeviceInfo{{
+		DeviceID:    ml.DeviceID{Library: "ROCm"},
+		Integrated:  true,
+		TotalMemory: gpuTotal,
+		FreeMemory:  gpuFree,
+	}}
+	sys := ml.SystemInfo{TotalMemory: systemTotal, FreeMemory: systemFree}
+
+	t.Run("a carve-out larger than system memory is not clamped", func(t *testing.T) {
+		available, free, limited := availableMemoryForLoad(sys, strixHalo)
+		require.Equal(t, uint64(gpuFree), available)
+		require.Equal(t, uint64(gpuFree), free)
+		require.False(t, limited)
+	})
+
+	t.Run("a genuinely shared pool is still clamped", func(t *testing.T) {
+		shared := []ml.DeviceInfo{{
+			DeviceID:    ml.DeviceID{Library: "ROCm"},
+			Integrated:  true,
+			TotalMemory: 16 * format.GibiByte, // carved from the 31 GiB the OS sees
+			FreeMemory:  14 * format.GibiByte,
+		}}
+		available, _, limited := availableMemoryForLoad(
+			ml.SystemInfo{TotalMemory: systemTotal, FreeMemory: 8 * format.GibiByte}, shared)
+		require.Equal(t, uint64(8*format.GibiByte), available)
+		require.True(t, limited)
+	})
+
+	t.Run("an unreported total keeps the previous behaviour", func(t *testing.T) {
+		// An unknown pool relationship is not evidence of a dedicated one, and
+		// every pre-existing test constructs SystemInfo without TotalMemory.
+		noTotals := []ml.DeviceInfo{{
+			DeviceID:   ml.DeviceID{Library: "ROCm"},
+			Integrated: true,
+			FreeMemory: gpuFree,
+		}}
+		available, _, limited := availableMemoryForLoad(ml.SystemInfo{FreeMemory: systemFree}, noTotals)
+		require.Equal(t, uint64(systemFree), available)
+		require.True(t, limited)
+	})
+
+	t.Run("availableMemoryForGPU agrees with availableMemoryForLoad", func(t *testing.T) {
+		// The MainGPU path has its own copy of the clamp; a fix to one that
+		// misses the other leaves the same bug reachable by a different route.
+		require.Equal(t, uint64(gpuFree), availableMemoryForGPU(sys, strixHalo[0]))
+	})
+}
+
 func TestSelectLlamaServerPlacement(t *testing.T) {
 	systemInfo := ml.SystemInfo{FreeMemory: 14 * format.GigaByte}
 

@@ -1743,15 +1743,38 @@ func TestApplyArchServerEnvs(t *testing.T) {
 			want:     map[string]string{},
 		},
 		{
-			// qwen2vl shares the clip graph builder but has no measured
-			// poison trigger; it stays on stock behavior deliberately.
-			name: "qwen2vl untouched",
+			// Replaces "qwen2vl untouched". That case was right about
+			// Qwen2-VL — no measured poison trigger — and wrong about what
+			// the string means: llama.cpp's converter maps Qwen2-VL,
+			// Qwen2.5-VL and Qwen2.5-Omni's thinker all onto
+			// MODEL_ARCH.QWEN2VL, so a self-converted Qwen2.5-VL GGUF
+			// (olmOCR-2-7B-1025, richardyoung/olmocr2:7b-q8) arrives here
+			// spelled "qwen2vl" and was left on stock fp16 accumulation —
+			// the exposure PR #214 exists to close. general.architecture
+			// cannot separate the two, so the gate covers the family;
+			// applyArchServerEnvs records why that is the right side to
+			// err on for genuine Qwen2-VL.
+			name: "qwen2vl forces f32 cublas compute",
 			arch: "qwen2vl",
-			want: map[string]string{},
+			want: map[string]string{ggmlCublasComputeTypeEnv: "f32"},
+		},
+		{
+			// The override guard covers the arch through either spelling.
+			name:     "operator override wins for qwen2vl",
+			arch:     "qwen2vl",
+			operator: "f16",
+			want:     map[string]string{},
 		},
 		{
 			name: "gemma4 untouched",
 			arch: "gemma4",
+			want: map[string]string{},
+		},
+		{
+			// The gate is qwen-VL-family-scoped, not vision-wide: no other
+			// arch's numerics move.
+			name: "unrelated arch untouched",
+			arch: "llama",
 			want: map[string]string{},
 		},
 	}
