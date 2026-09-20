@@ -1,0 +1,268 @@
+{
+ "meta": {
+  "purpose": "N=5 on the two fine-text cells that moved across the 0.34.1 fold, before the 0.34.2 recovery claim enters a gate record. SPEC H15: a single capture is not a rate.",
+  "date": "2026-09-21",
+  "host": "http://127.0.0.1:11499",
+  "probe": "finetext_probe.py",
+  "think": false,
+  "temperature": 0,
+  "arms": {
+   "rocm724": "0.34.2-dynres-f67b1aef (ROCm 7.2.4)",
+   "rocm10": "0.34.2-dynres-rocm10probe (ROCm 10.0.0)"
+  },
+  "cells": {
+   "qwen3.6:35b-a3b 7px": "2 baseline (0.32.1) -> 1 on 0.34.1 -> claim: 2 again on 0.34.2",
+   "nemotron3:33b 9px": "4 baseline (0.32.1) -> 3 on 0.34.1 -> claim: still 3, NOT recovered"
+  }
+ },
+ "reps": {
+  "rocm10/nemotron3:33b-q4_K_M": {
+   "n": 5,
+   "tiers_per_rep": [
+    [
+     4,
+     4,
+     4,
+     3,
+     0
+    ],
+    [
+     4,
+     4,
+     4,
+     3,
+     0
+    ],
+    [
+     4,
+     4,
+     4,
+     3,
+     0
+    ],
+    [
+     4,
+     4,
+     4,
+     3,
+     0
+    ],
+    [
+     4,
+     4,
+     4,
+     3,
+     0
+    ]
+   ],
+   "distinct_vectors": [
+    [
+     4,
+     4,
+     4,
+     3,
+     0
+    ]
+   ],
+   "within_arm_variance": "none",
+   "missed": {
+    "9px": [
+     "RNK-0391-DW18"
+    ],
+    "7px": [
+     "NTR-7871-KK15",
+     "AYK-9301-CK10",
+     "PDX-3473-YF99",
+     "WKW-6311-UR66"
+    ]
+   }
+  },
+  "rocm10/qwen3.6:35b-a3b-q4_k_m": {
+   "n": 5,
+   "tiers_per_rep": [
+    [
+     4,
+     4,
+     4,
+     2,
+     2
+    ],
+    [
+     4,
+     4,
+     4,
+     2,
+     2
+    ],
+    [
+     4,
+     4,
+     4,
+     2,
+     2
+    ],
+    [
+     4,
+     4,
+     4,
+     2,
+     2
+    ],
+    [
+     4,
+     4,
+     4,
+     2,
+     2
+    ]
+   ],
+   "distinct_vectors": [
+    [
+     4,
+     4,
+     4,
+     2,
+     2
+    ]
+   ],
+   "within_arm_variance": "none",
+   "missed": {
+    "9px": [
+     "RNK-0391-DW18",
+     "FFW-8248-UJ83"
+    ],
+    "7px": [
+     "NTR-7871-KK15",
+     "WKW-6311-UR66"
+    ]
+   }
+  },
+  "rocm724/nemotron3:33b-q4_K_M": {
+   "n": 5,
+   "tiers_per_rep": [
+    [
+     4,
+     4,
+     4,
+     3,
+     0
+    ],
+    [
+     4,
+     4,
+     4,
+     3,
+     0
+    ],
+    [
+     4,
+     4,
+     4,
+     3,
+     0
+    ],
+    [
+     4,
+     4,
+     4,
+     3,
+     0
+    ],
+    [
+     4,
+     4,
+     4,
+     3,
+     0
+    ]
+   ],
+   "distinct_vectors": [
+    [
+     4,
+     4,
+     4,
+     3,
+     0
+    ]
+   ],
+   "within_arm_variance": "none",
+   "missed": {
+    "9px": [
+     "RNK-0391-DW18"
+    ],
+    "7px": [
+     "NTR-7871-KK15",
+     "AYK-9301-CK10",
+     "PDX-3473-YF99",
+     "WKW-6311-UR66"
+    ]
+   }
+  },
+  "rocm724/qwen3.6:35b-a3b-q4_k_m": {
+   "n": 5,
+   "tiers_per_rep": [
+    [
+     4,
+     4,
+     4,
+     2,
+     2
+    ],
+    [
+     4,
+     4,
+     4,
+     2,
+     2
+    ],
+    [
+     4,
+     4,
+     4,
+     2,
+     2
+    ],
+    [
+     4,
+     4,
+     4,
+     2,
+     2
+    ],
+    [
+     4,
+     4,
+     4,
+     2,
+     2
+    ]
+   ],
+   "distinct_vectors": [
+    [
+     4,
+     4,
+     4,
+     2,
+     2
+    ]
+   ],
+   "within_arm_variance": "none",
+   "missed": {
+    "9px": [
+     "RNK-0391-DW18",
+     "FFW-8248-UJ83"
+    ],
+    "7px": [
+     "NTR-7871-KK15",
+     "WKW-6311-UR66"
+    ]
+   }
+  }
+ },
+ "verdict": {
+  "qwen3.6_7px": "RECOVERED and stable: 2/2 on all 5 reps, both arms, zero within-arm variance. Back to the 0.32.1 baseline value.",
+  "nemotron3_9px": "NOT recovered, and stable at 3: all 5 reps, both arms, zero variance. The 0.34.1 loss persists on 0.34.2 and on ROCm 10.0.0.",
+  "rocm10_vs_rocm724": "identical on every rep of both cells -- ROCm 10.0.0 changes neither cell.",
+  "reading": "The recovery claim is safe to enter a gate record. The nemotron3 loss is real, reproducible and still outstanding -- it is NOT fixed by 0.34.2 or by ROCm 10."
+ }
+}
