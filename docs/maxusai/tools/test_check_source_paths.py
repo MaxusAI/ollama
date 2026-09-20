@@ -86,6 +86,62 @@ class TestScopedToTheChange(unittest.TestCase):
                                     limit_to=["mlxrunner/touched.go"]), [])
 
 
+class TestBlamesOnlyWhatTheChangeWrote(unittest.TestCase):
+    """File-scoping deadlocked two PRs on 2026-09-20, hours after the guard
+    merged, and the deadlock was exact:
+
+      #351 failed on `expectations.toml:361 -> mlxrunner/model/base/media.go`,
+      an invented path that #352 fixed. #352 failed on stale ADR 0039
+      assertions that #351 fixed. Neither could go green first, so #352 was
+      closed and folded into #351.
+
+    #351 did not write that reference; it inherited it by touching the file.
+    Ten such references sit on main today, in eight files, and each one was a
+    landmine for the next agent to edit that file. A guard that blames a change
+    for what it inherited is a guard people route around.
+    """
+
+    def test_an_inherited_reference_is_not_this_changes_fault(self):
+        t = Tree({"docs/maxusai/a.md": "old line names mlxrunner/gone.go\nnew line\n",
+                  "mlxrunner/real.go": "package mlxrunner\n"})
+        # the change touched the file but wrote only line 2
+        self.assertEqual(
+            guard.scan(t.root, t.tracked, limit_to=["docs/maxusai/a.md"],
+                       lines={"docs/maxusai/a.md": {2}}), [])
+
+    def test_a_reference_the_change_wrote_is_reported(self):
+        t = Tree({"docs/maxusai/a.md": "untouched\nthis line names mlxrunner/gone.go\n",
+                  "mlxrunner/real.go": "package mlxrunner\n"})
+        hits = guard.scan(t.root, t.tracked, limit_to=["docs/maxusai/a.md"],
+                          lines={"docs/maxusai/a.md": {2}})
+        self.assertEqual([(h.line, h.path) for h in hits], [(2, "mlxrunner/gone.go")])
+
+    def test_without_line_data_every_reference_in_scope_is_reported(self):
+        """The full-tree audit mode keeps its old behaviour."""
+        t = Tree({"docs/maxusai/a.md": "mlxrunner/gone.go\nmlxrunner/alsogone.go\n",
+                  "mlxrunner/real.go": "package mlxrunner\n"})
+        self.assertEqual(len(t.scan()), 2)
+
+
+class TestSelfExclusionNamesFilesNotTheDirectory(unittest.TestCase):
+    """docs/maxusai/tools/ is a shared tools directory, not this guard's
+    private one: #354 landed mlx_test_gate.py there the same day. Excluding the
+    whole directory hands every future tool a free pass it never asked for."""
+
+    def test_the_guard_excludes_itself(self):
+        t = Tree({"docs/maxusai/tools/check_source_paths.py":
+                  "# e.g. mlxrunner/model/base/media.go is an invented path\n",
+                  "docs/maxusai/tools/test_check_source_paths.py":
+                  "fixture = 'mlxrunner/gone.go'\n",
+                  "mlxrunner/real.go": "package mlxrunner\n"})
+        self.assertEqual(t.scan(), [])
+
+    def test_a_neighbouring_tool_is_still_checked(self):
+        t = Tree({"docs/maxusai/tools/mlx_test_gate.py": "# see mlxrunner/gone.go\n",
+                  "mlxrunner/real.go": "package mlxrunner\n"})
+        self.assertEqual([h.path for h in t.scan()], ["mlxrunner/gone.go"])
+
+
 class TestDoesNotCryWolf(unittest.TestCase):
     """Each of these produced a false alarm in a real measurement against main:
     99 findings naive, 26 with relative resolution, 10 once other projects were

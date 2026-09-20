@@ -67,7 +67,13 @@ SCANNED_SUFFIXES = (".go", ".py", ".md", ".sh", ".toml")
 # invented path -- and its tests build fixtures out of names like
 # `mlxrunner/gone.go` that are supposed not to exist. Measured: without this it
 # reports 30 findings against its own diff, every one of them a quotation.
-SELF = ("docs/maxusai/tools/",)
+#
+# It names the two files rather than their directory. docs/maxusai/tools/ is a
+# shared tools directory -- mlx_test_gate.py landed there the same day -- and
+# excluding the whole of it would hand every future tool a free pass it never
+# asked for.
+SELF = ("docs/maxusai/tools/check_source_paths.py",
+        "docs/maxusai/tools/test_check_source_paths.py")
 
 HISTORICAL_PREFIXES = (
     "docs/maxusai/adr/",                 # decided then, true then
@@ -87,12 +93,18 @@ def tracked_files(root):
     return out.stdout.split()
 
 
-def scan(root, tracked, limit_to=None):
+def scan(root, tracked, limit_to=None, lines=None):
     """[Finding] for every source-file reference that does not resolve.
 
     `limit_to` restricts REPORTING to those files while still resolving against
     the whole tree -- the diff-scoped mode CI uses. Resolution must see every
     tracked path or a reference to an untouched file would look missing.
+
+    `lines` narrows it again to the lines the change actually WROTE, as
+    {path: {line numbers}}. Without it a change is blamed for references it
+    merely inherited by touching a file, which deadlocked two pull requests on
+    2026-09-20: each failed on a defect the other fixed, and neither could go
+    green first. A change answers for what it wrote.
     """
     tracked = list(tracked)
     known = set(tracked)
@@ -124,6 +136,8 @@ def scan(root, tracked, limit_to=None):
         for number, line in enumerate(text.splitlines(), 1):
             if "golang.org/" in line or "github.com/" in line:
                 continue
+            if lines is not None and number not in lines.get(rel, ()):
+                continue
             for match in REFERENCE.finditer(line):
                 path = match.group(1)
                 if path.split("/")[0] not in owned:
@@ -143,6 +157,39 @@ def changed_files(root, base):
     return [p for p in out.stdout.split() if p]
 
 
+HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+
+def changed_lines(root, base):
+    """{path: {line numbers this change wrote}}, from `git diff -U0`.
+
+    Zero context lines, so every line in a hunk is one the change wrote. A
+    deletion-only hunk has length 0 and contributes nothing -- correct: you
+    cannot introduce a bad reference by removing a line.
+
+    `--no-renames` is load-bearing. A rename shows as an unchanged file at a new
+    path, so its content never enters the diff -- and a directory rename is
+    exactly when references to the old name go stale. Measured on the v0.34.2
+    fold: with rename detection it catches 6 of the references it left, without
+    it 21, and the ones it recovers are precisely the `x/models/...` comments
+    carried across the `x/mlxrunner` move.
+    """
+    out = subprocess.run(["git", "-C", root, "diff", "-U0", "--no-renames", base, "HEAD"],
+                         capture_output=True, text=True, check=True)
+    wrote, current = {}, None
+    for line in out.stdout.splitlines():
+        if line.startswith("+++ b/"):
+            current = line[6:]
+            wrote.setdefault(current, set())
+        elif line.startswith("@@") and current:
+            m = HUNK.match(line)
+            if m:
+                start = int(m.group(1))
+                count = int(m.group(2)) if m.group(2) is not None else 1
+                wrote[current].update(range(start, start + count))
+    return wrote
+
+
 def main(argv):
     args = argv[1:]
     base = None
@@ -152,14 +199,16 @@ def main(argv):
         args = args[:i] + args[i + 2:]
     root = args[0] if args else "."
     tracked = tracked_files(root)
-    limit_to = None
+    limit_to = written = None
     if base:
         limit_to = changed_files(root, base)
+        written = changed_lines(root, base)
         if not limit_to:
             print("source paths: this change touches no tracked file")
             return 0
-        print(f"source paths: checking {len(limit_to)} changed file(s) against {base}")
-    findings = scan(root, tracked, limit_to=limit_to)
+        print(f"source paths: checking the lines {len(limit_to)} changed file(s) "
+              f"wrote against {base}")
+    findings = scan(root, tracked, limit_to=limit_to, lines=written)
     if not findings:
         print("source paths: every referenced file resolves")
         return 0
