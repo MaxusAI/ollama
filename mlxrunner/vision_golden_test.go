@@ -60,7 +60,13 @@ func TestVisionGoldenParity(t *testing.T) {
 	if modelName == "" {
 		modelName = "gemma4:12b-nvfp4"
 	}
-	size := strings.TrimSuffix(strings.TrimPrefix(modelName, "gemma4:"), "-nvfp4")
+	// The goldens describe an ARTIFACT, not a tag. `gemma4:31b-nvfp4` was re-published
+	// upstream with a bf16 vision tower (ADR 0038) and production's copy was promoted to
+	// it on 2026-09-19, so that tag no longer serves the weights these goldens were taken
+	// from; against it this test reads max delta 0.7891 and fails, correctly. The 4-bit
+	// tower artifact is kept as `gemma4:31b-nvfp4-tower4bit` (manifest 637cc0ff1570), and
+	// its archive suffix maps to the same goldens.
+	size := strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(modelName, "gemma4:"), "-tower4bit"), "-nvfp4")
 	goldenPath := fmt.Sprintf("testdata/vision_goldens_%s.json", size)
 	goldenData, err := os.ReadFile(goldenPath)
 	if err != nil {

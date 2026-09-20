@@ -175,6 +175,42 @@ agree exactly and the difference belongs to the older baseline, not to this fold
 
 Renders: `preflight-runs/{sync0342a_,sync0342b_,depl0342_,candrep0342_,deplrep0342_}thinkfalse.log`.
 
+## ADR 0039, implemented and verified on the GPU (2026-09-20)
+
+Glenn's word, "ADR 0039 first, then tag and deploy", so it lands inside this fold, where the
+files it touches had just moved.
+
+Global scales are stored as the checkpoint's own `m`; MLX's `m × Nvfp4MaxProduct` form is
+built only where MLX consumes it (`GatherQMM`'s native branch and `QQMM`, via
+`mlx.ToMLXRepresentation`). `ToMLXGlobalScale` is renamed `LoadGlobalScale`, and the identity
+scale is 1 rather than `Nvfp4MaxProduct` — in `GatherQMMIdentityScale` and in dflash's
+per-row fill.
+
+**`TestVisionGoldenParity` on the CUDA payload, the measurement the unit tests cannot make:**
+
+| model | before (the fold, pre-0039) | with ADR 0039 | pre-fold 0.33.2 (#312) |
+|---|---|---|---|
+| 12b (control) | 0.0625 | **0.0625** | 0.0625 |
+| 31b, 4-bit tower | 0.1094 | **0.0898** | 0.0898 |
+
+31b reads mean −0.00621, std 1.3243, norm_mean 96.999, max sampled delta 0.0898 — the
+pre-fold line in every digit. The encoder is back to bit-parity with `mlx-vlm` and with the
+build the goldens were taken from. 12b does not move, which is the control: its two vision
+scales survived the old round trip intact.
+
+**The goldens describe an artifact, not a tag.** Run against `gemma4:31b-nvfp4` this test now
+fails at max delta 0.7891 — correctly, because production's copy of that tag was promoted to
+the library's bf16-tower weights on 2026-09-19 (ADR 0038) and the goldens were taken from the
+4-bit tower. The archived `gemma4:31b-nvfp4-tower4bit` (manifest `637cc0ff1570`) is that
+artifact, and the test's golden lookup now accepts its suffix. Anyone re-taking these goldens
+must say which artifact they used.
+
+**One defect of ours, found by this run and fixed:** the promotion on 2026-09-19 installed the
+`31b-nvfp4` manifest and three blobs at mode 0640 while every neighbour in the store is 0644.
+Production runs as root and never noticed; an unprivileged reader — this test in its container
+— could not open the model at all. Both are 0644 now. The 42 files still at 0600 are ollama's
+own `models/metadata`, written that way by the server before this work.
+
 ## Next
 
 Glenn's calls: the release tag and the deploy, and whether
