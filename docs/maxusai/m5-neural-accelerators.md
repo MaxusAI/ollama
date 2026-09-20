@@ -81,6 +81,44 @@ strings (`testing tensor API for f16 support`, `tensor API disabled for pre-M5`,
 `the tensor API is not supported in this environment`) and the gate should emit one
 of them, but no arm logs any. The measurement does not depend on the logs.
 
+### A third way to lose it, and it is ours
+
+ggml's four-step gate is not the only thing that can turn the path off. This fork
+also does, per server process, in `discover/runner.go`: when GPU discovery fails
+with a Metal initialisation error that `llm.ShouldRetryWithMetalTensorDisabled`
+recognises — including, pointedly, `"input types must match cooperative tensor
+types"` — it retries discovery with `GGML_METAL_TENSOR_DISABLE=1`, and
+`recordPersistentRunnerEnv` then pins that variable on **every runner the process
+spawns afterwards**.
+
+The observable trace is a single `WARN` at startup:
+
+```
+msg="retrying llama-server GPU discovery with Metal tensor API disabled"
+```
+
+and then half the prefill for the life of the server. It has never fired on this
+host — 0 occurrences in 25 MB of `serve.err.log` spanning 69 restarts — which is
+precisely why it is worth a check: a fallback that never happens is invisible
+until the day it does, and nothing else about the server would look wrong.
+
+A fourth route is simpler still and leaves no trace at all: `GGML_METAL_TENSOR_DISABLE`
+in the *server's* environment. ggml's gate honours it silently, and a probe run from
+the operator's shell would not see it — so the host check reads the two variables from
+the listening process (`ps -wwE`) and runs `nax_probe` under those, rather than under
+the shell's. It cuts both ways: an operator who exports the variable to test something
+would otherwise have every later preflight report a healthy server as degraded.
+
+macOS shows a process's environment only for ordinary binaries: `ps -wwE` on `/bin/sleep`
+prints none, because it is a platform binary (`codesign -dv` says so), while an ollama
+server — ad-hoc signed — prints all of it. Where it cannot be read the check clears both
+variables rather than falling back on the operator's shell, and says so in its summary.
+
+`preflight.py` now asserts all three halves — host, payload, and this — as
+`metal_tensor_host`, `metal_tensor_payload` and `metal_tensor_runtime`, gated on a
+profile's `expect_metal_tensor_api`, and `release_matrix.py` renders them as one
+**M5 tensor path** column, reported at its weakest check.
+
 ## 3. MLX: affine int4 is ~11% faster than nvfp4 at the prefill chunk
 
 `qqmm` grew `affine64` / `affine128` methods for this comparison, so the affine arms
@@ -163,10 +201,10 @@ confirmed**, and nothing here should be read as having confirmed it.
 
 ## Follow-ups
 
-1. **Guard the GGUF tensor path — `vision-suite/preflight/nax_probe.m`, written for
-   this.** It replicates the gate's own decision (family, `DISABLE`, name allowlist,
-   dummy-kernel compile) in ~100 ms cold and ~2 ms warm, without loading a model, and
-   exits 0/1. On this host:
+1. **Guard the GGUF tensor path — done.** `vision-suite/preflight/nax_probe.m`
+   replicates the gate's own decision (family, `DISABLE`, name allowlist,
+   dummy-kernel compile) in ~100 ms cold and ~2 ms warm, without loading a model,
+   and exits 0/1. On this host:
 
    ```
    {"device":"Apple M5 Max","supports_metal4_family":true,"name_allowlisted":true,
@@ -182,10 +220,15 @@ confirmed**, and nothing here should be read as having confirmed it.
    false alarm against a perfectly healthy host. The file carries the one-liner that
    re-extracts it from the pinned llama.cpp.
 
-   Still to do: wire it into `preflight.py` as a check, with an expectations field so
-   a host that *should* accelerate and doesn't fails the gate rather than merely
-   printing. Pair it with a `strings` assertion that the built `llama-server` carries
-   `GGML_METAL_HAS_TENSOR`, so the build half is covered too.
+   It is now a gate rather than a tool: three checks in `preflight.py`
+   (`metal_tensor_host`, `metal_tensor_payload`, `metal_tensor_runtime`), gated on
+   `expect_metal_tensor_api`, which `mlx-metal-0-34-0` sets to `true` and no older
+   profile sets at all — their llama.cpp predates `b10864` and has no tensor kernels
+   to enable, so claiming it there would assert something never measured. The
+   payload half is the `strings` assertion this entry asked for: the built
+   `llama-server` carries 28 `GGML_METAL_HAS_TENSOR` strings, and it inspects only a
+   binary on the harness's own host, naming the path and how it found it.
+
 2. **Ask upstream about NAX for `group_size < 64`.** That single change would move the
    whole nvfp4 fleet; ml-explore/mlx#4202 is the thread.
 3. **An ~11% prefill gain is probably not worth a requantisation on its own**, and it

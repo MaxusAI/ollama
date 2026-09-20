@@ -8,9 +8,13 @@ import subprocess
 import sys
 import time
 
-from probes import (ProbeError, container_logs, grep_binary_marker, mlx_build_payload,
+from probes import (ProbeError, TENSOR_ENV_VARS, TENSOR_MARKER,
+                    binary_marker_count,
+                    container_logs, grep_binary_marker, lib_ollama_llama_server,
+                    launched_runner_paths, local_listener_exe,
+                    metal_tensor_discovery, mlx_build_payload, server_env,
                     ladder_image_b64, llama_cpp_build, mlx_build,
-                    mlx_describe_commit, parse_load_segments,
+                    mlx_describe_commit, nax_probe, parse_load_segments,
                     parse_pixel_lines, poison_image_b64)
 
 PASS, FAIL, SKIP, NEEDS_BASELINE, ERROR, CONTENTION = (
@@ -163,6 +167,285 @@ def check_patch_marker(profile, container, exec_cmd=None):
     return result("go_patch_marker", PASS,
                   f"--image-max-tokens present in binary ({actual})",
                   expected=expected, actual=actual)
+
+
+# --------------------------------------------------------------------------
+# 2c. The Metal tensor API — the M5 Neural Accelerators
+# --------------------------------------------------------------------------
+# Three checks and not one, because there are three independent ways to lose a
+# 2.14x prefill (docs/maxusai/m5-neural-accelerators.md, 275.2 vs 128.6 tok/s on
+# an M5 Max) and each is silent on its own:
+#
+#   host     ggml compiles a dummy mpp::tensor_ops::matmul2d at runtime and
+#            disables the path if it fails. A toolchain or OS regression is
+#            invisible; nax_probe.m asks the same four questions in ~100 ms.
+#   payload  a llama.cpp older than b10864, or one built without the Metal 4
+#            source, ships no tensor kernels at all.
+#   runtime  this fork turns the path off for every runner of a server process
+#            when GPU discovery hits a Metal init error (discover/runner.go
+#            recordPersistentRunnerEnv). One WARN at startup, then half the
+#            prefill for the life of the process.
+#
+# All three are gated on `expect_metal_tensor_api` and skip loudly when it is
+# absent — a profile that has not declared what it was measured with is not
+# silently passed. They read one other field, `platform`, and only to tell the
+# two silences apart: a cuda profile has no Metal tensor API to lose, and
+# telling its operator to add the field would be wrong advice.
+
+LOCAL_HOSTNAMES = {"127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"}
+TENSOR_UNDECLARED = (
+    "Add expect_metal_tensor_api to this profile so a host or payload that "
+    "loses the M5 Neural Accelerators fails loudly instead of quietly serving "
+    "at half the prefill. See docs/maxusai/m5-neural-accelerators.md.")
+
+
+def local_port(host):
+    """The port, when `host` names THIS machine; None otherwise.
+
+    Deliberately not preflight.py's `rsplit(":", 1)[-1].split("/")[0]`, which
+    only wants a port and does not care whose: this also has to reject a host
+    that is not us, so it keeps the hostname. The two disagree on a URL carrying
+    a path — preflight reads 11437 from http://127.0.0.1:11437/api, this reads
+    nothing — and a skip is the right answer to a --host the rest of the harness
+    would also mis-parse."""
+    hostname, sep, port = (host or "").rstrip("/").rsplit("/", 1)[-1].rpartition(":")
+    if not sep or not port.isdigit():
+        return None
+    return port if hostname in LOCAL_HOSTNAMES else None
+
+
+# The platforms that can have a Metal tensor API at all. Everywhere else the
+# three checks are not a coverage gap to be closed but a question that does not
+# arise, and the phrase is load-bearing: release_matrix.effective() reads "does
+# not apply" as N/A, which is neutral in a column instead of dragging it down.
+# The profile's own `platform` field, not a --platform argument: preflight.py's
+# PLATFORM_ALIASES rewrites the deprecated apple-silicon* spellings before any
+# profile resolves, so a profile dict can only ever carry these two.
+METAL_PLATFORMS = {"metal", "mlx-metal"}
+
+
+def _tensor_local_ollama(name, host, container, expected):
+    """(port, exe, skip). The three checks that touch this machine share one
+    precondition: the thing listening on `host` is a NATIVE, LOCAL ollama.
+
+    The ssh case is why the executable is checked and not just the address:
+    `ssh -L 11437:localhost:11437 remote` makes a remote server answer on
+    127.0.0.1, and both routes would then describe this laptop — nax_probe its
+    GPU, lib_ollama_llama_server ssh's own directory."""
+    port = local_port(host)
+    if container or not port:
+        return None, None, result(
+            name, SKIP, f"{host} is not a native server on this machine",
+            expected=expected,
+            diagnosis="nax_probe measures the machine the harness runs on, and "
+                      "the payload and environment are read from the process "
+                      "listening on that port. For a remote or containerised "
+                      "server all three would describe something else.")
+    exe = local_listener_exe(port)
+    if exe and "ollama" not in os.path.basename(exe):
+        return port, exe, result(
+            name, SKIP, f"the process listening on :{port} is {exe}, not ollama",
+            expected=expected,
+            diagnosis="A forwarded port (ssh -L) answers on 127.0.0.1 while the "
+                      "server is elsewhere. Measuring this machine would answer "
+                      "about the wrong one.")
+    return port, exe, None
+
+
+def _tensor_undeclared(name, profile):
+    """SKIP for a profile with no expectation — but the two reasons are not the
+    same, and telling a cuda operator to add a Metal field would be wrong."""
+    if profile.get("expect_metal_tensor_api") is not None:
+        return None
+    platform = profile.get("platform")
+    if platform not in METAL_PLATFORMS:
+        return result(name, SKIP, f"does not apply on {platform or 'this platform'}")
+    return result(name, SKIP, "profile records no expect_metal_tensor_api",
+                  diagnosis=TENSOR_UNDECLARED)
+
+
+def check_metal_tensor_host(profile, host, container=None):
+    """Will THIS SERVER use the accelerators?
+
+    Two things decide it and they live in different places, so both are read
+    here: the machine's own answer, which nax_probe measures, and the two
+    GGML_METAL_TENSOR_* variables, which are read off the SERVING PROCESS and
+    handed to the probe — a server started with DISABLE=1 is not accelerated
+    however capable the machine is, and says so nowhere else.
+
+    nax_probe runs where the HARNESS runs, so this is only answerable for a
+    native server on this machine; against a remote or containerised one it
+    would be a confident statement about the wrong GPU. A probe that cannot be
+    BUILT is a gap in the harness and skips — failing there teaches the operator
+    to ignore the check.
+    """
+    expected = profile.get("expect_metal_tensor_api")
+    undeclared = _tensor_undeclared("metal_tensor_host", profile)
+    if undeclared:
+        return undeclared
+    port, _exe, skip = _tensor_local_ollama("metal_tensor_host", host, container,
+                                            expected)
+    if skip:
+        return skip
+    if sys.platform != "darwin":
+        return result("metal_tensor_host", SKIP,
+                      f"{sys.platform} has no Metal tensor API", expected=expected)
+    # nax_probe reads GGML_METAL_TENSOR_* from its own environment, and the
+    # question is what the SERVER will do — so it is run under the server's two
+    # variables, not the operator's. A variable the server does not have is
+    # deleted rather than inherited, or an export in the operator's shell would
+    # report every server on the box as degraded.
+    # An unreadable environment is NOT a reason to fall back on the operator's:
+    # the m5 doc's own A/B has them export GGML_METAL_TENSOR_DISABLE=1, and
+    # inheriting it would fail a healthy host from that shell. Both variables
+    # are cleared instead, so the answer is about the machine and says so.
+    env = server_env(port)
+    overlay = {v: (env or {}).get(v) for v in TENSOR_ENV_VARS}
+    whose = ("the server's environment" if env is not None
+             else "no tensor variables (the server's environment could not be read)")
+    try:
+        probe = nax_probe(env=overlay)
+    except ProbeError as exc:
+        return result("metal_tensor_host", SKIP, f"probe not runnable: {exc}",
+                      expected=expected,
+                      diagnosis="This is a harness gap, not a verdict about the "
+                                "host: nothing was measured. Install the command "
+                                "line tools and re-run.")
+    actual = bool(probe.get("has_tensor"))
+    steps = ", ".join(f"{k}={str(probe.get(k)).lower()}" for k in
+                      ("supports_metal4_family", "name_allowlisted",
+                       "dummy_kernel_compiles"))
+    if actual != expected:
+        why = probe.get("error", "")
+        return result(
+            "metal_tensor_host", FAIL,
+            f"host tensor-API state is not the one this profile was measured "
+            f"on ({probe.get('device')}, under {whose})",
+            expected=expected, actual=actual, probe=probe,
+            diagnosis=(f"{steps}. {why}\n"
+                       "       The four steps are ggml's own, in order: Metal4 "
+                       "family, GGML_METAL_TENSOR_DISABLE, the M5/M6/A19/A20 name "
+                       "allowlist, then a runtime compile of its dummy matmul2d. "
+                       "The first one that reads false is the cause.\n"
+                       "       Losing the path costs 2.14x prefill on the GGUF "
+                       "arm and nothing else turns red. Gaining it is equally a "
+                       "mismatch: re-measure and update the profile deliberately."))
+    return result("metal_tensor_host", PASS,
+                  f"{probe.get('device')} has_tensor={str(actual).lower()} "
+                  f"({steps}), under {whose}",
+                  expected=expected, actual=actual, probe=probe)
+
+
+def check_metal_tensor_payload(profile, host, container, since, log_cmd=None):
+    """Does the llama-server this server runs carry the tensor kernels?
+
+    Two routes to the binary, in this order, because naming the WRONG binary is
+    the failure that matters: a PASS about a llama-server nothing is running is
+    worse than no answer. First the path the server itself printed when it
+    spawned a runner during this run — that one cannot be wrong. Failing that
+    (mlx-metal-0-34-0's four models are all nvfp4 or mlx-bf16, so a run can
+    finish without ever spawning llama-server) the payload the listening
+    executable resolves to, by ollama's own rule.
+    """
+    expected = profile.get("expect_metal_tensor_api")
+    undeclared = _tensor_undeclared("metal_tensor_payload", profile)
+    if undeclared:
+        return undeclared
+    # `strings` runs on the HARNESS host, so a path the server printed from
+    # inside a container either does not exist here or, worse, exists and
+    # belongs to something else. README.md's "the payload proof never inspects
+    # the binary" is about exactly this, and the images carry no `strings`.
+    port, exe, skip = _tensor_local_ollama("metal_tensor_payload", host, container,
+                                           expected)
+    if skip:
+        return skip
+    launched = launched_runner_paths(container, since, log_cmd) if log_cmd else []
+    if launched:
+        path, route = launched[-1], "launched by this run"
+    else:
+        path = lib_ollama_llama_server(exe)
+        route = f"resolved from the executable listening on :{port}"
+    if not path:
+        return result("metal_tensor_payload", SKIP,
+                      "no llama-server to inspect", expected=expected,
+                      diagnosis="This run spawned no runner and the server's own "
+                                "payload could not be resolved (remote host, or "
+                                "no lib/ollama beside the executable). The build "
+                                "half of the tensor gate did not run.")
+    try:
+        count = binary_marker_count(path, TENSOR_MARKER)
+    except ProbeError as exc:
+        return result("metal_tensor_payload", ERROR, str(exc), expected=expected)
+    actual = count > 0
+    if actual != expected:
+        return result(
+            "metal_tensor_payload", FAIL,
+            f"{path} carries {count} {TENSOR_MARKER} strings ({route})",
+            expected=expected, actual=count,
+            diagnosis=("0 means this payload has no Metal tensor kernels to "
+                       "enable: a llama.cpp older than b10864, or one built "
+                       "without the Metal 4 source."
+                       if expected else
+                       "This profile was measured on a payload with no tensor "
+                       "kernels and this one has them — a llama.cpp move. "
+                       "Re-measure and update the profile deliberately.")
+                      + " The host probe cannot see this either way: it asks "
+                        "whether the MACHINE would use them.")
+    return result("metal_tensor_payload", PASS,
+                  f"{count} {TENSOR_MARKER} strings in {path} ({route})",
+                  expected=expected, actual=count, path=path)
+
+
+def check_metal_tensor_runtime(profile, host, container, log_cmd=None):
+    """Did THIS server process give up on the accelerators at startup?
+
+    The one of the three that varies per boot, and the only one caused by our
+    own code: a Metal init error during GPU discovery makes discover/runner.go
+    retry with GGML_METAL_TENSOR_DISABLE=1 and then pin that on every runner the
+    process spawns. It is one WARN line, on a path that otherwise succeeds.
+
+    Bounded by the last "Listening on" line rather than by preflight's window:
+    discovery runs immediately after it, so a `since` from the harness would
+    open after the decision was already made.
+    """
+    expected = profile.get("expect_metal_tensor_api")
+    undeclared = _tensor_undeclared("metal_tensor_runtime", profile)
+    if undeclared:
+        return undeclared
+    if not container and not log_cmd:
+        return result("metal_tensor_runtime", SKIP,
+                      "no container and no --log-cmd; cannot read the startup "
+                      "log", expected=expected,
+                      diagnosis="Pass --log-cmd 'cat <serve log>' on a native "
+                                "run. Same requirement as mlx_payload_pin.")
+    port = (host or "").rstrip("/").rsplit("/", 1)[-1].rpartition(":")[2]
+    try:
+        seen = metal_tensor_discovery(container, port, log_cmd)
+    except Exception as exc:
+        return result("metal_tensor_runtime", ERROR, f"could not read logs: {exc}",
+                      expected=expected)
+    if not seen["anchored"]:
+        found = ", ".join(seen.get("ports") or []) or "none"
+        return result("metal_tensor_runtime", SKIP,
+                      f"no server-start line for :{port} in this log "
+                      f"(ports found: {found})", expected=expected,
+                      diagnosis="Without an anchor for the server under test, a "
+                                "fallback line could belong to any restart of "
+                                "any of the servers sharing this host. Point "
+                                "--log-cmd at this server's own log.")
+    if seen["fallback"]:
+        return result(
+            "metal_tensor_runtime", FAIL,
+            "this server disabled the Metal tensor API for every runner it spawns",
+            expected="no discovery fallback", actual=seen["fallback"],
+            diagnosis="discover/runner.go retried GPU discovery with "
+                      "GGML_METAL_TENSOR_DISABLE=1 and recordPersistentRunnerEnv "
+                      "made that stick for the process. Every GGUF load until "
+                      "this server restarts runs at roughly half the prefill. "
+                      "The `detail=` above is the Metal error that triggered it.")
+    return result("metal_tensor_runtime", PASS,
+                  "no tensor-API fallback since this server started",
+                  expected="no discovery fallback", actual="clean discovery")
 
 
 # --------------------------------------------------------------------------

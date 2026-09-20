@@ -27,6 +27,14 @@ SURFACES = ["cuda", "mlx-cuda", "mlx-metal", "apple-silicon-mlx", "rocm", "cpu"]
 GROUPS = [
     ("Build identity", {"version", "image_tag", "payload_pin", "go_patch_marker",
                         "payload_proof"}),
+    # The M5 Neural Accelerators, worth 2.14x prefill on the GGUF path. Three
+    # checks because there are three independent ways to lose them -- host,
+    # payload, and this server process's own discovery -- and the column is
+    # reported at its weakest, so any one of them going red shows here. On a
+    # surface with no Metal tensor API all three skip as "does not apply",
+    # which effective() maps to the neutral N/A.
+    ("M5 tensor path", {"metal_tensor_host", "metal_tensor_payload",
+                        "metal_tensor_runtime"}),
     ("Image size ladder", {"token_ladder"}),
     # Both names: runs recorded before the rename carry "pinned_budget", and a
     # matrix that silently stopped seeing this check would read as green.
