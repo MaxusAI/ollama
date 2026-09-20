@@ -512,7 +512,7 @@ jobs:
           - arch: amd64
             target: mlx
           - arch: amd64
-            target: llama-server-rocm_v7_2
+            target: llama-server-rocm_v10_0
           - arch: amd64
             target: llama-server-vulkan
           - arch: arm64
@@ -619,7 +619,7 @@ jobs:
               type=registry,ref=ollama/release:cache-amd64-llama-server-cuda_v12
               type=registry,ref=ollama/release:cache-amd64-llama-server-cuda_v13
               type=registry,ref=ollama/release:cache-amd64-mlx
-              type=registry,ref=ollama/release:cache-amd64-llama-server-rocm_v7_2
+              type=registry,ref=ollama/release:cache-amd64-llama-server-rocm_v10_0
               type=registry,ref=ollama/release:cache-amd64-llama-server-vulkan
               type=registry,ref=${{ vars.DOCKER_REPO }}:latest
           - os: linux
@@ -637,7 +637,7 @@ jobs:
               OLLAMA_MLX_NVCC_THREADS=6
             cache-from: |
               type=registry,ref=ollama/release:cache-amd64-llama-server-cpu
-              type=registry,ref=ollama/release:cache-amd64-llama-server-rocm_v7_2
+              type=registry,ref=ollama/release:cache-amd64-llama-server-rocm_v10_0
               type=registry,ref=${{ vars.DOCKER_REPO }}:latest
     runs-on: ${{ matrix.arch == 'arm64' && format('{0}-{1}', matrix.os, matrix.arch) || matrix.os }}
     environment: release

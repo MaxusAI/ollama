@@ -52,22 +52,22 @@ The gfx1151 host runs the same `ggml-cuda` sources: `ggml/src/ggml-hip/CMakeList
 ROCm payload with no source changes. One patch file serves both platforms.
 
 **The fan-out is larger than CUDA's**: `llama/server/CMakePresets.json:216` lists **13**
-`AMDGPU_TARGETS`. The repo already ships the escape hatch — `rocm_v7_2_user_arch`
+`AMDGPU_TARGETS`. The repo already ships the escape hatch — `rocm_v10_0_user_arch`
 (`CMakePresets.json:220-223`) is byte-identical to the shipping preset except it carries no
 target list, and keeps the same `binaryDir` and `OLLAMA_RUNNER_DIR`:
 
 ```
---preset rocm_v7_2_user_arch -DAMDGPU_TARGETS=gfx1151
+--preset rocm_v10_0_user_arch -DAMDGPU_TARGETS=gfx1151
 ```
 
 Also add `--target ggml-hip`; the repo declares a build preset with exactly that target
 (`CMakePresets.json:321-325`) which the Dockerfile never uses.
 
-**Never use `rocm_v7_2_user_arch` without `-DAMDGPU_TARGETS`.** With no list, ROCm enumerates
+**Never use `rocm_v10_0_user_arch` without `-DAMDGPU_TARGETS`.** With no list, ROCm enumerates
 the *build host's* AMD GPUs — and a build container has none.
 
 **Good news:** the `filterOverlapByLibrary` trap cannot fire on the ROCm image. `FLAVOR=rocm`
-ships exactly one GPU libdir (`Dockerfile:278-280`, cpu + `rocm_v7_2`), so there is nothing to
+ships exactly one GPU libdir (`Dockerfile:278-280`, cpu + `rocm_v10_0`), so there is nothing to
 fall back to. Nor will `filterUnsupportedROCmDevices` catch a mis-targeted build: its oracle
 is the bundled rocBLAS Tensile `.dat` set, copied wholesale from the SDK and unaffected by
 `AMDGPU_TARGETS`.
@@ -76,7 +76,7 @@ is the bundled rocBLAS Tensile `.dat` set, copied wholesale from the SDK and una
 `libllama`, `libmtmd` and `libggml-cpu` from the **separate `llama-server-cpu` stage**; the
 ROCm stage contributes only `libggml-hip.so` (`Dockerfile:278-280`). So:
 
-- a `ggml-cuda/*.cu` kernel patch → rebuild `publish-llama-server-rocm_v7_2`
+- a `ggml-cuda/*.cu` kernel patch → rebuild `publish-llama-server-rocm_v10_0`
 - a compat patch touching `src/` or `tools/mtmd/` (001, 002, 004, 005) → rebuild
   `publish-llama-server-cpu` instead
 
