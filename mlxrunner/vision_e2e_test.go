@@ -13,8 +13,8 @@ import (
 
 	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/llm"
-	"github.com/ollama/ollama/mlx/mlxthread"
 	"github.com/ollama/ollama/mlx"
+	"github.com/ollama/ollama/mlx/mlxthread"
 	"github.com/ollama/ollama/mlxrunner/model"
 	sample "github.com/ollama/ollama/mlxrunner/sample"
 )

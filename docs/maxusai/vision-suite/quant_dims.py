@@ -25,7 +25,7 @@ import sys
 
 TENSOR_MEDIA_TYPE = "application/vnd.ollama.image.tensor"
 
-# Values packed per uint32 and the default group size, by quant type (x/quant/quant.go's table).
+# Values packed per uint32 and the default group size, by quant type (mlx/quant/quant.go's table).
 QUANT_PARAMS = {
     "nvfp4": (8, 16),
     "mxfp4": (8, 32),

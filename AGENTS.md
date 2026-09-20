@@ -81,10 +81,10 @@ inside the subtest. Never cache a stream anywhere that outlives its thread.
 
 There are two independent MLX bindings, and they enforce this differently:
 
-- `x/mlxrunner/mlx` — every caller runs on the package's pinned worker:
-  `mlxthread.Start` (`x/internal/mlxthread`) locks its goroutine to an OS thread
+- `mlx` — every caller runs on the package's pinned worker:
+  `mlxthread.Start` (`mlx/mlxthread`) locks its goroutine to an OS thread
   and never unlocks, and tests reach it through `mlxtest.Run` / `RunSubtest`
-  (`x/internal/mlxtest`, on `x/internal/mlxthreadtest`). Never drive this
+  (`mlx/mlxtest`, on `x/internal/mlxthreadtest`). Never drive this
   binding from an unpinned goroutine — the Go-side stream cache is a plain
   package global and a second thread would inherit a stream it cannot evaluate
   on. (`mlx.ClaimOSThread` is gone as of the v0.33.3 fold; the guarantee it
