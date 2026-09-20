@@ -181,6 +181,46 @@ Do not read the gate as "ROCm is a pre-002 payload". It was that at
 no longer what is deployed.
 """
 
+
+[profiles.rocm-0-34-1-dynres]
+platform = "rocm"
+version_pattern = '^0\.34\.1-dynres-[0-9a-f]{7,40}$'
+patchset = ["001", "002", "004", "005", "801", "903", "906"]
+reference_image = "0.34.1-dynres-16649e8c"
+# b10864. The pin matters more here than on any other row: b10864 is
+# `5d806aa25`, which MISSES upstream's HIP `prop.integrated` revert by 78
+# minutes, and this profile is only valid for a build that carries compat 906
+# to put it back. Without the pin the profile would SKIP payload_pin and a
+# later llama.cpp bump would silently inherit these ladders -- the b10091 ->
+# b10353 trap, with a worse failure mode, because a 906-less b10864 produces
+# correct token counts and wrong pixels.
+llama_cpp_build = "5d806aa25"
+expect_patch_marker = 1
+arches = ["nemotron_h_omni", "gemma4", "qwen35"]
+notes = """
+gfx1151 (Ryzen AI Max+ 395 / Radeon 8060S), served from `main`. Promoted
+2026-09-19 when the AMD upgrade gate lifted (amd-upgrade-gate.md, the
+2026-09-19 decision); this host had been pinned to 0.32.1 / b9888 since
+2026-07-31 and is now on the same commit as the CUDA and Apple hosts.
+
+WHAT 906 IS DOING HERE. llama/compat/906-revert-hip-integrated-flag.patch
+carries upstream's own four-line revert of `info.devices[id].integrated =
+prop.integrated` on HIP. Without it, b10864 on gfx1151 hits an MMQ
+tile-barrier race once a decode exceeds n_ubatch and returns silently wrong
+output: no crash, no warning, and -- the part that matters for a preflight --
+**unchanged prompt_eval_count**. Every ladder and budget in this profile
+would still pass on a 906-less build while vision quality collapsed (scene
+IoU 0.065 on qwen3.8). The ladders here are necessary and not sufficient;
+the vision probes are what catch it.
+
+WHY THE LADDERS ARE IDENTICAL TO rocm-0-32-1-dynres. They were re-measured on
+this build, not copied: all three arch ladders, all three budget sets and both
+pinned arms reproduce b9888's values exactly. That is the expected result --
+004/005 own the image-token pipeline and the payload bump did not touch it --
+and it is also the independent confirmation that the 2026-09 vision regression
+was never an image-path change, which is what the token counts said all along.
+"""
+
 [profiles.cpu]
 platform = "cpu"
 version_pattern = '^0\.32\.5-dynres-[0-9a-f]{7,40}$'
@@ -840,6 +880,141 @@ require_valid_json = true
 require_nonempty_thinking = true
 
 # ----------------------------------------------------------- Apple Silicon ---
+
+
+# ---------------------------------------------------------------------------
+# rocm-0-34-1-dynres -- measured 2026-09-20 on 0.34.1-dynres-16649e8c.
+# Ladders from measure_ladder.py, pasted whole (ADR 0012 rule 8). Budgets read
+# from this build's own load_hparams block, not carried over: a matching ladder
+# is what the pipeline produced, a budget is what it was told to aim at, and
+# only one of those is evidence for the other.
+# ---------------------------------------------------------------------------
+
+[expect.rocm-0-34-1-dynres.nemotron_h_omni]
+status = "measured"
+measured_on = "2026-09-20"
+model = "nemotron3:33b-q4_K_M"
+# load_hparams on 0.34.1-dynres-16649e8c:
+#   patch_size: 16   n_merge: 2   -> stride 32
+#   image_min_pixels: 262144 (custom value)
+#   image_max_pixels: 3407872 (custom value)
+patch_stride = 32
+budget_min_tokens = 256
+budget_max_tokens = 3328
+image_min_pixels = 262144        # 256 * 32^2
+image_max_pixels = 3407872       # 3328 * 32^2
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 19, text_only == 20; measured with image_prefix (B8), not text_baseline
+ladder = [266, 266, 578, 2306, 3270]
+
+[expect.rocm-0-34-1-dynres.nemotron_h_omni.pinned]
+# Re-measured on this build: control 2306, pinned 3270, both exact against b9888.
+size = "2048x1152"
+pin_tokens = 3328
+expect_tokens = 3270
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 2306
+control_tolerance = 4
+
+[expect.rocm-0-34-1-dynres.nemotron_h_omni.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.rocm-0-34-1-dynres.gemma4]
+status = "measured"
+measured_on = "2026-09-20"
+model = "gemma4:31b-it-q4_K_M"
+# load_hparams on 0.34.1-dynres-16649e8c:
+#   patch_size: 16   n_merge: 3   -> stride 48
+#   image_min_pixels: 161280 (custom value)
+#   image_max_pixels: 2580480 (custom value)
+patch_stride = 48
+budget_min_tokens = 70           # post-ADR-0008 floor
+budget_max_tokens = 1120         # vendor maximum; ladder rungs 70/140/280/560/1120
+image_min_pixels = 161280        # 70 * 48^2
+image_max_pixels = 2580480       # 1120 * 48^2
+scaling = "flat"
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.rocm-0-34-1-dynres.gemma4.pinned]
+# Pinned BELOW the ceiling deliberately, and the reasoning carries over from
+# rocm-0-32-1-dynres unchanged: 004 budget-fills every image to the budget max,
+# so pinning gemma4 at its own 1120 ceiling delivers 1102 -- exactly what the
+# unpinned control delivers. That assertion would pass even if pinning were
+# completely broken. 560 is a supported ladder rung and far from the control,
+# so the two arms disagree when the pin works and agree when it does not.
+#
+# Re-measured on this build: control 1102, pinned 529. Both exact against b9888,
+# so 005's floor-just-under guarantee survives the payload bump.
+size = "2048x1152"
+pin_tokens = 560
+expect_tokens = 529
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 1102
+control_tolerance = 4
+
+[expect.rocm-0-34-1-dynres.gemma4.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.rocm-0-34-1-dynres.qwen35]
+status = "measured"
+measured_on = "2026-09-20"
+model = "qwen3.8:27b-q4_K_M"
+# load_hparams on 0.34.1-dynres-16649e8c:
+#   patch_size: 16   n_merge: 2   -> stride 32
+#   image_min_pixels: 1048576 (custom value)
+#   image_max_pixels: 4194304          <- NOT "(custom value)": llama.cpp's own
+#                                         set_limit_image_tokens(8, 4096) ceiling
+patch_stride = 32                 # patch_size 16 * spatial_merge_size 2
+budget_min_tokens = 1024          # visionServerArgs passes --image-min-tokens 1024
+budget_max_tokens = 4096          # llama.cpp handle_qwen35_like_clip set_limit_image_tokens(8, 4096)
+image_min_pixels = 1048576        # 1024 * 32^2
+image_max_pixels = 4194304        # 4096 * 32^2
+
+custom_bounds = ["min"]           # only the min is ours to set: the fork passes
+                                  # --image-min-tokens and no max, so the ceiling
+                                  # is llama.cpp's structural default and is not
+                                  # marked "(custom value)". Confirmed on this
+                                  # build's own load line:
+                                  #   --image-min-tokens 1024   (no max flag)
+                                  #   image_min_pixels: 1048576 (custom value)
+                                  #   image_max_pixels: 4194304   <- no marker
+                                  # Omitting this is how the first draft of this
+                                  # profile failed payload_proof: the matcher
+                                  # looks for a launch line carrying flags for
+                                  # exactly the declared bounds, found no
+                                  # --image-max-tokens, and attributed zero
+                                  # blocks to the arch.
+
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [1034, 1034, 1034, 2306, 4082]
+
+# Structurally unpinnable, not merely unmeasured -- carried from
+# rocm-0-32-1-dynres because the arch gating in visionServerArgs is unchanged:
+# gemma4 and nemotron_h_omni build their flags from the request options, while
+# the qwen VL family's branch returns a fixed --image-min-tokens and never reads
+# opts. Recording it this way stops the skip reading as "somebody go measure
+# this".
+pinned_not_applicable = """image_min_tokens/image_max_tokens are arch-gated to \
+gemma4 and nemotron_h_omni; qwen35's visionServerArgs branch ignores them."""
+
+[expect.rocm-0-34-1-dynres.qwen35.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
 
 [expect.cpu.nemotron_h_omni]
 status = "unmeasured"
