@@ -7,7 +7,7 @@
 
 ## Context
 
-`x/mlxrunner/pipeline.go` forced `prefillChunk = len(inputs)` for any vision
+`mlxrunner/pipeline.go` forced `prefillChunk = len(inputs)` for any vision
 request, because a bidirectional image block must never straddle a chunk
 boundary. gemma4 then builds a **dense** `L×K` float32 additive mask over
 that chunk (`visionChunkMask`), once per attention window, and both are
@@ -20,7 +20,7 @@ MLX, and the model's `MaxPositionEmbeddings` is 131072. One image plus a
 ~32k-token prompt allocates on the order of gigabytes before a token is
 produced.
 
-Two facts in the model layer constrain any fix: `x/models/gemma4/gemma4.go`
+Two facts in the model layer constrain any fix: `mlxrunner/model/gemma4/gemma4.go`
 gates the bidirectional path on `SeqOffsets[0] == 0` and, in that branch,
 treats the chunk's own k/v as the complete key set; and `visionChunkMask`
 indexes the key axis as **absolute** prompt positions while `K` is only the
@@ -31,7 +31,7 @@ would lose bidirectional attention entirely.
 
 ## Decision
 
-Two changes, both in `x/mlxrunner/pipeline.go`:
+Two changes, both in `mlxrunner/pipeline.go`:
 
 - Media prompts are chunked again, with boundaries snapped clear of any
   block's interior (`prefillChunkLen`). The opening chunk grows to cover

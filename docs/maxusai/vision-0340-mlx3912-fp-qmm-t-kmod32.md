@@ -67,7 +67,7 @@ Tiers are `[22px, 16px, 12px, 9px, 7px]`. Both nvfp4 rows reproduce the
 campaign cells exactly (positive control: `eval=263` think-off, tiers to the
 digit), so the harness measures the same quantity today as during the campaign.
 
-**bf16 is a clean control by construction.** `x/mlxrunner/model/linear.go`
+**bf16 is a clean control by construction.** `mlxrunner/model/linear.go`
 dispatches on the presence of a `.weight_scale` sibling; absent it the factory
 returns `nn.NewLinear`, whose `Forward` is `x.Matmul(w)` — no `QuantizedMatmul`,
 no `fp_qmm_t`, no global scale. `31b-mlx-bf16` carries **zero** `.weight_scale`
@@ -267,7 +267,7 @@ Pooling every greedy run (`temperature 0`, `top_k 1`, think-on, same prompt):
 What this supports:
 
 - **MLX greedy decoding has baseline run-to-run spread on both builds.** The
-  fork's own comment at `x/mlxrunner/speculate.go` already said so — "within the
+  fork's own comment at `mlxrunner/speculate.go` already said so — "within the
   run-to-run spread MLX already has".
 - **Drafting under a grammar amplifies it substantially**: zero identical runs
   out of three with it on, two of three with it off. `draftUnderGrammar` does
@@ -325,7 +325,7 @@ IS NOT POSSIBLE:
 CHECK failed: mlx_stream_thread_local_new_
 SIGSEGV during cgo execution
 mlx._Cfunc_mlx_install_capture_handler()
-mlx.init.1()  at x/mlxrunner/mlx/mlx.go:43
+mlx.init.1()  at mlx/mlx.go:43
 ```
 
 The new Go calls `mlx_install_capture_handler` at package init and `ce916dbb`'s

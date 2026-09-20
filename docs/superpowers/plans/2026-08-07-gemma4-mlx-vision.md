@@ -6,7 +6,7 @@
 
 **Architecture:** Media rides the existing `llm.CompletionRequest.Media` into a new field on the MLX wire struct. `Runner.Prepare` (HTTP goroutine, pure Go) splits `[img-N]` markers, preprocesses each image per ADR 0008 budget-fill (ladder snap → sqrt fill → 48px floor → shave), patchifies, and splices `boi + n×image_token + eoi` ids with recorded spans + prefix-cache salts. The pipeline (MLX thread) encodes each image through the model's vision path, merges features into the token embeddings, and prefills in a single chunk with per-layer-type array masks that make image blocks bidirectional (overriding the sliding window, matching the reference). The gemma4 model implements a new optional `base.VisionModel` interface; `batch.Batch` gains `InputsEmbeds` + `BidiSpans`.
 
-**Tech Stack:** Go; `x/mlxrunner/mlx` cgo MLX bindings; `golang.org/x/image/draw` (CatmullRom ≈ PIL bicubic); quantized weights load transparently via `model.LinearFactory` (nvfp4 single/double-scale confirmed in blobs).
+**Tech Stack:** Go; `mlx` cgo MLX bindings; `golang.org/x/image/draw` (CatmullRom ≈ PIL bicubic); quantized weights load transparently via `model.LinearFactory` (nvfp4 single/double-scale confirmed in blobs).
 
 **Verified model facts (from config/processor blobs and safetensors headers, 2026-08-07):**
 - Tokens (all three): boi=255999, image=258880, eoi=258882. All three text configs: `use_bidirectional_attention: "vision"`, `hidden_size_per_layer_input: 0` (no PLE).
@@ -111,9 +111,9 @@ const Gemma4ImageAlign = gemma4ImageAlign
 ### Task 2: Media on the MLX wire; runner-side rejection replaces the client guard
 
 **Files:**
-- Modify: `x/mlxrunner/client.go` (struct ~line 100, guard ~line 143)
-- Modify: `x/mlxrunner/pipeline.go` (`Prepare`)
-- Rewrite: `x/mlxrunner/client_test.go`
+- Modify: `mlxrunner/client.go` (struct ~line 100, guard ~line 143)
+- Modify: `mlxrunner/pipeline.go` (`Prepare`)
+- Rewrite: `mlxrunner/client_test.go`
 
 - [ ] **Step 2.1: Client test first** — replace `TestCompletionRejectsMedia` with a forwarding test (fake `http.RoundTripper`, pattern from `x/imagegen/server_test.go`):
 
@@ -179,9 +179,9 @@ func TestCompletionForwardsMedia(t *testing.T) {
 
 Check `llm.NewStatusWriter`'s actual signature/name before using (the imagegen test constructs `status` differently); adapt if needed.
 
-- [ ] **Step 2.2:** `go test ./x/mlxrunner/ -run TestCompletionForwardsMedia` → FAIL (no Media field).
-- [ ] **Step 2.3:** In `x/mlxrunner/client.go`: add `Media []llm.MediaData` to `CompletionRequest` (after `Options`); delete the rejection guard block in `Completion`; set `creq.Media = req.Media`. Remove now-unused imports if any (`api`/`http` stay — used elsewhere).
-- [ ] **Step 2.4: Runner-side rejection** in `x/mlxrunner/pipeline.go` `Prepare` — the explicit-error property must hold at this commit (no model implements vision yet):
+- [ ] **Step 2.2:** `go test ./mlxrunner/ -run TestCompletionForwardsMedia` → FAIL (no Media field).
+- [ ] **Step 2.3:** In `mlxrunner/client.go`: add `Media []llm.MediaData` to `CompletionRequest` (after `Options`); delete the rejection guard block in `Completion`; set `creq.Media = req.Media`. Remove now-unused imports if any (`api`/`http` stay — used elsewhere).
+- [ ] **Step 2.4: Runner-side rejection** in `mlxrunner/pipeline.go` `Prepare` — the explicit-error property must hold at this commit (no model implements vision yet):
 
 ```go
 	if len(request.Media) > 0 {
@@ -191,7 +191,7 @@ Check `llm.NewStatusWriter`'s actual signature/name before using (the imagegen t
 	}
 ```
 
-and in `x/mlxrunner/model/base/base.go` define the interface (full form used by later tasks):
+and in `mlxrunner/model/base.go` define the interface (full form used by later tasks):
 
 ```go
 // VisionInput is one preprocessed image ready for encoding.
@@ -218,7 +218,7 @@ type VisionModel interface {
 
 (`base` gains imports `github.com/ollama/ollama/api` and the mlx package.)
 
-- [ ] **Step 2.5:** `go test ./x/mlxrunner/... && go build ./...` → PASS. Also run `go test ./server/ -run TestGenerateWithImages` — the groundwork's capability-rejection subtests must stay green (they gate at the routes layer, unaffected).
+- [ ] **Step 2.5:** `go test ./mlxrunner/... && go build ./...` → PASS. Also run `go test ./server/ -run TestGenerateWithImages` — the groundwork's capability-rejection subtests must stay green (they gate at the routes layer, unaffected).
 - [ ] **Step 2.6:** Commit: `feat(mlxrunner): carry media on the wire; reject it in the runner for non-vision models`
 
 ---
@@ -226,8 +226,8 @@ type VisionModel interface {
 ### Task 3: `batch.Batch` carries embeddings + bidirectional spans; gemma4 consumes them
 
 **Files:**
-- Modify: `x/mlxrunner/batch/batch.go`
-- Modify: `x/models/gemma4/gemma4.go` (`Forward` head, ~line 987)
+- Modify: `mlxrunner/batch/batch.go`
+- Modify: `mlxrunner/model/gemma4/gemma4.go` (`Forward` head, ~line 987)
 
 - [ ] **Step 3.1:** Add to `Batch` (after `Hidden`):
 
@@ -256,16 +256,16 @@ type VisionModel interface {
 
 (PLE stays keyed on `b.InputIDs`; all three nvfp4 checkpoints have `hidden_size_per_layer_input: 0` so `computePLEInputs` never runs for them.)
 
-- [ ] **Step 3.3:** `go build ./... && go test ./x/models/... ./x/mlxrunner/...` → PASS. Commit: `feat(mlxrunner): batch-level input embeddings and bidirectional span plumbing`
+- [ ] **Step 3.3:** `go build ./... && go test ./mlxrunner/model/... ./mlxrunner/...` → PASS. Commit: `feat(mlxrunner): batch-level input embeddings and bidirectional span plumbing`
 
 ---
 
-### Task 4: Vision config parse + weight binding in `x/models/gemma4/vision.go`
+### Task 4: Vision config parse + weight binding in `mlxrunner/model/gemma4/vision.go`
 
 **Files:**
-- Create: `x/models/gemma4/vision.go`
-- Test: `x/models/gemma4/vision_test.go`
-- Modify: `x/models/gemma4/gemma4.go` (`Model` struct + `newModel` + `LoadWeights`)
+- Create: `mlxrunner/model/gemma4/vision.go`
+- Test: `mlxrunner/model/gemma4/vision_test.go`
+- Modify: `mlxrunner/model/gemma4/gemma4.go` (`Model` struct + `newModel` + `LoadWeights`)
 
 - [ ] **Step 4.1: Config test first** (12b + 26b JSON literals asserting parsed fields incl. tokens; a text-only config parses to nil vision). Key structure:
 
@@ -363,7 +363,7 @@ type VisionTower struct {
 Loading: `loadVisionWeights(tensors, linears)` called from `LoadWeights` when `m.VisionCfg != nil`; probe prefixes `{"model.", ""}`; slice+`Contiguous`+material-ize the position tables at load (follow `transposeForGatherMM`'s clone/eval discipline); precompute `NegStdBias = mlx.MulScalar(stdBias, -1)`. Note `pos_embedding` slicing: axis-1 index 0/1 → `[S, D]` (12b table is `[S, 2, D]`; tower table is `[2, S, D]` → axis-0).
 
 - [ ] **Step 4.4:** run binding tests (they need MLX: guard with the existing `useMLXTestThread`/`skipIfNoMLX` helpers) → PASS.
-- [ ] **Step 4.5:** Wire `newModel`: after `parseTextConfig`, call `parseVisionConfig(configData)`; store on the model. `go test ./x/models/gemma4/` → PASS.
+- [ ] **Step 4.5:** Wire `newModel`: after `parseTextConfig`, call `parseVisionConfig(configData)`; store on the model. `go test ./mlxrunner/model/gemma4/` → PASS.
 - [ ] **Step 4.6:** Commit: `feat(gemma4): parse vision config and bind vision weights for both lineages`
 
 ---
@@ -371,8 +371,8 @@ Loading: `loadVisionWeights(tensors, linears)` called from `LoadWeights` when `m
 ### Task 5: Vision forward passes
 
 **Files:**
-- Modify: `x/models/gemma4/vision.go`
-- Test: `x/models/gemma4/vision_test.go`
+- Modify: `mlxrunner/model/gemma4/vision.go`
+- Test: `mlxrunner/model/gemma4/vision_test.go`
 
 - [ ] **Step 5.1: Numeric tests first** (all under `useMLXTestThread` + synthetic weights):
   - `TestRope2DMatchesReference`: Go float64 naive implementation of `apply_multidimensional_rope` (per-dim slices, 18 freqs, θ=100, duplicate-halves cos/sin, rotate_half within slice) vs the mlx implementation on random `[1, 6, 4, 72]` with positions from a 3×2 grid; `floatSlicesClose(..., 1e-3)`.
@@ -508,8 +508,8 @@ Shared projection (`(m *Model) projectVision(h *mlx.Array) *mlx.Array`): `RMSNor
 ### Task 6: Preprocessor + `base.VisionModel` implementation
 
 **Files:**
-- Modify: `x/models/gemma4/vision.go` (+`gemma4.go` for interface assertion)
-- Test: `x/models/gemma4/vision_test.go`
+- Modify: `mlxrunner/model/gemma4/vision.go` (+`gemma4.go` for interface assertion)
+- Test: `mlxrunner/model/gemma4/vision_test.go`
 
 - [ ] **Step 6.1: Tests first:**
   - `TestPatchifyLayouts`: hand-built 96×96 gradient image; assert unified patches `[4, 6912]` channel-fastest `(dy, dx, c)` ordering with values in [0,1]; tower patches `[36, 768]` with values `2x−1`; positions row-major `(x,y)`.
@@ -598,7 +598,7 @@ func (m *Model) MergedEmbeddings(inputIDs *mlx.Array, features []*mlx.Array, spa
 }
 ```
 
-Imports: `bytes`, `image`, `_ "image/gif"`, `_ "image/jpeg"`, `_ "image/png"`, `golang.org/x/image/draw`, `github.com/ollama/ollama/llm`, `github.com/ollama/ollama/api`, `github.com/ollama/ollama/x/mlxrunner/model/base`. Interface assertion `var _ base.VisionModel = (*Model)(nil)` — but ONLY models with vision configs support it; runner must check `m.VisionCfg != nil` too. Resolution: keep the assertion, and make the runner's capability check `vm, ok := r.Model.(base.VisionModel); ok && vm.SupportsVision()` — add `SupportsVision() bool` to the interface returning `m.VisionCfg != nil && (m.VisionEmbedder != nil || m.VisionTower != nil)`. Update the Task-2 `Prepare` guard accordingly.
+Imports: `bytes`, `image`, `_ "image/gif"`, `_ "image/jpeg"`, `_ "image/png"`, `golang.org/x/image/draw`, `github.com/ollama/ollama/llm`, `github.com/ollama/ollama/api`, `github.com/ollama/ollama/mlxrunner/model`. Interface assertion `var _ base.VisionModel = (*Model)(nil)` — but ONLY models with vision configs support it; runner must check `m.VisionCfg != nil` too. Resolution: keep the assertion, and make the runner's capability check `vm, ok := r.Model.(base.VisionModel); ok && vm.SupportsVision()` — add `SupportsVision() bool` to the interface returning `m.VisionCfg != nil && (m.VisionEmbedder != nil || m.VisionTower != nil)`. Update the Task-2 `Prepare` guard accordingly.
 
 - [ ] **Step 6.3:** run tests → PASS. Commit: `feat(gemma4): budget-fill image preprocessing and the VisionModel surface`
 
@@ -607,10 +607,10 @@ Imports: `bytes`, `image`, `_ "image/gif"`, `_ "image/jpeg"`, `_ "image/png"`, `
 ### Task 7: Runner pipeline — expansion, salts, injection, single-chunk prefill
 
 **Files:**
-- Modify: `x/mlxrunner/runner.go` (`Request` fields), `x/mlxrunner/pipeline.go`, `x/mlxrunner/prefix_cache.go`
-- Test: `x/mlxrunner/media_test.go` (new), `x/mlxrunner/prefix_cache_test.go`
+- Modify: `mlxrunner/runner.go` (`Request` fields), `mlxrunner/pipeline.go`, `mlxrunner/prefix_cache.go`
+- Test: `mlxrunner/media_test.go` (new), `mlxrunner/prefix_cache_test.go`
 
-- [ ] **Step 7.1: Extract a pure expansion helper + test it.** New `x/mlxrunner/media.go`:
+- [ ] **Step 7.1: Extract a pure expansion helper + test it.** New `mlxrunner/media.go`:
 
 ```go
 var imgMarker = regexp.MustCompile(`\[img-(\d+)\]`)
@@ -731,15 +731,15 @@ with `Request` gaining `VisionInputs []base.VisionInput`, `VisionSpans [][2]int3
 
 Thread `embeds` + `request.VisionSpans` into `prefill`: media requests prefill in one chunk (`chunk = total-1`, mirroring the reference's `no_chunked_prefill`); each prefill `Batch` gets `InputsEmbeds: embeds.Slice(mlx.Slice(), mlx.Slice(processed, processed+n), mlx.Slice())` and `BidiSpans: request.VisionSpans`. Note the prefix cache may resume mid-prompt (same image ⇒ same salted keys): `SeqOffsets` handles the offset; slice embeds by absolute positions `[position, position+n)`. Decode batches stay untouched (nil embeds, nil spans).
 
-- [ ] **Step 7.5:** `go test ./x/mlxrunner/...` → PASS. Commit: `feat(mlxrunner): expand image markers, salt the prefix cache, and inject vision embeddings`
+- [ ] **Step 7.5:** `go test ./mlxrunner/...` → PASS. Commit: `feat(mlxrunner): expand image markers, salt the prefix cache, and inject vision embeddings`
 
 ---
 
 ### Task 8: Bidirectional prefill masks in gemma4
 
 **Files:**
-- Modify: `x/models/gemma4/gemma4.go` (`Attention.Forward` mask site) + new helper in `vision.go`
-- Test: `x/models/gemma4/vision_test.go`
+- Modify: `mlxrunner/model/gemma4/gemma4.go` (`Attention.Forward` mask site) + new helper in `vision.go`
+- Test: `mlxrunner/model/gemma4/vision_test.go`
 
 Reference semantics (`language.py _apply_blockwise_bidirectional_overlay`): base causal (windowed on sliding layers) OR same-image-block — the block **overrides** the window. Additive `Intersect` can't express that, so build an explicit array mask when spans are present.
 
@@ -780,15 +780,15 @@ func visionPrefillMask(L, K, offset, window int, spans [][2]int32, dtype mlx.DTy
 ```
 
 - [ ] **Step 8.3: Wire into `Attention.Forward`:** where `mask := nn.CausalMask()` is currently built, when `len(b.BidiSpans) > 0 && L > 1` replace the mask with `nn.ArrayMask(...)` memoized per window size via `b.Memo` (key on `window`; full-attention layers use `window = 0`). K = key length for this forward = `offset + L` (empty-history case) or the history's total length — read the exact K from the same source the existing mask/SDPA path uses (`kv.history` length or `k.Dim(2)`); keep the sliding `kv.mask` un-intersected in this branch (the array already encodes the window). Verify how `nn.ScaledDotProductAttention` treats `ArrayMask` with `WithKVHistory` — if the history applier offsets/pads K, align the mask to the applier's K layout (single-chunk media prefill from a salted-cache prefix is the only path that hits this; when in doubt, force `matched=0` for media requests instead and simplify to offset=0 — correctness first, reuse later; document the choice).
-- [ ] **Step 8.4:** run vision tests + full `go test ./x/models/... ./x/mlxrunner/...` → PASS. Commit: `feat(gemma4): bidirectional image-block masks for media prefill`
+- [ ] **Step 8.4:** run vision tests + full `go test ./mlxrunner/model/... ./mlxrunner/...` → PASS. Commit: `feat(gemma4): bidirectional image-block masks for media prefill`
 
 ---
 
 ### Task 9: End-to-end smoke against a real model
 
 **Files:**
-- Create: `x/mlxrunner/vision_e2e_test.go`
-- Fixture: `x/models/gemma4/testdata/vision_fixture.png` (generate: 384×384 PNG, solid red circle on white — unambiguous content)
+- Create: `mlxrunner/vision_e2e_test.go`
+- Fixture: `mlxrunner/model/gemma4/testdata/vision_fixture.png` (generate: 384×384 PNG, solid red circle on white — unambiguous content)
 
 - [ ] **Step 9.1:** Test gated on model availability (`t.Skip` unless the manifest for `OLLAMA_VISION_E2E_MODEL` (default `gemma4:12b-nvfp4`) exists under the models-mlx root and MLX is available): load Runner, Prepare a request with `Prompt: "<bos><|turn>user\n[img-0] What shape is in this image? Answer with one word.<turn|>\n<|turn>model\n"`, Media = fixture bytes, run the pipeline, assert the streamed content mentions "circle" (case-insensitive). Budget opts default. This validates tokens→tower→injection→mask→decode as a whole.
 - [ ] **Step 9.2:** Run for 12b (unified) and — hardware permitting — `gemma4:26b-nvfp4` and `31b` via the env var. Record results in the PR/commit message. Commit: `test(mlxrunner): gemma4 vision end-to-end smoke`
@@ -798,7 +798,7 @@ func visionPrefillMask(L, K, offset, window int, spans [][2]int32, dtype mlx.DTy
 ### Task 10: Golden-vector parity vs mlx-vlm
 
 **Files:**
-- Create: `x/models/gemma4/testdata/gen_vision_goldens.py` (uv script), `x/models/gemma4/vision_golden_test.go`, `x/models/gemma4/testdata/vision_goldens_{12b,26b,31b}.json`
+- Create: `mlxrunner/model/gemma4/testdata/gen_vision_goldens.py` (uv script), `mlxrunner/model/gemma4/vision_golden_test.go`, `mlxrunner/model/gemma4/testdata/vision_goldens_{12b,26b,31b}.json`
 
 Pattern follows `model/renderers/gemma4_reference_test.go`: committed expected values; a documented uv command regenerates them; the Go test skips when the local model manifest is absent.
 

@@ -27,7 +27,7 @@ Three properties make this invisible:
 - nothing in the store records where a blob came from or when, beyond file mtimes.
 
 The consequence is not hypothetical. Every gemma4 vision result in this repo — the #312
-encoder investigation, `x/mlxrunner/testdata`'s vision goldens, the fine-text tiers, the
+encoder investigation, `mlxrunner/testdata`'s vision goldens, the fine-text tiers, the
 OCRBench ladder's first row — was measured against the **quantised** tower. A host that
 pulls that tag today gets the bf16 one and will not reproduce any of them, and the old
 artifact **cannot be fetched back**: the registry no longer serves it under any name.

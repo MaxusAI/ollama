@@ -1,6 +1,7 @@
 # ADR 0039: nvfp4 global scales are stored as the checkpoint multiplier
 
-- **Status:** proposed 2026-09-19. Awaiting Glenn. Arises from
+- **Status:** accepted 2026-09-20 (Glenn: "ADR 0039 first, then tag and deploy"); implemented in the
+  v0.34.2 fold, where the files it touches had just moved. Arises from
   [#312](https://github.com/MaxusAI/ollama/issues/312) and gates part of
   [#287](https://github.com/MaxusAI/ollama/pull/287).
 - **Date:** 2026-09-19
@@ -13,14 +14,14 @@ MLX wants that scale in its own representation, `m × 448 × 6` — `Nvfp4MaxPro
 because its kernels fold the maxima of the E4M3 and E2M1 ranges into the scale.
 
 The v0.34 fold made that representation the **stored** form.
-`ToMLXGlobalScale` (`x/mlxrunner/model/quant.go`) converts once at load:
+`ToMLXGlobalScale` (`mlxrunner/model/quant.go`) converts once at load:
 
 ```go
 return mlx.MulScalar(flat, mlx.Nvfp4MaxProduct)   // holds f32(m × 2688)
 ```
 
 and every wrapper that applies the scale itself divides it back out, in `scaleAndCast`
-(`x/mlxrunner/mlx/ops_extra.go`):
+(`mlx/ops_extra.go`):
 
 ```go
 return Mul(out, DivScalar(scale, Nvfp4MaxProduct)).AsType(out.DType())
@@ -56,12 +57,17 @@ that do not want it pay a lossy round trip on every call.
 MLX, and nowhere else.**
 
 - `ToMLXGlobalScale` keeps the checkpoint multiplier (cast to float32, flattened) and
-  stops multiplying by `Nvfp4MaxProduct`.
+  stops multiplying by `Nvfp4MaxProduct`. **Implemented as `model.LoadGlobalScale`** — the
+  old name said it converted to MLX's representation, which it no longer does.
 - `scaleAndCast` multiplies by the scale as given and stops dividing.
 - `GatherQMM`'s native branch and `QQMM` multiply by `Nvfp4MaxProduct` where they build
-  the argument MLX consumes; the identity scale stays as it is.
-- A test asserts the round trip: for every global scale in a served checkpoint, the value
-  a wrapper applies is bit-identical to the checkpoint's `m`.
+  the argument MLX consumes, through **`mlx.ToMLXRepresentation`**, which is the only place
+  the MLX form appears. The identity scale becomes **1** rather than `Nvfp4MaxProduct`
+  (`GatherQMMIdentityScale`, and dflash's `perRowGlobal` fill).
+- Tests assert both halves: `TestGlobalScaleSurvivesStorageBitExactly` (stored values are
+  the checkpoint's own, bit for bit, on fixtures drawn from the gemma4 scales that lost a ulp)
+  and `TestToMLXRepresentationIsTheBoundary` (the conversion is exact, and the identity is 1
+  stored / `Nvfp4MaxProduct` at the boundary).
 
 ## Options considered
 
@@ -83,7 +89,7 @@ MLX, and nowhere else.**
 ## Consequences
 
 - On CUDA the vision encoder returns to bit-parity with the pre-fold build and with
-  `mlx-vlm`, which is what the goldens in `x/mlxrunner/testdata` were generated against.
+  `mlx-vlm`, which is what the goldens in `mlxrunner/testdata` were generated against.
   The 31b golden expectations move back (`max Δ 0.1094 → 0.0898`) and should be re-taken
   in the same change.
 - **#287 inherits the fix.** Its prefill path dequantises nvfp4 weights to bf16 through

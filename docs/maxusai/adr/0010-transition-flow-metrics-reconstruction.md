@@ -21,7 +21,7 @@ marker, e.g. gemma4) instead **cancels** pass one at the parsed
 thinking→content transition — and both runner clients deliver metrics only on
 a completion's final chunk (llama-server timings ride the stop event,
 `llm/llama_server.go`; the MLX pipeline's final response,
-`x/mlxrunner/pipeline.go`). The cancel discards that chunk, so the response
+`mlxrunner/pipeline.go`). The cancel discards that chunk, so the response
 forwarded pass two raw: `prompt_eval_count` was the continuation's
 cache-inclusive prefill (reasoning re-counted as prompt) and `eval_count`
 omitted every reasoning token. Verified live on gemma4:12b-nvfp4 (MLX):

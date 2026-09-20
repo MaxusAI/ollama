@@ -996,7 +996,7 @@ class TestMlxPayloadPin(unittest.TestCase):
     ladders and budgets with nothing failing loudly — the exact failure
     payload_pin exists to prevent, on the platform whose payload IS MLX.
 
-    The runner already reports the value: x/mlxrunner/server.go logs
+    The runner already reports the value: mlxrunner/server.go logs
     "MLX engine initialized" with a `git describe` string whose g-suffix is the
     MLX_VERSION commit, e.g. 0.32.1-37-gc793734 for c793734eb715…
     """
@@ -1129,7 +1129,7 @@ class TestMlxPayloadPinWindow(unittest.TestCase):
         self.assertEqual(r["status"], FAIL)
 
     def test_a_dirty_mlx_tree_fails_rather_than_skipping(self):
-        """`git describe --dirty` (x/mlxrunner/mlx/CMakeLists.txt) marks a
+        """`git describe --dirty` (mlx/CMakeLists.txt) marks a
         modified MLX source tree — precisely the different-payload case this
         check exists to catch. It must not degrade to 'cannot parse'."""
         now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()) + "+00:00"

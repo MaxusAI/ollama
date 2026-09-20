@@ -7,7 +7,7 @@
 
 ## Context
 
-`Model.NewVisionInput` (`x/models/gemma4/vision.go`) scaled the decoded image
+`Model.NewVisionInput` (`mlxrunner/model/gemma4/vision.go`) scaled the decoded image
 into an **alpha-premultiplied** `*image.RGBA` (`xdraw.CatmullRom.Scale` with
 `xdraw.Src`) and then read the R/G/B bytes straight out of `dst.Pix` without
 ever dividing by alpha. Every pixel with `A < 255` therefore reached the

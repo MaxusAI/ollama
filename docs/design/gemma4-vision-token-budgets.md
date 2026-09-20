@@ -352,7 +352,7 @@ Optional helper `optionsReloadGGUF(existing, new *api.Options) bool` for readabi
 
 ## 7) MLX / show / docs
 
-- [`x/mlxrunner`](ollama/x/mlxrunner): fields pass through JSON; optional `slog.Debug` when non-zero.
+- [`mlxrunner`](ollama/mlxrunner): fields pass through JSON; optional `slog.Debug` when non-zero.
 - [`server/routes.go`](ollama/server/routes.go): extend show allowlist if options are filtered.
 - Brief code comments + Vision doc link in `budget.go` / `process_image.go`.
 

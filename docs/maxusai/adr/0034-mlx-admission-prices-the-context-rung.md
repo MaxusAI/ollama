@@ -23,10 +23,10 @@ The llama.cpp path prices `n_ctx` before the runner starts. This one did not.
 
 Admission compares `weights + KV(num_ctx) + headroom`.
 
-**1. The KV estimate is a separate pure-Go package**, `x/mlxrunner/kvsize`. It
+**1. The KV estimate is a separate pure-Go package**, `mlxrunner/kvsize`. It
 reads the manifest's `config.json` (and `draft/config.json`) and dispatches on
 `architectures[0]`, mirroring each model package's `NewCaches`. It imports
-neither `x/mlxrunner/mlx` nor `x/models/...`, because either would drag MLX into
+neither `mlx` nor `mlxrunner/model/...`, because either would drag MLX into
 the server binary. The cost of that separation is a **copy**: when a model
 changes its cache layout, `kvsize` has to follow, and every rule names the code
 it mirrors so the divergence is findable.
@@ -157,7 +157,7 @@ headroom.
 - A load that used to be admitted and then aborted is now refused at admission,
   which is a **user-visible behaviour change** on a card that is genuinely too
   small for the requested rung. That is the intent.
-- Unit-tested without a GPU (`x/mlxrunner/kvsize`, `x/mlxrunner`), including a
+- Unit-tested without a GPU (`mlxrunner/kvsize`, `mlxrunner`), including a
   ladder test that fails on the pre-change code. **The estimate has not been
   compared against a real `peak memory` yet**, and no vision-suite arm has been
   re-run to confirm no new over-refusal (acceptance criterion 5).

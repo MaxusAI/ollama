@@ -38,12 +38,12 @@ why campaign and canary containers now need `OLLAMA_MLX_MEMORY_LIMIT` by hand (#
 - Admission prices `c.memory.Store(TotalTensorSize())` (`client.go:65`) — weights only —
   against `gpus[0].FreeMemory`, at `client.go:~330` and `:~359`.
 - `cache.NewKVCache()` sets `step: 256` and grows by `Concatenate`; nothing preallocates
-  from `num_ctx` (`git grep -iE 'numCtx|capacity' -- x/mlxrunner/cache/` is empty).
+  from `num_ctx` (`git grep -iE 'numCtx|capacity' -- mlxrunner/cache/` is empty).
 - Consequence, and the part to internalise: **`8192 → 16384 → 32768 → 65536` admit
   identically on MLX.** The ladder rung is invisible to admission, so the vision suite's
   own escalation cannot be refused early — it aborts mid-prefill instead.
 - The v0.33.3 fold changed **none** of this (`git diff b54d4d0d origin/main --
-  x/mlxrunner/client.go` over memory/budget lines is empty). Nothing regressed; the
+  mlxrunner/client.go` over memory/budget lines is empty). Nothing regressed; the
   capability was never built.
 
 ## The two fixes #210 proposes
@@ -83,7 +83,7 @@ why campaign and canary containers now need `OLLAMA_MLX_MEMORY_LIMIT` by hand (#
 1. ☑/☐ A KV estimator that follows each model's own cache kinds (rotating vs full vs
    recurrent), unit-tested against at least gemma4 (sliding + global), a non-sliding dense
    model, and a recurrent one; **the numbers checked against a measured load, not
-   asserted.** Estimator landed (`x/mlxrunner/kvsize`) and unit-tested against the real
+   asserted.** Estimator landed (`mlxrunner/kvsize`) and unit-tested against the real
    gemma4:26b, qwen3.6:35b-a3b and qwen3.8:27b configs plus synthetic nemotron_h and
    llama ones. ☑ **Compared to a measured load 2026-09-05**: five models × four rungs × two
    request shapes against the runner's own `peak memory` line, 40/40 clean — see "What the
@@ -134,7 +134,7 @@ why campaign and canary containers now need `OLLAMA_MLX_MEMORY_LIMIT` by hand (#
 
 Branch `feat/mlx-admission-price-the-rung`, two commits, no push.
 
-- **`x/mlxrunner/kvsize`** — pure Go, no cgo, no `x/models` or `x/mlxrunner/mlx`
+- **`mlxrunner/kvsize`** — pure Go, no cgo, no `mlxrunner/model` or `mlx`
   import. `Model(config, draft, numCtx) Estimate` dispatches on
   `architectures[0]` (falling back to `model_type`) and mirrors each model
   package's `NewCaches`. `Estimate.Known == false` for an architecture with no
@@ -172,7 +172,7 @@ transient (it bounds the chunk, the GGML `num_batch` analogue) and is not modell
 
 ### What the estimator says now (so the GPU phase has something to falsify)
 
-Estimated cache bytes, from the fixtures in `x/mlxrunner/kvsize/testdata`:
+Estimated cache bytes, from the fixtures in `mlxrunner/kvsize/testdata`:
 
 | model | 8192 | 16384 | 32768 | 65536 | 262144 |
 |---|---|---|---|---|---|

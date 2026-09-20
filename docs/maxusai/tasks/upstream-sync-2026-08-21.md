@@ -56,14 +56,14 @@ per-cell `server_version`.
 **MLX + llama.cpp bumps** are routine but numerically risky for the gemma4
 MLX vision path — hence the golden-test gate below.
 
-## Conflict 1 — `x/mlxrunner/mlx/CMakeLists.txt` (trivial)
+## Conflict 1 — `mlx/CMakeLists.txt` (trivial)
 
 Both sides fixed the same bug: the Mach-O `@loader_path` RPATH spelling
 written on ELF. Ours is `if(APPLE) … elseif(UNIX)` with a comment explaining
 the failure (references `cmake/mlx/CMakeLists.txt`); upstream's new fix is
 `if(APPLE) … else()`. Both land on `$ORIGIN` for non-Apple.
 **Resolution: keep ours** (comment + stricter guard). Do keep upstream's
-sibling change in `x/mlxrunner/mlx/dynamic.c` (Windows
+sibling change in `mlx/dynamic.c` (Windows
 `SetDllDirectoryA` + `LoadLibraryExA` DLL-search fix) — it auto-merges and
 does not overlap our work.
 
@@ -115,7 +115,7 @@ re-run (and possibly updated) after the merge.
    `qwen38_effort_test.go`. (Known baseline: `go build ./...` fails on the
    app/dist embed — pre-existing, not this merge's problem; test the listed
    packages, not `./...`.)
-3. MLX vision golden tests (`x/mlxrunner/vision_golden_test.go`, goldens for
+3. MLX vision golden tests (`mlxrunner/vision_golden_test.go`, goldens for
    12b/26b/31b) — the MLX pin bump is the numeric risk. Respect the
    single-owner-thread rule for MLX tests.
 4. Build an image and run the pre-deploy preflight harness

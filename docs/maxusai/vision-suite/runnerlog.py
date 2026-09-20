@@ -7,7 +7,7 @@ second thing to get wrong (ADR 0028 rule 3), so the line shapes live in one plac
   * `MLX admission priced the context rung ... model=<m>` — the server writes it at every load, so it is what
     attributes the lines after it to a model. Nothing else in the log names the model per request.
   * `peak memory size="<n> GiB"` — the runner logs it at each request's teardown, AFTER the sweep and cache clear
-    (`x/mlxrunner/pipeline.go`), and resets MLX's peak at the start of every request. So it is that request's own
+    (`mlxrunner/pipeline.go`), and resets MLX's peak at the start of every request. So it is that request's own
     peak, and it ends the record here.
   * `speculative decode stats iterations=... drafted=... accepted=... avg_draft=... max_draft=...` — one per
     completion that could draft. Absent means the request never drafted.

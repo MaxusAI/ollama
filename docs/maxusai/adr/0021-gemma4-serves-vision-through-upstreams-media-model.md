@@ -5,7 +5,7 @@
   and this fork keeps the tower below because upstream's has no per-request
   budget seam. Two mechanisms named here have moved and the decisions have
   not: decision 6's test seam is now `mlxtest.Run` / `RunSubtest` on
-  `x/internal/mlxthreadtest` (`mlx.ClaimOSThread` was deleted with upstream's
+  `mlx/mlxthread/mlxthreadtest` (`mlx.ClaimOSThread` was deleted with upstream's
   MLX-C error-contract rewrite — see ADR 0017's status), and the same applies
   to the `mlxtest.Setup` divergence listed under Consequences.
 - **Date:** 2026-08-11
@@ -66,7 +66,7 @@ Two constraints shaped the work, neither obvious from upstream's interface:
    from `extendChunk` so upstream's rule keeps its exact semantics and tests.
 5. **ADR 0014's admission ceiling stays**, keyed on media items rather than the
    removed `VisionSpans`.
-6. **The test seam converges on upstream's `x/internal/mlxtest`**, implemented
+6. **The test seam converges on upstream's `mlx/mlxtest`**, implemented
    with `mlx.ClaimOSThread()` and no unlock (ADR 0017/0018).
 
 ## Alternatives considered

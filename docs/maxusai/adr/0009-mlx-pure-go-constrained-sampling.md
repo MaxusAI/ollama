@@ -16,7 +16,7 @@
 ## Context
 
 `llm.CompletionRequest.Format` is never forwarded by the MLX runner client
-(`x/mlxrunner/client.go`): the wire `CompletionRequest` has no `Format` field, so
+(`mlxrunner/client.go`): the wire `CompletionRequest` has no `Format` field, so
 `/api/chat` and `/api/generate` with `format:"json"` or a JSON Schema against
 safetensors/MLX models return unconstrained text (verified live 2026-08-07 on
 `gemma4:12b-nvfp4`; models often wrap JSON in markdown fences). The llama-server
@@ -34,7 +34,7 @@ Constraints on the solution space:
   puts the thinking/format split at the routes layer (ADR 0004). The runner-side
   contract is only R9: constrain from the first token whenever `format` is set on
   the request the runner receives. No thinking awareness is needed in the runner.
-- The MLX runner samples on the GPU (`x/mlxrunner/sample`), pipelined one token
+- The MLX runner samples on the GPU (`mlxrunner/sample`), pipelined one token
   ahead, with optional speculative decoding.
 
 ## Decision
@@ -67,7 +67,7 @@ constrain. Never silently ignore a constraint.
      recur constantly, so the hit rate is high). EOS tokens are allowed exactly
      when the grammar can complete; non-EOS special tokens and empty-piece
      tokens are never allowed.
-2. **Runner integration (`x/mlxrunner`)**:
+2. **Runner integration (`mlxrunner`)**:
    - The wire `CompletionRequest` gains a `Format` field; `client.go` forwards
      `llm.CompletionRequest.Format` verbatim. A non-empty
      `llm.CompletionRequest.Grammar` (raw GBNF, llama-server-only) is rejected

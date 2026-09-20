@@ -114,13 +114,13 @@ speculation path, and there is nothing to file there yet beyond a symptom.
 ## Amendment 2026-09-17: `x/structured` deleted, with its parity against the engine recorded
 
 The follow-up above is done in the v0.34.1 fold. Before deletion, a parity gate
-(`x/mlxrunner/xgrammar/structured_parity_test.go`, deleted with the package) drove both engines live over a
+(`mlxrunner/xgrammar/structured_parity_test.go`, deleted with the package) drove both engines live over a
 byte-level vocabulary on xgrammar v0.2.5: **108 agreements, 0 regressions** — no schema and no output that
 `x/structured` accepted is refused by xgrammar. ADR 0013's guard is unnecessary on this engine: the five schemas it
 refused for unbounded repetition compile in 3–30 ms within 1 MiB, because xgrammar compiles repetition lazily.
 
 Three differences, all in xgrammar's favour or neutral except the first, are pinned by
-`x/mlxrunner/xgrammar/engine_behaviour_test.go`, which fails when an xgrammar bump changes them:
+`mlxrunner/xgrammar/engine_behaviour_test.go`, which fails when an xgrammar bump changes them:
 
 - **`allOf` with more than one branch is permissive on xgrammar**: required properties, per-branch types and
   property order are not enforced, and the converter warns that allOf support is still ongoing. `x/structured` merged

@@ -156,7 +156,7 @@ first is image accounting and the second is generation length.
   campaign container headroom with `OLLAMA_GPU_OVERHEAD` (bytes), not a hard cap.** The MLX runner
   derives its allocator ceiling from the memory *free at cell start*; the production endpoint on
   the same GPU keeps moving underneath it, and its pool then grows into headroom that is no longer
-  there. `OLLAMA_GPU_OVERHEAD` is subtracted from that free sample (`x/mlxrunner/client.go`), so
+  there. `OLLAMA_GPU_OVERHEAD` is subtracted from that free sample (`mlxrunner/client.go`), so
   the ceiling follows what is actually free and always leaves the reserve for the neighbour.
   Measured 2026-09-04 (v0.33.3 spot-check, `mlx0333cu_`): four `cudaMallocAsync … out of memory`
   arms on 26b/31b at a 61.7 GiB free-derived ceiling with gemma4:31b resident on `:11497`; the
@@ -499,7 +499,7 @@ Practical rules for the opt-in arm:
   multi-image ones stop fitting, so a green `scene_single` proves nothing.
 - `OLLAMA_MLX_MEMORY_LIMIT` on the server is the mitigation, at a throughput
   cost that concentrates on exactly the multi-image cells (see
-  `x/mlxrunner/runner.go`'s `configureCacheLimit` comment). A constrained arm's
+  `mlxrunner/runner.go`'s `configureCacheLimit` comment). A constrained arm's
   quality numbers stay comparable; its throughput numbers do not.
 
 ## Running an ARM (repeats, subsets, sampling overrides)
@@ -652,7 +652,7 @@ claimed.
 Do **not** "fix" a failing cell by relaxing the scorer to best-fit. That
 tolerance is what hid this class of error in the first place.
 
-## Microbenchmark: nvfp4 matmul paths (`x/mlxrunner/bench/qqmm`)
+## Microbenchmark: nvfp4 matmul paths (`mlxrunner/bench/qqmm`)
 
 A standalone Go tool on the fork's MLX binding that times, per layer shape of the nvfp4 models
 and per row count, the three ways MLX can run an nvfp4 linear: `qmm` (what the runner uses:

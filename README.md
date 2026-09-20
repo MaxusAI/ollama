@@ -113,7 +113,7 @@ decision and its measurements live (`docs/maxusai/`).
 |---|---|---|---|
 | **`think` + `format` in one request** | defers the grammar until the thinking→content transition and folds pass-one metrics into the final response | the same, plus: a model with a known think-close marker stops pass one exactly there and continues textually, so runaway thinking cannot burn the budget; pass-one metrics are reconstructed when a runner does not report them; the second pass is pinned to pass one's truncation window | ADR 0002/0004/0010 |
 | **drafting under a grammar (MLX)** | always on | on by default to match upstream; `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` restores the gate | ADR 0033 |
-| **stop sequences (MLX)** | not honoured by the MLX runner | honoured, with a possible stop prefix held back until it matches or the stream ends | `x/mlxrunner/stopper.go` |
+| **stop sequences (MLX)** | not honoured by the MLX runner | honoured, with a possible stop prefix held back until it matches or the stream ends | `mlxrunner/stopper.go` |
 | **KV cache type** | one global `OLLAMA_KV_CACHE_TYPE` | per model, with K/V pair syntax and a policy for reasoning models | ADR 0005 |
 
 **Serving and scheduling**
@@ -128,7 +128,7 @@ decision and its measurements live (`docs/maxusai/`).
 | **gemma4 on MLX** | upstream's own vision and audio tower with a fixed per-checkpoint soft-token set, no per-request budget | vision through upstream's `MediaModel` with a per-request budget seam; audio not shipped | ADR 0021 |
 | **media prompts on MLX** | — | prefill chunks span-aligned around image blocks; a late image is refused | ADR 0014 |
 | **scheduler** | — | log sites never drop fields under contention; head-of-line and evict-all-wait fixes; attached media charged against capabilities before the load; capability advertising corrected for MLX architectures | `server/sched.go`, `images.go` |
-| **panic hygiene (MLX)** | — | a cleanup that fails while a request is unwinding never replaces the panic that caused it | `x/mlxrunner/unwind.go` |
+| **panic hygiene (MLX)** | — | a cleanup that fails while a request is unwinding never replaces the panic that caused it | `mlxrunner/unwind.go` |
 
 **Measurement — nothing comparable upstream**
 

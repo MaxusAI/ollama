@@ -421,7 +421,7 @@ def main():
 
     # ---- MLX payload identity ----
     # Deliberately AFTER the arch loop, unlike payload_pin. The MLX build is
-    # reported by x/mlxrunner's engine-init log line, which is only emitted when
+    # reported by mlxrunner's engine-init log line, which is only emitted when
     # a model loads; running this before the arches would read whatever line the
     # PREVIOUS server process left in the file and call it this run's payload.
     # Windowed to run_start so only this run's loads can satisfy it.

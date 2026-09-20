@@ -80,7 +80,7 @@ Adversarial verification (four independent checks) on `580ca88e`:
   actually selected for gemma4 (`fs/ggml/ggml.go` `OllamaEngineRequired("gemma4") == true`),
   so budgets take effect. `server/sched.go` reloads the runner when the budgets change.
 - **Upstream drift — PASS.** In the 36 commits between the old base (`9ba5a049`) and
-  `f63eea3d`, only `api/types.go` and `x/mlxrunner/server.go` were touched upstream; both
+  `f63eea3d`, only `api/types.go` and `mlxrunner/server.go` were touched upstream; both
   integrate cleanly (upstream's `Options`/`Seed` changes are preserved, no collisions). The
   five core files are byte-identical between the two bases.
 - **Build & test — PASS.** `go build ./...` (whole module) succeeds; `go vet` clean on all

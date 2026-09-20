@@ -9,7 +9,7 @@
 
 ## Context
 
-`requestGrammar` (`x/mlxrunner/client.go`) wraps a request's JSON schema into an
+`requestGrammar` (`mlxrunner/client.go`) wraps a request's JSON schema into an
 xgrammar structural tag. xgrammar reads `max_whitespace_cnt` from that tag's
 `json_schema` format object (`cpp/structural_tag.cc`) and defaults it to null;
 with no bound, `IndentManager::StartSeparator` compiles **every** separator to
