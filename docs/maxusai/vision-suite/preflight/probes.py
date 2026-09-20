@@ -509,8 +509,18 @@ def gpu_toolchain(container, exec_cmd=None):
     directly. NOT verified on a CUDA host -- no CUDA device on this estate. If
     it misreads there, fix the parser; do not widen a profile to accommodate it.
     """
+    # A stamp beside the payload wins when present, because from ROCm 10 the
+    # SONAMEs no longer carry the release version AT ALL. Verified on
+    # rocm/dev-ubuntu-24.04:10.0.0-full 2026-09-20: librocblas.so.5.6 is the
+    # rocBLAS library version, and no sibling encodes 10.0.0 either
+    # (libhipblas.so.3.6, libhipblaslt.so.1.4, libhsa-runtime64.so.1.21.0).
+    # TheRock decoupled component SONAMEs from the release on purpose; the
+    # version survives only in the install prefix (/opt/rocm/core-10.0), which
+    # is not copied into the payload. A number that is not in the artifact
+    # cannot be parsed out of it, so the build stamps it instead.
     cmd = ([exec_cmd.format(container=container)] if exec_cmd else
            ["docker", "exec", container, "sh", "-c",
+            "cat /usr/lib/ollama/rocm*/ROCM_VERSION /usr/lib/ollama/cuda*/CUDA_VERSION 2>/dev/null; "
             "ls /usr/lib/ollama/rocm*/librocblas.so.* "
             "/usr/lib/ollama/cuda*/libcudart.so.* 2>/dev/null || true"])
     try:
@@ -522,6 +532,10 @@ def gpu_toolchain(container, exec_cmd=None):
     best = None
     for line in out.splitlines():
         line = line.strip()
+        # A bare version on its own line is a stamp file's contents.
+        m = re.fullmatch(r"(\d+\.\d+(?:\.\d+)?)", line)
+        if m:
+            return "rocm-%s" % m.group(1) if "rocm" in out else "cuda-%s" % m.group(1)
         m = re.search(r"librocblas\.so\.\d+\.\d+\.(\d{5,})$", line)
         if m:
             raw = m.group(1)

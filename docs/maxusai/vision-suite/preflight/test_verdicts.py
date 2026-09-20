@@ -2269,6 +2269,31 @@ class TestGPUToolchainParse(unittest.TestCase):
     def test_nothing_found_returns_none_not_a_guess(self):
         self.assertIsNone(self._probe(""))
 
+    def test_rocm_10_soname_carries_no_version_and_is_not_guessed(self):
+        # Verified on rocm/dev-ubuntu-24.04:10.0.0-full, 2026-09-20:
+        # librocblas.so.5.6 is the rocBLAS LIBRARY version. No sibling encodes
+        # the release either. TheRock decoupled component SONAMEs from the
+        # release on purpose, so there is nothing to parse -- and returning a
+        # guess here would be worse than returning nothing, because
+        # check_toolchain_pin turns None into ERROR and a guess into a silent
+        # PASS against the wrong toolchain.
+        self.assertIsNone(self._probe(
+            "/usr/lib/ollama/rocm_v10_0/librocblas.so.5.6\n"))
+
+    def test_a_build_stamp_is_preferred_over_the_soname(self):
+        # From ROCm 10 the build must stamp the version beside the payload,
+        # because the artifact no longer contains it. The stamp wins when both
+        # are present.
+        self.assertEqual(self._probe(
+            "10.0.0\n/usr/lib/ollama/rocm_v10_0/librocblas.so.5.6\n"), "rocm-10.0.0")
+
+    def test_a_stamp_reports_the_patch_level_the_soname_could_not(self):
+        # 7.2.4 is recoverable from the SONAME; 10.0.1 would not be, since
+        # /opt/rocm/core-10.0 carries major.minor only. The stamp is the only
+        # route to a patch level on TheRock.
+        self.assertEqual(self._probe(
+            "10.0.1\n/usr/lib/ollama/rocm_v10_0/librocblas.so.5.6\n"), "rocm-10.0.1")
+
 
 # The main block must stay at the END of the file: unittest.main() runs the
 # classes defined ABOVE it, so a class appended after it silently never runs
