@@ -2295,6 +2295,122 @@ class TestGPUToolchainParse(unittest.TestCase):
             "10.0.1\n/usr/lib/ollama/rocm_v10_0/librocblas.so.5.6\n"), "rocm-10.0.1")
 
 
+class TestPayloadPinNative(unittest.TestCase):
+    """payload_pin must be able to read the payload on a NATIVE host.
+
+    It could not until now: the check returned SKIP whenever `container` was
+    falsy, and the native Metal path has none. That is why not one of the seven
+    metal/mlx-metal profiles carries a llama_cpp_build -- the field would have
+    asserted nothing, so nobody added it.
+
+    The cost surfaced promoting 0.34.2 on Metal. Its LLAMA_CPP_VERSION moved
+    b10864 -> b10969: a Metal fusion subsystem that did not exist before and is
+    default-on, and a restructured tensor-path matmul inside kernel_mul_mm_id.
+    Every Metal expectation was inherited across that move untouched, and
+    nothing in the harness said so -- the move was found by diffing the file by
+    hand. This is the same class of accident payload_pin was written for
+    (b10091/b10353 under one version string), on the platform it could not run.
+
+    The resolution already existed for check_metal_tensor_payload:
+    local_listener_exe() -> lib_ollama_llama_server(), which is ollama's own
+    exeDir rule. This binds it to payload_pin too.
+    """
+    PIN = "391fac164"
+    LOCAL = "http://127.0.0.1:11437"
+    EXE = "/inst/ollama"
+    MISSING = object()   # "resolved a path, but nothing is there"
+
+    def pin(self, actual, host=None, server=MISSING, profile=None):
+        """`server` defaults to a REAL file on disk: lib_ollama_llama_server may
+        return a path that does not exist (its docstring says so), and this
+        check treats that as cannot-answer, so a fake path would only ever
+        exercise the skip."""
+        with tempfile.TemporaryDirectory() as d:
+            if server is self.MISSING:
+                server = os.path.join(d, "llama-server")
+                open(server, "w").close()
+            with mock.patch.object(checks, "local_listener_exe", return_value=self.EXE), \
+                 mock.patch.object(checks, "lib_ollama_llama_server", return_value=server), \
+                 mock.patch.object(checks, "llama_cpp_build", return_value=actual):
+                return checks.check_payload_pin(
+                    {"llama_cpp_build": self.PIN} if profile is None else profile,
+                    None, host=self.LOCAL if host is None else host)
+
+    def test_native_payload_matching_the_pin_passes(self):
+        r = self.pin(self.PIN)
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertEqual(r["actual"], self.PIN)
+
+    def test_native_payload_that_moved_fails(self):
+        """A b10864 payload under a profile measured on b10969 -- the exact
+        case that went undetected."""
+        r = self.pin("5d806aa25")
+        self.assertEqual(r["status"], FAIL, r["summary"])
+        self.assertEqual(r["actual"], "5d806aa25")
+
+    def test_a_remote_host_still_skips(self):
+        """The version call runs on the HARNESS host, so a remote server's path
+        either does not exist here or belongs to something else entirely."""
+        r = self.pin(self.PIN, host="http://10.8.0.6:11437")
+        self.assertEqual(r["status"], SKIP)
+
+    def test_no_resolvable_payload_skips_rather_than_erroring(self):
+        """No lib/ollama beside the executable is 'cannot answer', not 'wrong
+        payload' -- same contract as check_metal_tensor_payload."""
+        r = self.pin(self.PIN, server=None)
+        self.assertEqual(r["status"], SKIP)
+
+    def test_a_resolved_path_that_does_not_exist_skips(self):
+        """ollama takes the first lib/ollama DIRECTORY that exists and looks no
+        further, so the resolved llama-server may genuinely be absent. Reading
+        that as a payload mismatch would fail a build for being unreadable."""
+        r = self.pin(self.PIN, server="/nonexistent/lib/ollama/llama-server")
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("no llama-server resolved", r["summary"])
+
+    def test_a_profile_without_the_pin_still_skips(self):
+        """Unchanged behaviour: a profile that declares nothing is not asserted."""
+        r = self.pin(self.PIN, profile={})
+        self.assertEqual(r["status"], SKIP)
+
+
+class TestLlamaCppBuildNative(unittest.TestCase):
+    """llama_cpp_build must read a payload that is not inside a container.
+
+    With no container and no exec_cmd it used to build ["docker", "exec", None,
+    ...] and die on the None in argv -- the same shape as the container_logs
+    bug fixed in #341. payload_pin's native route needs this branch.
+    """
+    BANNER = ("version: 0.4.1-dev (build 1, commit 391fac164)\n"
+              "built with AppleClang 21.0.0.21000334 for Darwin arm64\n")
+
+    def fake_server(self, d, banner=None):
+        p = os.path.join(d, "llama-server")
+        with open(p, "w") as fh:
+            fh.write("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\n"
+                     % (self.BANNER if banner is None else banner).rstrip("\n"))
+        os.chmod(p, 0o755)
+        return p
+
+    def test_native_reads_the_sha_from_the_binary_itself(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(
+                probes.llama_cpp_build(None, path=self.fake_server(d)),
+                "391fac164")
+
+    def test_native_reads_the_older_banner_format_too(self):
+        """b10353 said "version: 1 (f8def7fe1)"; the fork spans both formats."""
+        with tempfile.TemporaryDirectory() as d:
+            p = self.fake_server(d, "version: 1 (f8def7fe1)\n")
+            self.assertEqual(probes.llama_cpp_build(None, path=p), "f8def7fe1")
+
+    def test_native_with_no_sha_raises_rather_than_returning_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self.fake_server(d, "totally unrelated output\n")
+            with self.assertRaises(probes.ProbeError):
+                probes.llama_cpp_build(None, path=p)
+
+
 # The main block must stay at the END of the file: unittest.main() runs the
 # classes defined ABOVE it, so a class appended after it silently never runs
 # as a script — which is exactly what happened to PoisonNodeCorroboration's
