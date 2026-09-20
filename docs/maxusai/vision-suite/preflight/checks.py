@@ -161,7 +161,7 @@ def check_toolchain_pin(profile, container, exec_cmd=None):
                   expected=expected, actual=actual)
 
 
-def check_payload_pin(profile, container, exec_cmd=None):
+def check_payload_pin(profile, container, exec_cmd=None, host=None):
     """Assert the running payload's llama.cpp SHA matches what this profile was
     measured against.
 
@@ -169,7 +169,18 @@ def check_payload_pin(profile, container, exec_cmd=None):
     silently: b10091 and b10353 both matched `^0\\.32\\.5-dynres-` and resolved to
     cuda-dynres-005, so the second was validated against numbers measured on the
     first. It passed — but only by luck, and a bump that *did* move sizing would
-    have surfaced as an unexplained ladder failure instead of a payload change."""
+    have surfaced as an unexplained ladder failure instead of a payload change.
+
+    TWO ROUTES TO THE PAYLOAD, because until 2026-09-20 there was only one and
+    it did not reach the native hosts. `docker exec` when there is a container;
+    otherwise the payload the LISTENING EXECUTABLE resolves to, by ollama's own
+    exeDir rule -- the same two steps check_metal_tensor_payload already uses.
+    Without the second route this check skipped on every native platform, which
+    is why not one of the seven metal/mlx-metal profiles carries a
+    llama_cpp_build: the field would have asserted nothing. 0.34.2 moved Metal's
+    payload b10864 -> b10969 (a new default-on fusion subsystem, and a
+    restructured tensor-path matmul in kernel_mul_mm_id) under expectations
+    inherited untouched, and nothing here said so."""
     expected = profile.get("llama_cpp_build")
     if not expected:
         return result("payload_pin", SKIP,
@@ -177,12 +188,31 @@ def check_payload_pin(profile, container, exec_cmd=None):
                       diagnosis="Add llama_cpp_build to this profile so a "
                                 "llama.cpp bump fails loudly instead of "
                                 "inheriting stale expectations. See README.md.")
+    path, route = None, "docker exec"
     if not container:
-        return result("payload_pin", SKIP,
-                      "no container resolved; cannot read llama-server --version",
-                      expected=expected)
+        # `llama-server --version` runs on the HARNESS host here, so a remote
+        # server's path either does not exist locally or belongs to something
+        # else. Same restriction, and the same reason, as the tensor payload
+        # check: naming the WRONG binary is worse than declining to answer.
+        port = local_port(host)
+        if not port:
+            return result("payload_pin", SKIP,
+                          "no container resolved and the server is not local; "
+                          "cannot read llama-server --version",
+                          expected=expected)
+        path = lib_ollama_llama_server(local_listener_exe(port))
+        if not path or not os.path.exists(path):
+            return result("payload_pin", SKIP,
+                          "no llama-server resolved beside the executable "
+                          f"listening on :{port}", expected=expected,
+                          diagnosis="ollama takes the first lib/ollama DIRECTORY "
+                                    "that exists beside its executable and looks "
+                                    "no further, so there may be nothing to read. "
+                                    "The payload half of this pin did not run.")
+        route = f"resolved from the executable listening on :{port}"
     try:
-        actual = llama_cpp_build(container, exec_cmd=exec_cmd)
+        actual = (llama_cpp_build(container, exec_cmd=exec_cmd) if container
+                  else llama_cpp_build(None, path=path))
     except Exception as exc:
         return result("payload_pin", ERROR, f"could not read build sha: {exc}",
                       expected=expected)
@@ -195,8 +225,8 @@ def check_payload_pin(profile, container, exec_cmd=None):
                       "llama.cpp. Re-measure deliberately and update this "
                       "profile with provenance — do NOT edit values to go green.")
     return result("payload_pin", PASS,
-                  f"llama.cpp build {actual} matches the measured payload",
-                  expected=expected, actual=actual)
+                  f"llama.cpp build {actual} matches the measured payload "
+                  f"({route})", expected=expected, actual=actual)
 
 
 # --------------------------------------------------------------------------

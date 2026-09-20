@@ -560,10 +560,19 @@ def llama_cpp_build(container, path="/usr/lib/ollama/llama-server", exec_cmd=Non
     silently applied to the other. Read from the container, never from the
     checkout's LLAMA_CPP_VERSION, which describes whatever is checked out now
     rather than what the server under test is running."""
-    cmd = ([exec_cmd.format(container=container)] if exec_cmd else
-           ["docker", "exec", container, "sh", "-c",
-            f"{path} --version 2>&1 | head -2 || true"])
-    proc = subprocess.run(cmd, shell=bool(exec_cmd), capture_output=True,
+    # Three routes, and the third exists because the first two both assume a
+    # container: with neither an exec_cmd nor a container, ["docker", "exec",
+    # None, ...] used to die on the None in argv rather than say what was
+    # missing. Native hosts run the payload directly -- no shell, so a path
+    # with spaces or braces needs no quoting and cannot be re-interpreted.
+    if exec_cmd:
+        cmd, shell = [exec_cmd.format(container=container)], True
+    elif container:
+        cmd, shell = ["docker", "exec", container, "sh", "-c",
+                      f"{path} --version 2>&1 | head -2 || true"], False
+    else:
+        cmd, shell = [path, "--version"], False
+    proc = subprocess.run(cmd, shell=shell, capture_output=True,
                           text=True, timeout=120)
     out = (proc.stdout or "") + (proc.stderr or "")
     # Two formats in the wild, because llama.cpp changed it between b10353 and

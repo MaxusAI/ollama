@@ -52,7 +52,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import checks  # noqa: E402
 from checks import (CONTENTION, ERROR, FAIL, NEEDS_BASELINE, PASS,  # noqa: E402
                     SKIP)
-from probes import Ollama, ProbeError, find_container, llama_cpp_build  # noqa: E402
+from probes import (Ollama, ProbeError, find_container,  # noqa: E402
+                    lib_ollama_llama_server, llama_cpp_build,
+                    local_listener_exe)
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 RUNS = os.path.join(DIR, "runs")
@@ -372,12 +374,23 @@ def main():
     # Payload identity, recorded before any measurement so every run artefact
     # names the llama.cpp it was measured on — meta previously carried version,
     # profile and patchset but nothing identifying the compiled payload.
-    if container:
-        try:
+    # Natively there is no container to exec into, but the listening executable
+    # resolves its own payload by ollama's exeDir rule, so the run artefact can
+    # name the payload on every platform rather than only the containerised ones.
+    try:
+        if container:
             meta["llama_cpp_build"] = llama_cpp_build(container, exec_cmd=args.exec_cmd)
-        except Exception:
-            meta["llama_cpp_build"] = None
-    results.append(checks.check_payload_pin(profile, container, args.exec_cmd))
+        else:
+            port = checks.local_port(args.host)
+            native = (lib_ollama_llama_server(local_listener_exe(port))
+                      if port else None)
+            meta["llama_cpp_build"] = (llama_cpp_build(None, path=native)
+                                       if native and os.path.exists(native)
+                                       else None)
+    except Exception:
+        meta["llama_cpp_build"] = None
+    results.append(checks.check_payload_pin(profile, container, args.exec_cmd,
+                                            host=args.host))
     results.append(checks.check_toolchain_pin(profile, container, args.exec_cmd))
     flush()
 
