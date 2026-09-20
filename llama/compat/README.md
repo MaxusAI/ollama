@@ -376,14 +376,20 @@ and do not:
   differing only in a `clip.cpp` patch ship byte-identical `llama-server`
   binaries.
 
-**Hash the artifact that carries the patched translation unit.** For
-`tools/mtmd/clip.cpp` — 001, 002, 004, 005, 801, 905 — that is
-`/usr/lib/ollama/libmtmd.so*`. For `ggml/src/ggml-cuda/*` — 903, 906 — it is the
-backend library, `/usr/lib/ollama/rocm_v7_2/libggml-hip.so` or the CUDA
-equivalent.
+**Hash the artifact that carries the patched translation unit:**
+
+| patched source | artifact to hash |
+|---|---|
+| `tools/mtmd/clip.cpp` (001, 002, 004, 005, 801, 905) | `/usr/lib/ollama/libmtmd.so*` |
+| `ggml/src/ggml-cuda/*` (903, 906) | `/usr/lib/ollama/rocm_v7_2/libggml-hip.so`, or the CUDA equivalent |
+| `ggml/src/ggml.c` (907) | `/usr/lib/ollama/libggml-base.so*` |
+
+Glob the version suffix rather than hardcoding it — `libmtmd.so.0.4.0` exists on
+b10864 and not on every payload, and `sha256sum` on a missing path prints
+nothing, which reads exactly like "no difference".
 
 ```sh
-docker run --rm --entrypoint sha256sum "$IMAGE" /usr/lib/ollama/libmtmd.so.0.4.0
+docker run --rm --entrypoint sh "$IMAGE" -c 'sha256sum /usr/lib/ollama/libggml-base.so.*'
 ```
 
 A patch that adds a string literal can also be grepped directly, which is the
@@ -413,3 +419,33 @@ no lines at all.
 Before retiring or freezing a lineage, carry the 8xx diagnostics onto it, or
 archive an instrumented build alongside the shipped one. A diagnostic that only
 exists on the build you are trying to explain cannot explain it.
+
+## Build from a worktree, not the shared tree
+
+`docker build` reads the working tree at the moment each stage runs. A `git
+checkout` or `rebase` on another branch **while a build is in flight** silently
+changes what that build compiles.
+
+Measured 2026-09-20: a build script doing `git checkout main` raced a `rebase`
+run in the same tree, and the image labelled "main" was built from an unrelated
+docs commit. It happened not to matter — the delta was markdown and host-side
+Python — but only because the commit hashes were checked afterwards. The image
+tag said one thing and the artifact was another, and nothing in the build output
+disagreed.
+
+`git worktree add --detach <dir> <ref>` and build from there. The build then has
+its own tree and cannot be moved under it.
+
+## A compat A/B needs an arm the patch cannot affect
+
+Verifying that a patch applied is not the same as verifying that the two images
+differ **only** by the patch. A negative control — a model or path the patch
+provably cannot reach — is what tells them apart.
+
+Measured 2026-09-20: a clean-looking A/B of compat 907 showed no change on the
+model it targeted, which would have been published as "the patch costs nothing".
+The control model then moved deterministically, which is impossible if the arms
+differed only by that patch. Chasing it produced the actual finding: the patch
+DOES reach the control, the premise that excluded it was wrong, and on the
+control the patch is harmful. The null result was correct and the conclusion
+drawn from it would have been wrong.

@@ -637,3 +637,53 @@ reads that one glyph as a quality measurement.
   absent, 19 returned, answer shorter — `nemotron3`). `test_summarizers.py::TestFinetextMissedCodes`.
 - **Cost** — two image rebuilds and three probe runs to recover a glyph name
   the probe had already seen and thrown away.
+
+### 2026-09-20 — A conv kernel's GGUF dtype is not its runtime dtype
+`ggml_conv_2d` decides its im2col output type from `a->type`, the **graph**
+tensor. clip converts kernels on load, so the type in the file and the type in
+the graph disagree — and the blast radius of any dtype-dependent change has to
+be read from the graph.
+
+- **Evidence** — `gemma4:31b-it-q4_K_M` stores `v.patch_embd.weight` as **F16**
+  (`[16,16,3,1152]`, read straight from the GGUF header). A build whose conv_2d
+  uses `a->type == GGML_TYPE_F16 ? F16 : F32` produces an **f32** im2col for it,
+  so `a->type` is not F16 at graph-build time. The 801 node meter shows the
+  runtime answer directly:
+
+  ```
+  b10969            op=IM2COL type=f16    1409 clip nodes
+  b10969 + revert   op=IM2COL type=f32    1409 clip nodes
+  ```
+- **Enforced by** — read the runtime type, not the header:
+  `OLLAMA_CLIP_NODE_STATS='*'` then
+  `docker logs <c> | grep -oE 'op=IM2COL type=[a-z0-9]+' | sort -u`.
+- **Cost** — an affected-set published twice and wrong both times, in opposite
+  directions, and a cross-platform issue (MaxusAI/ollama#349) that asked two
+  other sessions to act on it. The first list came from misreading the meter;
+  the second came from the file headers and was called "authoritative" in the
+  correction to the first.
+
+### 2026-09-20 — The same numerical perturbation helps one model and hurts another
+llama.cpp #23660 demotes conv_2d's im2col to F16 for non-F16 kernels — measured
+by upstream (#26727) as an OCR **loss** on DeepSeek-OCR/CUDA, and measured here
+as an OCR **gain**. Both are real. A perturbation at the input stage moves
+knife-edge glyphs in whichever direction they happen to sit.
+
+- **Evidence** — one working tree, two images, one patch apart, arms verified by
+  `libggml-base` hash and by the runtime im2col type:
+
+  | model | b10969 (f16) | dtype reverted (f32) |
+  |---|---|---|
+  | `qwen3.8:27b` | `[4,4,4,3,1]` x5 | `[4,4,4,3,1]` x5 |
+  | `gemma4:31b` | `[4,4,4,4,3]` x3 | `[4,4,4,3,3]` x3 |
+
+  Upstream's own numbers run the other way (CER 0.3249 -> 0.2955 from the F32
+  im2col). Nobody is wrong; the effect has no fixed sign.
+- **Enforced by** — a fix for a numerical-precision defect is not adopted on the
+  mechanism being real. It is adopted on a measurement **on the models being
+  served**, and the fork declined this one: `llama/compat/907` was written,
+  verified to work, measured, and dropped because it costs `gemma4:31b` a 9px
+  item and buys nothing on the only other affected model
+  (MaxusAI/ollama#348).
+- **Cost** — none beyond the measuring, which is the point: the patch was ready
+  to merge and the measurement is the only thing that stopped it.
