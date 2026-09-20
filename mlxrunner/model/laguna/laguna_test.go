@@ -508,8 +508,9 @@ func TestSparseMoERouteBiasAffectsSelectionNotRoutingWeights(t *testing.T) {
 
 func TestLagunaMoEWeightedSumCompiledMatchesEager(t *testing.T) {
 	mlxtest.Run(t, func(t *mlxtest.T) {
-		expertValues := make([]float32, 1*2*8*4)
-		scoreValues := make([]float32, 1*2*8)
+		const L, E, D = 2, 8, 4
+		expertValues := make([]float32, 1*L*E*D)
+		scoreValues := make([]float32, 1*L*E)
 		for i := range expertValues {
 			expertValues[i] = float32((i%19)-9) * 0.02
 		}
@@ -518,11 +519,12 @@ func TestLagunaMoEWeightedSumCompiledMatchesEager(t *testing.T) {
 		}
 		addAValues := []float32{0.1, -0.2, 0.3, -0.4, 0.5, -0.6, 0.7, -0.8}
 		addBValues := []float32{-0.8, 0.7, -0.6, 0.5, -0.4, 0.3, -0.2, 0.1}
-		expert := mlx.FromValues(expertValues, 1, 2, 8, 4).AsType(mlx.DTypeBFloat16)
-		scores := mlx.FromValues(scoreValues, 1, 2, 8)
-		scale := mlx.FromValue(float32(2.5))
-		addA := mlx.FromValues(addAValues, 1, 2, 4).AsType(mlx.DTypeBFloat16)
-		addB := mlx.FromValues(addBValues, 1, 2, 4).AsType(mlx.DTypeBFloat16)
+		scaleValue := float32(2.5)
+		expert := mlx.FromValues(expertValues, 1, L, E, D).AsType(mlx.DTypeBFloat16)
+		scores := mlx.FromValues(scoreValues, 1, L, E)
+		scale := mlx.FromValue(scaleValue)
+		addA := mlx.FromValues(addAValues, 1, L, D).AsType(mlx.DTypeBFloat16)
+		addB := mlx.FromValues(addBValues, 1, L, D).AsType(mlx.DTypeBFloat16)
 
 		weighted := mlx.Mul(expert, mlx.ExpandDims(scores.AsType(expert.DType()), -1))
 		weighted = mlx.Mul(mlx.Sum(weighted, 2, false), scale.AsType(expert.DType()))
@@ -536,8 +538,11 @@ func TestLagunaMoEWeightedSumCompiledMatchesEager(t *testing.T) {
 		wantAdd = wantAdd.AsType(mlx.DTypeFloat32)
 		wantAdd2 = wantAdd2.AsType(mlx.DTypeFloat32)
 		mlx.Eval(gotAdd, gotAdd2, wantAdd, wantAdd2)
-		assertFloatSlicesClose(t, gotAdd.Floats(), wantAdd.Floats(), 1e-6)
-		assertFloatSlicesClose(t, gotAdd2.Floats(), wantAdd2.Floats(), 1e-6)
+
+		boundA := weightedSumBounds(expertValues, scoreValues, addAValues, nil, scaleValue, L, E, D)
+		boundB := weightedSumBounds(expertValues, scoreValues, addAValues, addBValues, scaleValue, L, E, D)
+		assertConditionedClose(t, "add", gotAdd.Floats(), wantAdd.Floats(), boundA)
+		assertConditionedClose(t, "add2", gotAdd2.Floats(), wantAdd2.Floats(), boundB)
 	})
 }
 
@@ -774,6 +779,57 @@ func makePatternExpertWeight(numExperts, rows, cols int, scale float32) *mlx.Arr
 		vals[i] = float32((i%23)-11) * scale
 	}
 	return makeExpertWeight(vals, numExperts, rows, cols)
+}
+
+// bf16WeightedSumSlack bounds how far the fused and unfused forms of
+// lagunaWeightedSum may sit apart. They build the SAME graph -- the only
+// difference is mlx.Compile -- but fusing it changes where the bf16 roundings
+// land: unfused, every Mul/Sum/Mul materialises a bf16 intermediate; fused,
+// they stay wider and round once. So this is a tolerance on rounding, and it
+// has to be shaped like one.
+//
+// An absolute tolerance cannot do the job, and neither can ulps of the output.
+// Both blow up under cancellation: measured over 20 fixtures with E in
+// {2, 8, 32, 64}, the two paths sit up to 8 ulps of the output apart and each
+// sits up to 122 ulps from exact arithmetic, purely because a near-zero result
+// has a near-zero ulp. Normalised by the sum of |terms| -- the conditioning of
+// the sum, which is what governs a floating-point error bound -- the spread is
+// stable at 0.51-1.58 bf16 unit roundoffs and does NOT grow with E. 4u is that
+// worst case with headroom, and is still far tighter than any defect in a
+// weighted sum would produce.
+const bf16WeightedSumSlack = 4.0 / 256.0 // 4 * bf16 unit roundoff (2^-8)
+
+// weightedSumBounds returns the per-element tolerance: slack * sum|terms|,
+// where the terms are every addend that reaches that output element.
+func weightedSumBounds(expert, scores, addA, addB []float32, scale float32, L, E, D int) []float64 {
+	bounds := make([]float64, L*D)
+	for l := range L {
+		for d := range D {
+			sum := 0.0
+			for e := range E {
+				sum += math.Abs(float64(expert[(l*E+e)*D+d]) * float64(scores[l*E+e]) * float64(scale))
+			}
+			sum += math.Abs(float64(addA[l*D+d]))
+			if addB != nil {
+				sum += math.Abs(float64(addB[l*D+d]))
+			}
+			bounds[l*D+d] = bf16WeightedSumSlack * sum
+		}
+	}
+	return bounds
+}
+
+func assertConditionedClose(t *mlxtest.T, name string, got, want []float32, bounds []float64) {
+	t.Helper()
+	if len(got) != len(want) || len(got) != len(bounds) {
+		t.Fatalf("%s: length mismatch: got %d want %d bounds %d", name, len(got), len(want), len(bounds))
+	}
+	for i := range got {
+		if d := math.Abs(float64(got[i] - want[i])); d > bounds[i] {
+			t.Errorf("%s[%d]: compiled %v, eager %v, |diff| %g > %g (%.2f bf16 u of sum|terms|)",
+				name, i, got[i], want[i], d, bounds[i], d/bounds[i]*4)
+		}
+	}
 }
 
 func assertFloatSlicesClose(t *mlxtest.T, got, want []float32, tol float64) {
