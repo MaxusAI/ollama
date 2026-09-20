@@ -128,6 +128,12 @@ something this change introduces. Cleaning that up (`FROM almalinux:8` + gcc-too
 `base-arm64` already does) is a separate, worthwhile change and is deliberately **not** bundled
 here.
 
+**CI has been doing this for some time already.** `.github/workflows/test.yaml`'s ROCm job runs
+in `rocm/dev-ubuntu-22.04` — the backend has been compiled on Ubuntu in CI while being shipped
+from AlmaLinux. The split makes the Dockerfile agree with CI rather than introducing something
+new. That job's container is bumped here to track `ROCM_BACKEND_TAG`, since otherwise it would
+build a payload named `rocm_v10_0` with a 7.2.1 toolchain.
+
 ### The ABI question, answered — the concern is inverted
 
 The worry was: ROCm `.so` files built against glibc 2.39 get `COPY --from`'d into a final image
@@ -404,7 +410,7 @@ land around 2.35 and is untested.
 | `Dockerfile` | New `ROCM_BACKEND_IMAGE` / `ROCM_BACKEND_TAG` args; new `rocm-base` (Ubuntu) + `rocm-deps` stages replacing `rocm-7-deps`; `llama-server-rocm_v10_0` drops `--gcc-toolchain` and gains an optional `AMDGPU_TARGETS` build arg; payload dir renamed |
 | `llama/server/CMakePresets.json` | `rocm_v7_2_*` → `rocm_v10_0_*`, incl. `OLLAMA_RUNNER_DIR` |
 | `cmake/local.cmake` | backend enum, Linux/Windows guards, shared ROCm block; stale "ROCm 7.1 and 7.2" comment corrected |
-| `.github/workflows/{test,release,test-llamacpp-update}.yaml` | target, payload and cache-ref renames |
+| `.github/workflows/{test,release,test-llamacpp-update}.yaml` | target, payload and cache-ref renames; the ROCm CI container bumped to `rocm/dev-ubuntu-22.04:10.0.0-full` to track `ROCM_BACKEND_TAG` |
 | `docs/development.md`, `docs/maxusai/spec/fast-platform-dev-loops.md` | documented backend values and the dev-loop recipe |
 
 Deliberately **not** changed:
@@ -511,5 +517,8 @@ transfers across a toolchain change, because none of it was keyed on the toolcha
    compiler is unverified.
 7. **The tarball glibc decision** (§3) — pick mitigation 1, 2 or 3 deliberately, and if the floor
    moves, say so in the release notes.
-8. **Runtime load on real hardware.** Nothing here has been run on the gfx1151 GPU; production
+8. **The ROCm CI job.** Its container is bumped but nothing on this branch ran GitHub Actions.
+   `extra-packages: rocm-libs` may be redundant or nonexistent under TheRock; the inline comment
+   says to drop that line rather than pin the container back.
+9. **Runtime load on real hardware.** Nothing here has been run on the gfx1151 GPU; production
    `ollama-rocm` was not touched at any point.
