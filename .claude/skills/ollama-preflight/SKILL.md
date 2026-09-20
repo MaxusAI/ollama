@@ -105,11 +105,23 @@ class, and it costs two full model reloads. Add `--quality` to score extraction
 via `vision_suite.py`; that is the slow part and can be run separately.
 
 Long runs must be detached. A backgrounded run has been SIGTERM'd (exit 143)
-mid-suite:
+mid-suite, and `&` alone does not detach it: with no job control — which is the
+case for every agent tool call — the job stays in the caller's process group and
+dies with it. Linux and containers:
 
 ```bash
 setsid nohup python3 docs/maxusai/vision-suite/preflight/preflight.py \
     --host http://127.0.0.1:11437 --platform cuda --quality \
+    --out runs/rc1.json > runs/rc1.log 2>&1 < /dev/null &
+```
+
+**On macOS there is no `setsid`** and that command fails before anything starts.
+Use python3, which does the same thing:
+
+```bash
+python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+    python3 docs/maxusai/vision-suite/preflight/preflight.py \
+    --host http://127.0.0.1:11437 --platform mlx-metal --quality \
     --out runs/rc1.json > runs/rc1.log 2>&1 < /dev/null &
 ```
 
