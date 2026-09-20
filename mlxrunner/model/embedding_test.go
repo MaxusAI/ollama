@@ -71,8 +71,9 @@ func TestMakeEmbeddingLayerQuantized(t *testing.T) {
 	})
 }
 
-// A checkpoint scale is converted to MLX's representation at load, and the
-// same converted scale reaches the linear view.
+// A checkpoint scale is stored AS THE CHECKPOINT'S OWN m (ADR 0039), and the
+// same array reaches the linear view. The MLX representation is built where
+// MLX consumes it, not here.
 func TestMakeEmbeddingLayerQuantizedGlobalScale(t *testing.T) {
 	mlxtest.Run(t, func(t *mlxtest.T) {
 		const checkpoint = 0.375
@@ -87,7 +88,7 @@ func TestMakeEmbeddingLayerQuantizedGlobalScale(t *testing.T) {
 			t.Fatalf("embedding type = %T, want *nn.QuantizedEmbedding", emb)
 		}
 		mlx.Eval(qemb.GlobalScale)
-		want := float32(checkpoint * mlx.Nvfp4MaxProduct)
+		want := float32(checkpoint)
 		if got := qemb.GlobalScale.Floats(); len(got) != 1 || got[0] != want {
 			t.Fatalf("GlobalScale = %v, want [%v]", got, want)
 		}
@@ -102,7 +103,7 @@ func TestMakeEmbeddingLayerQuantizedGlobalScale(t *testing.T) {
 	})
 }
 
-// ModelOpt's own "weight_scale_2" name is honoured, and converted the same way.
+// ModelOpt's own "weight_scale_2" name is honoured, and stored the same way.
 func TestMakeEmbeddingLayerQuantizedGlobalScaleFallback(t *testing.T) {
 	mlxtest.Run(t, func(t *mlxtest.T) {
 		const checkpoint = 0.375
@@ -117,7 +118,7 @@ func TestMakeEmbeddingLayerQuantizedGlobalScaleFallback(t *testing.T) {
 			t.Fatalf("embedding type = %T, want *nn.QuantizedEmbedding", emb)
 		}
 		mlx.Eval(qemb.GlobalScale)
-		want := float32(checkpoint * mlx.Nvfp4MaxProduct)
+		want := float32(checkpoint)
 		if got := qemb.GlobalScale.Floats(); len(got) != 1 || got[0] != want {
 			t.Fatalf("GlobalScale = %v, want [%v]", got, want)
 		}
