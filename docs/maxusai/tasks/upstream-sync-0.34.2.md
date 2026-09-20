@@ -11,7 +11,7 @@ Branch `task/upstream-sync-0.34.2`, worktree `claude-scratch/wt-sync0342`.
 | 3, the patch series against b10969 | **done** — 6 of 7 apply clean; 906 retired as obsolete |
 | 4, image build | **done** — `maxusai/ollama:sync-0.34.2`, 2 h 16 m, rc=0 |
 | 5, preflight | **PASS 21 / SKIP 4** on a canary, after the payload pin moved with evidence |
-| 6, campaigns | pending |
+| 6, campaigns | **done** — every scored cell equal to the deployed build, GGUF and MLX |
 
 ## What v0.34.2 changes for the fork
 
@@ -137,8 +137,47 @@ recorded, and qwen35's pinned budget is arch-gated away.
 
 Runs: `preflight-runs/full-0342-canary.{log,json}`, `canary-0342{,-rerun}.log`.
 
+## Gate 6: the campaigns (2026-09-20)
+
+Think-off throughout, `CTX_START=8192 CTX_MAX=65536`, one runner at a time, GPU0 with the
+16 GiB reserve, never `:11497`. 13 suites in the two legs, **0 errors, 0 OOMs, 0 not
+converged**, plus 8 control suites and 6 repeats.
+
+| leg | prefix | result |
+|---|---|---|
+| A, GGUF, 8 models | `sync0342a_` | 8 suites, clean |
+| B, MLX, 5 nvfp4 models | `sync0342b_` | 5 suites, clean |
+| control, GGUF on the **deployed** build | `depl0342_` | 8 suites, clean |
+| repeats, MLX qwen3.8:27b, 3 per build | `candrep0342_` / `deplrep0342_` | 6 suites, clean |
+
+**Against the deployed build, every GGUF cell is identical.** All eight models, every metric:
+scene, document, fine text, multi-image, contracts. Nothing in the fold moves a GGUF number.
+
+**The first comparison was against the wrong baseline, and the control is why that is known.**
+Compared with `ggml0341_`, gemma4:31b appeared to move two cells — scene 0.966 → 0.963 and
+the 9 px tier 4 → 3. Those are [ADR 0036](../adr/0036-gemma4-image-chunk-decodes-in-one-batch.md)'s
+own measured numbers, digit for digit: that baseline predates the batch floor and the
+candidate contains it, so the comparison measured the batch change. gemma4 e4b, e2b and
+nemotron q8 moved against the same stale baseline and are likewise identical to the deployed
+build. **A fold's control is the build in production, not the last fold's candidate.**
+
+**MLX: four of five models identical cell for cell**, including gemma4 12b, 26b and 31b —
+the models whose entire implementation changed directory in this fold. The 31b leg ran
+`gemma4:31b-nvfp4-tower4bit`, the archived four-bit-tower artifact, because production's
+`gemma4:31b-nvfp4` was promoted to the library's bf16-tower weights on 2026-09-19 and the tag
+no longer names what the baseline measured (ADR 0038). Comparing against the tag would have
+invented a regression on the one model most likely to show one.
+
+**The one MLX cell that moved did not move between builds.** qwen3.8:27b name_bbox read
+0.541 on `sync0341b_` and 0.484 here. Three repeats on each build: **0.484 on both, identical
+across all three runs of each** — zero within-arm spread, so the fold and the deployed build
+agree exactly and the difference belongs to the older baseline, not to this fold.
+
+Renders: `preflight-runs/{sync0342a_,sync0342b_,depl0342_,candrep0342_,deplrep0342_}thinkfalse.log`.
+
 ## Next
 
-Gate 6, the campaigns: GGUF and MLX cells against the deployed build, per ADR 0012. Then
-Glenn's calls — the release tag, and whether ADR 0039 (the nvfp4 global-scale
-representation) lands before or after the deploy.
+Glenn's calls: the release tag and the deploy, and whether
+[ADR 0039](../adr/0039-nvfp4-global-scales-are-stored-as-the-checkpoint-multiplier.md) (the
+nvfp4 global-scale representation) lands before or after — it is cheaper before, because it
+touches files this fold moved.
