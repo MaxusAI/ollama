@@ -2411,6 +2411,72 @@ class TestLlamaCppBuildNative(unittest.TestCase):
                 probes.llama_cpp_build(None, path=p)
 
 
+class TestPlatformSplitRocm(unittest.TestCase):
+    """`rocm` split into `rocm7`/`rocm10`, and what that must not break.
+
+    The ollama version string does not encode the ROCm release: a 7.2.4 build
+    and a 10.0.0 build of the same fold both stamp `0.34.2-dynres-<sha>`.
+    `resolve_profile` matches on (platform, version_pattern) and returns the
+    FIRST hit, so two profiles on one platform would have been resolved by dict
+    order — silently, and with the wrong toolchain pin. Same shape as
+    `mlx-cuda`: one version string, two payloads, told apart by the platform.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_no_two_profiles_share_a_platform_and_pattern(self):
+        """The ambiguity this split exists to prevent, asserted structurally."""
+        seen = {}
+        for pid, prof in self.exp["profiles"].items():
+            key = (prof["platform"], prof["version_pattern"])
+            self.assertNotIn(
+                key, seen,
+                f"{pid} and {seen.get(key)} share platform+version_pattern; "
+                f"resolve_profile returns whichever comes first in dict order")
+            seen[key] = pid
+
+    def test_the_old_rocm_name_still_resolves(self):
+        import preflight
+        self.assertEqual(preflight.PLATFORM_ALIASES.get("rocm"), "rocm7")
+        pid, prof = preflight.resolve_profile(self.exp, "rocm", "0.34.1-dynres-16649e8c")
+        self.assertEqual(prof["platform"], "rocm7")
+        self.assertEqual(pid, "rocm-0-34-1-dynres")
+
+    def test_no_profile_is_left_on_the_bare_rocm_platform(self):
+        stale = [p for p, v in self.exp["profiles"].items() if v["platform"] == "rocm"]
+        self.assertEqual(stale, [], f"{stale} still on the pre-split platform name")
+
+    def test_recorded_runs_under_the_old_name_land_in_the_renamed_row(self):
+        """A run records the name it was measured under; those are not rewritten."""
+        run = {"meta": {"platform": "rocm", "version": "0.34.1-dynres-16649e8c",
+                        "image_tag": "0.34.1-dynres-16649e8c"},
+               "checks": [{"name": "version", "status": "PASS"}]}
+        with tempfile.TemporaryDirectory() as d:
+            fp = os.path.join(d, "run.json")
+            with open(fp, "w") as fh:
+                json.dump(run, fh)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                release_matrix.main([fp])
+            out = buf.getvalue()
+        # the legacy run must not appear as its own surface...
+        self.assertNotRegex(out, r"\|\s\*\*rocm\*\*\s\|",
+                            "legacy 'rocm' run became its own surface row")
+        # ...and rocm7 must not read "not run" while that measurement exists
+        rocm7 = [l for l in out.splitlines() if "**rocm7**" in l]
+        self.assertTrue(rocm7, "rocm7 row missing entirely")
+        self.assertIn("0.34.1-dynres-16649e8c", rocm7[0],
+                      f"rocm7 row did not pick up the legacy run: {rocm7[0]}")
+
+    def test_rocm10_is_listed_even_with_no_run(self):
+        """Absence is shown, never assumed green — the SURFACES contract."""
+        self.assertIn("rocm10", release_matrix.SURFACES)
+        self.assertIn("rocm7", release_matrix.SURFACES)
+
+
 # The main block must stay at the END of the file: unittest.main() runs the
 # classes defined ABOVE it, so a class appended after it silently never runs
 # as a script — which is exactly what happened to PoisonNodeCorroboration's

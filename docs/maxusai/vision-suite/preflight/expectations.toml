@@ -151,7 +151,7 @@ llama_cpp_build = "391fac164"   # b10969, v0.34.2 fold 2026-09-19 (b10864 5d806a
 mlx_build = "d9add9d11f3154111a4c85f267ec2fd307ecd18e"
 
 [profiles.rocm-0-32-1-dynres]
-platform = "rocm"
+platform = "rocm7"
 version_pattern = '^0\.32\.1-dynres-[0-9a-f]{7,40}$'
 patchset = ["001", "002", "004", "005"]
 reference_image = "0.32.1-dynres-35d9e58e"
@@ -183,7 +183,7 @@ no longer what is deployed.
 
 
 [profiles.rocm-0-34-1-dynres]
-platform = "rocm"
+platform = "rocm7"
 version_pattern = '^0\.34\.1-dynres-[0-9a-f]{7,40}$'
 patchset = ["001", "002", "004", "005", "801", "903", "906"]
 reference_image = "0.34.1-dynres-16649e8c"

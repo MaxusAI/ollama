@@ -87,6 +87,13 @@ PLATFORM_ALIASES = {
     "apple-silicon": "metal",
     "apple-silicon-mlx": "mlx-metal",
     "apple-silicon-cpu": "cpu",
+    # "rocm" split into "rocm7"/"rocm10" when ROCm 10.0.0 arrived: the ollama
+    # version string does not encode the ROCm release, so a 7.2.4 build and a
+    # 10.0.0 build of the SAME fold both stamp `0.34.2-dynres-<sha>`. Two
+    # profiles on one platform would have been resolved by dict order, silently.
+    # Same shape as `mlx-cuda`: one version string, two payloads, told apart by
+    # the platform. Old runs and old invocations keep working through here.
+    "rocm": "rocm7",
 }
 
 

@@ -14,14 +14,18 @@ cpu). Columns are what an operator actually wants to know held.
 import argparse
 import glob
 import json
+import os
 import sys
 from collections import defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from preflight import PLATFORM_ALIASES  # noqa: E402  (H5: import, never redefine)
 
 # Every surface the fork claims to support. Listed explicitly so one with no
 # run still appears as a "not run" row instead of silently vanishing from the
 # table -- a missing row reads as "not applicable", which is not the same
 # thing and is the more dangerous of the two.
-SURFACES = ["cuda", "mlx-cuda", "mlx-metal", "apple-silicon-mlx", "rocm", "cpu"]
+SURFACES = ["cuda", "mlx-cuda", "mlx-metal", "apple-silicon-mlx", "rocm7", "rocm10", "cpu"]
 
 # check name -> the column an operator thinks in
 GROUPS = [
@@ -119,7 +123,13 @@ def main(paths, version=None):
 
     by_surface = defaultdict(list)
     for r in runs:
-        by_surface[r.get("meta", {}).get("platform") or "unknown"].append(r)
+        surface = r.get("meta", {}).get("platform") or "unknown"
+        # A run records the platform NAME it was measured under, and those
+        # records are not rewritten. When a platform is renamed -- "rocm" ->
+        # "rocm7" -- the old runs must still land in the renamed row, or the
+        # surface reads "not run" while eleven measurements sit on disk.
+        surface = PLATFORM_ALIASES.get(surface, surface)
+        by_surface[surface].append(r)
     surfaces = SURFACES + [s for s in sorted(by_surface) if s not in SURFACES]
 
     print("| surface | " + " | ".join(g for g, _ in GROUPS) + " | measured on |")
