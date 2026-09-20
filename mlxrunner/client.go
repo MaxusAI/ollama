@@ -25,11 +25,11 @@ import (
 	"github.com/ollama/ollama/envconfig"
 	"github.com/ollama/ollama/format"
 	"github.com/ollama/ollama/llm"
-	"github.com/ollama/ollama/ml"
-	"github.com/ollama/ollama/types/model"
 	"github.com/ollama/ollama/manifest"
-	"github.com/ollama/ollama/mlxrunner/kvsize"
+	"github.com/ollama/ollama/ml"
 	"github.com/ollama/ollama/mlx"
+	"github.com/ollama/ollama/mlxrunner/kvsize"
+	"github.com/ollama/ollama/types/model"
 )
 
 // Client wraps an MLX runner subprocess to implement llm.LlamaServer for LLM models.

@@ -174,7 +174,6 @@ func TestGatherQMMGlobalScaleMatchesDequantized(t *testing.T) {
 func TestReadGlobalScale(t *testing.T) {
 	mlxtest.Run(t, func(t *mlxtest.T) {
 		scale := func(v float32) *mlx.Array { return mlx.FromValues([]float32{v}, 1) }
-		mlxForm := func(v float32) float32 { return v * mlx.Nvfp4MaxProduct }
 
 		for _, tt := range []struct {
 			name     string
@@ -185,13 +184,13 @@ func TestReadGlobalScale(t *testing.T) {
 			{
 				name:     "canonical name",
 				tensors:  map[string]*mlx.Array{"w.weight.global_scale": scale(0.5)},
-				want:     mlxForm(0.5),
+				want:     0.5,
 				consumed: []string{"w.weight.global_scale"},
 			},
 			{
 				name:     "modelopt fallback",
 				tensors:  map[string]*mlx.Array{"w.weight_scale_2": scale(0.25)},
-				want:     mlxForm(0.25),
+				want:     0.25,
 				consumed: []string{"w.weight_scale_2"},
 			},
 			{
@@ -200,7 +199,7 @@ func TestReadGlobalScale(t *testing.T) {
 					"w.weight.global_scale": scale(0.5),
 					"w.weight_scale_2":      scale(0.25),
 				},
-				want:     mlxForm(0.5),
+				want:     0.5,
 				consumed: []string{"w.weight.global_scale", "w.weight_scale_2"},
 			},
 			{
@@ -217,7 +216,7 @@ func TestReadGlobalScale(t *testing.T) {
 					"w.weight.global_scale":       scale(0.5),
 					"w.weight.input_global_scale": scale(8),
 				},
-				want:     mlxForm(0.5),
+				want:     0.5,
 				consumed: []string{"w.weight.global_scale", "w.weight.input_global_scale"},
 			},
 			{name: "absent", tensors: map[string]*mlx.Array{}, want: 0},
