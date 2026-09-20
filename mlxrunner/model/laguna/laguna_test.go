@@ -718,9 +718,10 @@ func TestCombinedTensorGlobalScaleIgnoresInputGlobalScale(t *testing.T) {
 			t.Fatal("combinedTensorGlobalScale returned nil")
 		}
 		mlx.Eval(got)
-		// The reader converts to MLX's representation on the way out.
+		// The reader stores the checkpoint's own m (ADR 0039); MLX's
+		// m*Nvfp4MaxProduct form is built where MLX consumes it, not here.
 		vals := got.Floats()
-		if want := float32(0.25 * mlx.Nvfp4MaxProduct); len(vals) != 1 || vals[0] != want {
+		if want := float32(0.25); len(vals) != 1 || vals[0] != want {
 			t.Fatalf("combinedTensorGlobalScale = %v, want [%v]", vals, want)
 		}
 	})
