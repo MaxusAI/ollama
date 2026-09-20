@@ -704,7 +704,15 @@ not throughput. It is the arm's cache-hit rate, wearing throughput's name.
   | `gate4_0342` | 0.34.2 | 7 | 20 | 172.1 tok/s |
 
   The direct-I/O knob is eliminated by its own A/B: on and off give the identical
-  22/5 split.
+  22/5 split; `OLLAMA_NUM_PARALLEL` is eliminated by `gate4main`, which is 0.34.1
+  at the same 2 and still reads 22/5; the fork's own cache code is eliminated by
+  the diff (`*cache*` over the window is MLX path renames); and ADR 0036 — the
+  first guess, and the wrong one — is refuted by its own closing line, which
+  records the batch floor as denied at every quantization on gfx1151. What is
+  left is the llama.cpp bump b10864 → b10969, localised but not attributed
+  within its 105 upstream commits. It is worth 61% of `gemma4:31b`'s prefill
+  time across the suite (301.6s → 117.0s), which is more than ROCm 10.0.0 moves
+  in either direction.
 - **Enforced by** — SPEC H22 and `summarize_tps.py`, which classifies every block
   `cold` or `cache`, reports the two populations apart, and excludes-and-names any
   block whose class differs between arms rather than dividing an encode by a cache

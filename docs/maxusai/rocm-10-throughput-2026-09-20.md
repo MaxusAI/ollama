@@ -53,12 +53,53 @@ It is not compute. Cold-prefill is 167 → 172 tok/s; what changed is that 5 of
 | `gate4main` | 0.34.1 | 22 | 5 | 167.7 tok/s |
 | `gate4_0342` | 0.34.2 | 7 | 20 | 172.1 tok/s |
 
-**It is not the direct-I/O knob.** Both `dio` settings, on and off, give the
-identical 22/5 split — the knob moves nothing here. The change lies somewhere in
-0.34.1 → 0.34.2 and is specific to `gemma4:31b` (`gemma4:26b-a4b` was already
-7/20 on 0.34.1). ADR 0036 restructured gemma4 image batching and is the obvious
-candidate for making the image prefix cacheable where it was not, **but that has
-not been tested** and is recorded here only as the next thing to check.
+### What moved the cache-hit rate — four causes eliminated
+
+The change is specific to `gemma4:31b`; `gemma4:26b-a4b` was already 7/20 on
+0.34.1 and did not move. Four candidates are ruled out, each by evidence rather
+than by argument:
+
+- **Not the direct-I/O knob.** Both `dio` settings, on and off, give the
+  identical 22/5 split.
+- **Not the harness.** `gate4main` is 0.34.1 at the same `OLLAMA_NUM_PARALLEL=2`
+  as the 0.34.2 arms and still reads 22/5, so the parallel-slot count — which
+  changes how KV cache is carved — is held constant across the move.
+- **Not [ADR 0036](adr/0036-gemma4-image-chunk-decodes-in-one-batch.md)**, which
+  was this document's first guess and is refuted by its own closing line: *"the
+  floor is denied at every quantization on gfx1151, so this ADR is currently
+  inert on the fork's own production hardware."* It cannot have caused a change
+  on the hardware where it does not take effect.
+- **Not the fork's own cache code.** `git diff 16649e8c..f67b1aef` over every
+  path matching `*cache*` is MLX-runner path renames (`x/mlxrunner` →
+  `mlxrunner`) and nothing else; the `runner/` delta is README deletions. Compat
+  906's retirement is also excluded — the `dio906` arms carry it and read 22/5
+  like the rest.
+
+What remains is the llama.cpp payload, **b10864 → b10969** (`a43fad18`), which is
+the only thing in the 84-commit window that touches the ROCm inference path.
+That is 105 upstream commits; none of the server-side commits in it names prompt
+reuse (the closest, `b0dcb8192` "server: fix speculation after an image", is a
+drafter position fix and speculation is not enabled here). **It is localised to
+that bump, not attributed within it** — bisecting 105 upstream commits at roughly
+an hour per build is not proportionate for a change that is an improvement we
+already have.
+
+### What the improvement is worth
+
+Same 27 blocks, same host, same `NUM_PARALLEL`:
+
+| model | arm | prefill total | suite total | cached |
+|---|---|---|---|---|
+| `gemma4:31b` | 0.34.1 `gate4main` | 301.6 s | 1573.3 s | 5/27 |
+| `gemma4:31b` | 0.34.2 `gate4_0342` | **117.0 s** | 1430.6 s | 20/27 |
+| `gemma4:26b-a4b` | 0.34.1 `gate4main` | 56.3 s | 341.7 s | 20/27 |
+| `gemma4:26b-a4b` | 0.34.2 `gate4_0342` | 56.1 s | 335.6 s | 20/27 |
+
+`gemma4:31b` spends **61% less time in prefill** across the suite — 3.1 minutes
+saved on a 26-minute run. End to end the suite is only 9% faster because decode
+dominates at 9–10 tok/s, so this is a latency win on repeat queries against an
+image already seen, not a throughput win in general. It is also worth more than
+anything ROCm 10.0.0 does in either direction.
 
 The same dilution flattened the ROCm result. Split by class, the gemma4 models
 move from "flat" to the two worst regressions in the set:
