@@ -35,18 +35,24 @@ func ReadGlobalScale(tensors map[string]*mlx.Array, weightKeys ...string) (*mlx.
 			}
 		}
 	}
-	return ToMLXGlobalScale(found), consumed
+	return LoadGlobalScale(found), consumed
 }
 
-// ToMLXGlobalScale converts a checkpoint multiplier into the representation
-// every global scale is held in once loaded. Shape is flattened too: a scalar
-// ships as either [] or [1], and stacking a mix of the two fails.
-func ToMLXGlobalScale(globalScale *mlx.Array) *mlx.Array {
+// LoadGlobalScale normalises a checkpoint multiplier for storage: float32, and
+// flattened, because a scalar ships as either [] or [1] and stacking a mix of the
+// two fails. The VALUE is the checkpoint's own m, unchanged.
+//
+// It is deliberately not MLX's m*Nvfp4MaxProduct form. Storing that meant every
+// wrapper applying the scale itself had to divide it back out, and that round trip
+// is not the identity in float32 -- one ulp on 17 of 31b's 191 vision scales, which
+// 27 encoder layers grow into a visible golden delta (issue #312). Conversion now
+// happens at the two places MLX consumes a scale, via mlx.ToMLXRepresentation
+// (ADR 0039).
+func LoadGlobalScale(globalScale *mlx.Array) *mlx.Array {
 	if globalScale == nil {
 		return nil
 	}
-	flat := mlx.Reshape(globalScale.AsType(mlx.DTypeFloat32), int32(globalScale.Size()))
-	return mlx.MulScalar(flat, mlx.Nvfp4MaxProduct)
+	return mlx.Reshape(globalScale.AsType(mlx.DTypeFloat32), int32(globalScale.Size()))
 }
 
 // PrepareGatherQMMGlobalScale broadcasts an already-converted global scale
@@ -60,10 +66,12 @@ func PrepareGatherQMMGlobalScale(globalScale *mlx.Array, numExperts int) *mlx.Ar
 	return mlx.Contiguous(mlx.BroadcastTo(globalScale, int32(numExperts)), false)
 }
 
-// GatherQMMIdentityScale is the scale that leaves an expert bank unscaled,
-// for rows folded into a scaled bank without a scale of their own.
+// GatherQMMIdentityScale is the scale that leaves an expert bank unscaled, for
+// rows folded into a scaled bank without a scale of their own. In the stored
+// convention that is 1, not Nvfp4MaxProduct: the conversion happens where the bank
+// reaches MLX (ADR 0039).
 func GatherQMMIdentityScale() *mlx.Array {
-	return mlx.FromValues([]float32{mlx.Nvfp4MaxProduct}, 1)
+	return mlx.FromValues([]float32{1}, 1)
 }
 
 // SameGlobalScales reports whether two prepared banks hold the same scale for

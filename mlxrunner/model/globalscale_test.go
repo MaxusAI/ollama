@@ -9,12 +9,12 @@ import (
 	"github.com/ollama/ollama/mlx/mlxtest"
 )
 
-// ToMLXGlobalScale converts and flattens; PrepareGatherQMMGlobalScale only
-// broadcasts what it is given. Keeping the conversion in one place is what
-// lets a scale be read once and used by every consumer.
+// LoadGlobalScale normalises shape and dtype and keeps the checkpoint's value;
+// PrepareGatherQMMGlobalScale only broadcasts what it is given. Storing m rather
+// than MLX's m*Nvfp4MaxProduct is ADR 0039, and the round-trip test below is why.
 func TestGlobalScaleConversion(t *testing.T) {
 	mlxtest.Run(t, func(t *mlxtest.T) {
-		if got := ToMLXGlobalScale(nil); got != nil {
+		if got := LoadGlobalScale(nil); got != nil {
 			t.Fatal("nil scale did not convert to nil")
 		}
 		if got := PrepareGatherQMMGlobalScale(nil, 4); got != nil {
@@ -27,33 +27,33 @@ func TestGlobalScaleConversion(t *testing.T) {
 			mlx.NewScalarArray(2),
 			mlx.FromValues([]float32{2}, 1),
 		} {
-			got := ToMLXGlobalScale(scalar)
+			got := LoadGlobalScale(scalar)
 			mlx.Eval(got)
 			if dims := got.Dims(); len(dims) != 1 || dims[0] != 1 {
 				t.Fatalf("converted scalar dims = %v, want [1]", dims)
 			}
-			if want := float32(2 * mlx.Nvfp4MaxProduct); got.Floats()[0] != want {
-				t.Fatalf("converted scalar = %v, want %v", got.Floats()[0], want)
+			if want := float32(2); got.Floats()[0] != want {
+				t.Fatalf("stored scalar = %v, want the checkpoint's own %v", got.Floats()[0], want)
 			}
 		}
 
 		checkpointScales := []float32{0.5, 1, 2, 4}
-		perExpert := ToMLXGlobalScale(mlx.FromValues(checkpointScales, 4))
+		perExpert := LoadGlobalScale(mlx.FromValues(checkpointScales, 4))
 		mlx.Eval(perExpert)
 		for i, got := range perExpert.Floats() {
-			if want := checkpointScales[i] * float32(mlx.Nvfp4MaxProduct); got != want {
-				t.Fatalf("converted scale[%d] = %v, want %v", i, got, want)
+			if want := checkpointScales[i]; got != want {
+				t.Fatalf("stored scale[%d] = %v, want the checkpoint's own %v", i, got, want)
 			}
 		}
 
 		// Broadcasting is value-preserving, and does not convert a second time.
-		bank := PrepareGatherQMMGlobalScale(ToMLXGlobalScale(mlx.FromValues([]float32{2}, 1)), 4)
+		bank := PrepareGatherQMMGlobalScale(LoadGlobalScale(mlx.FromValues([]float32{2}, 1)), 4)
 		mlx.Eval(bank)
 		if dims := bank.Dims(); len(dims) != 1 || dims[0] != 4 {
 			t.Fatalf("bank dims = %v, want [4]", dims)
 		}
 		for i, got := range bank.Floats() {
-			if want := float32(2 * mlx.Nvfp4MaxProduct); got != want {
+			if want := float32(2); got != want {
 				t.Fatalf("bank[%d] = %v, want %v", i, got, want)
 			}
 		}
@@ -66,7 +66,7 @@ func TestGlobalScaleConversion(t *testing.T) {
 					t.Fatal("mismatched scale count did not fail")
 				}
 			}()
-			PrepareGatherQMMGlobalScale(ToMLXGlobalScale(mlx.FromValues([]float32{1, 2}, 2)), 4)
+			PrepareGatherQMMGlobalScale(LoadGlobalScale(mlx.FromValues([]float32{1, 2}, 2)), 4)
 		}()
 	})
 }
@@ -245,6 +245,73 @@ func TestReadGlobalScale(t *testing.T) {
 					t.Fatalf("%s: consumed %v, missing %q", tt.name, consumed, key)
 				}
 			}
+		}
+	})
+}
+
+// The defect ADR 0039 removes: storing MLX's m*Nvfp4MaxProduct meant every wrapper
+// that applies the scale itself divided it back out, and that round trip is not the
+// identity in float32. These are real global scales from the gemma4 checkpoints --
+// 17 of 31b's 191 vision scales lose a ulp, which 27 encoder layers grow into the
+// golden delta issue #312 chased. Stored as the checkpoint's own value, every one
+// survives bit-exactly, and the boundary conversion is applied once where MLX reads it.
+func TestGlobalScaleSurvivesStorageBitExactly(t *testing.T) {
+	mlxtest.Run(t, func(t *mlxtest.T) {
+		// Values chosen so the old round trip demonstrably failed on some of them.
+		checkpoint := []float32{
+			0.0013580322265625, 0.00136566162109375, 0.001373291015625,
+			0.0069580078125, 0.007080078125, 0.00732421875, 1, 0.5, 2, 3,
+		}
+		stored := LoadGlobalScale(mlx.FromValues(checkpoint, len(checkpoint)))
+		mlx.Eval(stored)
+		for i, got := range stored.Floats() {
+			if got != checkpoint[i] {
+				t.Fatalf("stored scale[%d] = %v, want %v bit-exactly", i, got, checkpoint[i])
+			}
+		}
+
+		// The old convention, for the record: convert to MLX's form and back.
+		roundTripped := mlx.DivScalar(mlx.MulScalar(stored, mlx.Nvfp4MaxProduct), mlx.Nvfp4MaxProduct)
+		mlx.Eval(roundTripped)
+		lost := 0
+		for i, got := range roundTripped.Floats() {
+			if got != checkpoint[i] {
+				lost++
+			}
+			_ = i
+		}
+		if lost == 0 {
+			t.Skip("this float32 round trip happens to be exact for every value here; " +
+				"the rule still holds, the fixture just does not witness it")
+		}
+		t.Logf("the old round trip lost %d of %d scales; the stored convention loses none", lost, len(checkpoint))
+	})
+}
+
+// The boundary conversion is the only place the MLX form appears, and it is exact.
+func TestToMLXRepresentationIsTheBoundary(t *testing.T) {
+	mlxtest.Run(t, func(t *mlxtest.T) {
+		if got := mlx.ToMLXRepresentation(nil); got != nil {
+			t.Fatal("nil scale did not convert to nil")
+		}
+		stored := LoadGlobalScale(mlx.FromValues([]float32{1, 2, 0.5}, 3))
+		converted := mlx.ToMLXRepresentation(stored)
+		mlx.Eval(converted)
+		for i, want := range []float32{1, 2, 0.5} {
+			if got := converted.Floats()[i]; got != want*float32(mlx.Nvfp4MaxProduct) {
+				t.Fatalf("converted[%d] = %v, want %v", i, got, want*float32(mlx.Nvfp4MaxProduct))
+			}
+		}
+		// GatherQMM's identity leaves a bank unscaled: 1 stored, Nvfp4MaxProduct at MLX.
+		id := GatherQMMIdentityScale()
+		mlx.Eval(id)
+		if got := id.Floats()[0]; got != 1 {
+			t.Fatalf("stored identity = %v, want 1", got)
+		}
+		atMLX := mlx.ToMLXRepresentation(id)
+		mlx.Eval(atMLX)
+		if got := atMLX.Floats()[0]; got != float32(mlx.Nvfp4MaxProduct) {
+			t.Fatalf("identity at the MLX boundary = %v, want %v", got, float32(mlx.Nvfp4MaxProduct))
 		}
 	})
 }

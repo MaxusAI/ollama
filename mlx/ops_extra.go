@@ -8,11 +8,19 @@ import (
 	"unsafe"
 )
 
-// Nvfp4MaxProduct is the product of the maximum E4M3 and E2M1 values. Every
-// globalScale below is in MLX's representation: a checkpoint's multiplier m
-// (ModelOpt's weight_scale_2) is held as m*Nvfp4MaxProduct, so Nvfp4MaxProduct
-// itself is the identity. Wrappers that hand the scale to MLX pass it through;
-// wrappers that apply it themselves divide it back out.
+// Nvfp4MaxProduct is the product of the maximum E4M3 and E2M1 values, and the
+// factor MLX's kernels fold into a global scale.
+//
+// A global scale is STORED as the checkpoint's own multiplier m (ModelOpt's
+// weight_scale_2), so 1 is the identity, and converted to MLX's m*Nvfp4MaxProduct
+// form only where MLX consumes it -- GatherQMM's native branch and QQMM, both via
+// ToMLXRepresentation (ADR 0039). Wrappers that apply the scale themselves use it
+// as given.
+//
+// The previous convention stored the MLX form and divided it back out here, which
+// is not the identity in float32: f32(f32(m*2688)/2688) misses m by one ulp for 17
+// of 31b's 191 vision scales, and 27 encoder layers grow that into a visible
+// golden delta (issue #312).
 const Nvfp4MaxProduct = 448 * 6
 
 // scaleAndCast applies a global scale to an output and casts back, fusing the
@@ -22,10 +30,21 @@ const Nvfp4MaxProduct = 448 * 6
 var scaleAndCast = Compile2(
 	"GlobalScaleOutput",
 	func(out, scale *Array) *Array {
-		return Mul(out, DivScalar(scale, Nvfp4MaxProduct)).AsType(out.DType())
+		return Mul(out, scale).AsType(out.DType())
 	},
 	Shapeless(),
 )
+
+// ToMLXRepresentation converts a stored global scale (the checkpoint multiplier)
+// into the m*Nvfp4MaxProduct form MLX's own kernels expect. Call it where the
+// scale crosses into MLX and nowhere else: every wrapper that applies the scale
+// itself wants the stored value (ADR 0039).
+func ToMLXRepresentation(globalScale *Array) *Array {
+	if globalScale == nil {
+		return nil
+	}
+	return MulScalar(globalScale, Nvfp4MaxProduct)
+}
 
 // Quantization operations
 
@@ -135,8 +154,10 @@ func GatherQMM(x, w, scales *Array, biases, lhsIndices, rhsIndices *Array, trans
 	// The wrapper fallback needs rhs indices to map output rows to experts;
 	// without them the native path reports the unsupported combination.
 	applyWrapperScale := globalScale != nil && !MetalIsAvailable() && rhsIndices != nil
+	var nativeScale *Array
 	if globalScale != nil && !applyWrapperScale {
-		gs = globalScale.ctx
+		nativeScale = ToMLXRepresentation(globalScale) // crosses into MLX (ADR 0039)
+		gs = nativeScale.ctx
 	}
 
 	out := New("GATHER_QMM")
@@ -772,11 +793,12 @@ func QQMM(x, w, scales *Array, groupSize, bits int, mode string, globalScaleX, g
 	if scales != nil {
 		s = scales.ctx
 	}
+	// Both cross into MLX, so both convert here and nowhere else (ADR 0039).
 	if globalScaleX != nil {
-		gx = globalScaleX.ctx
+		gx = ToMLXRepresentation(globalScaleX).ctx
 	}
 	if globalScaleW != nil {
-		gw = globalScaleW.ctx
+		gw = ToMLXRepresentation(globalScaleW).ctx
 	}
 	out := New("QQMM")
 	mlxCheck(C.mlx_qqmm(&out.ctx, x.ctx, w.ctx, s, optGroupSize, optBits, cMode, gx, gw, DefaultStream().ctx))
