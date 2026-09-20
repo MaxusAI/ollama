@@ -165,7 +165,7 @@ func TestRotatingKVCacheConcatAfterDecodeGrowsBuffer(t *testing.T) {
 	})
 }
 
-// TestRotatingKVCacheConcatAfterLiveRewind: mlxrunner/cache.go calls
+// TestRotatingKVCacheConcatAfterLiveRewind: mlxrunner/cache/cache.go calls
 // Restore(nil, target) between conversation turns to rewind the cache to
 // the matched prefix. Restore moves c.offset/c.idx without trimming the
 // underlying buffer, so slots [c.idx, Dim) still hold stale pre-rewind
