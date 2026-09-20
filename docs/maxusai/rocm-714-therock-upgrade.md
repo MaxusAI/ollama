@@ -318,12 +318,60 @@ measured on this host:
 | `rocm/dev-almalinux-8:7.2.1-complete` | 2.28 | gcc-toolset-13 | `librocblas.so.5.2.70201` | 12 files | present |
 | `rocm/dev-ubuntu-24.04:7.2.2-complete` | 2.39 | 13.3.0 | `librocblas.so.5.2.70202` | 12 files | present |
 | shipped payload (`maxusai-ollama:0.34.1-rocm721-*`) | — | — | `librocblas.so.5.2.70201` | 12 files | present |
+| **`rocm/dev-ubuntu-24.04:10.0.0-full`** | 2.39 | 13.3.0 | **`librocblas.so.5.6`** | **split, see below** | **present, but not where the glob looks** |
 
 The Ubuntu/AlmaLinux pair is the useful control: **changing distro alone changes neither the
 Tensile layout nor the SONAME scheme**, so any difference observed on 10.0.0 or 7.14.1 is a
 TheRock change and nothing else. Ubuntu 24.04 also ships **gcc 13.3**, i.e. the same compiler
 generation as `gcc-toolset-13`, which is why the split drops `--gcc-toolchain` rather than
 replacing it.
+
+### TheRock changed both, and both were silent failures
+
+This was the highest-risk unknown and it fired on both counts.
+
+**1. The Tensile index layout is now split by architecture.** ROCm ≤ 7.2 lays every index flat:
+
+```
+/opt/rocm/lib/rocblas/library/TensileLibrary_lazy_gfx1151.dat
+```
+
+ROCm 10.0.0 keeps the *older* architectures flat (gfx1010–1036, 1100–1103, 1200, 1201) and moves
+the newer ones — gfx908, gfx90a, gfx942, gfx950, gfx1150, **gfx1151**, gfx1152, gfx1153, gfx1250 —
+into per-architecture subdirectories:
+
+```
+/opt/rocm/lib/rocblas/library/gfx1151/TensileLibrary_lazy_gfx1151.dat
+```
+
+`discover/amd.go`'s glob had no `*/` component, so on ROCm 10.0.0 it would return a **non-empty**
+set that happens to exclude gfx1151 — and `filterUnsupportedROCmDevices` only short-circuits when
+the set is *empty*. The result on this host would have been the GPU dropped entirely:
+
+```go
+slog.Warn("dropping ROCm device — no rocblas support for gfx target", ...)
+```
+
+i.e. **silent fallback to CPU on a gfx1151 machine, with a Warn as the only evidence.** Fixed here
+by globbing both shapes, with `TestROCmGFXTargetsAcrossTensileLayouts` covering flat, subdir, and
+the mixed arrangement ROCm 10.0.0 actually ships. The test fails against the old glob with
+`targets = map[gfx1030:true gfx1100:true]` — non-empty, gfx1151 missing — which is precisely the
+dangerous shape.
+
+**2. The rocBLAS SONAME no longer encodes the ROCm version at all.** Observed on the 10.0.0 image:
+
+```
+librocblas.so -> librocblas.so.5 -> librocblas.so.5.6        (27,673,472 bytes, the real file)
+```
+
+`5.6` is the rocBLAS library version. Under the old scheme the third component carried the ROCm
+version (`librocblas.so.5.2.70204` → `70204` → 7.2.4); under TheRock there is no third component
+and no ROCm version anywhere in the SONAME. Nor do the siblings help —
+`libamdhip64.so.7.15.26333-0000000`, `libhipblas.so.3.6`, `libhipblaslt.so.1.4`,
+`libhsa-runtime64.so.1.21.0`, `libamd_comgr.so.3.3.0` are all component versions, none of them
+10.0.0. The only place the ROCm version appears is the install prefix `/opt/rocm/core-10.0` and
+package doc directories like `share/doc/amdrocm-base10.0` — and those give major.minor only, with
+no patch level, and are **not copied into the payload**.
 
 ### The `toolchain_build` pin (PR #355, open — not merged)
 
@@ -343,9 +391,30 @@ Two things follow, both checked rather than assumed:
   `70202` → `rocm-7.2.2` (both matching the real files above), `71401` → `rocm-7.14.1`,
   `100000` → `rocm-10.0.0`. The docstring anticipates the last of these.
 
-The parser's failure mode is a **changed scheme**, not a bigger number: `librocblas.so.10.0.0`,
-`librocblas.so.5` and any 4-digit micro all return `None`. Whether TheRock keeps the
-`so.<X>.<Y>.<NNNNN>` form is the thing to check on the target image (§10).
+The parser's failure mode is a **changed scheme**, not a bigger number — and that is what ROCm
+10.0.0 does. `librocblas.so.5.6` does not match, so `gpu_toolchain()` returns `None`. That path is
+handled correctly: `check_toolchain_pin` returns **ERROR**, not a silent pass, and its diagnosis
+already names the cause ("the library layout moved and `probes.gpu_toolchain` needs updating").
+The pin fails safe.
+
+**But it cannot simply be widened, because the information is gone.** There is no ROCm version in
+any SONAME the payload ships under TheRock. A regex change cannot recover a number that is not
+there. Options, for #355's author to weigh — I have deliberately not touched `probes.py`, which
+lives on that branch:
+
+- **Stamp it at build time.** The Dockerfile already knows `ROCM_BACKEND_TAG`; writing it into the
+  payload (say `lib/ollama/rocm_v10_0/ROCM_VERSION`) gives exact provenance including the patch
+  level, and works for every future ROCm. This is the only option that survives TheRock's
+  decoupling of component versions from the release version, but it couples the probe to a file
+  this branch would have to create, so it needs agreeing rather than assuming.
+- **Read the component versions as a composite fingerprint** (`rocblas-5.6/hip-7.15.26333`). No
+  build-side change, but it identifies the *libraries* rather than the release, and two ROCm
+  releases could in principle share them.
+- **Keep the existing parser for ROCm ≤ 7.2 and accept ERROR on 10.x** until one of the above
+  lands. Honest, and no worse than today, since 10.x is not deployed.
+
+Note the pin only protects a profile that *sets* `toolchain_build`; a new ROCm 10 profile added
+without it gets `SKIP`, not `ERROR`.
 
 ---
 

@@ -227,6 +227,53 @@ func TestFilterUnsupportedROCmDevicesRespectsHSAOverride(t *testing.T) {
 	}
 }
 
+// TheRock (ROCm 10.0) splits the rocblas Tensile indexes: older architectures
+// stay flat in rocblas/library while newer ones -- gfx1151 included -- move into
+// a per-architecture subdirectory. Scanning only the flat form produces a
+// NON-EMPTY target set that omits gfx1151, which is worse than an empty one:
+// filterUnsupportedROCmDevices short-circuits on empty but silently drops the
+// device when the set is populated and the target is missing.
+func TestROCmGFXTargetsAcrossTensileLayouts(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		files []string
+	}{
+		{"flat (ROCm <= 7.2)", []string{"TensileLibrary_lazy_gfx1151.dat"}},
+		{"per-arch subdir (TheRock)", []string{"gfx1151/TensileLibrary_lazy_gfx1151.dat"}},
+		{"mixed, as ROCm 10.0 actually ships", []string{
+			"TensileLibrary_lazy_gfx1030.dat",
+			"TensileLibrary_lazy_gfx1100.dat",
+			"gfx1151/TensileLibrary_lazy_gfx1151.dat",
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			libDir := t.TempDir()
+			for _, f := range tt.files {
+				path := filepath.Join(libDir, "rocblas", "library", filepath.FromSlash(f))
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if got := rocblasGFXTargets([]string{libDir}); !got["gfx1151"] {
+				t.Fatalf("gfx1151 not found; targets = %v", got)
+			}
+
+			devices := filterUnsupportedROCmDevices([]ml.DeviceInfo{{
+				DeviceID:  ml.DeviceID{ID: "0", Library: "ROCm"},
+				Name:      "Radeon 8060S",
+				GFXTarget: "gfx1151",
+			}}, []string{libDir})
+			if len(devices) != 1 {
+				t.Fatalf("gfx1151 device dropped: got %d devices, want 1", len(devices))
+			}
+		})
+	}
+}
+
 type fakeROCmNode struct {
 	node        int
 	renderMinor int
