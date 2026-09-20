@@ -710,8 +710,31 @@ check does not exist". The two that do transfer, and that I would require:
 
 ## 12. Must be measured before this could ship
 
+**The boundary: this compiles and links. Nothing here shows that it works.**
+
+What is established is narrow and worth stating exactly. ggml-hip compiles against ROCm 10.0.0;
+the payload has the right shape; and its dynamic dependencies all resolve under `ldd` in the
+runtime image. That is the whole of it.
+
+What is *not* established:
+
+- **No ROCm 10 payload has ever been executed on this hardware.** Nothing was `dlopen`ed, no
+  kernel ran, no model was loaded, and no token was generated. `ldd` proves symbols resolve; it
+  says nothing about whether HIP initialises on gfx1151, whether rocBLAS picks working Tensile
+  kernels, or whether output is numerically correct.
+- **No GPU was touched at all.** Production `ollama-rocm` was never restarted or reconfigured, and
+  a vision campaign owns the GPU. Runtime validation belongs in a gated promotion, not in a
+  scoping task.
+- **Both transferable gate clauses would have to be re-run on a ROCm 10 build** (§11): the clause-3
+  analogue (`--direct-io` / `OLLAMA_IGPU_DIRECT_IO` revalidated as a load-path integrity check,
+  since it was validated under (c) on 7.2.4 specifically) and clause 4 as written (≥6 consecutive
+  rows on `qwen35moe`, 0 degenerate, rollback boundary controlled). Neither has been run.
+- **Only gfx1151 was compiled**, and only as a single-architecture build.
+
 The current deployment is green on the vision suite, OCRBench and preflight. None of that
-transfers across a toolchain change, because none of it was keyed on the toolchain (§10).
+transfers across a toolchain change, because none of it was keyed on the toolchain (§10) — and
+the gate exists precisely because a build that compiled, linked and started still produced
+degenerate output on this GPU.
 
 1. **Land PR #355 first**, then add a profile that declares `toolchain_build` for the candidate —
    generated and copied whole. **No existing row may be edited to make the candidate green**
