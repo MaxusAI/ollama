@@ -549,7 +549,24 @@ if(OLLAMA_RUNNER_DIR)
             )
             install(RUNTIME_DEPENDENCY_SET rocm_deps
                 DIRECTORIES ${HIP_BIN_INSTALL_DIR} ${HIP_LIB_INSTALL_DIR}
-                PRE_INCLUDE_REGEXES hipblas rocblas amdhip64 rocsolver amd_comgr hsa-runtime64 rocsparse tinfo rocprofiler-register roctx64 rocroller drm drm_amdgpu numa elf
+                # rocm_kpack / origami / clang-cpp / LLVM: ROCm 10.0 split libraries
+                # that were self-contained in 7.2. libamdhip64 now needs
+                # librocm_kpack, libhipblaslt needs liborigami, and libamd_comgr --
+                # which ollama has always shipped -- dynamically links libclang-cpp
+                # and libLLVM instead of statically linking them. Together those two
+                # add ~213 MB to the payload; without them libggml-hip cannot be
+                # loaded at all. None of these resolve on ROCm <= 7.2, where the
+                # same ldd check over the payload reports zero missing libraries.
+                #
+                # rocm_sysdeps: TheRock (ROCm 10.0) vendors its system dependencies
+                # under lib/rocm_sysdeps/lib with a librocm_sysdeps_ prefix so they
+                # cannot collide with the distro's. drm/elf/numa match the regexes
+                # below by substring, but z, zstd, lzma and bz2 match nothing, so
+                # PRE_EXCLUDE_REGEXES ".*" drops them and the shipped libamd_comgr,
+                # libhipblaslt and librocm_sysdeps_elf are left with unresolvable
+                # NEEDED entries. On ROCm <= 7.2 no such library exists and this
+                # regex matches nothing.
+                PRE_INCLUDE_REGEXES hipblas rocblas amdhip64 rocsolver amd_comgr hsa-runtime64 rocsparse tinfo rocprofiler-register roctx64 rocroller drm drm_amdgpu numa elf rocm_sysdeps rocm_kpack origami clang-cpp LLVM
                 PRE_EXCLUDE_REGEXES ".*"
                 POST_EXCLUDE_REGEXES "system32"
                 RUNTIME DESTINATION "${_base_dest}/${OLLAMA_RUNNER_DIR}" COMPONENT llama-server

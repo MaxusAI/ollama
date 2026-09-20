@@ -16,6 +16,53 @@ MaxusAI-fork reference (fork-only; does not exist upstream). Investigated 2026-0
 
 ---
 
+## 0. A latent bug this found, independent of any upgrade
+
+**Read this section even if you never read the rest of this document.** It is not an upgrade
+detail; it is a live defect in `discover/amd.go` that fires on any host whose GPU architecture
+TheRock moved into a per-architecture subdirectory. **It applies to every ROCm from 7.14 onward,
+not just to 10.0.0** — the layout is identical on 7.14.1 and 10.0.0 and flat on 7.2.2, so if you
+are running or planning ROCm 7.14, this applies to you.
+
+`rocblasGFXTargets` scanned for rocBLAS Tensile indexes with a flat glob:
+
+```go
+filepath.Glob(filepath.Join(dir, "rocblas", "library", "TensileLibrary_lazy_gfx*.dat"))
+```
+
+ROCm ≤ 7.2 laid every index flat, so that matched everything. **From ROCm 7.14 onward** TheRock
+splits them: older architectures stay flat, newer ones move into a subdirectory named for the
+architecture. Verified directly — FLAT on `:7.2.2-complete`, SUBDIR on both `:7.14.1-full` and
+`:10.0.0-full`:
+
+| | Architectures |
+| --- | --- |
+| flat, matched by the old glob | gfx1010, 1011, 1012, 1030–1036, 1100–1103, 1200, 1201 |
+| per-arch subdirectory, **missed** | gfx908, gfx90a, gfx942, gfx950, gfx1150, **gfx1151**, gfx1152, gfx1153, gfx1250 |
+
+The consequence is worse than finding nothing. `filterUnsupportedROCmDevices` treats an **empty**
+target set as "no information" and passes every device through — but the flat glob returns a
+**non-empty** set that simply excludes gfx1151. So the device is actively dropped:
+
+```go
+slog.Warn("dropping ROCm device — no rocblas support for gfx target", ...)
+```
+
+On this host that is **silent fallback to CPU on a gfx1151 machine**, with a `Warn` as the only
+evidence and nothing that looks like an error. It is the failure shape this fork keeps meeting:
+correct-looking output, no error, wrong result.
+
+Fixed by globbing both shapes. `TestROCmGFXTargetsAcrossTensileLayouts` covers flat, per-arch
+subdirectory, and the mixed arrangement TheRock actually ships — **all three, because a fleet
+mid-rollout will have ROCm 7.2 hosts and TheRock hosts at the same time and the fix has to serve
+both.** Against the old glob the mixed case fails with `targets = map[gfx1030:true gfx1100:true]`:
+non-empty, gfx1151 absent, which is exactly the dangerous shape.
+
+This fix is independent of whether the fork ever adopts ROCm 7.14 or 10.0, and it should not wait
+on that decision.
+
+---
+
 ## 1. Target version: 7.14.1 exists — the request was right, the URL was wrong
 
 The original brief reported seeing `rocm-7.14.0` at
@@ -318,7 +365,8 @@ measured on this host:
 | `rocm/dev-almalinux-8:7.2.1-complete` | 2.28 | gcc-toolset-13 | `librocblas.so.5.2.70201` | 12 files | present |
 | `rocm/dev-ubuntu-24.04:7.2.2-complete` | 2.39 | 13.3.0 | `librocblas.so.5.2.70202` | 12 files | present |
 | shipped payload (`maxusai-ollama:0.34.1-rocm721-*`) | — | — | `librocblas.so.5.2.70201` | 12 files | present |
-| **`rocm/dev-ubuntu-24.04:10.0.0-full`** | 2.39 | 13.3.0 | **`librocblas.so.5.6`** | **split, see below** | **present, but not where the glob looks** |
+| **`rocm/dev-ubuntu-24.04:7.14.1-full`** | 2.39 | 13.3.0 | **`librocblas.so.5.5`** | **split** | **present, in a subdirectory** |
+| **`rocm/dev-ubuntu-24.04:10.0.0-full`** | 2.39 | 13.3.0 | **`librocblas.so.5.6`** | **split** | **present, in a subdirectory** |
 
 The Ubuntu/AlmaLinux pair is the useful control: **changing distro alone changes neither the
 Tensile layout nor the SONAME scheme**, so any difference observed on 10.0.0 or 7.14.1 is a
@@ -336,9 +384,10 @@ This was the highest-risk unknown and it fired on both counts.
 /opt/rocm/lib/rocblas/library/TensileLibrary_lazy_gfx1151.dat
 ```
 
-ROCm 10.0.0 keeps the *older* architectures flat (gfx1010–1036, 1100–1103, 1200, 1201) and moves
-the newer ones — gfx908, gfx90a, gfx942, gfx950, gfx1150, **gfx1151**, gfx1152, gfx1153, gfx1250 —
-into per-architecture subdirectories:
+Every TheRock ROCm keeps the *older* architectures flat (gfx1010–1036, 1100–1103, 1200, 1201) and
+moves the newer ones — gfx908, gfx90a, gfx942, gfx950, gfx1150, **gfx1151**, gfx1152, gfx1153,
+gfx1250 — into per-architecture subdirectories. **Measured on both 7.14.1 and 10.0.0, identically**,
+so this is a TheRock-wide change and not a property of either version:
 
 ```
 /opt/rocm/lib/rocblas/library/gfx1151/TensileLibrary_lazy_gfx1151.dat
@@ -358,11 +407,14 @@ the mixed arrangement ROCm 10.0.0 actually ships. The test fails against the old
 `targets = map[gfx1030:true gfx1100:true]` — non-empty, gfx1151 missing — which is precisely the
 dangerous shape.
 
-**2. The rocBLAS SONAME no longer encodes the ROCm version at all.** Observed on the 10.0.0 image:
+**2. The rocBLAS SONAME no longer encodes the ROCm version at all.** Observed on both images:
 
 ```
-librocblas.so -> librocblas.so.5 -> librocblas.so.5.6        (27,673,472 bytes, the real file)
+10.0.0:  librocblas.so -> librocblas.so.5 -> librocblas.so.5.6   (27,673,472 bytes, the real file)
+7.14.1:  librocblas.so -> librocblas.so.5 -> librocblas.so.5.5
 ```
+
+Note 7.14.1 → `5.5` and 10.0.0 → `5.6`: the SONAME tracks the rocBLAS library, not the release.
 
 `5.6` is the rocBLAS library version. Under the old scheme the third component carried the ROCm
 version (`librocblas.so.5.2.70204` → `70204` → 7.2.4); under TheRock there is no third component
@@ -397,21 +449,14 @@ handled correctly: `check_toolchain_pin` returns **ERROR**, not a silent pass, a
 already names the cause ("the library layout moved and `probes.gpu_toolchain` needs updating").
 The pin fails safe.
 
-**But it cannot simply be widened, because the information is gone.** There is no ROCm version in
-any SONAME the payload ships under TheRock. A regex change cannot recover a number that is not
-there. Options, for #355's author to weigh — I have deliberately not touched `probes.py`, which
-lives on that branch:
+**It could not simply be widened, because the information is gone.** No SONAME the payload ships
+under TheRock carries the ROCm release — 7.14.1 gives `librocblas.so.5.5` and 10.0.0 gives
+`librocblas.so.5.6`, both tracking the rocBLAS library rather than the release. A regex change
+cannot recover a number that is not there.
 
-- **Stamp it at build time.** The Dockerfile already knows `ROCM_BACKEND_TAG`; writing it into the
-  payload (say `lib/ollama/rocm_v10_0/ROCM_VERSION`) gives exact provenance including the patch
-  level, and works for every future ROCm. This is the only option that survives TheRock's
-  decoupling of component versions from the release version, but it couples the probe to a file
-  this branch would have to create, so it needs agreeing rather than assuming.
-- **Read the component versions as a composite fingerprint** (`rocblas-5.6/hip-7.15.26333`). No
-  build-side change, but it identifies the *libraries* rather than the release, and two ROCm
-  releases could in principle share them.
-- **Keep the existing parser for ROCm ≤ 7.2 and accept ERROR on 10.x** until one of the above
-  lands. Honest, and no worse than today, since 10.x is not deployed.
+**Resolved, in two halves.** PR #355 now reads a `ROCM_VERSION` / `CUDA_VERSION` file beside the
+payload when present and falls back to the SONAME, which still decodes for ROCm ≤ 7.2. This branch
+writes that file (§8). `probes.py` is untouched here; that half lives on #355.
 
 Note the pin only protects a profile that *sets* `toolchain_build`; a new ROCm 10 profile added
 without it gets `SKIP`, not `ERROR`.
@@ -464,19 +509,119 @@ land around 2.35 and is untested.
 
 ### Build 2 — ROCm 10.0.0
 
-> Pending: `rocm/dev-ubuntu-24.04:10.0.0-full` was still downloading when this was written. The
-> Dockerfile defaults to it (`ROCM_BACKEND_TAG=10.0.0-full`); the command is build 1 with that arg
-> omitted. **Nothing in this document claims ROCm 10.0.0 has been compiled against.** What build 1
-> establishes is that the *split* is sound and that any failure on 10.0.0 is attributable to
-> TheRock's toolchain, not to the distro move — which is exactly what makes build 2 diagnostic.
+**`docker build --target publish-llama-server-rocm_v10_0 --build-arg AMDGPU_TARGETS=gfx1151` →
+exit 0.** llama.cpp b10969's ggml-hip compiles against ROCm 10.0.0 and AMD clang 23.0.0git, and
+compat patch 903's `ggml-cuda/mmq.cu` hunk goes through HIP with it. **The recommendation in §5
+survives contact.**
 
----
+The payload is correct in shape: `libggml-hip.so` present, `librocblas.so.5.6`, and gfx1151's
+Tensile index at `rocblas/library/gfx1151/TensileLibrary_lazy_gfx1151.dat` beside 16 flat indexes
+for the older architectures — the split layout is carried into the payload, which is what makes
+the §0 fix necessary rather than merely tidy.
+
+### What build 2 then exposed: TheRock's vendored sysdeps are not installed
+
+The payload built, but its link closure did not. Checked with `ldd` **inside the real runtime
+image** (`ubuntu:24.04`, no GPU needed):
+
+```
+librocm_sysdeps_z.so.1 => not found
+librocm_sysdeps_zstd.so.1 => not found
+librocm_sysdeps_liblzma.so.5 => not found
+librocm_sysdeps_bz2.so => not found
+```
+
+Needed by `libamd_comgr.so.3`, `libhipblaslt.so.1` and `librocm_sysdeps_elf.so.1` — all of which
+*are* shipped. TheRock vendors its system dependencies into `lib/rocm_sysdeps/lib` under a
+`librocm_sysdeps_` prefix so they cannot collide with the distro's. `llama/server/CMakeLists.txt`
+pairs `PRE_EXCLUDE_REGEXES ".*"` with an allow-list, and `drm`, `elf` and `numa` happen to match
+`librocm_sysdeps_drm.so.2` and friends **by substring** — but `z`, `zstd`, `lzma` and `bz2` match
+nothing, so they were excluded while the libraries that need them were kept.
+
+`dlopen` of `libggml-hip.so` would fail on that, which discovery reports as no ROCm device: the
+same silent class as §0, reached a different way. Fixed by adding `rocm_sysdeps` to the allow-list,
+along with `rocm_kpack`, `origami`, `clang-cpp` and `LLVM` for the set below. None of them match
+anything on ROCm ≤ 7.2, so the change is safe for both.
+
+Fixing that exposed a second, larger set that the first failure had masked — ROCm 10.0 also split
+libraries that were self-contained in 7.2:
+
+| Shipped library | New dependency | Size |
+| --- | --- | --- |
+| `libamdhip64.so.7` | `librocm_kpack.so.0` | small |
+| `libhipblaslt.so.1` | `liborigami.so.1` | small |
+| `libamd_comgr.so.3` | `libclang-cpp.so.23.0git` | **86 MB** |
+| `libamd_comgr.so.3` | `libLLVM.so.23.0git` | **127 MB** |
+
+**Why it is needed, so nobody trims it later:** `libamd_comgr` is the code-object manager and
+ollama has always shipped it. In ROCm 7.2 it *statically* linked its LLVM; under TheRock it links
+`libclang-cpp` and `libLLVM` *dynamically*. They are therefore load-bearing, not bloat —
+**removing them produces a payload that cannot `dlopen` at all**, and the failure presents as
+"no ROCm device" rather than as a missing file.
+
+**And the net is a saving, not a cost.** Measured on the gfx1151-only payload: **1.4 GB with the
+LLVM libraries included, against 1.95 GB for the 7.2.2 control.** ROCm 10 is lighter than what the
+fork ships today even after adding 213 MB of LLVM, because the rest of the stack shrank more than
+that. "We must now ship 213 MB of LLVM" is the wrong framing; the right one is that the payload
+gets smaller.
+
+The same `ldd` check over the **7.2.2 control payload reports zero missing libraries**, which is
+what establishes all of this as TheRock-specific rather than a pre-existing defect: ROCm 7.2 takes
+`libdrm`/`libelf`/`libnuma` from the distro, its compression libraries resolve from the runtime
+image, and its comgr needs no LLVM.
+
+### Link closure: complete
+
+After both allow-list fixes, `ldd` inside `ubuntu:24.04` with the payload laid out as the runtime
+lays it out reports **ALL DEPENDENCIES RESOLVE**. The only library that resolves from outside the
+ROCm directory is `libggml-base.so.0`, which the CPU payload supplies at
+`/usr/lib/ollama/libggml-base.so.0` — confirmed against a shipped image, where it sits at the top
+level and not inside `rocm_v7_2/`. The targeted build used here produces the ROCm stage only, so
+it was supplied from a shipped image to complete the check.
+
+**This is where verification stops.** Linking is not loading: nothing has been `dlopen`ed, no
+kernel has run, and no ROCm 10 payload has ever executed on this hardware. See §12.
+
+### The provenance stamp
+
+`lib/ollama/rocm_v10_0/ROCM_VERSION` now carries the bare version, derived from
+`ROCM_BACKEND_TAG` at build time (`10.0.0-full` → `10.0.0`). PR #355's `probes.gpu_toolchain`
+reads it when present and falls back to the SONAME, which still decodes for ROCm ≤ 7.2. The
+Dockerfile comment beside it explains why it exists, because an unexplained bare version file is
+exactly what a later cleanup deletes.
+
+The version comes from the image tag rather than from the installed tree, and that is the honest
+source available: the install prefix gives only `core-10.0` / `core-7.14`, major.minor with no
+patch level.
+
+### glibc floor, measured on all three builds
+
+`readelf -V`, highest required symbol version:
+
+| Artifact | Built on | `libggml-hip.so` | whole bundle |
+| --- | --- | --- | --- |
+| shipped today | AlmaLinux 8 | **2.27** | 2.27 |
+| control, ROCm 7.2.2 | Ubuntu 24.04 | **2.38** | 2.38 |
+| build 2, ROCm 10.0.0 | Ubuntu 24.04 | **2.38** | 2.38 |
+
+The useful detail is *where* the 2.38 comes from. It is **our own compiled objects**, not ROCm:
+on 10.0.0 the next-highest requirement in the bundle is 2.28, because TheRock's vendored sysdeps
+are built on `manylinux_2_28`. On the 7.2.2 control, which takes `libdrm`/`libelf`/`libnuma` from
+Ubuntu, the second-highest is 2.36.
+
+So mitigation 1 in §3 is more attractive than it first appeared: building on
+`rocm/dev-ubuntu-22.04` would drop our own objects to ~2.35 while TheRock's libraries stay
+2.28-clean. And a fuller option exists that was not previously visible — compiling in TheRock's own
+`manylinux_2_28` image against an installed ROCm tarball would put the entire payload back at a
+2.28 floor, matching AlmaLinux 8. Neither is tested here.
 
 ## 9. What this branch changes
 
 | File | Change |
 | --- | --- |
-| `Dockerfile` | New `ROCM_BACKEND_IMAGE` / `ROCM_BACKEND_TAG` args; new `rocm-base` (Ubuntu) + `rocm-deps` stages replacing `rocm-7-deps`; `llama-server-rocm_v10_0` drops `--gcc-toolchain` and gains an optional `AMDGPU_TARGETS` build arg; payload dir renamed |
+| `Dockerfile` | New `ROCM_BACKEND_IMAGE` / `ROCM_BACKEND_TAG` args; new `rocm-base` (Ubuntu) + `rocm-deps` stages replacing `rocm-7-deps`; `llama-server-rocm_v10_0` drops `--gcc-toolchain` and gains an optional `AMDGPU_TARGETS` build arg; payload dir renamed; writes the `ROCM_VERSION` provenance stamp |
+| `discover/amd.go`, `discover/amd_test.go` | the §0 fix: scan both Tensile layouts, with a test over flat / subdir / mixed |
+| `llama/server/CMakeLists.txt` | `rocm_sysdeps` added to `PRE_INCLUDE_REGEXES` so TheRock's vendored compression libraries ship |
 | `llama/server/CMakePresets.json` | `rocm_v7_2_*` → `rocm_v10_0_*`, incl. `OLLAMA_RUNNER_DIR` |
 | `cmake/local.cmake` | backend enum, Linux/Windows guards, shared ROCm block; stale "ROCm 7.1 and 7.2" comment corrected |
 | `.github/workflows/{test,release,test-llamacpp-update}.yaml` | target, payload and cache-ref renames; the ROCm CI container bumped to `rocm/dev-ubuntu-22.04:10.0.0-full` to track `ROCM_BACKEND_TAG` |
@@ -581,13 +726,18 @@ transfers across a toolchain change, because none of it was keyed on the toolcha
    zero.
 5. **gfx1151 GPU discovery explicitly** — that `rocblasGFXTargets` still resolves `gfx1151` from
    the new payload (§7). Cheap to check, silent if it breaks.
-6. **A full-arch build.** The build in §8 narrows `AMDGPU_TARGETS`; the shipped preset builds 13
-   architectures, and whether `gfx908:xnack-` / `gfx90a:xnack±` are still accepted by the new
-   compiler is unverified.
-7. **The tarball glibc decision** (§3) — pick mitigation 1, 2 or 3 deliberately, and if the floor
+6. **A full-arch build.** The builds in §8 narrow `AMDGPU_TARGETS` to gfx1151; the shipped preset
+   builds 13 architectures, and whether `gfx908:xnack-` / `gfx90a:xnack±` are still accepted by
+   AMD clang 23 is unverified. The preset's list should also be reviewed against what ROCm 10.0
+   actually ships — gfx900/gfx906 are gone entirely, which is why the `gfx90[06]` prune is now
+   inert.
+7. **That `libggml-hip.so` actually loads.** The link closure was checked with `ldd` in the
+   runtime image and the missing sysdeps fixed, but nothing has been `dlopen`ed and no model has
+   been run. That check needs the GPU and was deliberately not done on this host.
+8. **The tarball glibc decision** (§3) — pick mitigation 1, 2 or 3 deliberately, and if the floor
    moves, say so in the release notes.
-8. **The ROCm CI job.** Its container is bumped but nothing on this branch ran GitHub Actions.
+9. **The ROCm CI job.** Its container is bumped but nothing on this branch ran GitHub Actions.
    `extra-packages: rocm-libs` may be redundant or nonexistent under TheRock; the inline comment
    says to drop that line rather than pin the container back.
-9. **Runtime load on real hardware.** Nothing here has been run on the gfx1151 GPU; production
+10. **Runtime load on real hardware.** Nothing here has been run on the gfx1151 GPU; production
    `ollama-rocm` was not touched at any point.

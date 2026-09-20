@@ -199,7 +199,18 @@ RUN --mount=type=cache,target=/root/.ccache \
     cmake -S llama/server --preset rocm_v10_0_linux ${AMDGPU_TARGETS:+-DAMDGPU_TARGETS=${AMDGPU_TARGETS}} \
         && cmake --build build/llama-server-rocm_v10_0 -- -l $(nproc) \
         && cmake --install build/llama-server-rocm_v10_0 --component llama-server --strip
+# Inert on ROCm 10.0, which ships no gfx900/gfx906 at all. Kept because it costs
+# nothing and re-fires if a future ROCm reintroduces them.
 RUN rm -f dist/lib/ollama/rocm_v10_0/rocblas/library/*gfx90[06]*
+# Provenance stamp, read by the preflight toolchain pin (probes.gpu_toolchain).
+# TheRock decoupled library SONAMEs from the ROCm release: 10.0.0 ships
+# librocblas.so.5.6, which carries no release version, where 7.2.4 shipped
+# librocblas.so.5.2.70204 and encoded it. Nothing else in the payload names the
+# release either, so without this file a toolchain bump under an unchanged
+# payload cannot be detected. NOT an unused artifact -- do not delete.
+ARG ROCM_BACKEND_TAG
+RUN printf '%s\n' "${ROCM_BACKEND_TAG%%-*}" > dist/lib/ollama/rocm_v10_0/ROCM_VERSION \
+    && cat dist/lib/ollama/rocm_v10_0/ROCM_VERSION
 
 FROM scratch AS publish-llama-server-rocm_v10_0
 COPY --from=llama-server-rocm_v10_0 dist/lib/ollama /lib/ollama/
