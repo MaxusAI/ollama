@@ -1,6 +1,14 @@
 # ADR 0025: on gfx1151/ROCm, think stays off for every measured family
 
-- **Status:** accepted (2026-08-14)
+- **Status:** accepted (2026-08-14); **re-measured 2026-09-20 on b10864 + compat 906 and it
+  holds** — the original evidence was taken on b9888, and this host has since been promoted
+  past it. Five models, both modes, on the deployed build: not one is better with thinking
+  on, `nemotron3` drops 0.862 → 0.743 and loses the serial, and `qwen3.6:35b-a3b` does not
+  converge at all — four ladder rungs to 131072, 334,892 characters of thinking, still
+  capped. See [campaign 2026-09-19](../vision-campaign-2026-09-19-rocm-0341-promoted.md).
+  One nuance recorded there and not acted on: `qwen3.8` converges in one rung at 0.996
+  against a think-off 1.000, so the blanket rule is carrying a broken case and a merely
+  pointless one under the same sentence.
 - **Date:** 2026-08-14
 - **Deciders:** MaxusAI fork maintainers
 - **Scope:** **host-scoped.** This ADR does not supersede
