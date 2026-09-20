@@ -7,16 +7,6 @@ import (
 	"github.com/ollama/ollama/mlx/mlxthread/mlxthreadtest"
 )
 
-// mlxForm converts checkpoint multipliers to MLX's global-scale
-// representation, which is what the wrappers take.
-func mlxForm(checkpoint []float32) []float32 {
-	out := make([]float32, len(checkpoint))
-	for i, v := range checkpoint {
-		out[i] = v * Nvfp4MaxProduct
-	}
-	return out
-}
-
 // fp4Values decodes an fp4 (E2M1) code to its value.
 var fp4Values = [16]float32{0, 0.5, 1, 1.5, 2, 3, 4, 6, 0, -0.5, -1, -1.5, -2, -3, -4, -6}
 
@@ -135,14 +125,18 @@ func testDequantizeGlobalScale(t *mlxthreadtest.T) {
 	base := Dequantize(wq, scales, nil, group, 4, "nvfp4", nil)
 	check("no scale", base, func(int) float32 { return 1 })
 
+	// Dequantize is a wrapper, not an MLX boundary: it applies the scale
+	// itself through scaleAndCast, so it takes the checkpoint's own multiplier
+	// (ADR 0039). Only GatherQMM's native branch and QQMM build MLX's
+	// m*Nvfp4MaxProduct form, and they do it themselves.
 	perRow := []float32{0.5, 1, 2, 4}
 	cases := []struct {
 		name  string
 		scale *Array
 		gs    func(r int) float32
 	}{
-		{"scalar", FromValues([]float32{2 * Nvfp4MaxProduct}, 1), func(int) float32 { return 2 }},
-		{"perRow", FromValues(mlxForm(perRow), rows), func(r int) float32 { return perRow[r] }},
+		{"scalar", FromValues([]float32{2}, 1), func(int) float32 { return 2 }},
+		{"perRow", FromValues(perRow, rows), func(r int) float32 { return perRow[r] }},
 	}
 	for _, tc := range cases {
 		got := Dequantize(wq, scales, nil, group, 4, "nvfp4", tc.scale)
@@ -169,7 +163,7 @@ func testDequantizeGlobalScale(t *mlxthreadtest.T) {
 		group,
 		4,
 		"nvfp4",
-		FromValues(mlxForm(expertGlobalScales), experts),
+		FromValues(expertGlobalScales, experts),
 	).AsType(DTypeFloat32)
 	Eval(expertOut)
 	for i, got := range expertOut.Floats() {
