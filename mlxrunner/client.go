@@ -102,7 +102,7 @@ func NewClient(modelName string, numCtx int, numCtxAuto bool) (*Client, error) {
 		return c, nil
 	}
 	// draft/config.json is the default location a draft model's config lands
-	// at (x/mlxrunner/model/root.go readDraftConfig); it is absent for most
+	// at (mlxrunner/model/root.go readDraftConfig); it is absent for most
 	// models and a manifest may point elsewhere, in which case the draft's
 	// caches go unpriced, which under-prices rather than over-refuses.
 	draft, _ := modelManifest.ReadConfig("draft/config.json")

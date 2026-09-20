@@ -8,13 +8,13 @@
 // being refused (docs/maxusai/mlx-admission-prices-weights-only.md).
 //
 // The package is deliberately pure Go with no cgo: it must not import
-// x/mlxrunner/mlx or x/models/..., because that would drag MLX into the server
+// mlx or mlxrunner/model/..., because that would drag MLX into the server
 // binary. The cost of that separation is that the rules here are a *copy* of the
 // decisions the model packages make in their NewCaches methods, so every rule
 // below names the code it mirrors. When a model package changes its cache
 // layout, this package has to follow.
 //
-// Three cache kinds exist (x/mlxrunner/cache):
+// Three cache kinds exist (mlxrunner/cache):
 //
 //   - cache.NewKVCache            grows with num_ctx in Step-sized blocks
 //   - cache.NewRotatingKVCache(w) bounded by the sliding window w
@@ -32,7 +32,7 @@ import (
 )
 
 // Step mirrors the allocation step every attention cache uses
-// (x/mlxrunner/cache/kvcache.go NewKVCache, rotating.go NewRotatingKVCache).
+// (mlxrunner/cache/kvcache.go NewKVCache, rotating.go NewRotatingKVCache).
 // A full cache's key/value buffers are grown in whole multiples of it.
 const Step = 256
 
@@ -180,7 +180,7 @@ func slots(numCtx int) int {
 
 // windowSlots is how many token slots a rotating cache holds. RotatingKVCache's
 // decode path grows by min(step, maxSize-prev) and never past maxSize
-// (x/mlxrunner/cache/rotating.go update), so the buffer is the window or the
+// (mlxrunner/cache/rotating.go update), so the buffer is the window or the
 // rounded context, whichever is smaller.
 //
 // The batched prefill path (rotating.go concat) transiently exceeds this: it
@@ -215,7 +215,7 @@ func symmetricKV(heads, tokens, dim, elem int) uint64 {
 }
 
 // recurrentBytes mirrors cache.RecurrentCache.Get
-// (x/mlxrunner/cache/recurrent.go:117-118): a conv state [1, convTail, convDim]
+// (mlxrunner/cache/recurrent.go:117-118): a conv state [1, convTail, convDim]
 // in the activation dtype plus a delta state
 // [1, numVHeads, headVDim, headKDim] that is always float32. Neither depends on
 // num_ctx.
@@ -306,7 +306,7 @@ func parse(data []byte) (*config, error) {
 	}
 
 	// text_config for gemma4 and the qwen3.5 family, llm_config for
-	// nemotron_h (x/models/nemotron_h/nemotron_h.go configEnvelope), the
+	// nemotron_h (mlxrunner/model/nemotron_h/nemotron_h.go configEnvelope), the
 	// root for everything else.
 	section := data
 	for _, nested := range []json.RawMessage{envelope.TextConfig, envelope.LLMConfig} {

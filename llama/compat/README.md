@@ -70,7 +70,7 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   carry `patchset = []` because the compat patches do not apply to MLX at all.
   Apple Silicon gets the same geometry from `llm.BudgetFillSize`
   (`llm/llama_server.go`), a Go mirror of `calc_size_budget_fill` called from
-  `x/models/gemma4/vision.go`. The two must stay in lockstep: changing one and
+  `mlxrunner/model/gemma4/vision.go`. The two must stay in lockstep: changing one and
   not the other silently splits GGUF and MLX onto different grids, and only the
   GGUF half is covered by this patch's tests.
 - `005-llama-cpp-dynres-pinned-overshoot.patch` - shared dyn_size sizing: when

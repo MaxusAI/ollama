@@ -1559,7 +1559,7 @@ func (runner *runnerRef) needsReload(ctx context.Context, req *LlmRequest) bool 
 		!reflect.DeepEqual(runner.model.ProjectorPaths, req.model.ProjectorPaths) || // have the projectors changed?
 		(!runner.model.IsMLX() && !reflect.DeepEqual(optsExisting, optsNew)) || // have the runner options changed?
 		// An MLX runner ignores the other runner options, but num_ctx is the
-		// rung admission priced the load at (x/mlxrunner/client.go admit) and
+		// rung admission priced the load at (mlxrunner/client.go admit) and
 		// the window the runner serves. A different rung is a different load:
 		// larger, so admission sees it before the cache grows into memory
 		// that was never priced; smaller, so the memory comes back instead of
