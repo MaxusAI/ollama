@@ -116,7 +116,21 @@ func setROCmGFXTarget(device *ml.DeviceInfo, gfx string) {
 func rocblasGFXTargets(libDirs []string) map[string]bool {
 	targets := make(map[string]bool)
 	for _, dir := range libDirs {
-		files, _ := filepath.Glob(filepath.Join(dir, "rocblas", "library", "TensileLibrary_lazy_gfx*.dat"))
+		library := filepath.Join(dir, "rocblas", "library")
+		// ROCm <= 7.2 lays every Tensile index flat in rocblas/library. TheRock
+		// (ROCm 10.0) moved the newer architectures into a per-architecture
+		// subdirectory -- gfx1151 among them -- and left the older ones flat, so
+		// both shapes must be scanned. Matching only the flat form there yields a
+		// non-empty set that happens to exclude gfx1151, and filterUnsupportedROCmDevices
+		// then drops the GPU entirely with nothing but a Warn to show for it.
+		var files []string
+		for _, pattern := range []string{
+			filepath.Join(library, "TensileLibrary_lazy_gfx*.dat"),
+			filepath.Join(library, "*", "TensileLibrary_lazy_gfx*.dat"),
+		} {
+			matches, _ := filepath.Glob(pattern)
+			files = append(files, matches...)
+		}
 		for _, f := range files {
 			base := filepath.Base(f)
 			if t, ok := strings.CutPrefix(base, "TensileLibrary_lazy_"); ok {
