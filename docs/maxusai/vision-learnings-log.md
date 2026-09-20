@@ -583,3 +583,107 @@ support; the paired discordant counts settle it in one line.
 - **Cost** — none this time, because the paired columns were computed before
   the numbers were written up. The near-miss is that the first draft of the
   status report quoted 171 vs 175 across backends as if the gap meant something.
+
+### 2026-09-20 — A null result measured under an active confound is not a refutation
+When a build has a known defect corrupting its output, every hypothesis tested
+against that build comes back negative, and none of those negatives mean
+anything. They have to be re-run once the confound is removed — and the record
+has to say they were provisional, or they get cited later as settled.
+
+- **Evidence** — three hypotheses were recorded as refuted during the 2026-09
+  gfx1151 vision hunt, all tested while the HIP `prop.integrated` MMQ race was
+  destroying output wholesale:
+
+  | hypothesis | first verdict | re-tested on a healthy build |
+  |---|---|---|
+  | multi-sub-batch image decode | refuted | **wrong** — #320 showed batching moves prefill 1.5–1.9× and a fine-text tier |
+  | b10864 resize flip, BILINEAR → BICUBIC ([llama.cpp #27594](https://github.com/ggml-org/llama.cpp/pull/27594)) | refuted | refuted again, this time meaningfully — compat 905 restoring BILINEAR moved no cell on any of three models |
+  | ROCm math libraries | not tested | refuted — same commit on ROCm 7.2.1 reproduces the corrupted strings character for character |
+
+  The resize re-test is the useful shape: #27594 does not touch
+  `nemotron_h_omni`, so a real resize effect had to move the two QWEN3VL models
+  and leave nemotron alone. A prediction that can fail is what made the second
+  refutation worth more than the first.
+- **Enforced by** — nothing automatic. The habit is: when a defect is found,
+  list every hypothesis refuted while it was live and mark them unresolved, not
+  closed. `amd-upgrade-gate.md` § "Two causes tested and eliminated" is the
+  worked example.
+- **Cost** — one rebuild and three probe runs to re-establish a refutation we
+  already believed, and #320 landing a change we had argued against.
+
+### 2026-09-20 — A knife-edge glyph is not a build signal, and recall counts hide which one it is
+`RNK-0391-DW18`, the 9px code in `finetext.png`, flips in **both directions**
+under last-bit numerical change. Treating a 9px tier move as a build verdict
+reads that one glyph as a quality measurement.
+
+- **Evidence** — across the 0.32.1 → 0.34.1 ROCm promotion, same fixture, think
+  off, temperature 0, N=5 per arm with **zero** within-arm variance:
+
+  | model | tier | 0.32.1 | promoted | |
+  |---|---|---|---|---|
+  | `qwen3.8:27b` | 9px | `RMK-0391-DW18` ✗ | **correct** | gained |
+  | `nemotron3:33b` | 9px | correct | `JRK-0391-DW18` ✗ | lost |
+  | `qwen3.6:35b-a3b` | 7px | correct | `AYK-9901-CK10` ✗ | lost |
+
+  The same string, gained by one model and lost by another, in one build change.
+  `qwen3.8`'s old misreading — `RMK` — is character-for-character the corruption
+  the Metal campaign found on a different backend, quantization and payload
+  (`vision-campaign-2026-09-18-mlx8a7ba949-nvfp4.md`). Two platforms, two
+  payloads, two corruptions of one nine-pixel string.
+- **Enforced by** — `finetext_probe.py` now persists `missed` (per tier) and
+  `not_in_ground_truth`, so a moved tier names its glyph. It also separates two
+  behaviours the count conflates: a **misread** (same slot, one glyph wrong,
+  20 codes returned, answer length unchanged — `qwen3.6`) and a **drop** (code
+  absent, 19 returned, answer shorter — `nemotron3`). `test_summarizers.py::TestFinetextMissedCodes`.
+- **Cost** — two image rebuilds and three probe runs to recover a glyph name
+  the probe had already seen and thrown away.
+
+### 2026-09-20 — A conv kernel's GGUF dtype is not its runtime dtype
+`ggml_conv_2d` decides its im2col output type from `a->type`, the **graph**
+tensor. clip converts kernels on load, so the type in the file and the type in
+the graph disagree — and the blast radius of any dtype-dependent change has to
+be read from the graph.
+
+- **Evidence** — `gemma4:31b-it-q4_K_M` stores `v.patch_embd.weight` as **F16**
+  (`[16,16,3,1152]`, read straight from the GGUF header). A build whose conv_2d
+  uses `a->type == GGML_TYPE_F16 ? F16 : F32` produces an **f32** im2col for it,
+  so `a->type` is not F16 at graph-build time. The 801 node meter shows the
+  runtime answer directly:
+
+  ```
+  b10969            op=IM2COL type=f16    1409 clip nodes
+  b10969 + revert   op=IM2COL type=f32    1409 clip nodes
+  ```
+- **Enforced by** — read the runtime type, not the header:
+  `OLLAMA_CLIP_NODE_STATS='*'` then
+  `docker logs <c> | grep -oE 'op=IM2COL type=[a-z0-9]+' | sort -u`.
+- **Cost** — an affected-set published twice and wrong both times, in opposite
+  directions, and a cross-platform issue (MaxusAI/ollama#349) that asked two
+  other sessions to act on it. The first list came from misreading the meter;
+  the second came from the file headers and was called "authoritative" in the
+  correction to the first.
+
+### 2026-09-20 — The same numerical perturbation helps one model and hurts another
+llama.cpp #23660 demotes conv_2d's im2col to F16 for non-F16 kernels — measured
+by upstream (#26727) as an OCR **loss** on DeepSeek-OCR/CUDA, and measured here
+as an OCR **gain**. Both are real. A perturbation at the input stage moves
+knife-edge glyphs in whichever direction they happen to sit.
+
+- **Evidence** — one working tree, two images, one patch apart, arms verified by
+  `libggml-base` hash and by the runtime im2col type:
+
+  | model | b10969 (f16) | dtype reverted (f32) |
+  |---|---|---|
+  | `qwen3.8:27b` | `[4,4,4,3,1]` x5 | `[4,4,4,3,1]` x5 |
+  | `gemma4:31b` | `[4,4,4,4,3]` x3 | `[4,4,4,3,3]` x3 |
+
+  Upstream's own numbers run the other way (CER 0.3249 -> 0.2955 from the F32
+  im2col). Nobody is wrong; the effect has no fixed sign.
+- **Enforced by** — a fix for a numerical-precision defect is not adopted on the
+  mechanism being real. It is adopted on a measurement **on the models being
+  served**, and the fork declined this one: `llama/compat/907` was written,
+  verified to work, measured, and dropped because it costs `gemma4:31b` a 9px
+  item and buys nothing on the only other affected model
+  (MaxusAI/ollama#348).
+- **Cost** — none beyond the measuring, which is the point: the patch was ready
+  to merge and the measurement is the only thing that stopped it.

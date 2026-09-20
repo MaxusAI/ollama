@@ -151,6 +151,26 @@ def score_codes(body):
     # actually resolve, so a full total_found with zeroed small tiers means
     # fabricated codes, not omitted ones. Worth keeping visible.
     s["total_found"] = len(found)
+    # The MISSED codes, per tier, and what came back instead.
+    #
+    # Recall alone is not diagnosable. "nemotron3 lost one item at 9px" named
+    # nothing anyone could act on, and recovering which glyph it was cost a
+    # rebuild of two images and three fresh probe runs (2026-09-20). With the
+    # codes persisted it is a diff.
+    #
+    # It also exposes a failure mode the count hides: a MISREAD
+    # (RNK-0391-DW18 -> JRK-0391-DW18, same position, one glyph wrong) and a
+    # DROP (the code simply absent) score identically, and they are not the
+    # same defect. qwen3.6 misreads while returning 20 codes and a
+    # byte-identical answer length; nemotron3 both misreads and shortens its
+    # answer. One count, two behaviours.
+    gt_all = {c for codes in gt.values() for c in codes}
+    s["missed"] = {}
+    for size, codes in gt.items():
+        miss = [c for c in codes if c not in found]
+        if miss:
+            s["missed"][f"{size}px"] = miss
+    s["not_in_ground_truth"] = [c for c in found if c not in gt_all]
     return s
 
 
