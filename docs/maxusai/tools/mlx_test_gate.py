@@ -153,7 +153,14 @@ def run(payload, packages, cache=None, ptx_cache=None, image="golang:1.26.0"):
     recompiles cgo from scratch, which takes minutes and is why people stop
     using a gate.
     """
-    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    # Resolve the repo from the working directory, not from this file: the tool
+    # gets copied into a scratch dir to run against a branch that does not carry
+    # it yet, and a script-relative root then points at the wrong tree -- `go`
+    # reports "go.mod file not found" and the gate calls it "no test ran".
+    repo = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                          capture_output=True, text=True).stdout.strip()
+    if not repo:
+        repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     payload = os.path.abspath(payload)
     if not os.path.isdir(payload):
         sys.exit(f"payload directory not found: {payload}")
