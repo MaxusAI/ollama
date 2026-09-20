@@ -1,0 +1,63 @@
+Subject: ggml_conv_2d/3d: im2col dst type should match upstream #23660's stated intent
+
+Upstream PR #23660, "ggml: uniformize im2col dst_type for all conv ops"
+(merged 2026-07-14, 47a39665e708), says:
+
+    "Instead of always forcing F16, we keep F16 only when the weight is F16,
+     and use F32 for everything else (BF16, F32, quantized types)."
+
+The merged code does not do that. For conv_1d it was an improvement: a
+hardcoded GGML_TYPE_F16 became BF16-aware. For conv_2d and conv_3d it REPLACED
+`a->type` with `a->type == GGML_TYPE_BF16 ? GGML_TYPE_F32 : GGML_TYPE_F16`,
+which forces F16 for F32 and quantized kernels -- the two cases the description
+says should get F32.
+
+For a vision tower whose patch_embeddings weight is F32, that demotes the FIRST
+operation applied to image pixels to half precision. Measured on gfx1151
+2026-09-20 with the compat 801 node meter: same image, same model, same ROCm
+7.2.1, the llama.cpp payload the only variable.
+
+    b9888   node_0 op=IM2COL type=f32   node_23 UPSCALE 7.0   node_31 NORM 13.5
+    b10864  node_0 op=IM2COL type=f16   node_23 UPSCALE 6.8   node_31 NORM 13.4
+
+664 nodes, identical ops and shapes on both sides; only the input dtype and the
+values downstream of it move. With this patch node_0 is f32 again and
+nemotron3:33b recovers the 9px fine-text item it lost across the payload bump
+(3 -> 4). qwen3.6's 7px item does NOT come back, so this is one mechanism among
+whatever else moved -- see docs/maxusai/amd-upgrade-gate.md.
+
+This implements the description rather than reverting to the pre-#23660
+`a->type`. A bare revert would hand im2col a quantized type for a quantized
+kernel, which is the crash #23660 set out to fix.
+
+INDEPENDENTLY CONFIRMED UPSTREAM. PR #26727 (merged 2026-08-18), "deepseek-ocr
+SAM ggml_conv_2d with the im2col kept in F32":
+
+    "Since #23660, ggml_conv_2d emits an F16 im2col for all non-F16 conv
+     kernels. The SAM convs in DeepSeek-OCR run F32 weights, and the F16
+     im2col measurably degrades their OCR quality on CUDA."
+
+with CER 0.3249 -> 0.2955 and chrF 63.14 -> 66.72 on their v1 eval. Same
+mechanism, different model, different backend -- so this is not a gfx1151
+effect, which is consistent with our own finding that the ROCm version does not
+move it.
+
+#26727 fixed it for DeepSeek-OCR ONLY, in that model's own graph code. The
+global behaviour is unchanged, so every other F32-kernel conv_2d -- including
+the vision towers this fork serves -- still gets an F16 im2col. There is no
+open PR fixing it globally.
+
+Retirement: upstream makes conv_2d/conv_3d match #23660's description, or
+applies #26727's treatment generally.
+
+--- a/ggml/src/ggml.c
++++ b/ggml/src/ggml.c
+@@ -4760,7 +4760,7 @@
+         int                   p1,
+         int                   d0,
+         int                   d1) {
+-    struct ggml_tensor * im2col = ggml_im2col(ctx, a, b, s0, s1, p0, p1, d0, d1, true, a->type == GGML_TYPE_BF16 ? GGML_TYPE_F32 : GGML_TYPE_F16); // [N, OH, OW, IC * KH * KW]
++    struct ggml_tensor * im2col = ggml_im2col(ctx, a, b, s0, s1, p0, p1, d0, d1, true, a->type == GGML_TYPE_F16 ? GGML_TYPE_F16 : GGML_TYPE_F32); // [N, OH, OW, IC * KH * KW]
+
+     struct ggml_tensor * result =
+         ggml_mul_mat(ctx,
