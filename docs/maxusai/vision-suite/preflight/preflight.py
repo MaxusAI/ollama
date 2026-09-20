@@ -378,6 +378,7 @@ def main():
         except Exception:
             meta["llama_cpp_build"] = None
     results.append(checks.check_payload_pin(profile, container, args.exec_cmd))
+    results.append(checks.check_toolchain_pin(profile, container, args.exec_cmd))
     flush()
 
     # On mlx-metal, MLX is the payload and llama_cpp_build above is the

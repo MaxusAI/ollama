@@ -485,6 +485,71 @@ def mlx_build_payload(container, path=MLX_PAYLOAD_SO, exec_cmd=None):
     return m.group(1) if m else None
 
 
+def gpu_toolchain(container, exec_cmd=None):
+    """The GPU toolchain the running payload was built against, read from the
+    SONAMEs shipped beside it. Returns e.g. "rocm-7.2.4", "cuda-12.8", or None.
+
+    This is the third identity a profile needs and the one nothing recorded.
+    `llama_cpp_build` pins the payload source and `mlx_build` pins the MLX
+    library, but a rebuild of an UNCHANGED payload against a different ROCm or
+    CUDA reshuffles the math libraries underneath it -- rocBLAS and hipBLASLt
+    select Tensile kernels per matrix shape, so a point release changes which
+    kernel serves which GEMM. The ollama version string does not move, the
+    llama.cpp SHA does not move, and every expectation in the profile is
+    inherited on merit it has not earned. That is the b10091/b10353 accident
+    with the compiler swapped for the payload.
+
+    ROCm: rocBLAS carries it. `librocblas.so.5.2.70204` -> 70204 -> 7.2.4; the
+    last four digits are minor and patch, whatever precedes them is the major,
+    so 100000 reads as 10.0.0. Verified on hardware 2026-09-20 against two
+    images known to differ only in ROCMVERSION (70201 vs 70204). libamd_comgr
+    is NOT usable -- it reported 3.0.0 on both.
+
+    CUDA: libcudart's SONAME is already the toolkit version, so it is read
+    directly. NOT verified on a CUDA host -- no CUDA device on this estate. If
+    it misreads there, fix the parser; do not widen a profile to accommodate it.
+    """
+    # A stamp beside the payload wins when present, because from ROCm 10 the
+    # SONAMEs no longer carry the release version AT ALL. Verified on
+    # rocm/dev-ubuntu-24.04:10.0.0-full 2026-09-20: librocblas.so.5.6 is the
+    # rocBLAS library version, and no sibling encodes 10.0.0 either
+    # (libhipblas.so.3.6, libhipblaslt.so.1.4, libhsa-runtime64.so.1.21.0).
+    # TheRock decoupled component SONAMEs from the release on purpose; the
+    # version survives only in the install prefix (/opt/rocm/core-10.0), which
+    # is not copied into the payload. A number that is not in the artifact
+    # cannot be parsed out of it, so the build stamps it instead.
+    cmd = ([exec_cmd.format(container=container)] if exec_cmd else
+           ["docker", "exec", container, "sh", "-c",
+            "cat /usr/lib/ollama/rocm*/ROCM_VERSION /usr/lib/ollama/cuda*/CUDA_VERSION 2>/dev/null; "
+            "ls /usr/lib/ollama/rocm*/librocblas.so.* "
+            "/usr/lib/ollama/cuda*/libcudart.so.* 2>/dev/null || true"])
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True,
+                             timeout=60, shell=bool(exec_cmd)).stdout
+    except Exception:
+        return None
+
+    best = None
+    for line in out.splitlines():
+        line = line.strip()
+        # A bare version on its own line is a stamp file's contents.
+        m = re.fullmatch(r"(\d+\.\d+(?:\.\d+)?)", line)
+        if m:
+            return "rocm-%s" % m.group(1) if "rocm" in out else "cuda-%s" % m.group(1)
+        m = re.search(r"librocblas\.so\.\d+\.\d+\.(\d{5,})$", line)
+        if m:
+            raw = m.group(1)
+            major, minor, patch = raw[:-4], raw[-4:-2], raw[-2:]
+            cand = "rocm-%d.%d.%d" % (int(major), int(minor), int(patch))
+            best = cand if best is None else best
+            continue
+        m = re.search(r"libcudart\.so\.(\d+)\.(\d+)", line)
+        if m:
+            cand = "cuda-%s.%s" % (m.group(1), m.group(2))
+            best = cand if best is None else best
+    return best
+
+
 def llama_cpp_build(container, path="/usr/lib/ollama/llama-server", exec_cmd=None):
     """The llama.cpp source SHA the *running payload* was compiled from, read
     from `llama-server --version` (e.g. "version: 1 (f8def7fe1)" -> "f8def7fe1").
