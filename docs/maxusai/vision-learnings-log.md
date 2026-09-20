@@ -687,3 +687,53 @@ knife-edge glyphs in whichever direction they happen to sit.
   (MaxusAI/ollama#348).
 - **Cost** — none beyond the measuring, which is the point: the patch was ready
   to merge and the measurement is the only thing that stopped it.
+
+### 2026-09-20 — A throughput metric that silently reports a cache-hit rate
+`prefill_tps` divides the whole `prompt_eval_count` by a `prompt_eval_duration`
+that a KV-cache hit collapses, so it is bimodal within one campaign: the same
+`gemma4:31b` block set reads 168 tok/s on 0.34.1 and 1144 tok/s on 0.34.2 with
+the encoder running at the same speed in both. The median over mixed blocks is
+not throughput. It is the arm's cache-hit rate, wearing throughput's name.
+
+- **Evidence** — same 27 blocks, same host, cold-prefill compute unchanged:
+
+  | arm | build | cold | cached | cold-prefill median |
+  |---|---|---|---|---|
+  | `diomainoff` / `diomainon` | 0.34.1 | 22 | 5 | 166.7 / 166.8 tok/s |
+  | `gate4main` | 0.34.1 | 22 | 5 | 167.7 tok/s |
+  | `gate4_0342` | 0.34.2 | 7 | 20 | 172.1 tok/s |
+
+  The direct-I/O knob is eliminated by its own A/B: on and off give the identical
+  22/5 split.
+- **Enforced by** — SPEC H22 and `summarize_tps.py`, which classifies every block
+  `cold` or `cache`, reports the two populations apart, and excludes-and-names any
+  block whose class differs between arms rather than dividing an encode by a cache
+  lookup (`test_summarizers.py::TestThroughputCacheClass`).
+- **Cost** — two wrong published statements in one session, in the same message.
+  A 7x "speedup" was attributed to ADR 0036 on no evidence beyond the ratio; and
+  the ROCm 10.0.0 result was reported as "prefill flat on gemma4" when the blocks
+  that actually encoded were down 5.5% and 10.4% — the regression was hidden by
+  20 cache hits out of 27. Both survived the median discipline that had been
+  applied deliberately two paragraphs earlier, because a median over a bimodal
+  population is exactly as wrong as a mean.
+
+### 2026-09-20 — Measure the instrument before believing a few percent
+A 3% reading is either the result or the noise, and nothing in the number says
+which. Two pairs that should differ in nothing — same image, same ROCm, the
+direct-I/O knob on versus off — put this host's floor at **±0.4%** on the median
+of paired per-test ratios, and at **0 of 108 blocks** on scored output with think
+off.
+
+- **Evidence** — `diomainoff`/`diomainon` and `dio906off`/`dio906on`: gen +0.0
+  to +0.2%, prefill −0.1 to +0.4%, and 0/54 + 0/54 blocks changing any scored
+  field.
+- **Enforced by** — nothing, deliberately: it is a measurement the operator
+  re-takes per host, and SPEC H22's conformance row says so rather than pretending
+  a constant is portable. What it bought immediately: ROCm 10.0.0's decode gain
+  (+0.5% to +6.4%) and prefill loss (−3.3% to −10.4%) are both ten to
+  twenty-five times the floor, so neither needed a repeat to be believed — and
+  the 7/135 scored blocks that moved are real numerics rather than sampling,
+  because the control moved 0/108.
+- **Cost** — none. The control pairs already existed from the direct-I/O
+  question; they had simply never been read as an instrument.
+

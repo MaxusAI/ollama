@@ -6,7 +6,9 @@ imports its helpers from `summarize_engine_compare.py`. Written 2026-08-17;
 H15–H18 added 2026-09-19 from the 0.34 fold's kernel investigation
 ([ADR 0037](../adr/0037-keep-the-mlx-3912-kernel-fix.md)); H20 and H21 added
 2026-09-20 from gating the M5 tensor path
-([m5-neural-accelerators.md](../m5-neural-accelerators.md)).
+([m5-neural-accelerators.md](../m5-neural-accelerators.md)); H22 added 2026-09-20
+from the ROCm 10.0.0 throughput comparison on gfx1151
+([rocm-10-throughput-2026-09-20.md](../rocm-10-throughput-2026-09-20.md)).
 
 Normative rules for adding to `docs/maxusai/vision-suite/`. The decision and its
 evidence are [ADR 0028](../adr/0028-one-runner-one-set-of-helpers.md); report
@@ -501,6 +503,41 @@ the 356 vision layers are 8-bit in `31b-mxfp8`. `quant_dims.py` lists a
 checkpoint's quantized weights; diff the manifests by `name` and `digest`
 before asserting what two checkpoints have in common.
 
+**H22 — A throughput number names its cache class.** `prefill_tps` is not a
+compute rate. On a KV-cache hit the server still reports the whole
+`prompt_eval_count` but a collapsed `prompt_eval_duration`, so the quotient
+jumps five- to thirty-fold while the encoder does almost nothing. Within one
+campaign the metric is therefore bimodal, and the two modes are separated by a
+wide empty gap rather than a gradient — so a median over mixed blocks reports
+the arm's *cache-hit rate* under the name "prefill throughput". Each block is
+classified `cold` or `cache`, the two populations are reported separately, and a
+block whose class DIFFERS between the arms is excluded from the paired delta and
+listed by name: its ratio divides an encode by a cache lookup. `gen_tps` has no
+such failure mode and is reported over every warm block. The first block after a
+restart is dropped in both arms — `cold_start` marks it, and it carries
+model-load and clock-ramp cost no later block pays.
+
+A throughput comparison also states its noise floor, measured on the same host
+by the same generator from a pair that should differ in nothing. Without it a
+few percent is unreadable: it is either the result or the instrument.
+
+> Measured 2026-09-20, comparing ROCm 10.0.0 against 7.2.4 on gfx1151 with the
+> llama.cpp payload held at `391fac164`. The noise floor came from two
+> direct-I/O A/B pairs — same image, same ROCm, a knob with no measured score
+> effect — and is ±0.4% on the median of paired per-test ratios, which is what
+> made a −3% reading a result rather than a shrug.
+>
+> The cache rule was written because its absence had already produced two wrong
+> statements in one session. `gemma4:31b` prefill read 168 tok/s on 0.34.1 and
+> 1144 tok/s on 0.34.2 over the SAME 27 blocks, and that 7x was published here
+> as a compute win attributed to ADR 0036. It is not compute: cold-prefill is
+> 167 → 172 tok/s, and what changed is that 5 of 27 blocks hit cache on 0.34.1
+> against 20 of 27 on 0.34.2. The same dilution then flattened the ROCm result —
+> `gemma4:31b` reads +0.3% over all blocks and **−5.5%** over the blocks that
+> actually encoded, and `gemma4:26b-a4b` reads −2.3% against **−10.4%**. Split
+> by class, ROCm 10.0.0 regresses prefill on all five models; unsplit, it
+> appeared to regress on three and be flat on gemma4.
+
 ## 4. Conformance
 
 | requirement | enforced by |
@@ -527,3 +564,4 @@ before asserting what two checkpoints have in common.
 | H19 | `summarize_extbench.py --categories` prints a slice's question-type split from the cached row file (`test_summarizers.py`); `extbench.py` caches that file per `(offset, limit)` so the rows a run answered are recoverable |
 | H20 | `preflight/checks.py` keeps SKIP, FAIL and ERROR distinct per check and names the route in the summary; `test_verdicts.py::TestMetalTensorGate` asserts the toolchain-missing, remote-host, containerised-payload, missing-`--log-cmd` and does-not-apply skips, and `::TestReleaseMatrixTensorColumn` asserts the column renders, goes red, and reads N/A where there is no Metal |
 | H21 | `probes.mlx_build` and `probes.launched_runner_paths` both filter on each line's own slog timestamp and drop unparseable ones; `probes.parse_metal_tensor_discovery` anchors on the port under test; `test_verdicts.py::TestTensorProbeRoutes` asserts the stale-line, untimestamped and newest-wins cases, `::TestMetalTensorGate` the wrong-server anchor |
+| H22 | `summarize_tps.py` classifies every block and refuses to divide across classes; `test_summarizers.py::TestThroughputCacheClass` asserts the cache label, the excluded-and-named mismatch (`n/c`, never a 10x), the dropped `cold_start` block, that `gen_tps` still counts every warm block, and that two hosts render MIXED while two builds on one host do not. **The noise floor is not enforced** — it is a measurement the operator must re-take per host |

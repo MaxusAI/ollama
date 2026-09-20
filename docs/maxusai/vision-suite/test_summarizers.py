@@ -2134,5 +2134,109 @@ class TestFinetextMissedCodes(unittest.TestCase):
         self.assertEqual(s["not_in_ground_truth"], [])
 
 
+class TestThroughputCacheClass(unittest.TestCase):
+    """`prefill_tps` is bimodal, and the bimodality is not speed (SPEC H22).
+
+    On a KV-cache hit the server still reports the whole `prompt_eval_count`
+    but a collapsed `prompt_eval_duration`, so the ratio jumps 5-30x while the
+    encoder does almost nothing. A median over mixed blocks then reports the
+    arm's cache-hit rate under the name "prefill throughput". That is what
+    these tests pin: the classification, and the refusal to divide an encode
+    by a cache lookup.
+    """
+
+    COLD, CACHE = 200.0, 2000.0
+
+    def _blocks(self, prefill, gen=10.0, cold_start="warm"):
+        return {
+            "prompt_eval_count": 1500, "prompt_eval_duration": int(1500 / prefill * 1e9),
+            "prefill_tps": prefill, "gen_tps": gen, "eval_count": 300,
+            "cold_start": cold_start, "host": "http://h:1", "server_version": "v",
+        }
+
+    def _write(self, d, prefix, blocks, model="m_q4", host="http://h:1", ver="v"):
+        for b in blocks.values():
+            b["host"], b["server_version"] = host, ver
+        with open(os.path.join(d, f"scores_{prefix}_1_{model}_thinkfalse.json"), "w") as f:
+            json.dump(blocks, f)
+
+    def _run(self, d, a="armA", b="armB"):
+        import summarize_tps as stps
+        buf = io.StringIO()
+        with mock.patch.object(sys, "argv", ["summarize_tps.py", "--dir", d, "--a", a, "--b", b]):
+            with contextlib.redirect_stdout(buf):
+                stps.main()
+        return buf.getvalue()
+
+    def test_a_cache_hit_is_labelled_cache_not_counted_as_speed(self):
+        with tempfile.TemporaryDirectory() as d:
+            for prefix in ("armA", "armB"):
+                self._write(d, prefix, {
+                    "t_cold": self._blocks(self.COLD),
+                    "t_warm": self._blocks(self.COLD),
+                    "t_hit": self._blocks(self.CACHE),
+                })
+            out = self._run(d)
+            self.assertRegex(out, r"\| t_hit \| cache \|")
+            self.assertRegex(out, r"\| t_cold \| cold \|")
+            # the cold median is the cold population's, never pulled up by t_hit
+            self.assertIn("| 200.0 | 200.0 |", out)
+
+    def test_a_class_mismatch_is_excluded_and_named(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "armA", {"t_x": self._blocks(self.COLD),
+                                    "t_y": self._blocks(self.COLD)})
+            self._write(d, "armB", {"t_x": self._blocks(self.CACHE),
+                                    "t_y": self._blocks(self.COLD)})
+            out = self._run(d)
+            # t_x encodes in one arm and hits cache in the other: 10x is not a result
+            self.assertIn("cache class differs between arms", out)
+            self.assertIn("`t_x`: cold → cache", out)
+            self.assertNotIn("+900.0%", out)
+            self.assertRegex(out, r"\| t_x \| \*\*cold→cache\*\* \|")
+            self.assertRegex(out, r"\| t_x \|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\| n/c \|")
+
+    def test_the_cold_start_block_is_dropped(self):
+        with tempfile.TemporaryDirectory() as d:
+            for prefix in ("armA", "armB"):
+                self._write(d, prefix, {
+                    "t_first": self._blocks(self.COLD, cold_start="cold"),
+                    "t_a": self._blocks(self.COLD),
+                    "t_b": self._blocks(self.COLD),
+                })
+            out = self._run(d)
+            self.assertIn("1 block(s) dropped as `cold_start`", out)
+            self.assertNotRegex(out, r"\| t_first \|")
+
+    def test_gen_is_reported_over_every_warm_block_regardless_of_class(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "armA", {"t_cold": self._blocks(self.COLD, gen=10.0),
+                                    "t_hit": self._blocks(self.CACHE, gen=10.0)})
+            self._write(d, "armB", {"t_cold": self._blocks(self.COLD, gen=11.0),
+                                    "t_hit": self._blocks(self.CACHE, gen=11.0)})
+            out = self._run(d)
+            summary = out[out.index("### Summary"):]
+            # gen has no cache failure mode: both blocks count, +10% on both
+            self.assertIn("**+10.0%**", summary)
+            self.assertRegex(summary, r"\*\*\+10\.0%\*\* \| 2 \|")
+
+    def test_two_hosts_render_the_mixed_banner(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "armA", {"t_a": self._blocks(self.COLD)}, host="http://h1:1")
+            self._write(d, "armB", {"t_a": self._blocks(self.COLD)}, host="http://h2:1")
+            out = self._run(d)
+            self.assertIn("MIXED — rows are not one campaign", out)
+
+    def test_one_host_two_builds_is_a_normal_ab_not_mixed(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "armA", {"t_a": self._blocks(self.COLD)}, ver="rocm-7.2.4")
+            self._write(d, "armB", {"t_a": self._blocks(self.COLD)}, ver="rocm-10.0.0")
+            out = self._run(d)
+            self.assertNotIn("MIXED", out)
+            self.assertIn("'rocm-10.0.0'", out)
+            self.assertIn("'rocm-7.2.4'", out)
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
