@@ -2411,6 +2411,45 @@ class TestLlamaCppBuildNative(unittest.TestCase):
                 probes.llama_cpp_build(None, path=p)
 
 
+class TestPlatformChoicesFollowExpectations(unittest.TestCase):
+    """`--platform` choices must come from the file `--expectations` names.
+
+    They were built from the DEFAULT expectations file, so
+    `--expectations other.toml --platform newthing` failed at argparse before
+    the file naming that platform was ever opened. A new platform could not be
+    bootstrapped without first editing the committed file — the opposite of
+    what an override is for. Found while bootstrapping rocm10.
+    """
+
+    def _choices(self, argv):
+        import preflight
+        buf = io.StringIO()
+        with mock.patch.object(sys, "argv", argv):
+            with contextlib.redirect_stdout(buf), self.assertRaises(SystemExit):
+                preflight.main()
+        return buf.getvalue()
+
+    def test_an_override_can_introduce_a_platform(self):
+        with open(pathlib.Path(__file__).parent / "expectations.toml") as fh:
+            src = fh.read()
+        with tempfile.TemporaryDirectory() as d:
+            alt = os.path.join(d, "alt.toml")
+            with open(alt, "w") as fh:
+                fh.write(src + '\n[profiles.zz-probe]\n'
+                         'platform = "zzplatform"\n'
+                         "version_pattern = '^never$'\n"
+                         'patchset = []\n'
+                         'arches = []\n')
+            out = self._choices(["preflight.py", "--expectations", alt, "--help"])
+        self.assertIn("zzplatform", out,
+                      "a platform named only by --expectations was not offered")
+
+    def test_the_default_file_does_not_offer_unknown_platforms(self):
+        out = self._choices(["preflight.py", "--help"])
+        self.assertNotIn("zzplatform", out)
+        self.assertIn("rocm7", out)
+
+
 class TestPlatformSplitRocm(unittest.TestCase):
     """`rocm` split into `rocm7`/`rocm10`, and what that must not break.
 
