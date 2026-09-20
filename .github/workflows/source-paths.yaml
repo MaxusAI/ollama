@@ -1,0 +1,58 @@
+name: source-paths
+
+# Does the prose in this change still point at files that exist?
+#
+# The v0.34.2 fold moved the MLX engine out of `x/`, re-pointed most references
+# and left 22 file references behind -- including AGENTS.md, which every agent
+# is told to follow, naming directories the fold deleted. Two of the 22 it did
+# not miss but INVENTED: a mechanical prefix substitution turned
+# `x/models/base/media.go` into `mlxrunner/model/base/media.go` when the
+# reorganisation had removed the `base/` segment. A missing reference is
+# obvious to a reader; a plausible wrong one is not.
+#
+# SCOPED TO THE DIFF, deliberately. Eleven references on main name files that
+# were deleted rather than moved -- living documents discussing dead code,
+# which is legitimate. Gating the whole tree would need an allowlist on day
+# one. Scoped to what a change touches, this stays at zero on a clean tree and
+# still catches the whole class: every one of those 22 was in a file the fold
+# touched.
+#
+# Unconditional trigger, same reason as preflight-expectations.yaml: a
+# path-filtered workflow never reports on a pull request whose paths do not
+# match, so requiring it would wedge every unrelated pull request.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'release/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  source-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The guard's own rules, each one pinning a false alarm measured against
+      # a real tree. Runs everywhere, including pushes to main.
+      - name: The guard's own tests
+        run: python3 docs/maxusai/tools/test_check_source_paths.py
+
+      - name: Do this change's source-file references resolve?
+        if: github.event_name == 'pull_request'
+        run: |
+          BASE=$(git merge-base \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}")
+          python3 docs/maxusai/tools/check_source_paths.py --changed-since "$BASE" .
