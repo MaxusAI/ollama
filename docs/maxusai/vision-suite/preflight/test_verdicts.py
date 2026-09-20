@@ -2190,6 +2190,86 @@ class TestMetalTensorDiscoveryParse(unittest.TestCase):
         self.assertIsNone(d["fallback"])
 
 
+class TestToolchainPin(unittest.TestCase):
+    """The GPU toolchain is a third identity and nothing recorded it.
+
+    llama_cpp_build pins the payload source, mlx_build pins the MLX library, and
+    until 2026-09-20 a rebuild of an UNCHANGED payload against a different ROCm
+    or CUDA matched its profile and passed. rocBLAS and hipBLASLt select Tensile
+    kernels per matrix shape, so a point release reshuffles which kernel serves
+    which GEMM -- with the ollama version string and the llama.cpp SHA both
+    unmoved. Surfaced while scoping a ROCm 7.2 -> 7.14 upgrade.
+    """
+
+    def _check(self, profile, toolchain):
+        with mock.patch.object(checks, "gpu_toolchain", return_value=toolchain):
+            return checks.check_toolchain_pin(profile, "somecontainer")
+
+    def test_matching_toolchain_passes(self):
+        self.assertEqual(self._check({"toolchain_build": "rocm-7.2.4"},
+                                     "rocm-7.2.4")["status"], checks.PASS)
+
+    def test_a_point_release_under_an_unchanged_payload_fails(self):
+        # The exact case: same commit, same llama.cpp SHA, ROCm 7.2.4 -> 7.2.1.
+        # Every other check in the profile would pass.
+        r = self._check({"toolchain_build": "rocm-7.2.4"}, "rocm-7.2.1")
+        self.assertEqual(r["status"], checks.FAIL)
+        self.assertEqual(r["actual"], "rocm-7.2.1")
+
+    def test_a_cuda_toolkit_bump_fails(self):
+        self.assertEqual(self._check({"toolchain_build": "cuda-13.0"},
+                                     "cuda-12.8")["status"], checks.FAIL)
+
+    def test_an_unset_pin_skips_and_says_how_to_set_it(self):
+        # metal and cpu legitimately have no GPU math toolchain and keep the
+        # skip. The diagnosis must name the field, or the skip reads as
+        # "nothing to do here" rather than "nobody recorded this yet".
+        r = self._check({}, "rocm-7.2.4")
+        self.assertEqual(r["status"], checks.SKIP)
+        self.assertIn("toolchain_build", r.get("diagnosis", ""))
+
+    def test_an_unreadable_toolchain_errors_rather_than_passing(self):
+        # A payload with no rocBLAS/cudart beside it, against a profile that
+        # declares one, is a layout change or the wrong profile -- never a pass.
+        self.assertEqual(self._check({"toolchain_build": "rocm-7.2.4"},
+                                     None)["status"], checks.ERROR)
+
+
+class TestGPUToolchainParse(unittest.TestCase):
+    """SONAME decoding. The ROCm form is verified on hardware; the CUDA form is
+    not, and probes.gpu_toolchain's docstring says so."""
+
+    def _probe(self, listing):
+        with mock.patch("probes.subprocess.run") as run:
+            run.return_value = mock.Mock(stdout=listing)
+            return probes.gpu_toolchain("c")
+
+    def test_rocblas_soname_decodes_to_the_rocm_version(self):
+        # Both verified on hardware 2026-09-20 against two images differing
+        # only in ROCMVERSION.
+        self.assertEqual(self._probe(
+            "/usr/lib/ollama/rocm_v7_2/librocblas.so.5.2.70204\n"), "rocm-7.2.4")
+        self.assertEqual(self._probe(
+            "/usr/lib/ollama/rocm_v7_2/librocblas.so.5.2.70201\n"), "rocm-7.2.1")
+
+    def test_a_two_digit_major_decodes(self):
+        # TheRock's current stable is 10.0.0, so this is not hypothetical.
+        self.assertEqual(self._probe(
+            "/usr/lib/ollama/rocm_v10/librocblas.so.5.2.100000\n"), "rocm-10.0.0")
+
+    def test_the_unversioned_symlink_is_ignored(self):
+        # librocblas.so.5 carries no version and must not match, or the answer
+        # depends on ls ordering.
+        self.assertIsNone(self._probe("/usr/lib/ollama/rocm_v7_2/librocblas.so.5\n"))
+
+    def test_cudart_soname_reads_the_toolkit_version(self):
+        self.assertEqual(self._probe(
+            "/usr/lib/ollama/cuda_v13/libcudart.so.13.0.48\n"), "cuda-13.0")
+
+    def test_nothing_found_returns_none_not_a_guess(self):
+        self.assertIsNone(self._probe(""))
+
+
 # The main block must stay at the END of the file: unittest.main() runs the
 # classes defined ABOVE it, so a class appended after it silently never runs
 # as a script — which is exactly what happened to PoisonNodeCorroboration's

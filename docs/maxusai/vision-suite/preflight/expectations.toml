@@ -195,6 +195,13 @@ reference_image = "0.34.1-dynres-16649e8c"
 # b10353 trap, with a worse failure mode, because a 906-less b10864 produces
 # correct token counts and wrong pixels.
 llama_cpp_build = "5d806aa25"
+# The GPU toolchain, read from the shipped rocBLAS SONAME
+# (librocblas.so.5.2.70204). A rebuild of this same payload against a
+# different ROCm reshuffles Tensile kernel selection underneath every
+# number below, and nothing else here would notice: the ollama version
+# string and the llama.cpp SHA both stay put. Measured 2026-09-20 from
+# the deployed container.
+toolchain_build = "rocm-7.2.4"
 expect_patch_marker = 1
 arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 notes = """

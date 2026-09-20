@@ -9,7 +9,7 @@ import sys
 import time
 
 from probes import (ProbeError, TENSOR_ENV_VARS, TENSOR_MARKER,
-                    binary_marker_count,
+                    binary_marker_count, gpu_toolchain,
                     container_logs, grep_binary_marker, lib_ollama_llama_server,
                     launched_runner_paths, local_listener_exe,
                     metal_tensor_discovery, mlx_build_payload, server_env,
@@ -102,6 +102,63 @@ def sha_prefix_match(expected, actual, min_len=7):
     if n < min_len:
         return False
     return expected[:n] == actual[:n]
+
+
+def check_toolchain_pin(profile, container, exec_cmd=None):
+    """Assert the GPU toolchain matches the one this profile was measured on.
+
+    The third identity, beside llama_cpp_build (payload source) and mlx_build
+    (MLX library). A rebuild of an unchanged payload against a different ROCm or
+    CUDA moves the math libraries underneath every number in the profile:
+    rocBLAS and hipBLASLt pick Tensile kernels per shape, so a point release
+    reshuffles which kernel serves which GEMM. Nothing else in the harness would
+    notice -- the ollama version string is unchanged and the llama.cpp SHA is
+    unchanged -- so the profile resolves and passes on merit it has not earned.
+
+    Found 2026-09-20 while scoping a ROCm 7.2 -> 7.14 upgrade: a toolchain-only
+    rebuild would have matched rocm-0-34-1-dynres and gone green. Measured the
+    same day, the 7.2.1 -> 7.2.4 move did not shift a single scored cell -- so
+    this check is about PROVENANCE, not an expectation that the toolchain
+    changes results. A number whose toolchain is unknown is not comparable with
+    one whose toolchain is known, whether or not they happen to agree.
+    """
+    name = "toolchain_pin"
+    expected = profile.get("toolchain_build")
+    if not expected:
+        return result(name, SKIP,
+                      "profile records no toolchain_build to assert against",
+                      diagnosis="Add toolchain_build (e.g. \"rocm-7.2.4\" or "
+                                "\"cuda-13.0\") so a ROCm/CUDA bump under an "
+                                "unchanged payload fails loudly instead of "
+                                "inheriting these expectations. Platforms with "
+                                "no such toolchain (metal, cpu) leave it unset "
+                                "and keep this skip; the MLX library is pinned "
+                                "separately by mlx_build.")
+    if not container:
+        return result(name, SKIP,
+                      "no container resolved; cannot read the shipped SONAMEs",
+                      expected=expected)
+    actual = gpu_toolchain(container, exec_cmd=exec_cmd)
+    if not actual:
+        return result(name, ERROR,
+                      "no rocBLAS or cudart SONAME found beside the payload",
+                      expected=expected,
+                      diagnosis="Either the payload ships no GPU math library "
+                                "(then this profile should not set "
+                                "toolchain_build), or the library layout moved "
+                                "and probes.gpu_toolchain needs updating. Do "
+                                "not clear the field to silence this.")
+    if actual != expected:
+        return result(
+            name, FAIL, "GPU toolchain is not the one this profile was measured on",
+            expected=expected, actual=actual,
+            diagnosis="The math libraries changed under an unchanged payload. "
+                      "rocBLAS/hipBLASLt kernel selection is shape-dependent, so "
+                      "every ladder and scored cell here was measured against "
+                      "different kernels. Re-measure and update the profile with "
+                      "provenance -- do NOT edit values or clear the pin.")
+    return result(name, PASS, f"GPU toolchain is {actual}",
+                  expected=expected, actual=actual)
 
 
 def check_payload_pin(profile, container, exec_cmd=None):
