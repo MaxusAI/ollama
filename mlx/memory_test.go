@@ -12,8 +12,11 @@ import (
 
 func TestSetWiredLimitRejectsOversizeWithoutChangingLimit(t *testing.T) {
 	withMLXThread(t, func(t *mlxthreadtest.T) {
-		if !GPUIsAvailable() {
-			t.Skip("MLX GPU not available")
+		// The wired limit and MaxRecommendedWorkingSetSize are Metal
+		// concepts; on CUDA the device info carries neither, so a GPU
+		// guard admits a backend that cannot answer the question.
+		if !MetalIsAvailable() {
+			t.Skip("wired limits are Metal-only")
 		}
 		if err := checkWiredLimitRejectsOversize(); err != nil {
 			t.Fatal(err)

@@ -358,7 +358,7 @@ instead, checked against the code that actually computes each family's bounds:
 `git diff 21cfe88e..2b95b4a5` is empty for all of llm/llama_server.go's sizing
 model (its only hunk is applyCompletionFormat, the ADR 0033 grammar
 passthrough), mlxrunner/model/qwen3_5/process_image.go, mlxrunner/model/gemma4/vision.go,
-mlxrunner/model/gemma4/media.go and mlxrunner/model/base/media.go, and `go test ./llm/ -run
+mlxrunner/model/gemma4/media.go and mlxrunner/model/media.go, and `go test ./llm/ -run
 TestImageTokensForSize` passes on this build. An earlier draft of this note
 cited only llm/llama_server.go, which does not govern the qwen bounds at all —
 right conclusion, wrong evidence for half the profile.
