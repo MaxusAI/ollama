@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ollama/ollama/mlx/mlxthread"
 	"github.com/ollama/ollama/mlx"
+	"github.com/ollama/ollama/mlx/mlxthread"
 	"github.com/ollama/ollama/mlxrunner/model"
 )
 
