@@ -361,3 +361,55 @@ Two helpers need extra context:
 - Load-op registry overrides ignore the caller-provided `file_offset` when a
   registered operation exists. The operations capture their own source offsets
   at translation time, before renames change tensor names.
+
+## Verifying that a patch actually reached a build
+
+A compat patch that silently fails to apply produces a build that looks correct
+and measures like the unpatched one. Two things that appear to prove application
+and do not:
+
+- **The build log.** `FetchContent`'s `PATCH_COMMAND` output is suppressed
+  (`FETCHCONTENT_QUIET`), so `apply-git-patches.cmake`'s
+  `"llama/compat: applied <file>"` lines appear in **no** Docker build log, for
+  any patch. Grepping for them returns zero on a healthy build too.
+- **`/usr/lib/ollama/llama-server`.** It does not carry `clip.cpp`. Two builds
+  differing only in a `clip.cpp` patch ship byte-identical `llama-server`
+  binaries.
+
+**Hash the artifact that carries the patched translation unit.** For
+`tools/mtmd/clip.cpp` — 001, 002, 004, 005, 801, 905 — that is
+`/usr/lib/ollama/libmtmd.so*`. For `ggml/src/ggml-cuda/*` — 903, 906 — it is the
+backend library, `/usr/lib/ollama/rocm_v7_2/libggml-hip.so` or the CUDA
+equivalent.
+
+```sh
+docker run --rm --entrypoint sha256sum "$IMAGE" /usr/lib/ollama/libmtmd.so.0.4.0
+```
+
+A patch that adds a string literal can also be grepped directly, which is the
+cheapest positive check available:
+
+```sh
+docker run --rm --entrypoint sh "$IMAGE" -c \
+  'grep -ac OLLAMA_CLIP_NODE_STATS /usr/lib/ollama/libmtmd.so.0.4.0'   # 801
+```
+
+Measured 2026-09-20: a compat 905 experiment was nearly discarded as "the patch
+did not apply" on the strength of the two checks above — no patch lines in the
+log, identical `llama-server`. `libmtmd.so` differed; the patch had applied and
+the experiment was valid. Verifying the wrong artifact discards good results as
+readily as it accepts bad ones.
+
+## Diagnostics are only useful on both sides of a comparison
+
+The 8xx band (`801-clip-node-stats-meter`) is carried on `main` and **was never
+backported to `release/0.32.1-dynres`**. That was reasonable while the release
+lineage was frozen, and it became a blocker the moment a payload bump needed
+explaining: localising a 2026-09 vision change to the encoder or the language
+model needs the node meter on **both** builds, and it exists on one. The
+experiment reported "encoder output differs" purely because the baseline emitted
+no lines at all.
+
+Before retiring or freezing a lineage, carry the 8xx diagnostics onto it, or
+archive an instrumented build alongside the shipped one. A diagnostic that only
+exists on the build you are trying to explain cannot explain it.

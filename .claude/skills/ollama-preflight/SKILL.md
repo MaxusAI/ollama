@@ -212,4 +212,14 @@ the bind) or `findmnt -T <mountpoint>` — never `df` of a parent directory.
 - Current serving endpoint: `:11497`, container `ollama-0.33.2-dynres-5-g2b95b4a` (post-deploy smoke + gemma4 re-run recorded in `runs/deploy-smoke-11497*.json`)
 - Reference passing run: canary `maxusai/ollama:4987dd49-dynres` on `:11437` (canary not currently running)
 - ROCm gate: `docs/maxusai/amd-upgrade-gate.md`
+
+**Before trusting a build you just patched.** A compat patch that silently fails
+to apply produces a build that looks correct and measures like the unpatched
+one. The build log proves nothing — `FetchContent` suppresses the patch
+messages, so they appear in *no* build log — and neither does
+`/usr/lib/ollama/llama-server`, which does not carry `clip.cpp`. Hash the
+artifact holding the patched translation unit: `libmtmd.so*` for the clip
+patches (001/002/004/005/801/905), the backend library for the ggml-cuda ones
+(903/906). See `llama/compat/README.md` § "Verifying that a patch actually
+reached a build".
 - Apple Silicon build: `docs/maxusai/spec/apple-silicon-build.md`

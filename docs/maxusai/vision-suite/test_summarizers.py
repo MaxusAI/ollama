@@ -33,6 +33,7 @@ import summarize_head_to_head as shh  # noqa: E402
 import summarize_contract_matrix as scm  # noqa: E402
 import summarize_reps as reps  # noqa: E402
 import summarize_extbench as sxb  # noqa: E402
+import finetext_probe as ftp  # noqa: E402
 import vision_suite as vs  # noqa: E402
 
 # One model, two think cells. Numbers chosen so every assertion below can name
@@ -2089,6 +2090,48 @@ class TestExtbenchArmsAndSlices(unittest.TestCase):
                 sys.argv = ["x", "--dir", d, "--categories", "ocrbench", "A=a"]
                 sxb.main()
             self.assertIn("no cached row slice", out.getvalue())
+
+
+class TestFinetextMissedCodes(unittest.TestCase):
+    """The probe records WHICH codes it missed, not only how many.
+
+    Measured 2026-09-20: "nemotron3 lost one item at 9px" named nothing
+    diagnosable, and recovering the glyph cost two image rebuilds and three
+    fresh probe runs. It also hides a distinction the count cannot express --
+    a misread (same slot, one glyph wrong) and a drop (code absent) score
+    identically and are not the same defect.
+    """
+
+    def _gt(self):
+        return json.load(open(ftp.GT))
+
+    def test_a_misread_names_the_code_and_the_substitute(self):
+        gt = self._gt()
+        codes = [c for v in gt.values() for c in v]
+        target = gt["9"][0]
+        body = json.dumps({"codes": [c for c in codes if c != target] + ["ZZZ-0000-XX00"]})
+        s = ftp.score_codes(body)
+        self.assertEqual(s["missed"]["9px"], [target])
+        self.assertIn("ZZZ-0000-XX00", s["not_in_ground_truth"])
+        self.assertEqual(s["total_found"], len(codes))
+
+    def test_a_drop_is_distinguishable_from_a_misread(self):
+        gt = self._gt()
+        codes = [c for v in gt.values() for c in v]
+        target = gt["9"][0]
+        s = ftp.score_codes(json.dumps({"codes": [c for c in codes if c != target]}))
+        # same recall as the misread above, but nothing substituted and one
+        # fewer code returned -- which is how the two are told apart.
+        self.assertEqual(s["missed"]["9px"], [target])
+        self.assertEqual(s["not_in_ground_truth"], [])
+        self.assertEqual(s["total_found"], len(codes) - 1)
+
+    def test_a_clean_run_records_no_missed_codes(self):
+        gt = self._gt()
+        codes = [c for v in gt.values() for c in v]
+        s = ftp.score_codes(json.dumps({"codes": codes}))
+        self.assertEqual(s["missed"], {})
+        self.assertEqual(s["not_in_ground_truth"], [])
 
 
 if __name__ == "__main__":
