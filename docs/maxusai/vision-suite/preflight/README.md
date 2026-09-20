@@ -181,12 +181,29 @@ These are encoded in the harness, not left to the operator to remember:
   a false failure.
 - **Results are written after every check**, so a killed run still leaves usable
   data.
-- **Detach long runs.** A backgrounded run has been SIGTERM'd (exit 143) mid-suite:
+- **Detach long runs.** A backgrounded run has been SIGTERM'd (exit 143) mid-suite.
+  `&` alone is not detaching: with no job control (a script, CI, an agent tool call)
+  the job stays in the caller's process group and dies with it, and `nohup` only
+  covers SIGHUP. Linux and containers:
 
   ```bash
   setsid nohup ./preflight.py --host http://127.0.0.1:11437 --platform cuda \
       --quality --out runs/rc1.json > runs/rc1.log 2>&1 < /dev/null &
   ```
+
+  **macOS has no `setsid`** — and the native `metal` / `mlx-metal` profiles are
+  exactly the ones that run there. python3, which this harness already requires,
+  does the same thing:
+
+  ```bash
+  python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+      ./preflight.py --host http://127.0.0.1:11437 --platform mlx-metal \
+      --quality --out runs/rc1.json > runs/rc1.log 2>&1 < /dev/null &
+  ```
+
+  Measured 2026-09-20 on macOS 26.6.2: both forms started from one shell, that
+  shell's process group then sent SIGTERM — the `nohup`-only job was killed, the
+  setsid one survived.
 
   Poll `runs/rc1.json`. **Do not use `pgrep -f preflight.py`** to test whether
   your own job is running — the pattern matches the checking shell's own command

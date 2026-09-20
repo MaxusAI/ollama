@@ -17,11 +17,25 @@ Exit codes:
     4  an applicable expectation has never been measured (NEEDS_BASELINE)
 
 Long runs must be detached — a backgrounded run has been SIGTERM'd (exit 143)
-mid-suite. Use:
+mid-suite. `&` alone does not do it: without job control (a script, CI, an agent
+tool call) the job stays in the CALLER'S process group and dies with it, and
+`nohup` only covers SIGHUP. A new session is what survives.
+
+Linux and containers:
 
     setsid nohup ./preflight.py ... > preflight.log 2>&1 < /dev/null &
 
-and poll the --out file. Do NOT use `pgrep -f preflight.py` to test whether the
+macOS has no setsid at all (`command -v setsid` is empty on 26.6.2). python3 —
+which this harness already requires — does the same thing:
+
+    python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+        ./preflight.py ... > preflight.log 2>&1 < /dev/null &
+
+Measured 2026-09-20 on macOS 26.6.2, both forms launched from one shell and the
+shell's process group then sent SIGTERM: the `nohup`-only job was KILLED, the
+setsid one SURVIVED. That SIGTERM is the exit-143 above, not a hypothetical.
+
+Then poll the --out file. Do NOT use `pgrep -f preflight.py` to test whether the
 run is alive: the pattern matches the checking shell's own command line, so the
 loop never exits.
 """
@@ -280,8 +294,8 @@ def main():
     ap.add_argument("--timeout", type=int, default=1800)
     args = ap.parse_args()
 
-    # Detached runs (setsid nohup ... &) otherwise buffer stdout until exit, so a
-    # multi-hour run looks hung. The --out file is written incrementally either
+    # Detached runs (see the module docstring) otherwise buffer stdout until exit,
+    # so a multi-hour run looks hung. The --out file is written incrementally either
     # way; this just makes the log readable while it happens.
     sys.stdout.reconfigure(line_buffering=True)
 
