@@ -493,28 +493,30 @@ func TestFoldSharedExpertsExtendsGlobalScales(t *testing.T) {
 		}
 
 		// Routed experts carry kernel scales; the scaleless shared expert folds
-		// as the identity scale.
+		// as the identity scale, which since ADR 0039 is 1 -- the stored value is
+		// the checkpoint's own m, and MLX's m*Nvfp4MaxProduct form is built at the
+		// boundary by mlx.ToMLXRepresentation.
 		m := newMoE([]float32{1, 2, 3}, nil)
 		if !foldSharedExperts(m, cfg) {
 			t.Fatal("foldSharedExperts failed with routed global scales and a scaleless shared expert")
 		}
-		checkScales("identity extension", m, []float32{1, 2, 3, mlx.Nvfp4MaxProduct, mlx.Nvfp4MaxProduct})
+		checkScales("identity extension", m, []float32{1, 2, 3, 1, 1})
 
 		// The shared expert's own per-tensor scale folds as a routed expert's.
-		m = newMoE([]float32{1, 2, 3}, mlx.FromValues([]float32{0.25 * mlx.Nvfp4MaxProduct}, 1))
+		m = newMoE([]float32{1, 2, 3}, mlx.FromValues([]float32{0.25}, 1))
 		if !foldSharedExperts(m, cfg) {
 			t.Fatal("foldSharedExperts failed with a per-tensor shared expert scale")
 		}
-		shared := float32(0.25 * mlx.Nvfp4MaxProduct)
+		shared := float32(0.25)
 		checkScales("shared scale extension", m, []float32{1, 2, 3, shared, shared})
 
 		// Scaleless routed experts fold against an identity bank when the
 		// shared expert carries a scale.
-		m = newMoE(nil, mlx.FromValues([]float32{0.25 * mlx.Nvfp4MaxProduct}, 1))
+		m = newMoE(nil, mlx.FromValues([]float32{0.25}, 1))
 		if !foldSharedExperts(m, cfg) {
 			t.Fatal("foldSharedExperts failed with a scaleless routed bank")
 		}
-		identity := float32(mlx.Nvfp4MaxProduct)
+		identity := float32(1)
 		checkScales("identity bank", m, []float32{identity, identity, identity, shared, shared})
 
 		// Nothing to scale: the banks stay nil.
@@ -528,7 +530,7 @@ func TestFoldSharedExpertsExtendsGlobalScales(t *testing.T) {
 
 		// A per-row shared expert scale cannot be represented per expert bank
 		// row, so the fold is skipped.
-		m = newMoE([]float32{1, 2, 3}, mlx.FromValues([]float32{1 * mlx.Nvfp4MaxProduct, 2 * mlx.Nvfp4MaxProduct}, 2))
+		m = newMoE([]float32{1, 2, 3}, mlx.FromValues([]float32{1, 2}, 2))
 		if foldSharedExperts(m, cfg) {
 			t.Fatal("foldSharedExperts accepted a per-row shared expert scale")
 		}
