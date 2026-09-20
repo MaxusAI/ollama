@@ -2,7 +2,7 @@
 
 Branch `task/upstream-sync-0.34.2`, worktree `claude-scratch/wt-sync0342`.
 
-## Status (2026-09-19)
+## Status (2026-09-20, deployed)
 
 | gate | state |
 |---|---|
@@ -12,6 +12,8 @@ Branch `task/upstream-sync-0.34.2`, worktree `claude-scratch/wt-sync0342`.
 | 4, image build | **done** — `maxusai/ollama:sync-0.34.2`, 2 h 16 m, rc=0 |
 | 5, preflight | **PASS 21 / SKIP 4** on a canary, after the payload pin moved with evidence |
 | 6, campaigns | **done** — every scored cell equal to the deployed build, GGUF and MLX |
+| tag and deploy | **done** — `v0.34.2-dynres`, `:11497` running `0.34.2-dynres-0-g5bffaac` since 13:08:53 |
+| post-deploy, on the shipped image | **done** — GGUF 8,172 cells unmoved, MLX within its own spread, OCRBench flat on four arms |
 
 ## What v0.34.2 changes for the fork
 
@@ -211,9 +213,149 @@ Production runs as root and never noticed; an unprivileged reader — this test 
 — could not open the model at all. Both are 0644 now. The 42 files still at 0600 are ollama's
 own `models/metadata`, written that way by the server before this work.
 
-## Next
+## Deployed, and verified on the build itself (2026-09-20)
 
-Glenn's calls: the release tag and the deploy, and whether
-[ADR 0039](../adr/0039-nvfp4-global-scales-are-stored-as-the-checkpoint-multiplier.md) (the
-nvfp4 global-scale representation) lands before or after — it is cheaper before, because it
-touches files this fold moved.
+Tagged `v0.34.2-dynres` and deployed to `:11497` at 13:08:53 as
+`0.34.2-dynres-0-g5bffaac`, eleven seconds without service, 55 tags either side.
+ADR 0039 landed inside the fold, as above.
+
+**Everything in gate 6 was measured on `0.34.1-dynres-26-g3dade56`, not on what shipped.**
+The deployed image is a Go-only swap onto the same native payload — the only file differing
+under `llama/` is `README.md` — so those numbers transfer by argument. An argument is not a
+measurement, and ADR 0039 plus two Go changes (the fp16 gate widening to the `qwen2vl`
+architecture spelling, the iGPU dedicated-pool fix) sat in the gap with no scored cell over
+them. So the suite and the OCRBench ladder were re-run on `maxusai/ollama:sync-0.34.2-main`,
+the exact image production serves, on a canary — never `:11497`.
+
+18 suites and 8 OCRBench arms: **0 errors, 0 OOMs, 0 not converged, 0 empty answers**, and
+`prompt_eval` identical to the baselines throughout, which is what proves the arms were shown
+the same images at the same grids.
+
+### GGUF: nothing moved
+
+**8,172 scored cells, zero moved** — against *both* `0.34.1-dynres-26-g3dade56` (the fold
+candidate) and `0.34.1-dynres-16-g16649e8` (the build previously in production). All eight
+models, every metric: scene, document, fine text, multi-image, contracts.
+
+### MLX: bounded by the build's own spread
+
+The five nvfp4 models moved 92 of 5,104 cells against the candidate, which means nothing on
+its own — MLX think-off is not bit-reproducible on this fork. The control is a **second MLX
+leg on the same image** (`prod0342b_` vs `prod0342b2_`):
+
+| comparison | cells moved |
+|---|---|
+| within one build, run 1 vs run 2 | 40 / 5104 (0.8 %) |
+| candidate vs deployed, run 1 | 92 / 5104 (1.8 %) |
+| candidate vs deployed, run 2 | 95 / 5104 (1.9 %) |
+
+Same order, same kinds, same cells — and the two largest cross-build flips **flip back** on
+the same build:
+
+| cell | candidate | deployed run 1 | deployed run 2 |
+|---|---|---|---|
+| `gemma4:12b-nvfp4` `bbox_contract` | 0.929, 6 hits | **0.0, 0 hits** | **0.958, 6 hits** |
+| `qwen3.6:35b-a3b-nvfp4` `bbox_contract_multi` | 0 hits | **3 hits** | **0 hits** |
+
+A contract dropping from six hits to zero is the most alarming thing in the diff, and one
+build produces both answers. Read cross-build alone it is a regression; read against the
+within-build control it is prefix-cache state (ADR 0029).
+
+### The one cell that is not noise, and it recovered
+
+`qwen3.8:27b-nvfp4` is nearly deterministic here — **one** cell moved between the two runs,
+by 0.001 — yet it shifted 28 against the candidate. The largest is
+`document_single.name_bbox_mean_iou`, and its whole history says the same thing:
+
+| builds | runs | `name_bbox_mean_iou` |
+|---|---|---|
+| 0.33.2 → 0.34.0 | 10 | 0.541 / 0.542 |
+| **0.34.1**, both `g16649e8` and `g3dade56` | 6 | **0.484** |
+| **0.34.2-dynres-0-g5bffaac** | 2 | **0.542** |
+
+**That is a recovery.** The 0.34.1 fold introduced the global-scale ×2688 / ÷2688 round trip;
+ADR 0039 removed it, and the cell returns to its pre-0.34.1 value. It is the same shape the
+encoder goldens show — 31b max sampled delta 0.1094 → 0.0898, back to the pre-fold line — so
+ADR 0039's benefit is visible end to end in the suite, not only in the goldens.
+
+Gate 6 read 0.484 on both 0.34.1 builds with zero spread across three repeats each and
+concluded the difference belonged to the older baseline rather than to the fold. That was
+right, and this completes it: 0.484 was a 0.34.1-era regression, not a baseline artefact.
+
+**Attribution is an argument, not an isolation.** The deployed build differs from the
+candidate by ADR 0039, the fp16 gate and the iGPU fix; only ADR 0039 touches MLX at all.
+
+### OCRBench: four arms, flat
+
+Rows 0–200, think off, temperature 0, `apply_sampling=False`, one model at a time — the same
+protocol as [the CUDA ladder](../ocrbench-quantisation-ladder.md), whose arms were measured on
+`0.34.1-dynres-16-g16649e8`.
+
+| arm | `g16649e8` | `g5bffaac` | discordant items | exact McNemar |
+|---|---|---|---|---|
+| nvfp4 / 4-bit tower | 0.860, 0.860 | 0.865, 0.860 | 1 | inside its own spread |
+| nvfp4 / bf16 tower | 0.850, 0.850 | 0.855, 0.855 | 1 | 1.000 |
+| GGUF q4_K_M | 0.855, 0.855 | 0.855, 0.855 | 0 | 1.000 |
+| GGUF q8_0 | 0.850, 0.850 | 0.850, 0.850 | **0** | 1.000 |
+
+`q8_0` is the strongest row available: both ✓ 170, both ✗ 30, **A only 0, B only 0** — not the
+same accuracy but the same verdict on all 200 items, across a payload fold, a retired compat
+patch and ADR 0039.
+
+Rendered verbatim by `summarize_extbench.py` (SPEC H7):
+
+| model | scored | errors | empty | correct | accuracy | think | endpoint |
+|---|---|---|---|---|---|---|---|
+| `gemma4:31b-nvfp4-tower4bit` | 200 | 0 | 0 | 173 | **0.865** | false | generate |
+| `gemma4:31b-nvfp4` | 200 | 0 | 0 | 171 | **0.855** | false | generate |
+| `gemma4:31b-it-q4_K_M` | 200 | 0 | 0 | 171 | **0.855** | false | generate |
+| `gemma4:31b-it-q8_0` | 200 | 0 | 0 | 170 | **0.85** | false | generate |
+
+ocrbench — `echo840/OCRBench` [test], rows 0..200.
+
+⚠ **MIXED — rows are not one campaign** (hosts: ['http://127.0.0.1:11543', 'http://127.0.0.1:11544']; builds: ['0.34.2-dynres-0-g5bffaac'])
+
+| arm | runs | accuracies | items that changed verdict |
+|---|---|---|---|
+| nvfp4 tower | 2 | 0.865, 0.860 | 1 |
+| bf16 tower | 2 | 0.855, 0.855 | 0 |
+| q4_K_M | 2 | 0.855, 0.855 | 0 |
+| q8_0 | 2 | 0.850, 0.850 | 0 |
+
+| arm | accuracy | ±1 s.e. | mean s/item | median | mean prompt_eval |
+|---|---|---|---|---|---|
+| nvfp4 tower | 0.865 | 0.024 | 2.1 | 1.9 | 1115 |
+| bf16 tower | 0.855 | 0.025 | 2.1 | 2.0 | 1115 |
+| q4_K_M | 0.855 | 0.025 | 5.7 | 5.6 | 1115 |
+| q8_0 | 0.850 | 0.025 | 5.2 | 4.9 | 1115 |
+
+| question type | n | nvfp4 tower | bf16 tower | q4_K_M | q8_0 |
+|---|---|---|---|---|---|
+| Artistic Text Recognition | 50 | 49/50 | 49/50 | 49/50 | 48/50 |
+| Handwriting Recognition | 50 | 34/50 | 34/50 | 33/50 | 33/50 |
+| Irregular Text Recognition | 50 | 40/50 | 39/50 | 40/50 | 40/50 |
+| Regular Text Recognition | 50 | 50/50 | 49/50 | 49/50 | 49/50 |
+
+The MIXED banner is correct and is left standing: the two `q8_0` arms ran in a second
+container on `:11544` because they were queued after the first four, so the rows carry two
+hosts. One build, two hosts — the guard cannot know which difference matters, and that is the
+point of it.
+
+**Timing from this run is not usable and is not reported as a finding.** The baseline's arms
+were tight (2.3/2.2 and 1.4/1.5 s/item); these are 2.1/2.4 and 2.1/1.8 — each arm's own two
+runs spread 0.3 s/item against the baseline's 0.1. GPU0 carried tritonserver and three other
+tenants through the window and their activity cannot be reconstructed. That inflated
+within-arm spread is contention's signature, so whether the 4-bit tower still costs its
+measured 39 % per image is **unresolved here**; it needs both arms interleaved on a quiet GPU
+with `pmon` logged alongside. Accuracy is untouched by this — temperature 0, deterministic
+decode, `prompt_eval` identical.
+
+### Not covered
+
+`gemma4:31b-it-bf16`, `31b-mxfp8` and `31b-mlx-bf16` are no longer in the store; re-pulling all
+three is ~157 GiB against 217 GiB free on an array at 95 %, so that axis of the ladder was not
+re-measured. `31b-mlx-bf16` was refused admission on the previous build anyway (75.0 GiB needed
+against 62.7 available with the 16 GiB reserve).
+
+Runs: `preflight-runs/{prod0342a_,prod0342b_,prod0342b2_}thinkfalse.log`,
+`preflight-runs/ocrprod-prodocr_*.log`.
