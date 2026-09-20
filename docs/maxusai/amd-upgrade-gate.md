@@ -309,6 +309,19 @@ ground truth of `RNK` (`vision-campaign-2026-09-18-mlx8a7ba949-nvfp4.md`). Here 
 A 9px tier that moves by one is, more often than not, this glyph — which is an argument for
 reading the codes rather than the recall count.
 
+**Two causes tested and eliminated, 2026-09-20.**
+
+| hypothesis | test | result |
+|---|---|---|
+| ROCm math libraries | same commit + 906 rebuilt against **ROCm 7.2.1** (`librocblas.so.5.2.70201`, what the 0.32.1 baseline shipped) | **refuted** — reproduces `JRK-0391-DW18` and `AYK-9901-CK10` character for character |
+| the b10864 resize flip ([llama.cpp #27594](https://github.com/ggml-org/llama.cpp/pull/27594), BILINEAR → BICUBIC for gemma4 and Qwen-VL, merged 2026-08-23, inside our payload window) | compat 905 restoring BILINEAR, verified applied | **refuted** — all three models outcome-identical to the promoted build |
+
+The resize test had a differential prediction that makes the refutation worth something: #27594 does not touch `nemotron_h_omni`, so if resize were the mechanism the two QWEN3VL models should have flipped and `nemotron3` should not. Neither QWEN3VL model moved.
+
+**What the remaining evidence points at, and why it is not being chased further.** The same 9px glyph moves in *both* directions across the payload bump — `qwen3.8` gains `RNK-0391-DW18`, `nemotron3` loses it — and the movement is confined to the two smallest type tiers while scene IoU, OCRBench, budgets, ladders and pinned arms are all flat or better. That is the signature of accumulated last-bit numerical drift across ~1000 llama.cpp commits, not of a defect with an author. Attributing it would need a payload bisect at roughly 15-25 minutes per rung to explain a one-glyph flip that goes both ways, which is not worth it unless something else motivates opening that window.
+
+**A method note, because it nearly cost a valid experiment.** The 905 result was almost discarded as "patch did not apply": the build log carries no patch-application lines (FetchContent suppresses them), and `/usr/lib/ollama/llama-server` is byte-identical between the two builds. Neither is evidence. `clip.cpp` compiles into **`libmtmd.so`**, and that file differs. When verifying that a compat patch reached a build, hash the artifact that carries the patched translation unit, not the binary that happens to be named after the server.
+
 **The trade, stated plainly.** The promotion costs one fine-text item at 9px on `nemotron3`
 and one at 7px on `qwen3.6`, and gains one at 9px on `qwen3.8`, against a payload fix worth
 0.065 → 1.000 scene IoU on `qwen3.8` and 0.161 → 0.862 on `nemotron3`. That is worth taking,
