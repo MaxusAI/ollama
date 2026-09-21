@@ -86,6 +86,25 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   set** - the eval callback is not even registered otherwise, so a normal build
   and a normal run are unchanged.
 
+- `802-lm-node-stats-meter.patch` - **the language-model twin of 801**, same
+  band, same fields, so one differ reads both captures. Gated on
+  `OLLAMA_LM_NODE_STATS=<name substring>` (or `*`) and **inert unless set**.
+
+  It exists because of the gap this very README names below, under "Diagnostics
+  are only useful on both sides of a comparison": localising a change to the
+  encoder *or* the language model needs a meter on both, and there was one. 801
+  can say "the vision tower is identical" - it did, byte-for-byte across 1346
+  nodes on ROCm 7.2.4 vs 10.0.0, while 7 of 135 scored blocks still differed -
+  and then triage stopped, because nothing metered where the difference actually
+  was.
+
+  **Bounded by default, unlike 801.** An LM graph carries thousands of nodes and
+  is rebuilt every decode step, so an unbounded meter would write gigabytes and
+  perturb the timings it is meant to explain. Only the first
+  `OLLAMA_LM_NODE_STATS_GRAPHS` graphs are metered (default **1**, which is
+  prefill). Every metered node is copied to host memory: this is a diagnostic
+  switch, never something to leave set on a serving instance.
+
   It exists because the qwen2.5-vl fp16-accumulate fault
   (`docs/maxusai/qwen25vl-3b-poison-image-garbage-decode.md`, upstream
   ollama/ollama#18070) is invisible from the product surface: the observable is
@@ -381,6 +400,7 @@ and do not:
 | patched source | artifact to hash |
 |---|---|
 | `tools/mtmd/clip.cpp` (001, 002, 004, 005, 801, 905) | `/usr/lib/ollama/libmtmd.so*` |
+| `src/llama-context.cpp` (802) | `/usr/lib/ollama/libllama.so*` — **not** `libmtmd.so`, and not `llama-server` |
 | `ggml/src/ggml-cuda/*` (903, 906) | `/usr/lib/ollama/rocm_v7_2/libggml-hip.so`, or the CUDA equivalent |
 | `ggml/src/ggml.c` (907) | `/usr/lib/ollama/libggml-base.so*` |
 
