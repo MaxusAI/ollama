@@ -2238,5 +2238,70 @@ class TestThroughputCacheClass(unittest.TestCase):
 
 
 
+class TestClipFingerprint(unittest.TestCase):
+    """The clip-node fingerprint, and the keying trap that hid a third of it.
+
+    Node names repeat across a graph — `layer_out-26` appears four times in a
+    gemma4 capture. Keying a dict by name keeps only the last occurrence, so any
+    difference in the earlier ones vanishes. The first version of this tool did
+    that and reported 1206 nodes where the capture held 1409.
+    """
+
+    def _line(self, name, op="MUL_MAT", typ="f32", mx=1.0, ninf=0, nnan=0):
+        return (f"CLIP_NODE_STATS name={name} op={op} type={typ} n=10 max_abs={mx} "
+                f"hr=0.0 n_gt32k=0 n_gt49k=0 n_gt60k=0 n_inf={ninf} n_nan={nnan}\n")
+
+    def _run(self, a_lines, b_lines, tol=0.0):
+        import summarize_clip_fingerprint as fp
+        with tempfile.TemporaryDirectory() as d:
+            pa, pb = os.path.join(d, "a.raw"), os.path.join(d, "b.raw")
+            open(pa, "w").writelines(a_lines); open(pb, "w").writelines(b_lines)
+            buf = io.StringIO()
+            with mock.patch.object(sys, "argv",
+                                   ["x", pa, pb, "--tol", str(tol)]):
+                with contextlib.redirect_stdout(buf):
+                    fp.main()
+            return buf.getvalue()
+
+    def test_a_repeated_name_is_compared_at_every_occurrence(self):
+        # same name three times; only the SECOND differs. Name-keyed comparison
+        # keeps the third and reports "identical" -- the bug this pins.
+        a = [self._line("dup", mx=1.0), self._line("dup", mx=2.0), self._line("dup", mx=3.0)]
+        b = [self._line("dup", mx=1.0), self._line("dup", mx=9.0), self._line("dup", mx=3.0)]
+        out = self._run(a, b)
+        self.assertIn("1 differ", out)
+        self.assertNotIn("graph is identical", out)
+
+    def test_identical_captures_say_so_and_localise_downstream(self):
+        a = [self._line("n1"), self._line("n2")]
+        out = self._run(a, list(a))
+        self.assertIn("graph is identical", out)
+        self.assertIn("downstream of the vision tower", out)
+
+    def test_a_dtype_change_reads_as_structural_not_numerical(self):
+        a = [self._line("n1", typ="f32")]
+        b = [self._line("n1", typ="f16")]
+        out = self._run(a, b)
+        self.assertRegex(out, r"structural \(op/type\) \| \*\*1 differ")
+        self.assertRegex(out, r"numerical \(max_abs\) \| identical")
+        self.assertIn("payload or patch change", out)
+
+    def test_tolerance_suppresses_drift_but_never_inf_or_nan(self):
+        a = [self._line("n1", mx=100.0), self._line("n2", mx=1.0)]
+        b = [self._line("n1", mx=100.1), self._line("n2", mx=1.0, nnan=3)]
+        out = self._run(a, b, tol=0.01)          # 0.1% drift, 1% tolerance
+        self.assertRegex(out, r"numerical \(max_abs\) \| identical")
+        self.assertIn("n_nan=3", out)
+        self.assertIn("breakage, not drift", out)
+
+    def test_different_node_counts_warn_before_anything_is_read(self):
+        a = [self._line("n1"), self._line("n2")]
+        b = [self._line("n1")]
+        out = self._run(a, b)
+        self.assertIn("Node counts differ", out)
+        self.assertIn("Check the model and image match", out)
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
