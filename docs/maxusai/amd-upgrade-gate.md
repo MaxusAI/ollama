@@ -269,7 +269,9 @@ this host, prefill on blocks that actually encoded is down on **all five** model
 unmerged branch, so promoting it would have made production non-reproducible from `main`.
 
 Soundness is not superiority. The ROCm 10 evidence stands as a validated future option, and the
-upgrade is declined on measurement rather than deferred on doubt.
+upgrade is declined on measurement rather than deferred on doubt. The surface is carried as
+experimental, with a standing instance and deliberately no measured preflight profile:
+[ADR 0040](adr/0040-rocm-10-is-experimental-until-it-is-faster.md).
 
 ## Decision 2026-09-19 — the gate lifts on evidence
 

@@ -319,8 +319,10 @@ Raw paired blocks: `vision-suite/bench-runs/rocm-10-vs-724-tps-2026-09-20.json`.
 
 ## Standing test instance
 
-ROCm 10.0.0 was declined for production (see
-[amd-upgrade-gate.md](amd-upgrade-gate.md), the 2026-09-21 decision) but is kept
+ROCm 10.0.0 was declined for production and is carried as an **experimental**
+surface — [ADR 0040](adr/0040-rocm-10-is-experimental-until-it-is-faster.md),
+with the promotion it was weighed against in
+[amd-upgrade-gate.md](amd-upgrade-gate.md) (the 2026-09-21 decision). It is kept
 running for further testing:
 
 | | |
