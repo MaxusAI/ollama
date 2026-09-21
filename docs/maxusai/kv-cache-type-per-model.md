@@ -61,7 +61,18 @@ quantization.
 - Quantized **V**-cache requires flash attention in llama.cpp; the value is
   forwarded unchecked, matching the existing env behavior. With
   `OLLAMA_FLASH_ATTENTION` off, quantized types fail the same way they would
-  via the env.
+  via the env. The failure is a load-time abort, not a fallback:
+  `llama_init_from_model: quantized V cache requires flash_attn to be enabled`,
+  surfacing as HTTP 500 on every request.
+- **What that coupling costs to work around**, measured on gfx1151 2026-09-21
+  ([rocblas-on-gfx1151.md](rocblas-on-gfx1151.md)): moving `q8_0` -> `f16` to
+  make FA optional costs **1.0%** of prefill, at the noise floor. Turning FA off
+  then costs **51%** (152.9 -> 74.6 tok/s on `gemma4:31b`), because the vision
+  tower's attention materialises a 9900x9900 **fp32** matrix — 6.27 GB per
+  block, ~0.5 TB of traffic across 27 blocks. So the cache type is nearly free
+  to change and flash attention is not: if a diagnostic needs FA off, budget
+  for half the prefill throughput, and do not attribute that cost to the cache
+  type (SPEC H23).
 - Case toggling between requests ("F16" vs "f16") triggers a spurious reload
   (DeepEqual compares the raw option string); harmless.
 - Go-only change — fits the overlay image recipe with the llama-server

@@ -222,18 +222,92 @@ be env-gated -- it is two builds, and build-to-build variance is a real risk
 rather than one that can be assumed away. Upstream also describes the flag as
 mainly benefiting CDNA, so neutral or worse on RDNA3.5 is a live outcome.
 
-## What remains open
+## Is rocBLAS near the metal? Yes -- 82-87% on the tower shapes
 
-1. **rocWMMA flash attention on gfx1151.** Build queued.
-2. **What FA is worth here.** Running with flash attention *off* forces the
-   tower attention through rocBLAS as explicit `mul_mat` -- the only way to get
-   `9900x9900` shapes into the inventory. This is a diagnostic, not a
-   candidate: materialising that matrix is what FA exists to avoid, roughly
-   339 GB of traffic across 27 blocks. But the ratio calibrates how much
-   upside rocWMMA can possibly have.
-3. **Whether rocBLAS is near the metal at all.** Every measurement here is
-   comparative. A direct benchmark against the hardware ceiling is queued.
-4. **hipBLASLt kernels for gfx1151**, if a future ROCm ships them.
+Every other measurement here is comparative: it says which configuration is
+fastest, never whether the fastest one is any good. `gemm_ceiling_bench.cpp`
+calls rocBLAS directly with the exact captured parameters and divides by the
+hardware ceiling.
+
+| shape | n | TFLOP/s | % of 59.4 peak |
+|---|---|---|---|
+| gemma4 tower ffn-up | 9900 | 51.65 | **87.0%** |
+| gemma4 tower ffn-down | 9900 | 49.52 | **83.4%** |
+| gemma4 tower attn-proj | 9900 | 49.21 | **82.9%** |
+| nemotron3 tower | 8170 | 48.71 | **82.0%** |
+| gemma4 LM ffn-down | 1100 | 25.71 | 43.3% |
+| qwen3.8 LM ffn-down | 1024 | 26.22 | 44.1% |
+
+82-87% of peak is close to what a tuned GEMM library can deliver, so there is
+nothing meaningful to win by tuning rocBLAS for the vision tower. The LM shapes
+sit lower, but they are narrow -- n of 1024-1100 leaves less work to hide
+latency -- and that is a property of the workload, not of the library.
+
+**The first run of this benchmark reported 165% of peak**, which is impossible
+and is how the bug surfaced: `hipGetDeviceProperties` returns
+`multiProcessorCount = 20` for gfx1151, but on RDNA that counts **WGPs**, each
+holding 2 CUs. `rocminfo` reports 40. The ceiling was half its true value. See
+SPEC H24.
+
+## What flash attention is worth: 51%
+
+Tower attention never reaches rocBLAS while FA is on. Forcing it there means
+turning FA off -- which this configuration cannot simply do:
+
+```
+llama_init_from_model: quantized V cache requires flash_attn to be enabled
+```
+
+We run `OLLAMA_KV_CACHE_TYPE=q8_0`, so the cache type has to move to f16 at the
+same time. That makes it a three-arm test; a two-arm one would blame the KV
+cache change on flash attention (SPEC H23).
+
+| arm | prefill tok/s | rocBLAS calls | square (m==n) |
+|---|---|---|---|
+| `q8_0` + FA on (production) | 154.4 | 972 | 0 |
+| `f16` + FA on | 152.9 | 972 | 0 |
+| `f16` + FA off | **74.6** | 1668 | **108** |
+
+The KV cache change costs 1.0%, at the noise floor. Flash attention is worth
+**51%** of prefill (152.9 -> 74.6), isolated against arm 2.
+
+With FA off the attention matmuls do appear, exactly as predicted:
+
+```
+27x  gemm_strided_batched_ex  -m 9900 -n 9900 -k 72    (QK^T)
+27x  gemm_strided_batched_ex  -m 72   -n 9900 -k 9900  (AV)
+     --a_type f32_r --compute_type f32_r
+```
+
+`k=72` is the head dimension (1152/16), batched over heads. The dtype was the
+surprise: attention runs in **FP32** while every other GEMM in the inventory is
+f16 or bf16. That halves the ceiling and doubles the traffic:
+
+| | FLOP/byte | ridge point |
+|---|---|---|
+| fp16 (assumed) | 71.0 | 232 |
+| **fp32 (actual)** | **35.5** | **116** |
+
+Memory-bound by roughly 3x. The 9900x9900 fp32 output is 6.27 GB per block;
+written, read for softmax, read again for AV, across 27 blocks is ~0.5 TB of
+traffic, about 2 s at 256 GB/s before any arithmetic. So the 51% is bandwidth,
+not kernel quality -- and it is precisely what flash attention exists to avoid.
+
+## Everything tested, and the verdict
+
+| lever | verdict |
+|---|---|
+| hipBLASLt | inert -- 0 gfx1151 kernels in ROCm 7.2.4 **or** 10.0.0 |
+| `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` | -48.6%, no accuracy gain |
+| `prefer_f32_output` for RDNA3.5 | -30%, no accuracy gain; exclusion is correct |
+| Q4_K MMQ threshold | -0.1% on dense |
+| rocWMMA FA | option removed in b10969; and FA is worth 51%, so not an underperforming path |
+| MMQ tile tuning (upstream #21284) | superseded by `mmq-config-rdna3-5.cuh` |
+| `GGML_HIP_NO_VMM`, `GGML_HIP_MMQ_MFMA` | already default ON |
+| rocBLAS efficiency | **82-87% of peak** |
+
+Nothing configurable is being left on the table. The remaining cost is
+bandwidth and model shape. See [ADR 0041](adr/0041-gfx1151-vision-prefill-is-bandwidth-bound.md).
 
 ## Regression sentinel
 
