@@ -27,9 +27,31 @@ against a +-0.4% throughput noise floor:
 | rocWMMA flash attention | the option no longer exists at b10969 |
 | MMQ tile tuning (upstream #21284) | superseded by `mmq-config-rdna3-5.cuh` |
 | `GGML_HIP_NO_VMM`, `GGML_HIP_MMQ_MFMA` | already default **ON** |
+| flash-attention kernel (MMA vs TILE) | not resolvable; see below |
 | rocBLAS efficiency vs hardware ceiling | **82-87% of peak** on tower shapes |
 
-The last row is the one that decides it. Every other row says "this
+The flash-attention row is worth stating precisely, because the selector looks
+alarming at first read. The AMD WMMA branch in `ggml_cuda_get_best_fattn_kernel`
+excludes head dims 40 and 72 outright and caps at 256, so **both gemma4 models
+run entirely on the generic TILE kernel** -- the tower because 1152/16 = 72 is
+on the exclusion list, the LM because 512 exceeds the cap. Forcing TILE on
+models that would otherwise get MMA (compat 805, env-gated, gate verified to
+fire: 0 log lines unset, 2 when set) measured:
+
+| arm | MMA | TILE forced | delta |
+|---|---|---|---|
+| `nemotron3:33b` | 377.2 | 372.6 | -1.2% |
+| `qwen3.6:35b-a3b` | 464.6 | 458.2 | -1.4% |
+| `gemma4:31b` (**control**, already TILE) | 154.2 | 151.5 | **-1.8%** |
+
+The control moved more than the treatment. gemma4:31b cannot be affected by the
+gate, so its -1.8% is run-to-run drift between arms, and both treatment effects
+are smaller than that. MMA vs TILE is not resolvable at this magnitude. The
+head-dim exclusions cost nothing measurable here, and the 51% that flash
+attention is worth on `gemma4:31b` is the TILE kernel's value, not the MMA
+kernel's.
+
+The rocBLAS efficiency row is the one that decides it. Every other row says "this
 configuration is not better"; that row says there is little left to be better
 than. A GEMM library at 82-87% of theoretical peak is not the bottleneck.
 
@@ -58,8 +80,18 @@ This does not close:
 - **A future ROCm shipping gfx1151 hipBLASLt kernels.** Re-test then; the
   mechanism is packaging, not architecture.
 - **Upstream's MMA flash-attention kernel**, which replaced the rocWMMA path.
-  If its gfx1151 tuning changes, re-measure with `gemm_ceiling_bench` and the
-  three-arm FA test.
+  If its gfx1151 tuning changes, re-measure with `gemm_ceiling_bench`, the
+  three-arm FA test and compat 805.
+- **Speculative decoding.** This ADR was written about prefill and that is a
+  gap in it. Dense *decode* on this host runs at 75-85% of memory bandwidth
+  (`gemma4:31b` 19.9 GB x 9.7 tok/s = 193 GB/s of 256; `qwen3.8:27b` 218 GB/s),
+  so it is bandwidth-bound in the same way -- but speculative decoding is the
+  one technique that beats that bound, by verifying several drafted tokens per
+  weight read instead of one. It does not reduce bandwidth, it amortises it.
+  llama-server at b10969 supports `--spec-type draft-dflash` and ollama passes
+  it through (`llm/llama_server.go`), with drafts folded into the target's
+  manifest (`create/draft.go`). Unmeasured here, and every published DFlash
+  benchmark found so far is NVIDIA or vLLM.
 
 ## Consequences
 
