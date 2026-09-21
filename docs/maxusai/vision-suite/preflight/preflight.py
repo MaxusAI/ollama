@@ -83,10 +83,19 @@ class ConfigError(Exception):
 # folded the runtime into the same field. That is why a missing mlx-cuda profile
 # read as a category error rather than a gap — MLX looked like an Apple concept
 # when the fork ships mlx_cuda_v13 for Linux.
+DEFAULT_EXPECTATIONS = os.path.join(DIR, "expectations.toml")
+
 PLATFORM_ALIASES = {
     "apple-silicon": "metal",
     "apple-silicon-mlx": "mlx-metal",
     "apple-silicon-cpu": "cpu",
+    # "rocm" split into "rocm7"/"rocm10" when ROCm 10.0.0 arrived: the ollama
+    # version string does not encode the ROCm release, so a 7.2.4 build and a
+    # 10.0.0 build of the SAME fold both stamp `0.34.2-dynres-<sha>`. Two
+    # profiles on one platform would have been resolved by dict order, silently.
+    # Same shape as `mlx-cuda`: one version string, two payloads, told apart by
+    # the platform. Old runs and old invocations keep working through here.
+    "rocm": "rocm7",
 }
 
 
@@ -268,8 +277,16 @@ def main():
     # from a hardcoded list. The list WAS hardcoded and drifted: renaming the
     # profiles left argparse rejecting the new names before resolve_profile —
     # the single place that is supposed to own this — ever ran.
+    #
+    # Read --expectations FIRST, in its own pass. Building the choices from the
+    # default file made `--expectations other.toml --platform newthing` fail at
+    # argparse, before the file naming that platform was ever opened: a new
+    # platform could not be bootstrapped without editing the committed file,
+    # which is the opposite of what a --expectations override is for.
+    _pre = argparse.ArgumentParser(add_help=False)
+    _pre.add_argument("--expectations", default=DEFAULT_EXPECTATIONS)
     _platforms = sorted({p["platform"] for p in
-                         load_expectations(os.path.join(DIR, "expectations.toml"))["profiles"].values()}
+                         load_expectations(_pre.parse_known_args()[0].expectations)["profiles"].values()}
                         | set(PLATFORM_ALIASES))
     ap.add_argument("--platform", required=True, choices=_platforms,
                     help="backend, or mlx-<backend> for the MLX runtime")
@@ -282,7 +299,7 @@ def main():
                                        "container, e.g. 'ssh <host> docker exec {container} sh -c ...'")
     ap.add_argument("--log-cmd", help="template for reading container logs; "
                                       "{container} and {since} are substituted")
-    ap.add_argument("--expectations", default=os.path.join(DIR, "expectations.toml"))
+    ap.add_argument("--expectations", default=DEFAULT_EXPECTATIONS)
     ap.add_argument("--out", help="results JSON (default: runs/preflight-<platform>-<ts>.json)")
     ap.add_argument("--quality", action="store_true",
                     help="also run the vision_suite.py extraction scoring (slow)")

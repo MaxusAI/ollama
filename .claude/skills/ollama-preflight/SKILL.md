@@ -40,19 +40,28 @@ Establish three things. Guessing any of them wastes a twenty-minute run.
    against qwen3.8's block on exactly this container (2026-09-02,
    `runs/deploy-smoke-11497.json`) and failed a healthy deploy.
 3. **Which platform profile applies.** Platform names a (backend, runtime)
-   pair. Backends are `cuda`, `rocm`, `metal`, `cpu`; the MLX runtime
+   pair. Backends are `cuda`, `rocm7`, `rocm10`, `metal`, `cpu`; the MLX runtime
    prefixes its backend — `mlx-metal`, `mlx-cuda` — matching the payload
    directories the build produces (`mlx_metal_v4`, `mlx_cuda_v13`).
    `mlx-cuda` is declared but has never been measured, and `cpu` is
    unmeasured too; both exit 4 rather than implying a pass. The old names
-   (`apple-silicon`, `apple-silicon-mlx`, `apple-silicon-cpu`) still work
-   and print a deprecation line. **ROCm is no longer gated at 0.32.1**: the
+   (`apple-silicon`, `apple-silicon-mlx`, `apple-silicon-cpu`, and now `rocm`)
+   still work and print a deprecation line. **`rocm` split into `rocm7` and
+   `rocm10` on 2026-09-21**: the ollama version string does not encode the ROCm
+   release, so a 7.2.4 build and a 10.0.0 build of the same fold both stamp
+   `0.34.2-dynres-<sha>` and two profiles on one platform would have been
+   resolved by dict order, silently. `rocm10` is **experimental and carries no
+   measured profile** — it reads "not run" in the release matrix, which is the
+   honest state, and a preflight against it exits 4 rather than implying a pass
+   (ADR 0040). **ROCm is no longer gated at 0.32.1**: the
    upgrade gate lifted on 2026-09-19 and gfx1151 now serves `main` like every
    other platform (`docs/maxusai/amd-upgrade-gate.md`, the 2026-09-19 decision).
    `release/0.32.1-dynres` is archived as the rollback target, not the serving
-   line. A gfx1151 build on payload b10864 **must** carry
-   `llama/compat/906-revert-hip-integrated-flag.patch` — without it vision
-   output is silently wrong: no crash, no warning, unchanged `prompt_eval_count`,
+   line. A gfx1151 build **on payload b10864** must carry
+   `llama/compat/906-revert-hip-integrated-flag.patch`; **on b10969 and later it
+   must not**, because upstream's own revert shipped and the patch was retired
+   (`3dade569`). Check the payload before the patch list. Without the revert, on
+   b10864, vision output is silently wrong: no crash, no warning, unchanged `prompt_eval_count`,
    and scene IoU falling to 0.065 on `qwen3.8`. A preflight that passes its
    plumbing checks on a 906-less gfx1151 build is telling you nothing; that is
    why the vision probes exist. ROCm now has the *same payload and the same patch
@@ -178,8 +187,10 @@ There is no CI yet; the matrix spans CUDA, ROCm and Apple Silicon on self-hosted
 machines. Every run writes one JSON file with a `meta` block naming host,
 platform, profile, patchset and version. Collect them from each host into one
 directory and compare summaries — the README has a one-liner for this. Report
-per-host rather than merging into a single verdict: the ROCm host is on a
-different payload by design, and a merged pass/fail hides that.
+per-host rather than merging into a single verdict. The ROCm host is no longer
+on a different payload -- it serves `main` like the others -- but the batch
+ladder still resolves differently on an integrated GPU, the toolchain is pinned
+per platform, and a merged pass/fail hides which surface actually failed.
 
 ## Storage layout (10.8.0.6)
 
