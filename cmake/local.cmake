@@ -7,7 +7,7 @@
 include(ExternalProject)
 
 set(OLLAMA_LLAMA_BACKENDS "" CACHE STRING
-    "Semicolon-separated llama-server GPU backends to build: cuda_v12;cuda_v13;rocm_v7_1;rocm_v7_2;vulkan;cuda_jetpack5;cuda_jetpack6")
+    "Semicolon-separated llama-server GPU backends to build: cuda_v12;cuda_v13;rocm_v7_1;rocm_v10_0;vulkan;cuda_jetpack5;cuda_jetpack6")
 set(_ollama_mlx_backends_doc "Semicolon-separated MLX backends to build: cuda_v13;metal_v3;metal_v4")
 set(OLLAMA_VERSION "0.0.0" CACHE STRING "Ollama version embedded in the local Go binary")
 set(OLLAMA_PAYLOAD_INSTALL_PREFIX "${CMAKE_BINARY_DIR}" CACHE PATH
@@ -388,17 +388,17 @@ function(ollama_rocm_preset backend output)
     if(_has_amdgpu_targets OR _has_hip_arch)
         if(backend STREQUAL "rocm_v7_1" AND NOT WIN32)
             message(FATAL_ERROR "OLLAMA_LLAMA_BACKENDS=rocm_v7_1 is only supported for Windows ROCm builds")
-        elseif(backend STREQUAL "rocm_v7_2" AND WIN32)
-            message(FATAL_ERROR "OLLAMA_LLAMA_BACKENDS=rocm_v7_2 is only supported for Linux ROCm builds")
+        elseif(backend STREQUAL "rocm_v10_0" AND WIN32)
+            message(FATAL_ERROR "OLLAMA_LLAMA_BACKENDS=rocm_v10_0 is only supported for Linux ROCm builds")
         endif()
     elseif(backend STREQUAL "rocm_v7_1")
         if(NOT WIN32)
             message(FATAL_ERROR "OLLAMA_LLAMA_BACKENDS=rocm_v7_1 is only supported for Windows ROCm builds")
         endif()
         set(_preset "${backend}_windows")
-    elseif(backend STREQUAL "rocm_v7_2")
+    elseif(backend STREQUAL "rocm_v10_0")
         if(WIN32)
-            message(FATAL_ERROR "OLLAMA_LLAMA_BACKENDS=rocm_v7_2 is only supported for Linux ROCm builds")
+            message(FATAL_ERROR "OLLAMA_LLAMA_BACKENDS=rocm_v10_0 is only supported for Linux ROCm builds")
         endif()
         set(_preset "${backend}_linux")
     else()
@@ -734,10 +734,11 @@ if(OLLAMA_HAVE_LLAMA_SERVER)
                 TARGETS ggml-cuda
                 CMAKE_ARGS ${_cuda_args})
             list(APPEND _backend_targets ollama-llama-server-${_backend})
-        elseif(_backend STREQUAL "rocm_v7_1" OR _backend STREQUAL "rocm_v7_2")
-            # ROCm 7.1 and 7.2 currently share build settings. Keep the backend
-            # names versioned so future packaging can install side-by-side ROCm
-            # payloads without changing the superbuild interface.
+        elseif(_backend STREQUAL "rocm_v7_1" OR _backend STREQUAL "rocm_v10_0")
+            # rocm_v7_1 (Windows, ROCm 7.1) and rocm_v10_0 (Linux, ROCm 10.0)
+            # currently share build settings. Keep the backend names versioned so
+            # future packaging can install side-by-side ROCm payloads without
+            # changing the superbuild interface.
             ollama_rocm_preset(${_backend} _rocm_preset)
             set(_rocm_args
                 -DBUILD_SHARED_LIBS=ON

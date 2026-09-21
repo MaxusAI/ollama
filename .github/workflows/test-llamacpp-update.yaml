@@ -103,8 +103,8 @@ jobs:
             target: publish-llama-server-cuda_v13
             payload: cuda_v13
           - arch: amd64
-            target: publish-llama-server-rocm_v7_2
-            payload: rocm_v7_2
+            target: publish-llama-server-rocm_v10_0
+            payload: rocm_v10_0
           - arch: amd64
             target: publish-llama-server-vulkan
             payload: vulkan
@@ -227,7 +227,7 @@ jobs:
           copy_payload cuda_v13
           if [ "${arch}" = "amd64" ]; then
             copy_payload vulkan
-            copy_payload rocm_v7_2
+            copy_payload rocm_v10_0
           else
             copy_payload cuda_jetpack5
             copy_payload cuda_jetpack6

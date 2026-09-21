@@ -3,6 +3,15 @@
 ARG FLAVOR=${TARGETARCH}
 
 ARG ROCMVERSION=7.2.1
+# ROCm backend toolchain. AMD stopped publishing AlmaLinux ROCm images at 7.2.4
+# -- rocm/dev-almalinux-8 has no tag past 7.2.4-complete -- so under TheRock the
+# ROCm stage, and ONLY the ROCm stage, builds on Ubuntu. `base` and every other
+# amd64 stage stay on AlmaLinux 8 so the published tarballs keep their glibc 2.28
+# floor. See docs/maxusai/rocm-714-therock-upgrade.md.
+# TheRock renamed the image suffix once already (-complete -> -full), so the
+# whole tag is overridable, not just the version.
+ARG ROCM_BACKEND_IMAGE=rocm/dev-ubuntu-24.04
+ARG ROCM_BACKEND_TAG=10.0.0-full
 ARG JETPACK5VERSION=r35.4.1
 ARG JETPACK6VERSION=r36.4.0
 ARG CMAKEVERSION=3.31.2
@@ -76,8 +85,36 @@ ARG CUDA13VERSION=13.0
 RUN dnf install -y cuda-toolkit-${CUDA13VERSION//./-}
 ENV PATH=/usr/local/cuda-13/bin:$PATH
 
-FROM base AS rocm-7-deps
-ENV PATH=/opt/rocm/llvm/bin:/opt/rocm/hcc/bin:/opt/rocm/hip/bin:/opt/rocm/bin:$PATH
+# ROCm toolchain base -- Ubuntu, and deliberately NOT a parent of `base`. It
+# mirrors base's ccache/cmake/ninja setup with apt in place of dnf; nothing else
+# in the file derives from it.
+FROM --platform=linux/amd64 ${ROCM_BACKEND_IMAGE}:${ROCM_BACKEND_TAG} AS rocm-base
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl git unzip xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+ARG CCACHEVERSION=4.10.2
+RUN set -eu; \
+    curl -fsSL "https://github.com/ccache/ccache/releases/download/v${CCACHEVERSION}/ccache-${CCACHEVERSION}-linux-x86_64.tar.xz" \
+      | tar -xJ -C /tmp \
+    && install -m0755 "/tmp/ccache-${CCACHEVERSION}-linux-x86_64/ccache" /usr/local/bin/ccache \
+    && ccache --version | head -1
+ENV CMAKE_C_COMPILER_LAUNCHER=ccache \
+    CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    CMAKE_HIP_COMPILER_LAUNCHER=ccache \
+    CCACHE_DIR=/root/.ccache \
+    CCACHE_MAXSIZE=25G \
+    CCACHE_SLOPPINESS=locale,time_macros,include_file_ctime,include_file_mtime
+ARG CMAKEVERSION
+ARG NINJAVERSION
+RUN curl -fsSL https://github.com/Kitware/CMake/releases/download/v${CMAKEVERSION}/cmake-${CMAKEVERSION}-linux-x86_64.tar.gz | tar xz -C /usr/local --strip-components 1
+RUN curl -fsSL -o /tmp/ninja.zip https://github.com/ninja-build/ninja/releases/download/v${NINJAVERSION}/ninja-linux.zip \
+    && unzip /tmp/ninja.zip -d /usr/local/bin \
+    && rm /tmp/ninja.zip
+ENV CMAKE_GENERATOR=Ninja
+ENV LDFLAGS=-s
+
+FROM rocm-base AS rocm-deps
+ENV PATH=/opt/rocm/llvm/bin:/opt/rocm/bin:$PATH
 
 FROM base AS vulkan-deps
 ARG VULKANVERSION
@@ -147,20 +184,36 @@ RUN --mount=type=cache,target=/root/.ccache \
 FROM scratch AS publish-llama-server-cuda_v13
 COPY --from=llama-server-cuda_v13 dist/lib/ollama /lib/ollama/
 
-FROM rocm-7-deps AS llama-server-rocm_v7_2
-ENV CC=clang CXX=clang++ CXXFLAGS=--gcc-toolchain=/opt/rh/gcc-toolset-13/root/usr
+FROM rocm-deps AS llama-server-rocm_v10_0
+# No --gcc-toolchain: gcc-toolset-13 is a RHEL Software Collection with no Ubuntu
+# equivalent. ROCm's clang uses the image's system GCC (13 on Ubuntu 24.04).
+ENV CC=clang CXX=clang++
+# Narrow the arch list for a test or dev build without touching the shipped
+# default, which stays the preset's full AMDGPU_TARGETS list.
+ARG AMDGPU_TARGETS
 COPY LLAMA_CPP_VERSION .
 COPY llama/server llama/server
 COPY llama/compat llama/compat
 COPY cmake cmake
 RUN --mount=type=cache,target=/root/.ccache \
-    cmake -S llama/server --preset rocm_v7_2_linux \
-        && cmake --build build/llama-server-rocm_v7_2 -- -l $(nproc) \
-        && cmake --install build/llama-server-rocm_v7_2 --component llama-server --strip
-RUN rm -f dist/lib/ollama/rocm_v7_2/rocblas/library/*gfx90[06]*
+    cmake -S llama/server --preset rocm_v10_0_linux ${AMDGPU_TARGETS:+-DAMDGPU_TARGETS=${AMDGPU_TARGETS}} \
+        && cmake --build build/llama-server-rocm_v10_0 -- -l $(nproc) \
+        && cmake --install build/llama-server-rocm_v10_0 --component llama-server --strip
+# Inert on ROCm 10.0, which ships no gfx900/gfx906 at all. Kept because it costs
+# nothing and re-fires if a future ROCm reintroduces them.
+RUN rm -f dist/lib/ollama/rocm_v10_0/rocblas/library/*gfx90[06]*
+# Provenance stamp, read by the preflight toolchain pin (probes.gpu_toolchain).
+# TheRock decoupled library SONAMEs from the ROCm release: 10.0.0 ships
+# librocblas.so.5.6, which carries no release version, where 7.2.4 shipped
+# librocblas.so.5.2.70204 and encoded it. Nothing else in the payload names the
+# release either, so without this file a toolchain bump under an unchanged
+# payload cannot be detected. NOT an unused artifact -- do not delete.
+ARG ROCM_BACKEND_TAG
+RUN printf '%s\n' "${ROCM_BACKEND_TAG%%-*}" > dist/lib/ollama/rocm_v10_0/ROCM_VERSION \
+    && cat dist/lib/ollama/rocm_v10_0/ROCM_VERSION
 
-FROM scratch AS publish-llama-server-rocm_v7_2
-COPY --from=llama-server-rocm_v7_2 dist/lib/ollama /lib/ollama/
+FROM scratch AS publish-llama-server-rocm_v10_0
+COPY --from=llama-server-rocm_v10_0 dist/lib/ollama /lib/ollama/
 
 FROM vulkan-deps AS llama-server-vulkan
 COPY LLAMA_CPP_VERSION .
@@ -312,11 +365,11 @@ COPY --from=jetpack-6 dist/lib/ollama/ /lib/ollama/
 
 FROM scratch AS rocm
 COPY --from=llama-server-cpu  dist/lib/ollama /lib/ollama
-COPY --from=llama-server-rocm_v7_2 dist/lib/ollama /lib/ollama
+COPY --from=llama-server-rocm_v10_0 dist/lib/ollama /lib/ollama
 
 FROM --platform=linux/amd64 scratch AS amd64-archive
 COPY --from=amd64 /lib/ollama /lib/ollama/
-COPY --from=llama-server-rocm_v7_2 dist/lib/ollama /lib/ollama/
+COPY --from=llama-server-rocm_v10_0 dist/lib/ollama /lib/ollama/
 
 FROM --platform=linux/arm64 scratch AS arm64-archive
 COPY --from=arm64 /lib/ollama /lib/ollama/
