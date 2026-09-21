@@ -317,6 +317,38 @@ python3 summarize_tps.py --a gate4_0342 --b rocm10 --labels "7.2.4,10.0.0"
 
 Raw paired blocks: `vision-suite/bench-runs/rocm-10-vs-724-tps-2026-09-20.json`.
 
+## Standing test instance
+
+ROCm 10.0.0 was declined for production (see
+[amd-upgrade-gate.md](amd-upgrade-gate.md), the 2026-09-21 decision) but is kept
+running for further testing:
+
+| | |
+|---|---|
+| container | `ollama-rocm10` |
+| port | **11500** |
+| image | `maxusai-ollama:rocm10-gfx1151-probe` (`0.34.2-dynres-rocm10probe`) |
+
+**Not 11499.** That is the vision-suite scratch port, and a long-lived container
+squatting on it would make the next `bench_up_np.sh` fail to bind.
+
+It shares `/opt/ollama/.ollama` with production, which makes two settings
+non-optional rather than tuning:
+
+- `OLLAMA_NOPRUNE=1` — this instance must never prune blobs the serving
+  instance depends on.
+- `OLLAMA_MAX_LOADED_MODELS=1` — one model at a time. This is an iGPU sharing
+  system RAM with the instance that is actually serving requests.
+
+`OLLAMA_KEEP_ALIVE=60s` so it releases the GPU shortly after a test instead of
+holding ~20 GB indefinitely; raise it if reload churn gets in the way. Docker log
+caps are kept because `OLLAMA_DEBUG=1` on a long-lived container writes a lot and
+docker's partition runs at 95% use.
+
+The image is a **single-arch (gfx1151) probe build from an unmerged branch**, so
+it is not reproducible from `main`. That is fine for testing and is exactly why
+it was not promoted.
+
 ## Open
 
 - ROCm 10.0.0 has only ever been run on this one host and this one suite. It
