@@ -272,11 +272,23 @@ fifth. **Fine text is not uniformly at baseline**, and the first version of this
 
 Against the 0.32.1 baseline, think off, `num_ctx` 16384, **N=5 per arm per model**:
 
-| model | tier | 0.32.1 baseline | promoted `16649e8c` | |
-|---|---|---|---|---|
-| `nemotron3:33b` | 9px | 4/4/4/4/4 | 3/3/3/3/3 | **−1, reproducible** |
-| `qwen3.6:35b-a3b` | 7px | 2/2/2/2/2 | 1/1/1/1/1 | **−1, reproducible** |
-| `qwen3.8:27b` | 9px | 2/2/2/2/2 | 3/3/3/3/3 | **+1, reproducible** |
+| model | tier | 0.32.1 baseline | promoted `16649e8c` | 0.34.2 `f67b1aef` | + ROCm 10.0.0 | |
+|---|---|---|---|---|---|---|
+| `nemotron3:33b` | 9px | 4/4/4/4/4 | 3/3/3/3/3 | 3/3/3/3/3 | 3/3/3/3/3 | **−1, still open** |
+| `qwen3.6:35b-a3b` | 7px | 2/2/2/2/2 | 1/1/1/1/1 | **2/2/2/2/2** | **2/2/2/2/2** | **recovered** |
+| `qwen3.8:27b` | 9px | 2/2/2/2/2 | 3/3/3/3/3 | 3 *(N=1)* | 3 *(N=1)* | **+1, gain held** |
+
+The last two columns are N=5 per cell per arm, measured 2026-09-21
+(`vision-suite/bench-runs/finetext-n5-two-moved-cells-2026-09-21.json`) on the two cells that
+moved *down*, because a recovery claim was about to enter this record on one capture. `qwen3.8`'s
+gain is carried at N=1 from the campaign's own suite block and is marked as such rather than
+borrowed from its neighbours' N.
+
+**One of the two losses is back.** `qwen3.6`'s 7px tier returns to its baseline value of 2 on the
+b10969 payload, five times out of five, on both ROCm 7.2.4 and ROCm 10.0.0, with zero within-arm
+variance — and the suite arm and the probe arm agree digit for digit on all four builds, so the
+SPEC H16 disagreement is not in play. `nemotron3`'s 9px tier does **not** come back: it is 3 on
+every rep of every arm. Neither cell is moved by ROCm 10.0.0 in either direction.
 
 Every other tier on every model is identical across builds, and 22/16/12px is 4/4 everywhere.
 
@@ -291,8 +303,11 @@ variance to this one would have retired a real regression as sampling noise.
 **The trade, stated plainly.** The promotion costs one fine-text item at 9px on `nemotron3`
 and one at 7px on `qwen3.6`, and gains one at 9px on `qwen3.8`, against a payload fix worth
 0.065 → 1.000 scene IoU on `qwen3.8` and 0.161 → 0.862 on `nemotron3`. That is worth taking,
-but it is a trade, not a free upgrade, and nothing here explains the two losses — they are
-not attributed to compat 906, to b10864, or to anything else. They are recorded as open.
+but it is a trade, not a free upgrade. **Half of that trade has since been refunded**: on the
+b10969 payload `qwen3.6`'s 7px item returns, leaving `nemotron3`'s 9px as the only standing loss.
+Neither movement is attributed — not to compat 906, not to b10864, not to ROCm — and the one that
+recovered did so across the same payload bump that `llama.cpp` #23660's im2col demotion sits in
+(`vision-learnings-log.md`, 2026-09-20). `nemotron3`'s 9px is recorded as open.
 
 ### What is still open, and what would reopen this
 
