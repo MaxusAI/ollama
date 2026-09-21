@@ -469,6 +469,80 @@ Neither is a silent carry: preflight runs both live, so a moved value fails the
 gate rather than passing on the strength of this note.
 """
 
+[profiles.mlx-metal-0-34-2]
+platform = "mlx-metal"
+# The v0.34.2 fold moved ONE payload pin, not both: llama.cpp b10864 -> b10969
+# (391fac164), MLX unchanged at d9add9d1. That asymmetry is the whole character
+# of this profile. The four arches below are MLX and are therefore running a
+# byte-identical payload to mlx-metal-0-34-0's; the GGUF path this same binary
+# serves is the half that moved.
+#
+# A new profile rather than a widened 0-34-0 pattern, by the same ADR 0011 rule
+# that created -0-33-0 and -0-33-2: a payload move gets its own profile even
+# when the numbers turn out identical, because "identical" is a measurement,
+# not an assumption.
+version_pattern = '^0\.34\.2-dynres-\d+-g[0-9a-f]{7,40}$'
+# Admits interim builds on the 0.34.2 lineage and nothing else: not a .N point
+# tag (a new deploy — widen deliberately), not -dirty, not the legacy
+# 0.34.x-maxusai-<sha> shape, which belongs to builds made before ADR 0032's
+# amendment and can only describe the 0.34.0/0.34.1 fold.
+mlx_build = "d9add9d11f3154111a4c85f267ec2fd307ecd18e"
+# THE FIRST llama_cpp_build ON A METAL PROFILE. Until #363 it would have
+# asserted nothing — check_payload_pin skipped whenever there was no container,
+# and native Metal has none, which is why all seven metal/mlx-metal profiles
+# carry no pin. Read from the candidate's own payload
+# (`llama-server --version` -> 391fac164, b10969), not from the checkout's
+# LLAMA_CPP_VERSION. It is the field that would have made the b10864 -> b10969
+# move visible when it happened instead of on a hand diff.
+llama_cpp_build = "391fac164"
+patchset = []                     # llama.cpp compat patches do not apply to MLX
+reference_image = "native macOS build — no container"
+expect_patch_marker = 1
+# Carried from mlx-metal-0-34-0 and RE-MEASURED on this build, not assumed: the
+# payload's llama-server still carries 28 GGML_METAL_HAS_TENSOR strings, and the
+# GGUF A/B on 0.34.2 puts the tensor path at 2.09x prefill for dense
+# (gemma4:31b-it-q4_K_M, 249.3 vs 119.3 tok/s) and 1.37x for MoE
+# (qwen3.6:35b-a3b-q4_K_M, 1051.8 vs 769.8). 0-34-0 recorded 2.14x on b10864.
+#
+# THE MARKER COUNT IS NOT THE MEASUREMENT. b10969 restructured the tensor-path
+# matmul inside kernel_mul_mm_id — the B tile is split across simdgroups
+# (NR1 -> NR1H) — and the string count is 28 on both builds. A count cannot see
+# a kernel rewrite; the A/B above is what says the path still pays.
+expect_metal_tensor_api = true
+arches = ["gemma4", "gemma4_unified", "qwen35moe", "qwen35"]
+notes = """
+Successor to mlx-metal-0-34-0 after the v0.34.2 fold.
+
+Every ladder below was re-measured on 0.34.2-dynres-12-gbded804 against the
+build-under-test on :11437 with measure_ladder.py, one freshly restarted server
+per arch, and came back BYTE-IDENTICAL to the 0-34-0 rows: gemma4 and
+gemma4_unified [1102 x 5] at prefix 19, qwen35moe and qwen35
+[68, 146, 578, 2306, 5186] at prefix 13. 24 of 24 compared values and both
+prefixes. That is the fourth consecutive payload move to leave MLX token
+accounting inert — and the least surprising of the four, because MLX_VERSION
+did not move at all across this one.
+
+THE GGUF HALF IS WHERE THIS FOLD ACTUALLY CHANGED, AND THIS PROFILE'S LADDERS
+CANNOT SEE IT. b10864 -> b10969 is +1214/-339 across 17 Metal backend files: a
+fusion subsystem that did not exist before and is default-on
+(GGML_METAL_FUSION_DISABLE opts out), the kernel_mul_mm_id tensor-path
+restructure above, IQ2-only changes in mul_mv.metal (inert — no IQ2 in the
+store), and per-frame video cache ids in mtmd-helper.cpp (inert for stills).
+Every arch below is nvfp4 or mlx-bf16 and does not use llama.cpp at all, so
+none of them exercises any of it. llama_cpp_build is what guards that half
+here; the GGUF evidence itself lives on #361.
+
+BUDGET/PIXEL FIELDS ARE CARRIED, with a narrower justification than 0-34-0's
+and a wider one than it looks: MLX_VERSION is unchanged across this fold, so
+the Go sizing model that produced those numbers is the same code. They are
+still flagged budgets_observed = false because the native MLX path emits no
+load_hparams line, so nothing here read them back.
+
+aspect_ladder and the think_format probes are carried from 0-34-0 unchanged.
+Neither is a silent carry: preflight runs both live, so a moved value fails the
+gate rather than passing on the strength of this note.
+"""
+
 [profiles.metal-0-32-14]
 platform = "metal"
 # The GGUF/Metal half of Apple Silicon on the v0.32.14 payload (b10434).
@@ -2236,6 +2310,162 @@ require_nonempty_thinking = true
 # Carried from mlx-metal-0-33-2. preflight RUNS this probe live, so a
 # moved result fails the gate rather than riding on the old measurement.
 
+
+[expect.mlx-metal-0-34-2.gemma4]
+status = "measured"
+measured_on = "2026-09-20"
+model = "gemma4:31b-mlx-bf16"
+patch_stride = 48
+# Carried from mlx-metal-0-34-0, not re-observed: the native MLX path emits no
+# load_hparams line, so payload_proof has nothing to read here either. The
+# stride arithmetic still catches a hand-edit typo
+# (test_pixel_budgets_equal_tokens_times_stride_squared), and MLX_VERSION did
+# not move across this fold, so the Go sizing model these describe is the same
+# one that produced the 0-34-0 row.
+budgets_observed = false
+budget_min_tokens = 70   # carried, see note above
+budget_max_tokens = 1120   # carried, see note above
+image_min_pixels = 161280   # carried, see note above
+image_max_pixels = 2580480   # carried, see note above
+scaling = "flat"
+# Aspect axis, carried from 0-34-0. Not a silent carry: check_aspect_ladder
+# runs these three live on every preflight, so a moved value fails the gate
+# rather than passing on the strength of this comment.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.mlx-metal-0-34-2.gemma4_unified]
+status = "measured"
+measured_on = "2026-09-20"
+model = "gemma4:12b-nvfp4"
+patch_stride = 48
+# Carried from mlx-metal-0-34-0, not re-observed: the native MLX path emits no
+# load_hparams line, so payload_proof has nothing to read here either. The
+# stride arithmetic still catches a hand-edit typo
+# (test_pixel_budgets_equal_tokens_times_stride_squared), and MLX_VERSION did
+# not move across this fold, so the Go sizing model these describe is the same
+# one that produced the 0-34-0 row.
+budgets_observed = false
+budget_min_tokens = 70   # carried, see note above
+budget_max_tokens = 1120   # carried, see note above
+image_min_pixels = 161280   # carried, see note above
+image_max_pixels = 2580480   # carried, see note above
+scaling = "flat"
+# Aspect axis, carried from 0-34-0. Not a silent carry: check_aspect_ladder
+# runs these three live on every preflight, so a moved value fails the gate
+# rather than passing on the strength of this comment.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.mlx-metal-0-34-2.qwen35moe]
+status = "measured"
+measured_on = "2026-09-20"
+model = "qwen3.6:35b-a3b-nvfp4"
+patch_stride = 32
+# Carried from mlx-metal-0-34-0, not re-observed: the native MLX path emits no
+# load_hparams line, so payload_proof has nothing to read here either. The
+# stride arithmetic still catches a hand-edit typo
+# (test_pixel_budgets_equal_tokens_times_stride_squared), and MLX_VERSION did
+# not move across this fold, so the Go sizing model these describe is the same
+# one that produced the 0-34-0 row.
+budgets_observed = false
+budget_min_tokens = 64   # carried, see note above
+budget_max_tokens = 16384   # carried, see note above
+image_min_pixels = 65536   # carried, see note above
+image_max_pixels = 16777216   # carried, see note above
+scaling = "dynamic"
+# Aspect axis, carried from 0-34-0. Not a silent carry: check_aspect_ladder
+# runs these three live on every preflight, so a moved value fails the gate
+# rather than passing on the strength of this comment.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
+
+[expect.mlx-metal-0-34-2.qwen35]
+status = "measured"
+measured_on = "2026-09-20"
+model = "qwen3.8:27b-nvfp4"
+patch_stride = 32
+# Carried from mlx-metal-0-34-0, not re-observed: the native MLX path emits no
+# load_hparams line, so payload_proof has nothing to read here either. The
+# stride arithmetic still catches a hand-edit typo
+# (test_pixel_budgets_equal_tokens_times_stride_squared), and MLX_VERSION did
+# not move across this fold, so the Go sizing model these describe is the same
+# one that produced the 0-34-0 row.
+budgets_observed = false
+budget_min_tokens = 64   # carried, see note above
+budget_max_tokens = 16384   # carried, see note above
+image_min_pixels = 65536   # carried, see note above
+image_max_pixels = 16777216   # carried, see note above
+scaling = "dynamic"
+# Aspect axis, carried from 0-34-0. Not a silent carry: check_aspect_ladder
+# runs these three live on every preflight, so a moved value fails the gate
+# rather than passing on the strength of this comment.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
+
+[expect.mlx-metal-0-34-2.gemma4.think_format]
+# Carried from mlx-metal-0-34-0 unchanged. ADR 0033 put the MLX runner on
+# upstream's grammar engine and this is the only probe that exercises it;
+# preflight runs it live, so a regression fails here rather than being
+# inherited.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.mlx-metal-0-34-2.gemma4_unified.think_format]
+# Carried from mlx-metal-0-34-0 unchanged. ADR 0033 put the MLX runner on
+# upstream's grammar engine and this is the only probe that exercises it;
+# preflight runs it live, so a regression fails here rather than being
+# inherited.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.mlx-metal-0-34-2.qwen35moe.think_format]
+# Carried from mlx-metal-0-34-0 unchanged. ADR 0033 put the MLX runner on
+# upstream's grammar engine and this is the only probe that exercises it;
+# preflight runs it live, so a regression fails here rather than being
+# inherited.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.mlx-metal-0-34-2.qwen35.think_format]
+# Carried from mlx-metal-0-34-0 unchanged. ADR 0033 put the MLX runner on
+# upstream's grammar engine and this is the only probe that exercises it;
+# preflight runs it live, so a regression fails here rather than being
+# inherited.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
 
 [poison.cuda-dynres-903]
 model = "qwen2.5vl:3b-q4_K_M"
