@@ -155,20 +155,85 @@ separate suite run, tracked below.
 - **Not** an upstream PR on the Q4_K `default: return true` threshold. The A/B
   measured that path at -0.1% on dense `qwen3.8:27b`; there is no win there.
 
+## Results for the questions this raised
+
+### Which caller these GEMMs arrive through -- settled by measurement
+
+Capturing the rocBLAS inventory on the `FORCE_CUBLAS` build and diffing it
+against the MMQ build:
+
+| model | in BOTH builds | added by FORCE_CUBLAS |
+|---|---|---|
+| `gemma4:31b` | **19.52 TFLOP** | 44.91 TFLOP |
+| `qwen3.8:27b` | **23.86 TFLOP** | 65.61 TFLOP |
+| `nemotron3:33b` | **10.98 TFLOP** | 11.65 TFLOP, over 724 distinct shapes |
+
+Zero shapes present under MMQ are missing under `FORCE_CUBLAS`: the flag only
+ever *adds* work to rocBLAS. So the conclusion the earlier draft drew -- that
+`FORCE_CUBLAS` cannot move these GEMMs off rocBLAS -- holds, even though the
+reasoning it used (`d_type f16_r` implies the bailout) did not. Right answer,
+wrong reason, now measured rather than inferred.
+
+### FP32 accumulate costs 2x and buys nothing
+
+Full suite under `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` against the baseline arm:
+scores are unchanged on every model except one fine-text cell on `gemma4:31b`
+(9px, 4/4 -> 3/4) which moved the **wrong** way. So -48.6% throughput for no
+measurable accuracy. The f16 default is correct on both axes, not just speed.
+
+### prefer_f32_output for RDNA3.5: the exclusion is correct
+
+With the gate built and flipped at runtime (gate-off reproduced the production
+baseline at 154.2 vs 154.9 tok/s, so the build is trustworthy):
+
+| model | gate off | gate on | delta |
+|---|---|---|---|
+| `gemma4:31b` | 154.2 | 107.7 | **-30.2%** |
+| `qwen3.8:27b` | 243.4 | 162.3 | **-33.3%** |
+
+Cheaper than full FP32 (-48.6%) but nowhere near free. Given that FP32
+accumulate produced no accuracy gain above, the exclusion of RDNA3.5 from this
+path looks like correct tuning rather than an untested default.
+
+## The largest block of work is not in this document
+
+Tower attention is absent from all 11,812 captured GEMM calls -- there is no
+`9900x9900` shape anywhere. It runs on flash-attention kernels, which never
+touch rocBLAS. For `gemma4:31b` that is:
+
+| block | TFLOP per image request |
+|---|---|
+| **tower attention (QK^T + AV)** | **12.2** |
+| tower projections | 10.8 |
+| LM GEMMs | 8.7 |
+
+So the single biggest block of vision prefill is one that none of the findings
+above apply to. Three facts make it the lead:
+
+- flash attention is enabled in production **and** in the bench harness, so
+  those kernels really are running this work
+- `rocwmma` has **zero** hits in the shipped `libggml-hip.so`:
+  `GGML_HIP_ROCWMMA_FATTN` is off, which is the upstream default
+- rocWMMA headers and cmake config **are** present in the production build
+  base, so the alternative is buildable
+
+Unlike `prefer_f32_output`, FA kernel selection is compile-time, so this cannot
+be env-gated -- it is two builds, and build-to-build variance is a real risk
+rather than one that can be assumed away. Upstream also describes the flag as
+mainly benefiting CDNA, so neutral or worse on RDNA3.5 is a live outcome.
+
 ## What remains open
 
-1. **Which caller these GEMMs arrive through.** Diff the rocBLAS inventory
-   between the MMQ and `FORCE_CUBLAS` builds: present in both means bailout,
-   only under `FORCE_CUBLAS` means MMQ was handling it. Queued.
-2. **`prefer_f32_output` for RDNA3.5.** rocBLAS ships HPA kernels for gfx1151
-   and the arch list does not use them. Needs a build, not an env var; measure
-   throughput *and* scores, because the point of F32 accumulate is accuracy.
-3. **Accuracy under full FP32.** Does the 2x cost anything on fine text or
-   bbox IoU? Suite comparing `scores_cf32_*` against `scores_mmq_*`.
-4. **Could the tower skip rocBLAS entirely?** `mmf` asserts F32 `src1` and
-   `dst`, so there is no existing non-cuBLAS path for an F16-output matmul --
-   this would mean writing one, not enabling one.
-5. **hipBLASLt kernels for gfx1151**, if a future ROCm ships them.
+1. **rocWMMA flash attention on gfx1151.** Build queued.
+2. **What FA is worth here.** Running with flash attention *off* forces the
+   tower attention through rocBLAS as explicit `mul_mat` -- the only way to get
+   `9900x9900` shapes into the inventory. This is a diagnostic, not a
+   candidate: materialising that matrix is what FA exists to avoid, roughly
+   339 GB of traffic across 27 blocks. But the ratio calibrates how much
+   upside rocWMMA can possibly have.
+3. **Whether rocBLAS is near the metal at all.** Every measurement here is
+   comparative. A direct benchmark against the hardware ceiling is queued.
+4. **hipBLASLt kernels for gfx1151**, if a future ROCm ships them.
 
 ## Regression sentinel
 
