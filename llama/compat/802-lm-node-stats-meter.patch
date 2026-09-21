@@ -1,0 +1,82 @@
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index 6334f3c..ad0f74e 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -15,7 +15,9 @@
+ 
+ #include <cinttypes>
+ #include <cmath>
++#include <cstdlib>
+ #include <cstring>
++#include <vector>
+ #include <limits>
+ #include <stdexcept>
+ #include <string>
+@@ -1362,7 +1364,66 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+         res->reset();
+ 
+         ggml_backend_sched_reset(sched.get());
+-        ggml_backend_sched_set_eval_callback(sched.get(), cparams.cb_eval, cparams.cb_eval_user_data);
++        if (const char * flt = std::getenv("OLLAMA_LM_NODE_STATS")) {
++            // MAXUSAI (diagnostic, not for shipping): the language-model twin of
++            // compat 801's clip meter, emitting the same fields so one differ
++            // reads both. 801 localises a divergence to the vision tower or away
++            // from it; without this, "away from it" is where triage stops.
++            //
++            // BOUNDED BY DEFAULT. An LM graph has thousands of nodes and is
++            // rebuilt per decode step, so an unbounded meter writes gigabytes and
++            // perturbs the timings it is meant to explain. Only the first
++            // OLLAMA_LM_NODE_STATS_GRAPHS graphs are metered (default 1, which is
++            // prefill -- the path vision work is bound by). Every metered node is
++            // copied to host memory, so this is a diagnostic build switch, never
++            // something to leave set on a serving instance.
++            static std::string filter = flt;
++            static const long max_graphs = []() {
++                const char * g = std::getenv("OLLAMA_LM_NODE_STATS_GRAPHS");
++                return g ? std::strtol(g, nullptr, 10) : 1;
++            }();
++            static long graphs_seen = 0;
++            graphs_seen++;
++            if (max_graphs > 0 && graphs_seen > max_graphs) {
++                ggml_backend_sched_set_eval_callback(sched.get(), cparams.cb_eval, cparams.cb_eval_user_data);
++            } else {
++                ggml_backend_sched_set_eval_callback(sched.get(),
++                    [](struct ggml_tensor * t, bool ask, void * /*ud*/) -> bool {
++                        if (ask) {
++                            return t->type == GGML_TYPE_F32 || t->type == GGML_TYPE_F16;
++                        }
++                        const char * nm_c = ggml_get_name(t);
++                        const std::string nm = nm_c ? nm_c : "";
++                        if (filter != "*" && nm.find(filter) == std::string::npos) {
++                            return true;
++                        }
++                        const size_t n = ggml_nelements(t);
++                        std::vector<char> raw(ggml_nbytes(t));
++                        ggml_backend_tensor_get(t, raw.data(), 0, raw.size());
++                        float mx = 0.0f;
++                        size_t n_inf = 0, n_nan = 0, n32 = 0, n49 = 0, n60 = 0;
++                        for (size_t i = 0; i < n; i++) {
++                            const float x = (t->type == GGML_TYPE_F32)
++                                ? ((const float *) raw.data())[i]
++                                : ggml_fp16_to_fp32(((const ggml_fp16_t *) raw.data())[i]);
++                            if (std::isnan(x)) { n_nan++; continue; }
++                            if (std::isinf(x)) { n_inf++; continue; }
++                            const float a = std::fabs(x);
++                            if (a > mx) mx = a;
++                            if (a > 32752.0f) n32++;
++                            if (a > 49128.0f) n49++;
++                            if (a > 60000.0f) n60++;
++                        }
++                        LLAMA_LOG_ERROR("LM_NODE_STATS name=%s op=%s type=%s n=%zu max_abs=%.1f "
++                                "hr=%.4f n_gt32k=%zu n_gt49k=%zu n_gt60k=%zu n_inf=%zu n_nan=%zu\n",
++                                nm.c_str(), ggml_op_name(t->op), ggml_type_name(t->type),
++                                n, mx, mx / 65504.0f, n32, n49, n60, n_inf, n_nan);
++                        return true;
++                    }, nullptr);
++            }
++        } else {
++            ggml_backend_sched_set_eval_callback(sched.get(), cparams.cb_eval, cparams.cb_eval_user_data);
++        }
+ 
+         //const auto t_start_us = ggml_time_us();
+ 

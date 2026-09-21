@@ -1,0 +1,79 @@
+{
+ "meta": {
+  "purpose": "per-node fingerprint of the vision tower per ROCm arm, so a future regression can be localised instead of re-derived",
+  "date": "2026-09-21",
+  "host": "http://127.0.0.1:11499",
+  "model": "gemma4:31b-it-q4_K_M",
+  "image": "visimgs/finetext.png",
+  "capture": "OLLAMA_CLIP_NODE_STATS='*' (llama/compat/801), read from the container log",
+  "llama_cpp_build": "391fac164 (b10969), identical in both arms",
+  "arms": {
+   "rocm7": "0.34.2-dynres-f67b1aef / ROCm 7.2.4",
+   "rocm10": "0.34.2-dynres-rocm10probe / ROCm 10.0.0"
+  },
+  "generator": "vision-suite/summarize_clip_fingerprint.py"
+ },
+ "arms": {
+  "rocm7": {
+   "nodes": 1346,
+   "sha256_of_capture": "796fd550b4cdf66e2f8c60182778f2a7c5249c01b7aa4abba2a45588bb1110fe",
+   "op_mix": {
+    "ADD": 56,
+    "CLAMP": 380,
+    "CONT": 2,
+    "CPY": 54,
+    "FLASH_ATTN_EXT": 27,
+    "GET_ROWS": 2,
+    "GLU": 27,
+    "IM2COL": 1,
+    "MUL": 163,
+    "MUL_MAT": 191,
+    "PERMUTE": 81,
+    "POOL_2D": 1,
+    "RESHAPE": 57,
+    "RMS_NORM": 190,
+    "ROPE": 108,
+    "SCALE": 2,
+    "SUB": 1,
+    "TRANSPOSE": 1,
+    "VIEW": 2
+   },
+   "max_abs_overall": 77686.7,
+   "nodes_with_inf_or_nan": 0
+  },
+  "rocm10": {
+   "nodes": 1346,
+   "sha256_of_capture": "796fd550b4cdf66e2f8c60182778f2a7c5249c01b7aa4abba2a45588bb1110fe",
+   "op_mix": {
+    "ADD": 56,
+    "CLAMP": 380,
+    "CONT": 2,
+    "CPY": 54,
+    "FLASH_ATTN_EXT": 27,
+    "GET_ROWS": 2,
+    "GLU": 27,
+    "IM2COL": 1,
+    "MUL": 163,
+    "MUL_MAT": 191,
+    "PERMUTE": 81,
+    "POOL_2D": 1,
+    "RESHAPE": 57,
+    "RMS_NORM": 190,
+    "ROPE": 108,
+    "SCALE": 2,
+    "SUB": 1,
+    "TRANSPOSE": 1,
+    "VIEW": 2
+   },
+   "max_abs_overall": 77686.7,
+   "nodes_with_inf_or_nan": 0
+  }
+ },
+ "verdict": {
+  "structural_diffs": 0,
+  "numerical_diffs": 0,
+  "inf_nan_nodes": 0,
+  "captures_byte_identical": true,
+  "reading": "The vision tower is bit-identical across ROCm 7.2.4 and 10.0.0 on this model and image: same ops, same dtypes, same intermediate magnitudes on every metered node, and the two captures hash the same. The 7/135 scored blocks that DO differ between these arms therefore diverge downstream of the vision tower, not inside it."
+ }
+}
