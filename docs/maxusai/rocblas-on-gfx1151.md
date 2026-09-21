@@ -2,35 +2,65 @@
 
 **Question this answers.** After the MMQ vs hipBLAS A/B, I wrote that rocBLAS
 was worth investigating for "alternative more optimized kernels". This is that
-investigation. Short answer: the two runtime routes are closed, the current
-configuration is already the fast one by a factor of two, and the remaining
-opportunity is not in rocBLAS's kernel selection but in whether these GEMMs
-need to reach rocBLAS at all.
+investigation. Short answer: both runtime routes are closed and the current
+compute type is already the fast one by a factor of two, so there is nothing to
+gain by reconfiguring rocBLAS. The one candidate left is a code path gfx1151 is
+excluded from -- F16 inputs with F32 accumulate -- which RDNA4 and CDNA do get.
 
 **Measured on** gfx1151 (Ryzen AI Max 395), build `0.34.2-dynres-f67b1aef`,
 ROCm 7.2.4. Noise floor for throughput on this host is +-0.4%.
 
-## Why these GEMMs reach rocBLAS at all
+## How these GEMMs reach rocBLAS
 
-Not because `should_use_mmq` chose it. They never reach that function. The
-first branch of `ggml_cuda_mul_mat` short-circuits:
+`ggml_cuda_mul_mat_cublas` has exactly two callers:
+
+| site | caller |
+|---|---|
+| `ggml_cuda_mul_mat` first branch | bailout when `src1->type != F32 \|\| dst->type != F32 \|\| bad_padding_clear` |
+| `ggml_cuda_mul_mat` last line | fallthrough after `should_use_mmq` returned false |
+
+**The `ROCBLAS_LAYER` log cannot tell them apart**, and an earlier draft of this
+document claimed it could. It read `--d_type f16_r` on every captured call as
+proof that `dst->type == F16`, so every call must be taking the bailout. That
+inference does not hold. `d_type` is set by `prefer_f32_output`, not by
+`dst->type`:
 
 ```c
-if (bad_padding_clear || src1->type != GGML_TYPE_F32 || dst->type != GGML_TYPE_F32) {
-    ggml_cuda_mul_mat_cublas(ctx, src0, src1, dst);
-    return;   // bypasses mmvf, mmf, mmvq and mmq entirely
+bool prefer_f32_output = false;
+if (compute_type == GGML_TYPE_F16) {
+    prefer_f32_output = cc == GGML_CUDA_CC_VOLTA || GGML_CUDA_CC_IS_RDNA4(cc) || GGML_CUDA_CC_IS_CDNA(cc);
+} else if (compute_type == GGML_TYPE_BF16) {
+    prefer_f32_output = !GGML_CUDA_CC_IS_RDNA3(cc) && !GGML_CUDA_CC_IS_CDNA(cc);
 }
 ```
 
-Every captured call has `--d_type f16_r`, so every one of them takes this exit.
+gfx1151 is RDNA3_5, so it is RDNA3 and not RDNA4 -- `prefer_f32_output` is false
+for **both** F16 and BF16. The kernel therefore writes to an F16/BF16 temp and
+accumulates in that precision, which is exactly the `--d_type f16_r
+--compute_type f16_r` the log shows. It says nothing about which caller ran.
 
-This corrects a claim worth stating plainly, because it changes how the earlier
-A/B should be read: `GGML_CUDA_FORCE_CUBLAS` only changes what
-`should_use_mmq` returns, so it **cannot move a single one of these GEMMs**.
-They were on rocBLAS in both arms. That is why dense `gemma4:31b` measured
-+2.1% in that A/B rather than showing an MMQ win -- a large share of its
-prefill never had a choice of path. The A/B remains valid for what it measured;
-it just never covered this.
+What is established: the tower GEMMs run inside an F16 graph, so those do take
+the bailout. What is **not** established is the LM GEMMs, and the distinction
+matters -- if they arrive by fallthrough then `should_use_mmq` did decline them
+and the earlier A/B did have a lever on them after all. Diffing the rocBLAS
+inventory between the MMQ build and the `FORCE_CUBLAS` build settles it:
+anything present in both arrived by bailout, anything appearing only under
+`FORCE_CUBLAS` was being handled by MMQ. That measurement is queued; this
+document will not assert the split until it has run.
+
+## The exclusion worth testing
+
+Independent of the above, the arch list is itself a finding. RDNA4 and CDNA get
+F16 inputs with **F32 accumulate** -- the high-precision-accumulate path, which
+rocBLAS ships gfx1151 kernels for (`TensileLibrary_Type_*_HPA_*_gfx1151`).
+gfx1151 is excluded and accumulates in F16.
+
+This is a different knob from `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32` measured
+below, which converts the *inputs* to F32 as well and halves throughput.
+F16-in/F32-accumulate typically costs little or nothing on hardware with HPA
+support, and buys accuracy. Whether gfx1151's exclusion is deliberate tuning or
+an untested default is open, and testing it needs a build rather than an
+environment variable.
 
 ## What reaches rocBLAS
 
@@ -127,13 +157,18 @@ separate suite run, tracked below.
 
 ## What remains open
 
-1. **Accuracy under FP32 accumulate.** Does the 2x cost anything on fine text
-   or bbox IoU? Suite run comparing `scores_cf32_*` against `scores_mmq_*`.
-2. **Whether these GEMMs need rocBLAS at all.** The bailout triggers on
-   `dst->type != F32`. An F16-output path through mmf would skip rocBLAS
-   entirely for the tower shapes. That is an upstream design question, and the
-   one place real headroom might be.
-3. **hipBLASLt kernels for gfx1151**, if a future ROCm ships them.
+1. **Which caller these GEMMs arrive through.** Diff the rocBLAS inventory
+   between the MMQ and `FORCE_CUBLAS` builds: present in both means bailout,
+   only under `FORCE_CUBLAS` means MMQ was handling it. Queued.
+2. **`prefer_f32_output` for RDNA3.5.** rocBLAS ships HPA kernels for gfx1151
+   and the arch list does not use them. Needs a build, not an env var; measure
+   throughput *and* scores, because the point of F32 accumulate is accuracy.
+3. **Accuracy under full FP32.** Does the 2x cost anything on fine text or
+   bbox IoU? Suite comparing `scores_cf32_*` against `scores_mmq_*`.
+4. **Could the tower skip rocBLAS entirely?** `mmf` asserts F32 `src1` and
+   `dst`, so there is no existing non-cuBLAS path for an F16-output matmul --
+   this would mean writing one, not enabling one.
+5. **hipBLASLt kernels for gfx1151**, if a future ROCm ships them.
 
 ## Regression sentinel
 
