@@ -136,7 +136,7 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   `OLLAMA_LLAMA_CPP_COMPAT_PATCH_COMMAND`, which FetchContent runs as its
   `PATCH_COMMAND`: the shared idempotent applier `cmake/apply-git-patches.cmake`
   with `PATCH_DIR` pointing at this directory. The applier globs `*.patch`
-  here **recursively** (so `models/` too), applies them in sorted filename
+  here **recursively**, applies them in sorted filename
   order — the numeric prefix is the apply order — skips any patch that already
   applies in reverse (`git apply --reverse --check`, which is what makes
   re-configuring and rebuilding safe), and fails the configure (`FATAL_ERROR`)
@@ -145,10 +145,6 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   main CMakeLists can `target_sources()` the four compat source files onto the
   fetched llama.cpp targets after `FetchContent_MakeAvailable` — the sources
   are never copied into the fetched tree.
-- `models/` - the sibling **new-architecture** layer: implementations of
-  architectures llama.cpp doesn't support yet, each added via a small
-  registration patch. (Those files *add* archs; the files above *translate*
-  existing GGUFs onto archs llama.cpp already has.)
 
 The compatibility source files stay in this directory and are linked into the
 fetched llama.cpp targets. The patch file only adds call sites.
@@ -160,9 +156,10 @@ in sorted filename order, so the numeric prefix is the apply order. Three bands 
 that sequence and they mean different things:
 
 - **0xx — the compatibility layer.** Translating existing published Ollama
-  GGUFs onto what llama.cpp already expects, plus the `models/` patches that
-  register architectures llama.cpp does not have yet. These leave when the
-  published models do.
+  GGUFs onto what llama.cpp already expects, plus any `models/` patch that
+  registers an architecture llama.cpp does not have yet (none today: v0.34.4
+  dropped the last one, laguna's Metal patch, as fixed upstream at b11081).
+  These leave when the published models do.
 - **8xx — diagnostics and instrumentation.** Env-gated observation code that
   is inert in a normal build and run: nothing is registered and no behaviour
   changes unless the operator sets the variable. They exist because some faults
@@ -269,7 +266,6 @@ fixed set of files:
 |---|---|
 | `001-llama-cpp-hooks.patch` | `src/llama-model-loader.cpp`, `tools/mtmd/clip.cpp` |
 | `002-llama-cpp-nemotron-dynres.patch` | `tools/mtmd/clip.cpp`, `tools/mtmd/models/nemotron-v2-vl.cpp`, `tools/mtmd/mtmd.cpp` |
-| `models/003-llama-cpp-laguna-metal.patch` | `src/models/laguna.cpp` |
 | `004-llama-cpp-gemma4-budget-fill.patch` | `tools/mtmd/clip-model.h`, `tools/mtmd/clip.cpp`, `tools/mtmd/mtmd-image.cpp` |
 | `005-llama-cpp-dynres-pinned-overshoot.patch` | `tools/mtmd/mtmd-image.cpp` |
 | `903-fix-mmq-ids-padding.patch` | `ggml/src/ggml-cuda/mmq.cu` |

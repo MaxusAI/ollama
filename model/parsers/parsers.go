@@ -19,20 +19,13 @@ type Parser interface {
 	// PreservedTokens returns parser grammar tokens that must remain visible in
 	// llama-server detokenized output for this parser to recognize boundaries.
 	PreservedTokens() []string
+	// ThinkingClose returns the strings any of which ends the thinking the
+	// response begins with, or none when it starts in content. Answered after
+	// Init, which decides that from the think value, a prefill, and the
+	// parser's default.
+	ThinkingClose() []string
 	HasToolSupport() bool
 	HasThinkingSupport() bool
-}
-
-// ImplicitThinkingParser is implemented by parsers whose models begin
-// generation already inside thinking — no opening marker is emitted — and
-// leave it with a closing marker. Constrained decoding must not start before
-// that marker: a grammar applied from the first token prevents the marker from
-// ever being emitted, so the whole response is classified as thinking.
-type ImplicitThinkingParser interface {
-	// ThinkingCloseMarker returns the marker that ends thinking when the
-	// parser will start the next generation collecting thinking, and ""
-	// when generation starts as regular content.
-	ThinkingCloseMarker() string
 }
 
 type ParserConstructor func() Parser
@@ -129,6 +122,10 @@ func (p *PassthroughParser) Add(s string, done bool) (content string, thinking s
 }
 
 func (p *PassthroughParser) PreservedTokens() []string {
+	return nil
+}
+
+func (p *PassthroughParser) ThinkingClose() []string {
 	return nil
 }
 

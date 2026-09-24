@@ -360,14 +360,6 @@ func (r *Runner) decode(ctx context.Context, request Request, session *cacheSess
 						continue
 					}
 				}
-				// Two-pass structured output cancels the first pass before its final response.
-				if request.IncludeIntermediateMetrics {
-					resp.PromptEvalCount = len(request.Tokens)
-					resp.PromptEvalCachedCount = final.PromptEvalCachedCount
-					resp.PromptEvalDuration = promptEval
-					resp.EvalCount = generated
-					resp.EvalDuration = time.Since(now)
-				}
 				if resp.Content != "" || len(resp.Logprobs) > 0 {
 					select {
 					case <-ctx.Done():

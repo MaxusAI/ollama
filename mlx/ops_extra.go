@@ -23,14 +23,29 @@ import (
 // golden delta (issue #312).
 const Nvfp4MaxProduct = 448 * 6
 
+// globalScaleFactor converts a stored global scale into the multiplier an
+// output needs. A stored scale is the checkpoint's own m (ADR 0039), so this is
+// the scale itself; MLX's m*Nvfp4MaxProduct form exists only in
+// ToMLXRepresentation. Upstream stores the MLX form and divides it out here: an
+// upstream edit to this body must be re-read against ADR 0039, not taken.
+func globalScaleFactor(scale *Array) *Array {
+	return scale
+}
+
+// identityGlobalScale is the stored global scale that leaves a value
+// unchanged: 1 (ADR 0039).
+func identityGlobalScale() *Array {
+	return FromValue(float32(1))
+}
+
 // scaleAndCast applies a global scale to an output and casts back, fusing the
-// divide, multiply and cast into one kernel. Eagerly this is several: MLX
-// promotes binary operands with an astype, so a bf16 input times a float32
-// scale round-trips through a full-size float32 intermediate.
+// multiply and cast into one kernel. Eagerly this is several: MLX promotes
+// binary operands with an astype, so a bf16 input times a float32 scale
+// round-trips through a full-size float32 intermediate.
 var scaleAndCast = Compile2(
 	"GlobalScaleOutput",
 	func(out, scale *Array) *Array {
-		return Mul(out, scale).AsType(out.DType())
+		return Mul(out, globalScaleFactor(scale)).AsType(out.DType())
 	},
 	Shapeless(),
 )

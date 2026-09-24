@@ -32,6 +32,13 @@ type Nemotron3NanoParser struct {
 func (p *Nemotron3NanoParser) HasToolSupport() bool     { return true }
 func (p *Nemotron3NanoParser) HasThinkingSupport() bool { return true }
 
+func (p *Nemotron3NanoParser) ThinkingClose() []string {
+	if p.state == Nemotron3NanoCollectingThinking {
+		return []string{nemotronThinkClose}
+	}
+	return nil
+}
+
 func (p *Nemotron3NanoParser) PreservedTokens() []string {
 	return []string{
 		nemotronThinkOpen,
@@ -59,15 +66,6 @@ func (p *Nemotron3NanoParser) Init(tools []api.Tool, lastMessage *api.Message, t
 	}
 
 	return tools
-}
-
-// ThinkingCloseMarker reports the implicit-thinking close marker while the
-// parser is still collecting thinking from the start of generation.
-func (p *Nemotron3NanoParser) ThinkingCloseMarker() string {
-	if p.state == Nemotron3NanoCollectingThinking {
-		return nemotronThinkClose
-	}
-	return ""
 }
 
 func (p *Nemotron3NanoParser) Add(s string, done bool) (content string, thinking string, calls []api.ToolCall, err error) {

@@ -150,14 +150,13 @@ func (c *Client) WaitUntilRunning(ctx context.Context) error {
 
 type CompletionRequest struct {
 	Prompt string
+	Media  []llm.MediaData
 	// Format carries the request's structured-output constraint to the
 	// runner (ADR 0009); the handler compiles it at admission.
-	Format                     json.RawMessage
-	Media                      []llm.MediaData
-	Options                    api.Options
-	Logprobs                   bool
-	TopLogprobs                int
-	IncludeIntermediateMetrics bool
+	Format      json.RawMessage
+	Options     api.Options
+	Logprobs    bool
+	TopLogprobs int
 }
 
 type CompletionResponse struct {
@@ -208,8 +207,9 @@ func (c *Client) Close() error {
 const maxWhitespaceRun = 32
 
 // requestGrammar returns the structural tag the runner decodes under: the
-// API's format wrapped into a json_schema tag, with the whitespace between
-// tokens bounded (see maxWhitespaceRun).
+// API's format as a json_schema tag with the whitespace between tokens bounded
+// (see maxWhitespaceRun), behind the free thinking the response begins with
+// when there is any.
 func requestGrammar(req llm.CompletionRequest) json.RawMessage {
 	schema := req.Format
 	switch string(schema) {
@@ -219,23 +219,43 @@ func requestGrammar(req llm.CompletionRequest) json.RawMessage {
 		// The API documents "json" as producing a JSON object.
 		schema = json.RawMessage(`{"type":"object"}`)
 	}
-	tag := make(json.RawMessage, 0, len(schema)+64)
-	tag = append(tag, `{"type":"structural_tag","format":{"type":"json_schema","max_whitespace_cnt":`...)
-	tag = strconv.AppendInt(tag, maxWhitespaceRun, 10)
-	tag = append(tag, `,"json_schema":`...)
-	tag = append(tag, schema...)
-	return append(tag, `}}`...)
+	format := `{"type":"json_schema","max_whitespace_cnt":` + strconv.Itoa(maxWhitespaceRun) +
+		`,"json_schema":` + string(schema) + `}`
+	if len(req.ThinkingClose) > 0 {
+		excludes := make([]string, len(req.ThinkingClose))
+		closings := make([]string, len(req.ThinkingClose))
+		for i, closing := range req.ThinkingClose {
+			excludes[i] = jsonString(closing)
+			closings[i] = `{"type":"const_string","value":` + excludes[i] + `}`
+		}
+		closing := closings[0]
+		if len(closings) > 1 {
+			closing = `{"type":"or","elements":[` + strings.Join(closings, ",") + `]}`
+		}
+		// The tail is optional so EOS stays legal mid-thinking.
+		format = `{"type":"sequence","elements":[{"type":"any_text","excludes":[` + strings.Join(excludes, ",") + `]},` +
+			`{"type":"optional","content":{"type":"sequence","elements":[` + closing + `,` + format + `]}}]}`
+	}
+	return json.RawMessage(`{"type":"structural_tag","format":` + format + `}`)
+}
+
+// jsonString quotes s without escaping the HTML characters tags carry.
+func jsonString(s string) string {
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(s)
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // Completion implements llm.LlamaServer.
 func (c *Client) Completion(ctx context.Context, req llm.CompletionRequest, fn func(llm.CompletionResponse)) error {
 	creq := CompletionRequest{
-		Prompt:                     req.Prompt,
-		Media:                      req.Media,
-		Format:                     requestGrammar(req),
-		Logprobs:                   req.Logprobs,
-		TopLogprobs:                req.TopLogprobs,
-		IncludeIntermediateMetrics: req.IncludeIntermediateMetrics,
+		Prompt:      req.Prompt,
+		Media:       req.Media,
+		Format:      requestGrammar(req),
+		Logprobs:    req.Logprobs,
+		TopLogprobs: req.TopLogprobs,
 	}
 	if req.Options != nil {
 		creq.Options = *req.Options
