@@ -1,0 +1,247 @@
+# syntax=docker/dockerfile:1
+# vim: filetype=dockerfile
+#
+# The MaxusAI fork's ROCm image, built entirely on AMD's Ubuntu 24.04 ROCm images.
+# ADR 0042: until Glenn says otherwise, a fork ROCm build uses exactly
+#
+#   rocm7  (production)    rocm/dev-ubuntu-24.04:7.2.4-complete   ROCM_VARIANT=rocm_v7_2
+#   rocm10 (experimental)  rocm/dev-ubuntu-24.04:10.0.0-full      ROCM_VARIANT=rocm_v10_0 (ADR 0040)
+#
+# and never rocm/dev-almalinux-8. The first stage refuses an AlmaLinux image.
+#
+# Why not the repo's own Dockerfile with FLAVOR=rocm: that file is upstream's, and it
+# bases EVERY amd64 stage -- cpu, cuda, vulkan, the Go build -- on
+# rocm/dev-almalinux-8:${ROCMVERSION}-complete. AMD stopped publishing that image at
+# 7.2.4, and on the gfx1151 host the 7.2.4 AlmaLinux base was no longer cached and
+# pulled at ~1 MB/s. Editing upstream's file would put a conflict on every fold, so the
+# fork builds ROCm through this file instead and leaves the Dockerfile as upstream ships
+# it.
+#
+# What it produces is upstream's FLAVOR=rocm image, stage for stage: the CPU
+# llama-server with every ggml-cpu variant, the ROCm llama-server
+# (libggml-hip.so plus the bundled ROCm runtime), the Go binary, and the same
+# ubuntu:24.04 runtime with the same environment and entrypoint. The differences are
+# the toolchain -- the system GCC 13.3 and glibc 2.39 of Ubuntu 24.04 instead of
+# gcc-toolset-13 and glibc 2.28 -- and two provenance stamps beside the ROCm payload:
+#
+#   lib/ollama/<variant>/ROCM_VERSION  the ROCm release (preflight's toolchain pin reads it)
+#   lib/ollama/<variant>/ROCM_IMAGE    the exact image the payload was built on
+#
+# ROCM_VERSION alone cannot tell an Ubuntu-built 7.2.4 payload from the AlmaLinux-built
+# one production ran until 2026-09-24; ROCM_IMAGE can.
+#
+# Build through scripts/build_rocm.sh, which stamps the version the way every other
+# build does (scripts/env.sh, ADR 0032). By hand:
+#
+#   . scripts/env.sh
+#   docker buildx build --load --platform=linux/amd64 --build-arg=GOFLAGS \
+#       -f Dockerfile.rocm -t maxusai-ollama:$VERSION-rocm7 .
+#
+# AMDGPU_TARGETS=gfx1151 narrows the ROCm stage to one architecture for a dev or probe
+# build; the default is the preset's full list, which is what ships.
+#
+# CACHES. Everything a rebuild would otherwise fetch or recompile lives in a BuildKit
+# cache mount on the build host, for both toolchains:
+#
+#   /root/.ccache             ccache for the CPU and ROCm compiles (default id, shared)
+#   ollama-rocm-apt-*-<tag>   apt .debs and lists, one pair per ROCm image
+#   ollama-build-downloads    ccache/cmake/ninja release tarballs and the Go toolchain
+#   ollama-llama-cpp-src      one pristine shallow checkout per LLAMA_CPP_VERSION
+#   ollama-gomod              the Go module cache; /root/.cache/go-build the build cache
+#
+# The llama.cpp checkout is copied to the path FetchContent would have cloned to, so
+# compile commands -- and ccache hits -- are the same as a network build's. Cache mounts
+# are build cache: `docker builder prune` without `--filter type=regular` deletes them.
+
+ARG ROCM_IMAGE=rocm/dev-ubuntu-24.04
+ARG ROCM_TAG=7.2.4-complete
+ARG ROCM_VARIANT=rocm_v7_2
+ARG CMAKEVERSION=3.31.2
+ARG NINJAVERSION=1.12.1
+ARG CCACHEVERSION=4.10.2
+# Build parallelism. Empty keeps ninja's default (nproc + 2); scripts/build_rocm.sh passes
+# nproc - 1, the gfx1151 host's standing preference. Upstream's -l $(nproc) load cap stays.
+ARG PARALLEL=
+
+FROM --platform=linux/amd64 ${ROCM_IMAGE}:${ROCM_TAG} AS toolchain
+ARG ROCM_IMAGE
+ARG ROCM_TAG
+# The llama-server stages work in relative paths (dist/lib/ollama, build/...), and
+# COPY --from resolves a relative source from the stage root. AMD's images set no
+# WORKDIR today; pin it so a future tag that does cannot move the payload silently.
+WORKDIR /
+RUN case "${ROCM_IMAGE}" in \
+      *almalinux*) echo "ADR 0042: fork ROCm builds never use ${ROCM_IMAGE}:${ROCM_TAG};" \
+                        "use rocm/dev-ubuntu-24.04 (7.2.4-complete or 10.0.0-full)" >&2; exit 1 ;; \
+    esac
+# Keep downloaded .debs for the cache mounts; Docker's Ubuntu images delete them.
+RUN rm -f /etc/apt/apt.conf.d/docker-clean \
+    && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+RUN --mount=type=cache,id=ollama-rocm-apt-cache-${ROCM_TAG},target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=ollama-rocm-apt-lists-${ROCM_TAG},target=/var/lib/apt,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl git unzip xz-utils
+# ccache, cmake and ninja as upstream's base stage installs them, with the release
+# tarballs kept in a download cache shared by both toolchains. ccache is wired through
+# the CMAKE_<LANG>_COMPILER_LAUNCHER variables, so no preset changes.
+ARG CCACHEVERSION
+ARG CMAKEVERSION
+ARG NINJAVERSION
+RUN --mount=type=cache,id=ollama-build-downloads,target=/var/cache/ollama-dl,sharing=locked \
+    set -eu; d=/var/cache/ollama-dl; \
+    fetch() { [ -s "$d/$2" ] || { curl -fsSL -o "$d/$2.part" "$1" && mv "$d/$2.part" "$d/$2"; }; }; \
+    fetch "https://github.com/ccache/ccache/releases/download/v${CCACHEVERSION}/ccache-${CCACHEVERSION}-linux-x86_64.tar.xz" "ccache-${CCACHEVERSION}-linux-x86_64.tar.xz"; \
+    fetch "https://github.com/Kitware/CMake/releases/download/v${CMAKEVERSION}/cmake-${CMAKEVERSION}-linux-x86_64.tar.gz" "cmake-${CMAKEVERSION}-linux-x86_64.tar.gz"; \
+    fetch "https://github.com/ninja-build/ninja/releases/download/v${NINJAVERSION}/ninja-linux.zip" "ninja-${NINJAVERSION}-linux.zip"; \
+    tar -xJf "$d/ccache-${CCACHEVERSION}-linux-x86_64.tar.xz" -C /tmp; \
+    install -m0755 "/tmp/ccache-${CCACHEVERSION}-linux-x86_64/ccache" /usr/local/bin/ccache; \
+    tar -xzf "$d/cmake-${CMAKEVERSION}-linux-x86_64.tar.gz" -C /usr/local --strip-components 1; \
+    unzip -o -q "$d/ninja-${NINJAVERSION}-linux.zip" -d /usr/local/bin; \
+    ccache --version | head -1; cmake --version | head -1; ninja --version
+ENV CMAKE_C_COMPILER_LAUNCHER=ccache \
+    CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    CMAKE_HIP_COMPILER_LAUNCHER=ccache \
+    CCACHE_DIR=/root/.ccache \
+    CCACHE_MAXSIZE=25G \
+    CCACHE_SLOPPINESS=locale,time_macros,include_file_ctime,include_file_mtime
+ENV CMAKE_GENERATOR=Ninja
+ENV LDFLAGS=-s
+# stage-llama-cpp <binary dir>: put LLAMA_CPP_VERSION's source at <binary dir>/_deps/
+# llama_cpp-src -- where FetchContent would clone it, so compile commands and ccache
+# keys do not change -- from a pristine shallow checkout kept in a cache mount. The
+# compat patches are then applied to the copy by llama/server's source-override path.
+# core.abbrev=9: llama.cpp stamps `git rev-parse --short HEAD` into llama-server --version,
+# and a one-commit fetch abbreviates to 7 where FetchContent's clone gave 9 -- the length
+# of every llama_cpp_build pin preflight records (391fac164).
+RUN printf '%s\n' '#!/bin/sh' 'set -eu' \
+      'tag=$(tr -d "[:space:]" < LLAMA_CPP_VERSION); src=/var/cache/llama-cpp/$tag; dest=$1/_deps/llama_cpp-src' \
+      'if [ ! -f "$src/.complete" ]; then' \
+      '  rm -rf "$src"; git init -q "$src"' \
+      '  git -C "$src" fetch -q --depth 1 https://github.com/ggml-org/llama.cpp.git "$tag"' \
+      '  git -C "$src" checkout -q FETCH_HEAD; touch "$src/.complete"' \
+      'fi' \
+      'rm -rf "$dest"; mkdir -p "$(dirname "$dest")"; cp -a "$src" "$dest"; rm -f "$dest/.complete"' \
+      'git -C "$dest" config core.abbrev 9' \
+      'echo "$PWD/$dest"' > /usr/local/bin/stage-llama-cpp \
+    && chmod +x /usr/local/bin/stage-llama-cpp
+
+# CPU llama-server: llama-server + ggml-base + every ggml-cpu variant. Built with the
+# system GCC; libgomp is bundled because the ubuntu:24.04 runtime does not ship it.
+FROM toolchain AS llama-server-cpu
+ARG PARALLEL
+COPY LLAMA_CPP_VERSION .
+COPY llama/server llama/server
+COPY llama/compat llama/compat
+COPY cmake cmake
+# The source cache is locked only while it is copied, so the CPU and ROCm stages still
+# compile in parallel.
+RUN --mount=type=cache,id=ollama-llama-cpp-src,target=/var/cache/llama-cpp,sharing=locked \
+    stage-llama-cpp build/llama-server-cpu
+RUN --mount=type=cache,target=/root/.ccache \
+    cmake -S llama/server --preset cpu -DFETCHCONTENT_SOURCE_DIR_LLAMA_CPP="/build/llama-server-cpu/_deps/llama_cpp-src" \
+        && cmake --build build/llama-server-cpu ${PARALLEL:+-j "$PARALLEL"} -- -l $(nproc) \
+        && cmake --install build/llama-server-cpu --component llama-server --strip \
+        && cp -a /usr/lib/x86_64-linux-gnu/libgomp.so* dist/lib/ollama/ \
+        && ccache --show-stats
+
+FROM scratch AS publish-llama-server-cpu
+COPY --from=llama-server-cpu dist/lib/ollama /lib/ollama/
+
+# ROCm llama-server: libggml-hip.so and the ROCm runtime it needs, under
+# lib/ollama/<variant>/. ROCm's clang uses the image's system GCC, so there is no
+# --gcc-toolchain here (gcc-toolset-13 is a RHEL Software Collection).
+FROM toolchain AS llama-server-rocm
+ARG ROCM_IMAGE
+ARG ROCM_TAG
+ARG ROCM_VARIANT
+ARG AMDGPU_TARGETS
+ARG PARALLEL
+ENV PATH=/opt/rocm/llvm/bin:/opt/rocm/bin:$PATH
+ENV CC=clang CXX=clang++
+COPY LLAMA_CPP_VERSION .
+COPY llama/server llama/server
+COPY llama/compat llama/compat
+COPY cmake cmake
+RUN --mount=type=cache,id=ollama-llama-cpp-src,target=/var/cache/llama-cpp,sharing=locked \
+    stage-llama-cpp "build/llama-server-${ROCM_VARIANT}"
+RUN --mount=type=cache,target=/root/.ccache \
+    cmake -S llama/server --preset "${ROCM_VARIANT}_linux" -DFETCHCONTENT_SOURCE_DIR_LLAMA_CPP="/build/llama-server-${ROCM_VARIANT}/_deps/llama_cpp-src" \
+               ${AMDGPU_TARGETS:+"-DAMDGPU_TARGETS=${AMDGPU_TARGETS}"} \
+        && cmake --build "build/llama-server-${ROCM_VARIANT}" ${PARALLEL:+-j "$PARALLEL"} -- -l $(nproc) \
+        && cmake --install "build/llama-server-${ROCM_VARIANT}" --component llama-server --strip \
+        && ccache --show-stats
+RUN rm -f dist/lib/ollama/${ROCM_VARIANT}/rocblas/library/*gfx90[06]*
+RUN printf '%s\n' "${ROCM_TAG%%-*}" > "dist/lib/ollama/${ROCM_VARIANT}/ROCM_VERSION" \
+    && printf '%s\n' "${ROCM_IMAGE}:${ROCM_TAG}" > "dist/lib/ollama/${ROCM_VARIANT}/ROCM_IMAGE" \
+    && cat "dist/lib/ollama/${ROCM_VARIANT}/ROCM_VERSION" "dist/lib/ollama/${ROCM_VARIANT}/ROCM_IMAGE"
+
+FROM scratch AS publish-llama-server-rocm
+COPY --from=llama-server-rocm dist/lib/ollama /lib/ollama/
+
+# The Go binary, built as upstream's build stage builds it: Go from go.mod,
+# -trimpath -buildmode=pie, GOFLAGS carrying the version stamp.
+FROM toolchain AS build
+ENV GOPATH=/go
+WORKDIR /go/src/github.com/ollama/ollama
+COPY go.mod go.sum .
+RUN --mount=type=cache,id=ollama-build-downloads,target=/var/cache/ollama-dl,sharing=locked \
+    set -eu; v=$(awk '/^go / { print $2 }' go.mod); f="go$v.linux-amd64.tar.gz"; d=/var/cache/ollama-dl; \
+    [ -s "$d/$f" ] || { curl -fsSL -o "$d/$f.part" "https://golang.org/dl/$f" && mv "$d/$f.part" "$d/$f"; }; \
+    tar -xzf "$d/$f" -C /usr/local
+ENV PATH=/usr/local/go/bin:$PATH
+RUN --mount=type=cache,id=ollama-gomod,target=/go/pkg/mod \
+    go mod download
+COPY . .
+ARG GOFLAGS="'-ldflags=-w -s'"
+ENV CGO_ENABLED=1
+ARG CGO_CFLAGS
+ARG CGO_CXXFLAGS
+ENV CGO_CFLAGS="${CGO_CFLAGS}"
+ENV CGO_CXXFLAGS="${CGO_CXXFLAGS}"
+RUN --mount=type=cache,id=ollama-gomod,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -trimpath -buildmode=pie -o /bin/ollama .
+RUN --mount=type=cache,id=ollama-gomod,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    cmake -S . -B build/go-license \
+        -DOLLAMA_LLAMA_BACKENDS= \
+        -DOLLAMA_MLX_BACKENDS= \
+    && cmake --build build/go-license --target ollama-go-license
+
+FROM scratch AS image-archive
+COPY --from=llama-server-cpu  dist/lib/ollama /lib/ollama
+COPY --from=llama-server-rocm dist/lib/ollama /lib/ollama
+COPY --from=build /bin/ollama /bin/ollama
+COPY --from=build /go/src/github.com/ollama/ollama/build/go-license/lib/ollama/GO_LICENSE /lib/ollama/GO_LICENSE
+
+# The runtime stage is upstream's, line for line -- no cache mounts, so the runtime
+# image's apt configuration is upstream's too. Its three packages are layer-cached.
+FROM ubuntu:24.04
+ARG ROCM_IMAGE
+ARG ROCM_TAG
+ARG APT_MIRROR=http://archive.ubuntu.com/ubuntu
+ARG APT_PORTS_MIRROR=http://ports.ubuntu.com/ubuntu-ports
+RUN sed -i \
+        -e "s|http://archive.ubuntu.com/ubuntu|$APT_MIRROR|g" \
+        -e "s|http://ports.ubuntu.com/ubuntu-ports|$APT_PORTS_MIRROR|g" \
+        /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update \
+    && apt-get install -y ca-certificates libvulkan1 libopenblas0 \
+    && sed -i \
+        -e "s|$APT_MIRROR|http://archive.ubuntu.com/ubuntu|g" \
+        -e "s|$APT_PORTS_MIRROR|http://ports.ubuntu.com/ubuntu-ports|g" \
+        /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=image-archive /bin /usr/bin
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+COPY --from=image-archive /lib/ollama /usr/lib/ollama
+ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV OLLAMA_HOST=0.0.0.0:11434
+LABEL org.maxusai.rocm.image="${ROCM_IMAGE}:${ROCM_TAG}" \
+      org.maxusai.build.recipe="Dockerfile.rocm"
+EXPOSE 11434
+ENTRYPOINT ["/bin/ollama"]
+CMD ["serve"]

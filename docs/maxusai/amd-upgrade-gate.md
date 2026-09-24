@@ -4,8 +4,9 @@ MaxusAI-fork reference (fork-only; does not exist upstream). Written 2026-07-31 
 `0.32.5-gemma4budget-4259c191` produced degenerate output on the gfx1151 host and was rolled
 back to `0.32.1-gemma4budget-85ebcb79`.
 
-> **LIFTED 2026-09-19.** The AMD/gfx1151 deployment now runs `maxusai-ollama:0.34.1-rocm724-main-16649e8c`
-> (llama.cpp b10864 + `llama/compat/906-revert-hip-integrated-flag.patch`). Clauses 3 and 4
+> **LIFTED 2026-09-19.** The AMD/gfx1151 deployment moved to `maxusai-ollama:0.34.1-rocm724-main-16649e8c`
+> (llama.cpp b10864 + `llama/compat/906-revert-hip-integrated-flag.patch`) and has served `main`
+> since; it runs `maxusai-ollama:0.34.2-rocm724-main-f67b1aef` from 2026-09-21. Clauses 3 and 4
 > are satisfied on measurement; clauses 1 and 2 were **overridden on evidence** because they
 > could never be satisfied as written — see [the 2026-09-19 decision](#decision-2026-09-19--the-gate-lifts-on-evidence).
 > The history below is kept in full: it is why this fork does not trust a plumbing check.
@@ -22,11 +23,11 @@ back to `0.32.1-gemma4budget-85ebcb79`.
 
 | | |
 |---|---|
-| Deployed image | `maxusai-ollama:0.34.1-rocm724-main-16649e8c` (promoted 2026-09-19) |
-| Deployed version | `0.34.1-dynres-16649e8c` |
-| Build type | **full** `FLAVOR=rocm`, `ROCMVERSION=7.2.4`, from `main`; compat **001 + 002 + 004 + 005 + 801 + 903 + 906** |
-| Payload | **b10864** (`5d806aa25`) **+ compat 906** — the upstream HIP `prop.integrated` revert, which b10864 misses by 78 minutes |
-| Previous image | `maxusai-ollama:0.32.1-rocm-dynres-5d5b7a72` (`0.32.1-dynres-5d5b7a72`, payload b9888) — **retained for rollback** |
+| Deployed image | `maxusai-ollama:0.34.2-rocm724-main-f67b1aef` (promoted 2026-09-21 09:48) |
+| Deployed version | `0.34.2-dynres-f67b1aef` |
+| Build type | **full** `FLAVOR=rocm`, `ROCMVERSION=7.2.4`, from `main`, through upstream's `Dockerfile` — so **AlmaLinux-built**; compat **001 + 002 + 004 + 005 + 801 + 903**. From 2026-09-24 fork ROCm images build from `Dockerfile.rocm` on `rocm/dev-ubuntu-24.04:7.2.4-complete` ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md)); this image predates that |
+| Payload | **b10969** (`391fac164`); compat 906 **retired** — b10969 ships upstream's own HIP `prop.integrated` revert |
+| Previous image | `maxusai-ollama:0.34.1-rocm724-main-16649e8c` (`0.34.1-dynres-16649e8c`, b10864 + compat 906) — **retained for rollback**; `0.32.1-rocm-dynres-5d5b7a72` (b9888) before it |
 | Superseded pin | `0.32.1-dynres-296eb020` recorded here until 2026-09-19; the host was in fact running `5d5b7a72`, so this row had drifted from the host it describes |
 | Blocked target | `0.32.5-gemma4budget-4259c191` (built, verified, **rolled back** 2026-07-31) — never unblocked; superseded, not cleared |
 | Host | Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151**, ROCm, Linux |
@@ -222,6 +223,22 @@ llama.cpp default floor and small images stay cheap (313 rather than 1049 tokens
 640×480). Non-AMD deployments are **not** covered by this gate — `10.8.0.6` (Blackwell,
 CUDA) is unaffected by clause 3 and may track a different version; note that #17475 was
 reported on CUDA, so clauses 1–2 still apply there.
+
+## Decision 2026-09-24 — ROCm images build on Ubuntu, not AlmaLinux
+
+**Glenn, until further notice:** the fork's ROCm images build on AMD's Ubuntu 24.04 ROCm
+images — `rocm/dev-ubuntu-24.04:7.2.4-complete` for `rocm7`, `rocm/dev-ubuntu-24.04:10.0.0-full`
+for `rocm10` — and nothing the fork owns uses `rocm/dev-almalinux-8`. The recipe is
+`Dockerfile.rocm` through `scripts/build_rocm.sh`; upstream's `Dockerfile` is no longer how this
+host's images are built. Reasons and consequences:
+[ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md).
+
+**This is a toolchain change under an unchanged ROCm release, and it is gated like one.** The
+same 7.2.4 runtime now comes from AMD's Ubuntu packages and links against glibc 2.39 and the
+system GCC 13.3; preflight's `toolchain_build = "rocm-7.2.4"` passes either way. The first
+Ubuntu-built image therefore passes clause 4 and the OCRBench slice **against the
+AlmaLinux-built production image** before it is promoted — the v0.34.3 fold's gfx1151
+regression run ([MaxusAI/ollama#372](https://github.com/MaxusAI/ollama/pull/372), recorded in its task doc).
 
 ## Decision 2026-09-21 — 0.34.2 promoted, ROCm 10.0.0 declined on measurement
 
