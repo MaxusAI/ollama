@@ -56,6 +56,12 @@ builds go through `scripts/build_rocm.sh` (`ROCM_TOOLCHAIN=rocm7|rocm10`, versio
 `scripts/env.sh`); the backend loop below builds one of its `publish-*` stages. Everything the
 rest of this section says about stages refers to `Dockerfile.rocm`.
 
+**Its caches are what make a rebuild minutes rather than an hour.** ccache, apt, the tool and Go
+downloads, the llama.cpp source and the Go module/build caches are BuildKit cache mounts
+(listed in `Dockerfile.rocm`'s header). Keep them: prune build cache with
+`docker builder prune --filter type=regular`, never bare, and do not pass `--no-cache`, which
+bypasses cache mounts as well as layers.
+
 The gfx1151 host runs the same `ggml-cuda` sources: `ggml/src/ggml-hip/CMakeLists.txt` globs
 `../ggml-cuda/*.cu`, so a kernel patch such as `903-fix-mmq-ids-padding.patch` lands in the
 ROCm payload with no source changes. One patch file serves both platforms.

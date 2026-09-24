@@ -58,6 +58,15 @@ stage on the cached `rocm/dev-almalinux-8:7.2.1-complete` — was discarded unde
    carries the label `org.maxusai.rocm.image`.
 5. **Version stamping does not change.** `scripts/build_rocm.sh` stamps through
    `scripts/env.sh`, as ADR 0032 requires of every build.
+6. **Every build cache is on, for both toolchains** (Glenn, 2026-09-24: "in case we need it
+   again"). ccache for the CPU and ROCm compiles; apt `.debs` and lists, one pair per ROCm image;
+   the ccache/cmake/ninja tarballs and the Go toolchain; one pristine llama.cpp checkout per
+   `LLAMA_CPP_VERSION`, copied to the path `FetchContent` would clone to so compile commands and
+   ccache keys match a network build's; the Go module and build caches. All are BuildKit cache
+   mounts on the build host. Measured on the toolchain stage: 248 s cold, 8–10 s once its layer is
+   invalidated with the caches warm — `Need to get 0 B/5315 kB of archives`, no tarball fetched.
+   **They are deleted by `docker builder prune` unless it is run with `--filter type=regular`**,
+   and `--no-cache` bypasses them.
 
 ## What changes in the payload, and why the first build is measured
 
