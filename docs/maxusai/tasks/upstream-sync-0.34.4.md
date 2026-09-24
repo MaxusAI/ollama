@@ -11,12 +11,15 @@ lands on this branch, your gate 4 and gate 6 legs can build from it.
 
 | gate | state |
 |---|---|
-| 1, the merge | **in progress** — 15 conflicted files; the gemma4 cluster and `mlx/ops_extra.go` are resolved, the structured-output cluster is next |
-| 2, docs and paths | not started |
-| 3, the patch series | not started — **both pins move**, so every `llama/compat` patch is checked on a `b11081` checkout before any build |
-| 4, image | not started — **a full build**: native inputs move, so a Go-only swap is not valid |
-| 5, preflight | not started — `payload_pin` and `mlx_payload_pin` will fail by design until the pins move with evidence |
-| 6, campaigns | not started — control is production, `0.34.2-dynres-0-g5bffaac`, whose suite and OCRBench were re-measured on 2026-09-20 |
+| 1, the merge | **done** — `c3e393d56`; 15 conflicted files. `go build` and `go vet` clean over all 80 packages; `go test` 58 packages ok, 0 failed; `server` green with `OLLAMA_FORMAT_TWO_PASS` unset **and** set. MLX tests skip here until gate 4 builds the payload |
+| 2, docs and paths | **done** — `check_source_paths.py` clean over the 66 files the fold wrote |
+| 3, the patch series | **done** — all seven (001 002 004 005 801 802 903) apply clean to `b11081` on a real checkout, in order; served projectors unchanged |
+| 4, image | next — **a full build**: native inputs move, so a Go-only swap is not valid |
+| 5, preflight | pending — `payload_pin` and `mlx_payload_pin` will fail by design until the pins move with evidence |
+| 6, campaigns | pending — control is production, `0.34.2-dynres-0-g5bffaac`, whose suite and OCRBench were re-measured on 2026-09-20 |
+
+**Three hosts converged on this merge.** The ROCm and Metal hosts had each started the same fold before #375
+existed, stopped, and cross-checked instead; see [#375](https://github.com/MaxusAI/ollama/pull/375).
 
 ## What v0.34.4 changes for the fork
 
@@ -59,6 +62,60 @@ is 1 — so every upstream call site is correct as written. Upstream's two new t
 compares two paths that share `globalScaleFactor`, so they agree under either representation. Their fixtures now
 use the stored form, and `TestSwiGLUScaledMatchesSeparateScaling` gains an assertion that applies the factor
 directly, which is the check that fails if the division comes back.
+
+### Think+format: single pass by default, two-pass behind a switch
+
+Upstream replaced the two-pass structured-output flow with a single pass on both engines: the parsers report the
+strings that end their thinking (`ThinkingClose`), the server names them on one completion request, and each runner
+constrains only what follows — llama-server through a GBNF wrapper around its own schema conversion, MLX through an
+XGrammar structural tag. It removes the second prefill, the dropped boundary chunk, and MLX's stray first token in the
+JSON, and it covers all 18 parsers where the fork's marker hook covered two.
+
+**Glenn's decision: single pass is the default, and `OLLAMA_FORMAT_TWO_PASS=1` keeps ADR 0004's flow as the rollback**
+if single pass regresses on a served model.
+
+- **`routes.go` is resolved by function, not by hunk.** Both handlers were rewritten too deeply: taking the fork's
+  side of each hunk left upstream's deletions *between* the hunks, including the `structuredOutputsState` type the
+  kept code uses. So the file is `main`'s handlers plus upstream's two changes outside them — `getExistingName`
+  (#18438) and the `thinkingCloseForCompletion` helper — and the switch gates the fork's own defer decision
+  (`deferViaMarker`/`deferViaTransition` in Generate, `deferring` in Chat). Closing strings go on the request only
+  when it is off; with it on, pass two's prompt already ends past the marker.
+- **The two-pass hooks come back in the lower layers.** Upstream deleted `IncludeIntermediateMetrics` from
+  `llm.CompletionRequest`, llama-server's `TimingsPerToken` and per-chunk metrics, and the MLX request literal —
+  every one in a file that merged without a conflict. All are restored and inert unless the switch is on.
+- **llama-server:** upstream's block landed inside the fork's `runCompletionPhase`, which returns `(result, err)`,
+  and returned a bare `err`. The ROCm host flagged this before it bit.
+- **MLX:** upstream's thinking-aware structural tag wraps the fork's whitespace-bounded `json_schema` element, so the
+  bound holds on both branches; the plain tag is byte-identical to `main`'s.
+- **Tests pin the mode they test.** The nine two-pass tests set `OLLAMA_FORMAT_TWO_PASS=1`; they were found by
+  running each candidate alone under the default (eight fail, one hangs waiting for a second request). The
+  single-pass route tests, taken from the ROCm host's cross-check, pin it unset. With the switch on they fail with
+  "got 2 completion calls, want 1", which is the switch visibly changing the flow.
+
+**What single pass changes, for the gates** (from the ROCm host's review):
+
+1. `num_predict` now bounds the total output; the two-pass total could exceed it (8290 vs 8192 on qwen3.6
+   `bbox_contract_reasoning`).
+2. With format, tools and thinking together, a tool call can no longer replace the formatted answer (harmony excepted).
+3. Raw generate never defers: the format applies from token 0.
+4. An EOS inside the thinking returns only the thinking, `response:""`, `done_reason:"stop"`.
+5. **On MLX a think+format request carries a grammar from its first token**, so with production's
+   `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` it never drafts during the thinking, where pass one used to. Measure at 0 and 1.
+
+Think-off cells cannot tell the two flows apart — the suite always sends `format:"json"` and both constrain from
+token 0 when thinking is off — so gate 6 needs the think-on `bbox_contract_reasoning` cells. nemotron3 has no
+sampling card, so its think-on cells run at packaged defaults and compare as rates, not cells.
+
+## Cross-checks from the other hosts
+
+| host | tree | result |
+|---|---|---|
+| ROCm, gfx1151 | its own merge, `dd19f1202` | gemma4 and `ops_extra.go` resolved identically; `requestGrammar` byte-identical. b11081 and all seven patches build on HIP (rocm7 and rocm10). Single pass end to end on llama-server: gemma4:e2b and qwen3:0.6b 5/5; the grammar is transparent to the thinking in matched cache state |
+| Metal, M5 Max | the ROCm tree | **MLX tests where they execute: 900 passed, 0 failed, 4 stated skips.** XGrammar 0.2.7's standalone CMake builds clean on macOS. The ADR 0039 helper fix reached a third time; against upstream's helpers the contract test reads `SwiGLUScaled()[0] = -5.6e-07, want -0.0122` while upstream's own test passes all five cases |
+
+One correction between the readings: the ROCm review lists `tools/mtmd` as unchanged in the range. `git diff
+b10969 b11081 -- tools/mtmd/` shows one hunk, `clip.cpp` checking that the compute graph allocated. Its conclusion
+stands, since that is error handling rather than preprocessing.
 
 ## Found on `main`, not caused by this fold
 
