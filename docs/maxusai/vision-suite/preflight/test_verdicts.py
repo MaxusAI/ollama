@@ -2410,6 +2410,40 @@ class TestLlamaCppBuildNative(unittest.TestCase):
             with self.assertRaises(probes.ProbeError):
                 probes.llama_cpp_build(None, path=p)
 
+    # b11081 logs a line before the version. The sha must come from the
+    # `version:` line wherever it falls, and from nowhere else.
+    B11081 = ("0.00.000.067 I srv  llama_server: initializing ...\n"
+              "version: 0.4.1-dev (build 1, commit 161755f29)\n"
+              "built with GNU 13.3.0 for Linux x86_64\n")
+
+    def test_native_reads_past_a_log_line_before_the_version(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self.fake_server(d, self.B11081)
+            self.assertEqual(probes.llama_cpp_build(None, path=p), "161755f29")
+
+    def test_a_commit_elsewhere_in_the_output_is_not_the_payloads(self):
+        banner = ("0.00.000.012 I srv  loading plugin from commit 0123456aa\n"
+                  "0.00.000.067 I srv  llama_server: initializing ...\n"
+                  "0.00.000.068 I srv  more preamble a future bump might add\n"
+                  "version: 0.4.1-dev (build 1, commit 161755f29)\n")
+        with tempfile.TemporaryDirectory() as d:
+            p = self.fake_server(d, banner)
+            self.assertEqual(probes.llama_cpp_build(None, path=p), "161755f29")
+
+    def test_container_route_reads_the_whole_banner(self):
+        """The container route used to keep only `head -2` of the output, which
+        b11081's preamble line left one line of margin. It must read it all."""
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["cmd"] = cmd
+            banner = "0.00.000.067 I srv  preamble\n" * 3 + self.B11081
+            return subprocess.CompletedProcess(cmd, 0, stdout=banner, stderr="")
+
+        with mock.patch.object(probes.subprocess, "run", side_effect=fake_run):
+            self.assertEqual(probes.llama_cpp_build("ollama-canary"), "161755f29")
+        self.assertNotIn("head", seen["cmd"][-1])
+
 
 class TestPlatformChoicesFollowExpectations(unittest.TestCase):
     """`--platform` choices must come from the file `--expectations` names.
