@@ -23,6 +23,12 @@ type preparedImage struct {
 // placeholder expansion — image start, the feature-token run, image end —
 // into the stream, decoding and resizing on the CPU.
 func (m *Model) PrepareMedia(segments []model.Segment) (*model.PreparedRequest, error) {
+	return m.PrepareMediaWithBudget(segments, 0, 0)
+}
+
+// PrepareMediaWithBudget implements model.MediaBudgetModel: PrepareMedia at the
+// request's image-token budget, resolved by imagePatchBounds (media_budget.go).
+func (m *Model) PrepareMediaWithBudget(segments []model.Segment, imageMinTokens, imageMaxTokens int) (*model.PreparedRequest, error) {
 	prepared := &model.PreparedRequest{}
 	for s, seg := range segments {
 		if seg.Data == nil {
@@ -39,7 +45,8 @@ func (m *Model) PrepareMedia(segments []model.Segment) (*model.PreparedRequest, 
 			return nil, fmt.Errorf("this model does not support %s input", seg.Kind)
 		}
 
-		pixels, height, width, err := m.preprocessImage(seg.Data, nemotronImagePatchBudget(m.VisionConfig))
+		minPatches, maxPatches := m.imagePatchBounds(imageMinTokens, imageMaxTokens)
+		pixels, height, width, err := m.preprocessImage(seg.Data, minPatches, maxPatches)
 		if err != nil {
 			return nil, err
 		}
@@ -100,7 +107,7 @@ func (m *Model) scatterMedia(h *mlx.Array, b *batch.Batch, delta int) *mlx.Array
 	return h
 }
 
-func (m *Model) preprocessImage(data []byte, maxPatches int) (pixels []float32, height, width int, err error) {
+func (m *Model) preprocessImage(data []byte, minPatches, maxPatches int) (pixels []float32, height, width int, err error) {
 	cfg := m.VisionConfig
 	if cfg == nil {
 		return nil, 0, 0, fmt.Errorf("model has no vision config")
@@ -116,7 +123,7 @@ func (m *Model) preprocessImage(data []byte, maxPatches int) (pixels []float32, 
 		return nil, 0, 0, fmt.Errorf("invalid image dimensions %dx%d", srcW, srcH)
 	}
 
-	patchH, patchW := nemotronImagePatchGrid(srcH, srcW, maxPatches, cfg)
+	patchH, patchW := nemotronImagePatchGrid(srcH, srcW, maxPatches, withMinNumPatches(cfg, minPatches))
 	targetH := patchH * int(cfg.PatchSize)
 	targetW := patchW * int(cfg.PatchSize)
 	dst := image.NewRGBA(image.Rect(0, 0, targetW, targetH))
