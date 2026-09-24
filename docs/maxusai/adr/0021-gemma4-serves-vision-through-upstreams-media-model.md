@@ -132,3 +132,53 @@ Two constraints shaped the work, neither obvious from upstream's interface:
 - Preflight (`--platform apple-silicon-mlx`, server `0.32.5-maxusai-aff5179f`):
   token ladder 5/5 within ±2 and text prefix 19 on both `gemma4` and
   `gemma4_unified`, matching the 2026-08-08 baseline; no contention.
+
+## Amendment 2026-09-24 — nemotron_h is the fourth media model
+
+Upstream v0.34.3 (#17714) gave `nemotron_h` vision on MLX. It implements `model.MediaModel`
+and not `model.MediaBudgetModel`, so after the fold `image_min_tokens`/`image_max_tokens`
+reached the runner's fallback (`mlxrunner/media.go`: a warning, then the model's own bounds)
+— the state Decision 3 exists to rule out, on the one architecture whose GGUF path honours
+the budget through compat `002`. The v0.34.3 fold landed it that way and recorded it as an
+open item; this amendment closes it.
+
+**Semantics are the GGUF path's** (`nemotronImageTokenBudget`, `llm/llama_server.go`), so one
+request means the same thing on both engines:
+
+- an unset bound, or one equal to the shared api default, keeps the model's own —
+  `min_num_patches` and the context-bound `nemotronImagePatchBudget`, kept in patch units so
+  an unset request reproduces upstream's preprocessing exactly;
+- one token is `DownsampleFactor²` patches (×4, the 2×2 shuffle);
+- the maximum is clamped to the model's ceiling (13312 patches, 3328 tokens for Omni);
+- the minimum is clamped down to the maximum, and **neither is floored at
+  `min_num_patches`**: `image_max_tokens=128` gets about 128 tokens, as llama-server gives it.
+
+**Placement follows glimmer's.** The resolution lives in a fork-local
+`mlxrunner/model/nemotron_h/media_budget.go`, including the `MediaBudgetModel` assertion.
+Upstream's `vision_prompt.go` changes in three places: `PrepareMedia` delegates to
+`PrepareMediaWithBudget(segments, 0, 0)` with its body kept in place, the call site passes the
+resolved bounds, and `preprocessImage` takes the minimum. The request's minimum reaches
+upstream's `nemotronImagePatchGrid` through a copy of the config with `MinNumPatches`
+replaced, so that function and the upstream tests that call it are untouched.
+
+**Measured on the preprocessing, not yet on a GPU** (`media_budget_test.go`, pure Go,
+Omni's c-radio_v4-h configuration; feature tokens, excluding the two markers):
+
+| image | unset | `max=1024` | `max=128` | `min=1024` |
+|---|---|---|---|---|
+| 320×240 | 270 | 270 | 80 | 1044 |
+| 640×480 | 300 | 300 | 117 | 1036 |
+| 1920×1080 | 2040 | 1008 | 120 | 2040 |
+| 2048×2048 | 3306 | 1024 | 121 | 3306 |
+
+The unset column is the GGUF path's count for the same images
+([nemotron-test-image.md](../nemotron-test-image.md): 640×480 → 302 and 1920×1080 → ≈2042 with
+the markers; 320×240 inside the 258–320 floor band). Every budget that moves the grid moves
+`Dims` and the expansion length, which is how it reaches cache identity; budgets that resolve to
+the same grid produce the same pixels, and sharing their prefix is correct.
+
+**Not measured here:** the end-to-end run on MLX hardware — a served
+`image_max_tokens=1024` request's `prompt_eval_count`, and two budgets over one image missing
+each other in the prefix cache. The gfx1151 host has no MLX runtime; the Apple Silicon or
+CUDA host owns that check. Decision 3 holds again for all four media models, and the
+Consequences' list of fork-local divergences gains the budget methods on `nemotron_h`.

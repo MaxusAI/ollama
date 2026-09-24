@@ -109,15 +109,8 @@ No profile is edited here. Profiles are measured on the host that serves them an
 
 ## Open items
 
-1. **nemotron_h on MLX does not honour the per-request image budget.** It implements `model.MediaModel` but not the
-   fork's `model.MediaBudgetModel`, so `mlxrunner/media.go` takes its fallback: `image_min_tokens` and
-   `image_max_tokens` are logged as a warning and the model's own bounds apply. The GGUF path honours both for the
-   same architecture through `002`. The fallback comment already names this case ("upstream models added between
-   merges rather than a supported state"). Closing it means a `PrepareMediaWithBudget` that maps tokens to patches
-   (×4 for the 2×2 shuffle), clamps to the model's `min/max_num_patches`, and puts the resolved budget in cache
-   identity, as glimmer and qwen3.5 do. It can only be verified on an MLX host, so it is not done in this fold.
-2. **README fold pointer.** It still names `v0.34.1-dynres` and a 0.34.1 deploy, stale since the 0.34.2 fold. Update
+1. **README fold pointer.** It still names `v0.34.1-dynres` and a 0.34.1 deploy, stale since the 0.34.2 fold. Update
    it with `v0.34.3-dynres` and a matrix generated from that fold's full preflight run, as `#273` did after `#264`.
-3. **Gates 4–6 and the tag**, on the hosts that own them.
-4. **v0.34.4 is out** (2026-09-23) and is a different kind of fold: llama.cpp `b10969` → `b11081` and MLX
+2. **Gates 4–6 and the tag**, on the hosts that own them.
+3. **v0.34.4 is out** (2026-09-23) and is a different kind of fold: llama.cpp `b10969` → `b11081` and MLX
    `d9add9d1` → `59d600b5`, so gate 3 (the patch series on a real `b11081` checkout) and new payload profiles apply.
