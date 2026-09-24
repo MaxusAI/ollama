@@ -3,7 +3,7 @@
 # rocm/dev-ubuntu-24.04, never upstream's Dockerfile and never rocm/dev-almalinux-8.
 #
 #   ROCM_TOOLCHAIN   rocm7 (default): rocm/dev-ubuntu-24.04:7.2.4-complete, preset rocm_v7_2
-#                    rocm10:          rocm/dev-ubuntu-24.04:10.0.0-full,   preset rocm_v10_0
+#                    rocm10:          rocm/dev-ubuntu-24.04:10.0.0-full,   preset rocm_v10_0 (experimental, ADR 0040)
 #   AMDGPU_TARGETS   optional, e.g. gfx1151 -- a single-arch dev or probe build
 #   CONTEXT          source tree to build (default: this checkout), so another worktree
 #                    can be built with this recipe without copying it there
@@ -26,7 +26,7 @@ ROCM_IMAGE=rocm/dev-ubuntu-24.04
 
 if ! grep -q "\"${ROCM_VARIANT}_linux\"" "$CONTEXT/llama/server/CMakePresets.json"; then
   echo "build_rocm.sh: $CONTEXT has no ${ROCM_VARIANT}_linux preset." >&2
-  echo "  rocm10 builds need the rocm_v10_0 preset, which is on the ROCm 10 branch (#359), not main." >&2
+  echo "  The rocm_v10_0 presets arrived with ADR 0042; a tree older than that cannot build rocm10." >&2
   exit 2
 fi
 

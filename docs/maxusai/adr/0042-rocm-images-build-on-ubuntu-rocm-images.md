@@ -42,7 +42,7 @@ stage on the cached `rocm/dev-almalinux-8:7.2.1-complete` — was discarded unde
    | toolchain | image | preset | status |
    |---|---|---|---|
    | `rocm7` | `rocm/dev-ubuntu-24.04:7.2.4-complete` | `rocm_v7_2` | production |
-   | `rocm10` | `rocm/dev-ubuntu-24.04:10.0.0-full` | `rocm_v10_0` (#359's branch) | experimental, [ADR 0040](0040-rocm-10-is-experimental-until-it-is-faster.md) |
+   | `rocm10` | `rocm/dev-ubuntu-24.04:10.0.0-full` | `rocm_v10_0` | experimental, [ADR 0040](0040-rocm-10-is-experimental-until-it-is-faster.md) |
 
    Both stay pulled on the gfx1151 host and are not pruned.
 2. **No `rocm/dev-almalinux-8` in anything the fork owns** — scripts, Dockerfiles, harness
@@ -108,6 +108,9 @@ fork publishes none (its release workflow fails fast), so that floor binds nothi
   the [retirement register](../retirement-register.md) under fork tooling.
 - **History stays as written.** Images built before 2026-09-24, including the production
   `0.34.2-dynres-f67b1aef`, are AlmaLinux-built; the documents that describe them keep saying so.
-- **`rocm10` still builds from #359's branch**, because the `rocm_v10_0` preset is not on
-  `main`; `scripts/build_rocm.sh` says so rather than failing inside the build. Its base image
-  is the one this ADR names.
+- **`rocm10` builds from `main`.** Its `rocm_v10_0` presets sit beside `rocm_v7_2` rather than
+  replacing them, as #359 does, so one tree builds both toolchains; and
+  `llama/server/CMakeLists.txt` bundles the libraries ROCm 10 split out of 7.2 (`rocm_kpack`,
+  `origami`, `clang-cpp`, `LLVM`, `rocm_sysdeps`), without which `libggml-hip` cannot load — names
+  that match nothing on ROCm ≤ 7.2. Both are small additive edits to upstream files, on the
+  retirement register. Production is unaffected: ROCm 10 stays experimental (ADR 0040).
