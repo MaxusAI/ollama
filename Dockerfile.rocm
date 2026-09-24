@@ -110,6 +110,9 @@ ENV LDFLAGS=-s
 # llama_cpp-src -- where FetchContent would clone it, so compile commands and ccache
 # keys do not change -- from a pristine shallow checkout kept in a cache mount. The
 # compat patches are then applied to the copy by llama/server's source-override path.
+# core.abbrev=9: llama.cpp stamps `git rev-parse --short HEAD` into llama-server --version,
+# and a one-commit fetch abbreviates to 7 where FetchContent's clone gave 9 -- the length
+# of every llama_cpp_build pin preflight records (391fac164).
 RUN printf '%s\n' '#!/bin/sh' 'set -eu' \
       'tag=$(tr -d "[:space:]" < LLAMA_CPP_VERSION); src=/var/cache/llama-cpp/$tag; dest=$1/_deps/llama_cpp-src' \
       'if [ ! -f "$src/.complete" ]; then' \
@@ -118,6 +121,7 @@ RUN printf '%s\n' '#!/bin/sh' 'set -eu' \
       '  git -C "$src" checkout -q FETCH_HEAD; touch "$src/.complete"' \
       'fi' \
       'rm -rf "$dest"; mkdir -p "$(dirname "$dest")"; cp -a "$src" "$dest"; rm -f "$dest/.complete"' \
+      'git -C "$dest" config core.abbrev 9' \
       'echo "$PWD/$dest"' > /usr/local/bin/stage-llama-cpp \
     && chmod +x /usr/local/bin/stage-llama-cpp
 
