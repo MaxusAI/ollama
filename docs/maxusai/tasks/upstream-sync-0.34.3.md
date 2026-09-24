@@ -16,7 +16,7 @@ Upstream [v0.34.3](https://github.com/ollama/ollama/releases/tag/v0.34.3) (tag `
 | 4, image | **gfx1151: built** — `Dockerfile.rocm` (ADR 0042) on `rocm/dev-ubuntu-24.04:7.2.4-complete`, gfx1151, payload gated against production. CUDA and Metal: not built |
 | 5, preflight | not run — rocm7 has no `b10969` profile (see "Preflight profiles"); CUDA and Metal not run |
 | 6, campaigns | **gfx1151: done, no regression.** Think-off: every scored cell of five models and every OCRBench item equal to production. Think-on: equal on the three greedy models (two descriptive cells aside), flat as rates on the two sampled ones (below). CUDA and Metal not run |
-| tag and deploy | not done; `v0.34.3-dynres` is cut on the merge that lands this, per ADR 0032 |
+| tag and deploy | `v0.34.3-dynres` cut on `650f8fda6` (ADR 0032). **gfx1151: deployed 2026-09-25 07:32**, as `maxusai-ollama:0.34.3-rocm724-main-650f8fda` (`0.34.3-dynres-0-g650f8fd`, Ubuntu-built, payload byte-identical to the gate candidate). See `amd-upgrade-gate.md`, decision 2026-09-25. CUDA and Metal: not deployed |
 
 The MLX-dependent tests skip on the gfx1151 host, which has no MLX library, so "58 packages ok" covers the Go and
 GGUF paths only. The macOS leg of `test.yaml` prepares the MLX Darwin payload and runs them there; that CI run is the
