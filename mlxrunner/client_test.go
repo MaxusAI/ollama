@@ -87,14 +87,14 @@ func TestRequestGrammar(t *testing.T) {
 			req:  llm.CompletionRequest{Format: json.RawMessage(schema), ThinkingClose: []string{"</think>"}},
 			want: `{"type":"structural_tag","format":{"type":"sequence","elements":[{"type":"any_text","excludes":["</think>"]},` +
 				`{"type":"optional","content":{"type":"sequence","elements":[{"type":"const_string","value":"</think>"},` +
-				`{"type":"json_schema","json_schema":` + schema + `}]}}]}}`,
+				`{"type":"json_schema","max_whitespace_cnt":32,"json_schema":` + schema + `}]}}]}}`,
 		},
 		{
 			name: "schema after thinking with two closings",
 			req:  llm.CompletionRequest{Format: json.RawMessage(schema), ThinkingClose: []string{"<|final|>", "<|final|>json"}},
 			want: `{"type":"structural_tag","format":{"type":"sequence","elements":[{"type":"any_text","excludes":["<|final|>","<|final|>json"]},` +
 				`{"type":"optional","content":{"type":"sequence","elements":[{"type":"or","elements":[{"type":"const_string","value":"<|final|>"},{"type":"const_string","value":"<|final|>json"}]},` +
-				`{"type":"json_schema","json_schema":` + schema + `}]}}]}}`,
+				`{"type":"json_schema","max_whitespace_cnt":32,"json_schema":` + schema + `}]}}]}}`,
 		},
 		{name: "thinking without a format", req: llm.CompletionRequest{ThinkingClose: []string{"</think>"}}},
 	} {
