@@ -133,6 +133,16 @@ against production found 0 SONAMEs missing and 96 = 96 gfx1151 rocBLAS kernel fi
 independently of the other targets, so this is the code a full build would run here, at a twelfth of the HIP
 compile. A general-purpose deployable wants the full target list.
 
+**The candidate's payload is ccache-built, and so is production's.** Its HIP objects were ccache hits,
+and the whole candidate build took about three minutes. To see what that means, the ROCm stage was compiled twice
+more with `CCACHE_DISABLE=1` (the ccache counters did not move either time). Those two clean compiles produced
+byte-identical `libggml-hip.so`, so the build itself is deterministic. The ccache-served library differs from them
+in every one of its 143 HIP compilation-unit IDs (`__hip_cuid_*`, which clang derives per compile), and in about
+116k further bytes that plausibly follow from them. Code objects (137), file size, section layout and the compiler
+build are identical, and the artifact scores exactly like production below. A cached build is therefore
+functionally reproducible against a clean one, not bitwise. Production's AlmaLinux images went through the same
+ccache wiring, so this predates ADR 0042. Run: `nocache-verify/` in the run directory.
+
 ### Results
 
 | comparison | vision suite, scored cells differing | OCRBench, discordant items |
