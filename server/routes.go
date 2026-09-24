@@ -722,8 +722,19 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 	// re-rendering the prompt with the thinking as an assistant message.
 	constrains := formatConstrains(req.Format)
 	forceImmediate := builtinParser != nil && builtinParser.HasThinkingSupport() && req.Think != nil && !req.Think.Bool()
-	deferViaMarker := constrains && !forceImmediate && thinkCloseTag != ""
-	deferViaTransition := constrains && !forceImmediate && !deferViaMarker &&
+	// Single pass is the default (upstream v0.34.4): one request names the
+	// strings that end the response's thinking, and the runner leaves the
+	// thinking free and constrains only what follows. A raw prompt names none,
+	// since nothing says where its response starts. OLLAMA_FORMAT_TWO_PASS keeps
+	// the two-pass flow above as the rollback; with it set, no closing strings
+	// are sent, because pass two's prompt already ends past the marker.
+	twoPass := envconfig.FormatTwoPass()
+	var thinkingClose []string
+	if !twoPass && !req.Raw {
+		thinkingClose = thinkingCloseForCompletion(builtinParser, thinkTagParser)
+	}
+	deferViaMarker := twoPass && constrains && !forceImmediate && thinkCloseTag != ""
+	deferViaTransition := twoPass && constrains && !forceImmediate && !deferViaMarker &&
 		generateMsgs != nil && (builtinParser != nil || thinkTagParser != nil) &&
 		slices.Contains(m.Capabilities(), model.CapabilityThinking)
 
@@ -800,6 +811,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 				PreservedTokens:            preservedTokensForCompletion(builtinParser),
 				LeadingBOS:                 leadingBOS,
 				IncludeIntermediateMetrics: includeIntermediateMetrics,
+				ThinkingClose:              thinkingClose,
 			}, func(cr llm.CompletionResponse) {
 				if firstChunkAt.IsZero() {
 					firstChunkAt = time.Now()
@@ -1635,20 +1647,53 @@ func getExistingName(n model.Name) (model.Name, error) {
 	if err != nil {
 		return zero, err
 	}
-	var set model.Name // tracks parts already canonicalized
+	// First pass: look for a full case-insensitive match across all four
+	// parts. If found, return the on-disk canonical name directly.
 	for e := range existing {
-		if set.Host == "" && strings.EqualFold(e.Host, n.Host) {
-			n.Host = e.Host
+		if strings.EqualFold(e.Host, n.Host) &&
+			strings.EqualFold(e.Namespace, n.Namespace) &&
+			strings.EqualFold(e.Model, n.Model) &&
+			strings.EqualFold(e.Tag, n.Tag) {
+			return e, nil
 		}
-		if set.Namespace == "" && strings.EqualFold(e.Namespace, n.Namespace) {
-			n.Namespace = e.Namespace
+	}
+
+	// Second pass: find the single manifest with the longest consecutive
+	// case-insensitive prefix match (host -> namespace -> model) and copy
+	// only the matching prefix parts from that manifest. The tag is left
+	// as-is so that an unrelated manifest with a matching tag cannot
+	// influence the casing of a different model's tag (e.g. pulling
+	// "myorg/mymodel:q8" when "MyOrg/MyModel:q4" and
+	// "OtherOrg/OtherModel:Q8" exist must not produce "MyOrg/MyModel:Q8").
+	var best model.Name
+	bestLen := 0
+	for e := range existing {
+		length := 0
+		if strings.EqualFold(e.Host, n.Host) {
+			length = 1
+			if strings.EqualFold(e.Namespace, n.Namespace) {
+				length = 2
+				if strings.EqualFold(e.Model, n.Model) {
+					length = 3
+				}
+			}
 		}
-		if set.Model == "" && strings.EqualFold(e.Model, n.Model) {
-			n.Model = e.Model
+		if length > bestLen {
+			bestLen = length
+			best = e
 		}
-		if set.Tag == "" && strings.EqualFold(e.Tag, n.Tag) {
-			n.Tag = e.Tag
-		}
+	}
+
+	switch bestLen {
+	case 3:
+		n.Host = best.Host
+		n.Namespace = best.Namespace
+		n.Model = best.Model
+	case 2:
+		n.Host = best.Host
+		n.Namespace = best.Namespace
+	case 1:
+		n.Host = best.Host
 	}
 
 	return n, nil
@@ -2727,6 +2772,16 @@ func toolCallTagForCompletion(toolParser *tools.Parser) string {
 	return toolParser.Tag()
 }
 
+func thinkingCloseForCompletion(builtinParser parsers.Parser, thinkTagParser *thinkingparser.Parser) []string {
+	if builtinParser != nil {
+		return builtinParser.ThinkingClose()
+	}
+	if thinkTagParser != nil {
+		return []string{thinkTagParser.ClosingTag}
+	}
+	return nil
+}
+
 func leadingBOSForModel(m *Model) string {
 	if m == nil || m.Config.Renderer == "" {
 		return ""
@@ -3235,8 +3290,17 @@ func (s *Server) ChatHandler(c *gin.Context) {
 			// burns to num_predict.
 
 			forceImmediate := builtinParser != nil && builtinParser.HasThinkingSupport() && req.Think != nil && !req.Think.Bool()
+			// Single pass by default (upstream v0.34.4): name the strings that
+			// end the response's thinking and let the runner constrain only
+			// what follows, in one generation. OLLAMA_FORMAT_TWO_PASS keeps the
+			// two-pass flow below as the rollback, and sends no closing strings.
+			twoPass := envconfig.FormatTwoPass()
+			var thinkingClose []string
+			if !twoPass {
+				thinkingClose = thinkingCloseForCompletion(builtinParser, thinkTagParser)
+			}
 			deferring := false
-			if formatConstrains(req.Format) && structuredOutputsState == structuredOutputsState_None && !forceImmediate && ((builtinParser != nil || thinkTagParser != nil) && slices.Contains(m.Capabilities(), model.CapabilityThinking)) {
+			if twoPass && formatConstrains(req.Format) && structuredOutputsState == structuredOutputsState_None && !forceImmediate && ((builtinParser != nil || thinkTagParser != nil) && slices.Contains(m.Capabilities(), model.CapabilityThinking)) {
 				currentFormat = nil
 				deferring = true
 				if thinkCloseTag != "" {
@@ -3265,6 +3329,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 				ToolCallTag:                toolCallTagForCompletion(toolParser),
 				LeadingBOS:                 leadingBOSForModel(m),
 				IncludeIntermediateMetrics: includeIntermediateMetrics,
+				ThinkingClose:              thinkingClose,
 			}, func(r llm.CompletionResponse) {
 				if firstChunkAt.IsZero() {
 					firstChunkAt = time.Now()
