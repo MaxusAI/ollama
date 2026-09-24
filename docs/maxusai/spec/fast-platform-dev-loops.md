@@ -47,6 +47,15 @@ of silently running stock code. Prefer that over remembering a `--gpus` flag.
 
 ## ROCm — derived from the build files
 
+**The build definition is `Dockerfile.rocm`, not the repo's `Dockerfile`**
+([ADR 0042](../adr/0042-rocm-images-build-on-ubuntu-rocm-images.md), until further notice).
+Every stage builds on AMD's Ubuntu 24.04 ROCm images — `rocm/dev-ubuntu-24.04:7.2.4-complete`
+for `rocm7`, `rocm/dev-ubuntu-24.04:10.0.0-full` for `rocm10` — and `rocm/dev-almalinux-8` is
+never used, in a scratch copy either: step 1 of the shape copies `Dockerfile.rocm`. Full
+builds go through `scripts/build_rocm.sh` (`ROCM_TOOLCHAIN=rocm7|rocm10`, version stamped by
+`scripts/env.sh`); the backend loop below builds one of its `publish-*` stages. Everything the
+rest of this section says about stages refers to `Dockerfile.rocm`.
+
 The gfx1151 host runs the same `ggml-cuda` sources: `ggml/src/ggml-hip/CMakeLists.txt` globs
 `../ggml-cuda/*.cu`, so a kernel patch such as `903-fix-mmq-ids-padding.patch` lands in the
 ROCm payload with no source changes. One patch file serves both platforms.
@@ -60,23 +69,27 @@ target list, and keeps the same `binaryDir` and `OLLAMA_RUNNER_DIR`:
 --preset rocm_v7_2_user_arch -DAMDGPU_TARGETS=gfx1151
 ```
 
+`Dockerfile.rocm` exposes the same narrowing as a build argument, `--build-arg
+AMDGPU_TARGETS=gfx1151`, which it passes as `-DAMDGPU_TARGETS` over the shipping preset.
+
 Also add `--target ggml-hip`; the repo declares a build preset with exactly that target
-(`CMakePresets.json:321-325`) which the Dockerfile never uses.
+(`CMakePresets.json:321-325`) which neither Dockerfile uses.
 
 **Never use `rocm_v7_2_user_arch` without `-DAMDGPU_TARGETS`.** With no list, ROCm enumerates
 the *build host's* AMD GPUs — and a build container has none.
 
-**Good news:** the `filterOverlapByLibrary` trap cannot fire on the ROCm image. `FLAVOR=rocm`
-ships exactly one GPU libdir (`Dockerfile:278-280`, cpu + `rocm_v7_2`), so there is nothing to
-fall back to. Nor will `filterUnsupportedROCmDevices` catch a mis-targeted build: its oracle
+**Good news:** the `filterOverlapByLibrary` trap cannot fire on the ROCm image. It ships
+exactly one GPU libdir (`Dockerfile.rocm`'s `image-archive` stage: cpu + `rocm_v7_2`), so there
+is nothing to fall back to. Nor will `filterUnsupportedROCmDevices` catch a mis-targeted build: its oracle
 is the bundled rocBLAS Tensile `.dat` set, copied wholesale from the SDK and unaffected by
 `AMDGPU_TARGETS`.
 
 **The ROCm-specific trap is different and worse.** The `rocm` image takes `llama-server`,
 `libllama`, `libmtmd` and `libggml-cpu` from the **separate `llama-server-cpu` stage**; the
-ROCm stage contributes only `libggml-hip.so` (`Dockerfile:278-280`). So:
+ROCm stage contributes only `libggml-hip.so` and the ROCm runtime (`Dockerfile.rocm`'s
+`image-archive` stage). So:
 
-- a `ggml-cuda/*.cu` kernel patch → rebuild `publish-llama-server-rocm_v7_2`
+- a `ggml-cuda/*.cu` kernel patch → rebuild `publish-llama-server-rocm`
 - a compat patch touching `src/` or `tools/mtmd/` (001, 002, 004, 005) → rebuild
   `publish-llama-server-cpu` instead
 

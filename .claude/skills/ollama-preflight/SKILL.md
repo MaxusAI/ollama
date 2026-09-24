@@ -67,7 +67,16 @@ Establish three things. Guessing any of them wastes a twenty-minute run.
    why the vision probes exist. ROCm now has the *same payload and the same patch
    list* as CUDA, but its numbers are still not the CUDA ones — the batch ladder
    resolves differently on an integrated GPU (ADR 0036), so identical builds do
-   not imply identical token counts. On a Mac the platform names
+   not imply identical token counts. **ROCm images are built from
+   `Dockerfile.rocm` via `scripts/build_rocm.sh`, on
+   `rocm/dev-ubuntu-24.04:7.2.4-complete` (`rocm7`) or `:10.0.0-full` (`rocm10`)
+   — never upstream's `Dockerfile` and never `rocm/dev-almalinux-8`, until
+   Glenn says otherwise (ADR 0042, 2026-09-24).** An Ubuntu-built and an
+   AlmaLinux-built 7.2.4 payload both pass `toolchain_pin` as `rocm-7.2.4`; the
+   payload's `ROCM_IMAGE` stamp (`/usr/lib/ollama/rocm_v7_2/ROCM_IMAGE`) is what
+   tells them apart, and an image without one predates `Dockerfile.rocm` and is
+   AlmaLinux-built — production's `0.34.2-dynres-f67b1aef` is. Say which one
+   you validated. On a Mac the platform names
    the serving stack, which version alone cannot: `metal` is the
    llama.cpp path, `mlx-metal` is the MLX-store server (conventionally
    `:11436`, `OLLAMA_MODELS=~/.ollama/models-mlx`).
