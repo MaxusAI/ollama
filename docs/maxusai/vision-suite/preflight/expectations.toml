@@ -241,6 +241,46 @@ and it is also the independent confirmation that the 2026-09 vision regression
 was never an image-path change, which is what the token counts said all along.
 """
 
+[profiles.rocm7-0-34-4-dynres]
+platform = "rocm7"
+# The fold's gate images stamp 0.34.3-dynres-N-g<sha> until v0.34.4-dynres is cut
+# (ADR 0032), and 0.34.4-dynres-N-g<sha> after. A 0.34.3 build on b10969 also
+# matches, and then fails payload_pin, which is the right answer for it.
+version_pattern = '^0\.34\.[34]-dynres-\d+-g[0-9a-f]{7,40}$'
+patchset = ["001", "002", "004", "005", "801", "802", "903"]
+reference_image = "0.34.3-dynres-5-g29ae523"
+llama_cpp_build = "161755f29"   # b11081, v0.34.4 fold 2026-09-25; read through the container route (#376)
+# The GPU toolchain, read from the shipped rocBLAS SONAME (librocblas.so.5.2.70204).
+toolchain_build = "rocm-7.2.4"
+expect_patch_marker = 1
+arches = ["nemotron_h_omni", "gemma4", "qwen35"]
+notes = """
+gfx1151 (Ryzen AI Max+ 395 / Radeon 8060S), the v0.34.4 fold (#375). The image is
+built with Dockerfile.rocm on rocm/dev-ubuntu-24.04:7.2.4-complete (ADR 0042). Its
+payload's ROCM_IMAGE stamp says so, and that stamp is what tells it apart from an
+AlmaLinux-built 7.2.4 payload, which passes toolchain_pin identically.
+
+NO 906. Upstream's own HIP `prop.integrated` revert shipped by b10969, and 906
+was retired with it (3dade569). The fold's b11081 payload must not carry it.
+
+THE LADDERS ARE rocm-0-34-1-dynres's, RE-MEASURED. measure_ladder.py on the fold
+payload reproduced every ladder exactly. That is expected: between b10969 and
+b11081, tools/mtmd changed by one error-handling hunk (clip.cpp now returns an
+error when the compute graph fails to allocate) and nothing in the image-token
+pipeline. The pinned and think_format rows below are verified by this profile's
+first preflight run, not assumed.
+
+FIRST RUN, 2026-09-25: VERDICT PASS, PASS=20 SKIP=12, on
+maxusai-ollama:0.34.3-dynres-5-g29ae523-rocm7-gfx1151, run on a container of its own
+beside the gate-6 campaign (endpoint_exclusive PASS). It covers payload_pin,
+toolchain_pin, the three ladders 5/5, the three payload proofs and text baselines
+(19/19/13), and both pinned budgets (nemotron 3328 -> 3270, gemma4 560 -> 529).
+think_format passes on all three arches through the fold's single pass: valid JSON
+after thinking in 1401, 127 and 273 tokens. The skips all predate this profile: no
+rocm7 profile has recorded a poison-probe, aspect or extraction-quality expectation.
+The run record is runs/preflight-rocm7-0344-fold-g29ae523.json.
+"""
+
 [profiles.cpu]
 platform = "cpu"
 version_pattern = '^0\.32\.5-dynres-[0-9a-f]{7,40}$'
@@ -1105,6 +1145,92 @@ pinned_not_applicable = """image_min_tokens/image_max_tokens are arch-gated to \
 gemma4 and nemotron_h_omni; qwen35's visionServerArgs branch ignores them."""
 
 [expect.rocm-0-34-1-dynres.qwen35.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.rocm7-0-34-4-dynres.nemotron_h_omni]
+status = "measured"
+measured_on = "2026-09-25"
+model = "nemotron3:33b-q4_K_M"
+patch_stride = 32
+budget_min_tokens = 256
+budget_max_tokens = 3328
+image_min_pixels = 262144
+image_max_pixels = 3407872
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 19, text_only == 20; measured with image_prefix (B8), not text_baseline
+ladder = [266, 266, 578, 2306, 3270]
+
+[expect.rocm7-0-34-4-dynres.nemotron_h_omni.pinned]
+size = "2048x1152"
+pin_tokens = 3328
+expect_tokens = 3270
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 2306
+control_tolerance = 4
+
+[expect.rocm7-0-34-4-dynres.nemotron_h_omni.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.rocm7-0-34-4-dynres.gemma4]
+status = "measured"
+measured_on = "2026-09-25"
+model = "gemma4:31b-it-q4_K_M"
+patch_stride = 48
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280
+image_max_pixels = 2580480
+scaling = "flat"   # verified: 004 fills every image to the budget, so the ladder is flat
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.rocm7-0-34-4-dynres.gemma4.pinned]
+# Pinned below the ceiling for the reason rocm-0-34-1-dynres gives: 004 fills
+# every image to the budget max, so a pin at 1120 would equal the control.
+size = "2048x1152"
+pin_tokens = 560
+expect_tokens = 529
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 1102
+control_tolerance = 4
+
+[expect.rocm7-0-34-4-dynres.gemma4.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.rocm7-0-34-4-dynres.qwen35]
+status = "measured"
+measured_on = "2026-09-25"
+model = "qwen3.8:27b-q4_K_M"
+patch_stride = 32
+budget_min_tokens = 1024
+budget_max_tokens = 4096
+image_min_pixels = 1048576
+image_max_pixels = 4194304
+custom_bounds = ["min"]   # only these are set by our flags
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [1034, 1034, 1034, 2306, 4082]
+
+# Structurally unpinnable, carried from rocm-0-34-1-dynres: visionServerArgs
+# still gates image_min/max_tokens to gemma4 and nemotron_h_omni.
+pinned_not_applicable = """image_min_tokens/image_max_tokens are arch-gated to \
+gemma4 and nemotron_h_omni; qwen35's visionServerArgs branch ignores them."""
+
+[expect.rocm7-0-34-4-dynres.qwen35.think_format]
 num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
