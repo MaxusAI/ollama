@@ -13,9 +13,9 @@ Upstream [v0.34.3](https://github.com/ollama/ollama/releases/tag/v0.34.3) (tag `
 | 2, docs and paths | **nothing to re-point** — the fold renames and deletes nothing; `check_source_paths.py` clean |
 | 3, the patch series | **not applicable** — llama.cpp `b10969`, MLX `d9add9d1`, MLX-C `ebc88f10`, all identical to `main` |
 | no-GPU harness gates | **green** — `test_verdicts.py` 193 OK (6 skipped), `test_summarizers.py`, `test_rescore.py`, `test_mlx_test_gate.py` |
-| 4, image | not built — a Go-only swap is valid for this fold (below) |
-| 5, preflight | not run — see "Preflight profiles" for which surfaces resolve today |
-| 6, campaigns | not run |
+| 4, image | **gfx1151: built** — `Dockerfile.rocm` (ADR 0042) on `rocm/dev-ubuntu-24.04:7.2.4-complete`, gfx1151, payload gated against production. CUDA and Metal: not built |
+| 5, preflight | not run — rocm7 has no `b10969` profile (see "Preflight profiles"); CUDA and Metal not run |
+| 6, campaigns | **gfx1151 think-off: done, no regression** — every scored cell of five models and every OCRBench item equal to production (below). Think-on running. CUDA and Metal not run |
 | tag and deploy | not done; `v0.34.3-dynres` is cut on the merge that lands this, per ADR 0032 |
 
 The MLX-dependent tests skip on the gfx1151 host, which has no MLX library, so "58 packages ok" covers the Go and
@@ -106,6 +106,119 @@ Resolved with the harness's own `resolve_profile` against the stamps this fold w
 
 No profile is edited here. Profiles are measured on the host that serves them and land in their own change, as
 `rocm-0-34-1-dynres` did (#344).
+
+## Gates 4 and 6 on gfx1151 (2026-09-24)
+
+**No regression.** The candidate scores exactly like production on this host: every scored cell of the five
+on-host vision models, and the same verdict on every one of 200 OCRBench items.
+
+### What was compared
+
+| arm | image | built | served on |
+|---|---|---|---|
+| control | `maxusai-ollama:0.34.2-rocm724-main-f67b1aef` — production, `0.34.2-dynres-f67b1aef` | upstream's `Dockerfile`, `FLAVOR=rocm`, AlmaLinux 7.2.4, all 13 targets | `:11499` |
+| candidate | `maxusai-ollama:0.34.2-dynres-24-gef19770-rocm7-gfx1151` — this branch at `ef197701b` | `Dockerfile.rocm` (ADR 0042, #374), Ubuntu 7.2.4, gfx1151 | `:11499` |
+| ROCm 10 | `maxusai-ollama:0.34.2-dynres-25-g3e9bc1f-rocm10-gfx1151` — this branch plus the `rocm_v10_0` presets | `Dockerfile.rocm`, Ubuntu 10.0.0, gfx1151 | `:11498` |
+
+Every arm ran in a canary container with production's environment (`OLLAMA_FLASH_ATTENTION=1`, `q8_0` KV,
+`OLLAMA_NUM_PARALLEL=2`), plus `OLLAMA_MAX_LOADED_MODELS=1` and `OLLAMA_NOPRUNE=1`, and a cold container per
+model. Production on `:11434` was not touched. The suite is `run_engine_compare.sh` at its defaults (chat
+endpoint, `num_ctx` 16384, `num_predict` 2200, greedy, think off), over the five clause-4 models. OCRBench is
+rows 0–200, `gemma4:31b-it-q4_K_M`, think off, `OLLAMA_NUM_PARALLEL=1` (the ROCm ladder's placement).
+
+**The candidate carries this fold and the ADR 0042 toolchain together.** Its compiler is the same build as
+production's: the device code in both reads *AMD clang 22.0.0git roc-7.2.4 26084 f58b06dc*. The payload gate
+against production found 0 SONAMEs missing and 96 = 96 gfx1151 rocBLAS kernel files, and `llama-server` reports
+`commit 391fac164`, the pin preflight records. The candidate is gfx1151-only: that GPU's device code is compiled
+independently of the other targets, so this is the code a full build would run here, at a twelfth of the HIP
+compile. A general-purpose deployable wants the full target list.
+
+### Results
+
+| comparison | vision suite, scored cells differing | OCRBench, discordant items |
+|---|---|---|
+| control vs production's recorded clause-4 run (`gate4_0342`, 2026-09-20) | **0** of 978 / 976 / 986 / 980 / 983 | — |
+| **candidate vs control** | **0** of 978 / 976 / 986 / 980 / 983 | **0** of 200 (172 = 172) |
+| ROCm 10 lane vs the 0.34.2 ROCm 10 probe (`rocm10`, 2026-09-20) | **0** of 978 / 976 / 986 / 980 / 983 | 0 vs control (172 = 172) |
+
+Models in column order: qwen3.6:35b-a3b, qwen3.8:27b, gemma4:31b, gemma4:26b-a4b, nemotron3:33b, all q4. Cells
+are every scalar score field of every block (`cmp_scores.py`, in the run directory), including
+`prompt_eval_count`, `eval_count` and `done_reason`. Provenance and timing fields are excluded.
+
+The first row is what makes the rest mean something. A fresh control on the production image reproduced a
+four-day-old run of that image in every scored cell, so GGUF think-off on this host is deterministic across
+days, containers and GPU contention. A zero difference between candidate and control is therefore a
+measurement, not a coincidence of noise.
+
+The candidate, rendered by `summarize_engine_compare.py` (verbatim). The control's quality columns are
+identical.
+
+## Scene grounding (six objects, norm-1000 boxes) + document extraction
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| qwen3.6:35b-a3b-q4_k_m | GGUF | 16384 | 0.966 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 0.984 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5/5 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 0.965 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384 | 0.975 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+| nemotron3:33b-q4_K_M | GGUF | 16384 | 0.862 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+
+## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Answer tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| qwen3.6:35b-a3b-q4_k_m | GGUF | 16384 | 4 | 4 | 4 | 2 | 2 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 544 | 19 | 303 | 36.7 | 98 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 1 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | — | 544 | 6 | 142 | 107.4 | 34 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 538 | 8 | 783 | 70.3 | 51 |
+| gemma4:26b-a4b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 536 | 25 | 2027 | 22.2 | 162 |
+| nemotron3:33b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 3 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 512 | 37 | 240 | 24.8 | 145 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11499 · build(s) 0.34.2-dynres-24-gef19770 · think=false
+
+**Throughput columns are not comparable across arms.** The candidate arm shared the iGPU with the ROCm 10 lane
+for its whole run; the control shared it for part of its run. Quality is unaffected, because decoding is
+greedy, as the zero differences show.
+
+OCRBench, rendered by `summarize_extbench.py --paired --categories --timing` (verbatim). The MIXED banner is
+correct: three builds on two ports is the point of the table.
+
+| model | scored | errors | empty | correct | accuracy | think | endpoint |
+|---|---|---|---|---|---|---|---|
+| `gemma4:31b-it-q4_K_M` | 200 | 0 | 0 | 172 | **0.86** | false | generate |
+| `gemma4:31b-it-q4_K_M` | 200 | 0 | 0 | 172 | **0.86** | false | generate |
+| `gemma4:31b-it-q4_K_M` | 200 | 0 | 0 | 172 | **0.86** | false | generate |
+
+ocrbench — `echo840/OCRBench` [test], rows 0..200.
+
+⚠ **MIXED — rows are not one campaign** (hosts: ['http://127.0.0.1:11498', 'http://127.0.0.1:11499']; builds: ['0.34.2-dynres-24-gef19770', '0.34.2-dynres-25-g3e9bc1f', '0.34.2-dynres-f67b1aef'])
+
+| pair | both ✓ | both ✗ | A only | B only | McNemar exact p |
+|---|---|---|---|---|---|
+| r0343ctrl_ocr_q4 vs r0343cand_ocr_q4 | 172 | 28 | 0 | 0 | 1.000 |
+| r0343ctrl_ocr_q4 vs r0343r10_ocr_q4 | 172 | 28 | 0 | 0 | 1.000 |
+| r0343cand_ocr_q4 vs r0343r10_ocr_q4 | 172 | 28 | 0 | 0 | 1.000 |
+
+| arm | accuracy | ±1 s.e. | mean s/item | median | mean prompt_eval |
+|---|---|---|---|---|---|
+| ctrl | 0.860 | 0.025 | 10.1 | 10.1 | 1115 |
+| cand | 0.860 | 0.025 | 10.3 | 7.9 | 1115 |
+| r10 | 0.860 | 0.025 | 13.6 | 13.4 | 1115 |
+
+| question type | n | ctrl | cand | r10 |
+|---|---|---|---|---|
+| Artistic Text Recognition | 50 | 48/50 | 48/50 | 48/50 |
+| Handwriting Recognition | 50 | 34/50 | 34/50 | 34/50 |
+| Irregular Text Recognition | 50 | 41/50 | 41/50 | 41/50 |
+| Regular Text Recognition | 50 | 49/50 | 49/50 | 49/50 |
+
+### Think-on (running)
+
+`thinkon.sh` interleaves control and candidate per model at a fixed 16384 window (`ALLOW_NO_LADDER=1`,
+`CTX_MAX=16384`), greedy (ADR 0029). A cell that caps is capped identically on equivalent builds, so it stays a
+like-for-like A/B, but it does not measure the window a model needs or its tok/s. ADR 0025 keeps think off in
+production here; this arm exists because every model comparison runs both modes.
+
+Run directory, with scripts, logs and score files: `/opt/github/MaxusAI/bench-0343/` on the gfx1151 host.
 
 ## Open items
 
