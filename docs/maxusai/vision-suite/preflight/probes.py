@@ -569,20 +569,26 @@ def llama_cpp_build(container, path="/usr/lib/ollama/llama-server", exec_cmd=Non
         cmd, shell = [exec_cmd.format(container=container)], True
     elif container:
         cmd, shell = ["docker", "exec", container, "sh", "-c",
-                      f"{path} --version 2>&1 | head -2 || true"], False
+                      f"{path} --version 2>&1 || true"], False
     else:
         cmd, shell = [path, "--version"], False
     proc = subprocess.run(cmd, shell=shell, capture_output=True,
                           text=True, timeout=120)
     out = (proc.stdout or "") + (proc.stderr or "")
+    # The sha is read from the `version:` line, wherever it falls. b11081 logs
+    # "llama_server: initializing ..." before it, so the container route's old
+    # `head -2` had one line of margin left -- one more preamble line in a
+    # future bump and it would have cut the version off -- and a `commit <sha>`
+    # printed anywhere else must not be taken for the payload's.
+    line = next((ln for ln in out.splitlines() if ln.lstrip().startswith("version:")), "")
     # Two formats in the wild, because llama.cpp changed it between b10353 and
     # b10434 and the fork spans both:
     #   b10353: "version: 1 (f8def7fe1)"
     #   b10434: "version: 0.1.0-dev (build 1, commit 7e4c0a968)"
     # Matching only the first turns a payload bump into "could not read build
     # sha", which reads as a broken probe rather than a new format.
-    m = (re.search(r"commit\s+([0-9a-f]{7,40})", out)
-         or re.search(r"version:\s*\S+\s*\(([0-9a-f]{7,40})\)", out))
+    m = (re.search(r"commit\s+([0-9a-f]{7,40})", line)
+         or re.search(r"version:\s*\S+\s*\(([0-9a-f]{7,40})\)", line))
     if not m:
         raise ProbeError(f"no build sha from llama-server --version: {out[:300]!r}")
     return m.group(1)
