@@ -16,7 +16,7 @@ lands on this branch, your gate 4 and gate 6 legs can build from it.
 | 3, the patch series | **done** — all seven (001 002 004 005 801 802 903) apply clean to `b11081` on a real checkout, in order; served projectors unchanged |
 | 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's; **done on gfx1151**: `0.34.3-dynres-5-g29ae523-rocm7-gfx1151`, with a b11081 payload whose structure is unchanged against 0.34.3's |
 | 5, preflight | **PASS on CUDA**: run 2 PASS=21 SKIP=8, with the pins moved in `c79e50d98` after run 1 (FAIL=2 on the two pins, by design). **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378) |
-| 6, campaigns | **in progress on CUDA.** GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. Think-on: a CUDA-only gemma4:26b loop from `ce8caa6e6`'s device half. See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
+| 6, campaigns | **in progress on CUDA.** GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. Think-on: a CUDA-only gemma4:26b loop from `ce8caa6e6`'s device half. See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
 
 **Three hosts converged on this merge.** The ROCm and Metal hosts had each started the same fold before #375
 existed, stopped, and cross-checked instead; see [#375](https://github.com/MaxusAI/ollama/pull/375).
@@ -209,8 +209,18 @@ file swapped: `cuda_v13/libggml-cuda.so` rebuilt from b11081 and the fork's seri
 On both probes `ce8caa6e6` is the whole of b11081's movement: every moved cell comes back, and nothing else moves. The
 probes cover head dimensions 512 and 256 (gemma4:31b) and 256 with 8-way GQA (qwen3.6). The other four models that
 moved (gemma4:26b-a4b, e4b and e2b, and qwen3.8, 150 cells) share head dimension 256 and were not re-run, so for them
-this is attribution by mechanism, not by measurement. The test reverts both halves of the commit; whether the device
-half alone, the only candidate for a compat patch, also restores these cells is not yet measured.
+this is attribution by mechanism, not by measurement.
+
+**The two halves split by model.** The same test with only the device half reverted (`6dd809df497a6a4e`):
+
+| model | cells | device half reverted vs production | vs the fold | vs the full revert |
+|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | 868 | **0** | 30 | 0 |
+| qwen3.6:35b-a3b-q4_K_M | 860 | 30 | **0** | 30 |
+
+gemma4:31b's movement is the device half, the compile-time tiling. qwen3.6's is the host half: the Ada decode-kernel
+selection in `fattn.cu` fires on sm_120 for its shape, and reverting only the tiling leaves every one of its 30 moved
+cells where the fold put them.
 
 The candidate as rendered by `summarize_engine_compare.py` is below: the tables and provenance line verbatim, its two
 headings demoted to sit inside this section. Against the control's tables, six quality cells differ: the scene IoU of
@@ -310,10 +320,10 @@ finishes the same request. gfx1151 runs the same b11081 and finishes it.
 | the same, only the host half reverted | the candidate's loop, byte-identical at the 32768 rung |
 | the same, only the device half reverted | byte-identical to production |
 
-The cause is the compile-time tiling, so no runtime switch can select the old behaviour. The candidate compat patch is
-the device half alone (124 lines, CUDA-only). Whether to carry it is decided on loop rates across the gemma4 think-on
-suite, not on one case: the fold against the device-half revert, gemma4:26b and 31b, full suite, full ladder, is
-queued.
+The loop is the compile-time tiling, so no runtime switch can select the old behaviour for it. A device-half compat
+patch (124 lines, CUDA-only) would remove the loop and restore gemma4's think-off cells, but not qwen3.6's, which move
+with the host half (above). Whether to carry it is decided on loop rates across the gemma4 think-on suite, not on one
+case: the fold against the device-half revert, gemma4:26b and 31b, full suite, full ladder, is queued.
 
 The other hosts' loops are different cases. The MLX single-pass loop the Metal host found on gemma4:31b-nvfp4 does
 not reproduce on MLX-CUDA: no loop in four runs, and here the spread within one flow is as large as the spread between
@@ -489,12 +499,13 @@ representation-sensitive test each, so the fold's attribution stays clean.
 
 ## Open items
 
-1. **Gate 6 on CUDA, queued:** the second MLX control runs of qwen3.8 and qwen3.6, gate 5 run 2, the fine-text
-   repeats, OCRBench (the four arms production was measured on, n = 2 each), the loop rates, MLX think-on and the
-   drafting probe.
-2. **`ce8caa6e6`: carry the device-half revert as a compat patch, or take upstream's tiling.** Decided on the loop
-   rates across the gemma4 think-on suite, not on one case. Before carrying it, check that the device half alone also
-   restores the think-off cells: the test above reverted both halves.
+1. **Gate 6 on CUDA, queued:** OCRBench (running: the four arms production was measured on, n = 2 each), the loop
+   rates, MLX think-on and the drafting probe.
+2. **`ce8caa6e6`: carry a revert as a compat patch, or take upstream.** The device half, the tiling, is the gemma4
+   loop and gemma4:31b's think-off movement. The host half, the decode selection, is qwen3.6's think-off movement. The
+   device half is decided on the loop rates across the gemma4 think-on suite, not on one case. The host half moves
+   qwen3.6's cells in both directions (11 better, 9 worse) and is runtime selection, so it could sit behind a switch;
+   whether to revert it is a separate call.
 3. **The think+format default on MLX.** Metal's single pass with drafting on (`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=1`) runs
    next on the full 26b and 31b suites, and separates the flow from the drafting. An ADR superseding ADR 0004 follows
    the data, and records the budget semantics listed above.
