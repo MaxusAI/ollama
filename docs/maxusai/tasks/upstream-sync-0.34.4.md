@@ -71,7 +71,7 @@ constrains only what follows — llama-server through a GBNF wrapper around its 
 XGrammar structural tag. It removes the second prefill, the dropped boundary chunk, and MLX's stray first token in the
 JSON, and it covers all 18 parsers where the fork's marker hook covered two.
 
-**Glenn's decision: single pass is the default, and `OLLAMA_FORMAT_TWO_PASS=1` keeps ADR 0004's flow as the rollback**
+**The maintainer's decision: single pass is the default, and `OLLAMA_FORMAT_TWO_PASS=1` keeps ADR 0004's flow as the rollback**
 if single pass regresses on a served model.
 
 - **`routes.go` is resolved by function, not by hunk.** Both handlers were rewritten too deeply: taking the fork's
