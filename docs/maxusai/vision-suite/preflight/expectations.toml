@@ -250,7 +250,13 @@ platform = "rocm7"
 # (ADR 0032), and 0.34.4-dynres-N-g<sha> after. A 0.34.3 build on b10969 also
 # matches, and then fails payload_pin, which is the right answer for it.
 version_pattern = '^0\.34\.[34]-dynres-\d+-g[0-9a-f]{7,40}$'
-patchset = ["001", "002", "004", "005", "801", "802", "903"]
+# 908 added 2026-09-26 in the v0.34.4 fold (#375): the device half of ce8caa6e6 reverted. The ROCm build applies it,
+# in both stages, so the patch set lists it. On gfx1151 it changes no GPU code. The image built from 558453953 differs
+# from reference_image in one payload file of 1863, libggml-hip.so. In its gfx1151 code objects, the 78 FA MMA kernels
+# compiled for gfx1151 are byte-identical, and the 184 other flash_attn_ext_f16 entries are NO_DEVICE_CODE stubs whose
+# one changed byte is a __LINE__ literal. The library's host code changes only in __LINE__ literals and in the Ampere
+# config rows, which an AMD device never reads: gfx1151 takes the RDNA table, and 908 leaves that table unchanged.
+patchset = ["001", "002", "004", "005", "801", "802", "903", "908"]
 reference_image = "0.34.3-dynres-5-g29ae523"
 llama_cpp_build = "161755f29"   # b11081, v0.34.4 fold 2026-09-25; read through the container route (#376)
 # The GPU toolchain, read from the shipped rocBLAS SONAME (librocblas.so.5.2.70204).
