@@ -1,0 +1,11 @@
+# Paths check_no_names.py skips. Paths only, never names: this file is tracked.
+# A path ending in / covers every file under that directory. Each entry says why.
+
+# The invoice fixture draws its customer line into visimgs/document.png, which every
+# host sends to the models in multi_3img and multi_3img_anchored. Changing the text
+# regenerates the image and moves every recorded score; it waits for a planned
+# benchmark re-baseline (#380 left it on purpose).
+docs/maxusai/vision-suite/gen_scenes.py
+
+# Upstream tokenizer test data: the match is a vocabulary token, not a reference to anyone.
+mlxrunner/tokenizer/testdata/
