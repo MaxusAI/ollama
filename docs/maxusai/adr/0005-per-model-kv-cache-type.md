@@ -44,3 +44,15 @@ at 32K ctx.
   validated clean on both the mild and severe prompts.
 - Other reasoning models may have undiscovered q8_0 cliffs; the vision suite
   plus this knob make that a one-command check per model.
+
+## Addendum 2026-09-26: the f16 fix did not hold
+
+The 2026-08-03 fix recreated production with f16 by hand, but the deployment's
+compose file still said `q8_0`, and the 2026-08-08 cutover through compose put
+production back on `q8_0`. Later deploys copied that, so production served
+qwen3.6 on `q8_0` until 2026-09-26. The v0.34.4 fold's think-on protocol found
+it, through a qwen3.6 case that never finished at 131072. Production and the
+compose file are f16 again: see the 2026-09-26 decision in
+[amd-upgrade-gate.md](../amd-upgrade-gate.md). A setting changed by hand on a
+running container is lost at the next deploy unless the deploy's own source
+changes with it.
