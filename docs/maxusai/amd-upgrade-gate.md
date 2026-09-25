@@ -23,11 +23,11 @@ back to `0.32.1-gemma4budget-85ebcb79`.
 
 | | |
 |---|---|
-| Deployed image | `maxusai-ollama:0.34.2-rocm724-main-f67b1aef` (promoted 2026-09-21 09:48) |
-| Deployed version | `0.34.2-dynres-f67b1aef` |
-| Build type | **full** `FLAVOR=rocm`, `ROCMVERSION=7.2.4`, from `main`, through upstream's `Dockerfile` — so **AlmaLinux-built**; compat **001 + 002 + 004 + 005 + 801 + 903**. From 2026-09-24 fork ROCm images build from `Dockerfile.rocm` on `rocm/dev-ubuntu-24.04:7.2.4-complete` ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md)); this image predates that |
-| Payload | **b10969** (`391fac164`); compat 906 **retired** — b10969 ships upstream's own HIP `prop.integrated` revert |
-| Previous image | `maxusai-ollama:0.34.1-rocm724-main-16649e8c` (`0.34.1-dynres-16649e8c`, b10864 + compat 906) — **retained for rollback**; `0.32.1-rocm-dynres-5d5b7a72` (b9888) before it |
+| Deployed image | `maxusai-ollama:0.34.3-rocm724-main-650f8fda` (promoted 2026-09-25 07:32) |
+| Deployed version | `0.34.3-dynres-0-g650f8fd`, a build of `main` at the `v0.34.3-dynres` tag (ADR 0032) |
+| Build type | `Dockerfile.rocm` through `scripts/build_rocm.sh` (`ROCM_TOOLCHAIN=rocm7 AMDGPU_TARGETS=gfx1151`), on `rocm/dev-ubuntu-24.04:7.2.4-complete` ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md)). **This is the first Ubuntu-built production image on this host**, and the payload's `ROCM_IMAGE` stamp says so. It is gfx1151 only. Compat **001 + 002 + 004 + 005 + 801 + 802 + 903**: 802, the LM-graph node meter, is new here and inert unless `OLLAMA_LM_NODE_STATS` is set |
+| Payload | **b10969** (`391fac164`), unchanged from 0.34.2; compat 906 **retired** — b10969 ships upstream's own HIP `prop.integrated` revert |
+| Previous image | `maxusai-ollama:0.34.2-rocm724-main-f67b1aef` (`0.34.2-dynres-f67b1aef`, AlmaLinux-built, b10969) — **retained for rollback** as the stopped container `ollama-rocm-0.34.2-f67b1aef`; `0.34.1-rocm724-main-16649e8c` (b10864 + 906) and `0.32.1-rocm-dynres-5d5b7a72` (b9888) before it |
 | Superseded pin | `0.32.1-dynres-296eb020` recorded here until 2026-09-19; the host was in fact running `5d5b7a72`, so this row had drifted from the host it describes |
 | Blocked target | `0.32.5-gemma4budget-4259c191` (built, verified, **rolled back** 2026-07-31) — never unblocked; superseded, not cleared |
 | Host | Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151**, ROCm, Linux |
@@ -226,7 +226,7 @@ reported on CUDA, so clauses 1–2 still apply there.
 
 ## Decision 2026-09-24 — ROCm images build on Ubuntu, not AlmaLinux
 
-**Glenn, until further notice:** the fork's ROCm images build on AMD's Ubuntu 24.04 ROCm
+**The maintainer, until further notice:** the fork's ROCm images build on AMD's Ubuntu 24.04 ROCm
 images — `rocm/dev-ubuntu-24.04:7.2.4-complete` for `rocm7`, `rocm/dev-ubuntu-24.04:10.0.0-full`
 for `rocm10` — and nothing the fork owns uses `rocm/dev-almalinux-8`. The recipe is
 `Dockerfile.rocm` through `scripts/build_rocm.sh`; upstream's `Dockerfile` is no longer how this
@@ -239,6 +239,63 @@ system GCC 13.3; preflight's `toolchain_build = "rocm-7.2.4"` passes either way.
 Ubuntu-built image therefore passes clause 4 and the OCRBench slice **against the
 AlmaLinux-built production image** before it is promoted — the v0.34.3 fold's gfx1151
 regression run ([MaxusAI/ollama#372](https://github.com/MaxusAI/ollama/pull/372), recorded in its task doc).
+
+## Decision 2026-09-25 — 0.34.3 promoted, the first Ubuntu-built production image
+
+**Outcome: promoted.** `ollama-rocm` moved from `0.34.2-dynres-f67b1aef` to `0.34.3-dynres-0-g650f8fd` at 07:32
+on 2026-09-25. It was down for about two seconds. The payload is unchanged: b10969 (`391fac164`). What moved is
+the Go side (v0.34.3: thinking levels in the API) and the toolchain packaging (ADR 0042).
+
+Rollback:
+
+1. Stop the new container and rename it aside.
+2. Rename the retained 0.34.2 container back to `ollama-rocm`.
+3. Restore its restart policy and start it.
+
+```
+docker stop ollama-rocm && docker rename ollama-rocm ollama-rocm-0.34.3-rolledback &&
+docker rename ollama-rocm-0.34.2-f67b1aef ollama-rocm &&
+docker update --restart unless-stopped ollama-rocm && docker start ollama-rocm
+```
+
+The retained container has `--restart no`, so a reboot cannot start it against the new one on `:11434`.
+
+**What the evidence covers, and why it covers the promoted image.** The v0.34.3 fold's gfx1151 regression run
+([MaxusAI/ollama#372](https://github.com/MaxusAI/ollama/pull/372), recorded in
+[upstream-sync-0.34.3.md](tasks/upstream-sync-0.34.3.md)) measured the candidate
+`0.34.2-dynres-24-gef19770-rocm7-gfx1151` against this production image:
+
+- Think off: every scored cell of five models is equal.
+- OCRBench: every item is equal, 172 = 172.
+- Think on (#377): the three greedy models are equal, and the two sampled models are flat as rates.
+
+The promoted image is a separate build, at the tag. It carries that evidence because:
+
+- **Native payload.** It is byte-identical to the candidate's. `llama-server`, `libllama-server-impl.so`,
+  `libggml-hip.so`, `libggml-base.so` and `libmtmd.so` have the same sha256.
+- **Payload structure.** `payload_diff.sh` finds 1863 = 1863 entries, no SONAME or symlink change, and 96/96
+  gfx1151 rocBLAS kernels.
+- **Go source.** It is identical too. The tag differs from the candidate's tree only in #374's build files
+  (`Dockerfile.rocm`, `build_rocm.sh`, the ROCm presets, and a bundling regex that bundled nothing new here).
+
+**Post-deploy check on the promoted container: 0 of 980 cells differ.** gemma4:26b-a4b, think off, was run through `run_engine_compare.sh` against `:11434` itself (server `0.34.3-dynres-0-g650f8fd`). Every scored cell equals the gate candidate's (`cmp_scores.py`). The check ran beside the v0.34.4 gate-6 campaign, on its own container; greedy scores on this host do not move with GPU contention.
+
+### Clause outcomes
+
+| clause | outcome |
+|---|---|
+| 1–2 | **As 2026-09-19.** Both overridden on evidence; nothing has changed upstream. |
+| 3. `--direct-io` | **Satisfied as on 2026-09-21.** The payload did not move (b10969). |
+| 4. Vision A/B, ≥6 consecutive rows, 0 degenerate | **PASSED.** All five models, think off, on the byte-identical candidate, equal to production in every scored cell. The promoted container itself was re-checked (above). |
+| 5. `make proof` | **Waived — still does not exist.** |
+
+**Not run: preflight (gate 5) for 0.34.3 on rocm7.** No rocm7 profile pins b10969 on a 0.34.3 stamp. The
+`rocm7-0-34-4-dynres` profile added on the v0.34.4 fold branch (#378) matches the stamp but pins b11081, so it would
+fail `payload_pin` here, by design. Every row it measures reproduced the b10864 and b10969 values unchanged.
+
+**How the host was confirmed idle.** A client polls `GET /api/ps` about every 2 s from the docker bridge. The
+promotion counted only working requests, and there were none in the two minutes before the swap. No model was
+loaded.
 
 ## Decision 2026-09-21 — 0.34.2 promoted, ROCm 10.0.0 declined on measurement
 

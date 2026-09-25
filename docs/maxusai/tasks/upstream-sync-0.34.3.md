@@ -15,8 +15,8 @@ Upstream [v0.34.3](https://github.com/ollama/ollama/releases/tag/v0.34.3) (tag `
 | no-GPU harness gates | **green** — `test_verdicts.py` 193 OK (6 skipped), `test_summarizers.py`, `test_rescore.py`, `test_mlx_test_gate.py` |
 | 4, image | **gfx1151: built** — `Dockerfile.rocm` (ADR 0042) on `rocm/dev-ubuntu-24.04:7.2.4-complete`, gfx1151, payload gated against production. CUDA and Metal: not built |
 | 5, preflight | not run — rocm7 has no `b10969` profile (see "Preflight profiles"); CUDA and Metal not run |
-| 6, campaigns | **gfx1151 think-off: done, no regression** — every scored cell of five models and every OCRBench item equal to production (below). Think-on running. CUDA and Metal not run |
-| tag and deploy | not done; `v0.34.3-dynres` is cut on the merge that lands this, per ADR 0032 |
+| 6, campaigns | **gfx1151: done, no regression.** Think-off: every scored cell of five models and every OCRBench item equal to production. Think-on: equal on the three greedy models (two descriptive cells aside), flat as rates on the two sampled ones (below). CUDA and Metal not run |
+| tag and deploy | `v0.34.3-dynres` cut on `650f8fda6` (ADR 0032). **gfx1151: deployed 2026-09-25 07:32**, as `maxusai-ollama:0.34.3-rocm724-main-650f8fda` (`0.34.3-dynres-0-g650f8fd`, Ubuntu-built, payload byte-identical to the gate candidate). See `amd-upgrade-gate.md`, decision 2026-09-25. CUDA and Metal: not deployed |
 
 The MLX-dependent tests skip on the gfx1151 host, which has no MLX library, so "58 packages ok" covers the Go and
 GGUF paths only. The macOS leg of `test.yaml` prepares the MLX Darwin payload and runs them there; that CI run is the
@@ -221,14 +221,85 @@ ocrbench — `echo840/OCRBench` [test], rows 0..200.
 | Irregular Text Recognition | 50 | 41/50 | 41/50 | 41/50 |
 | Regular Text Recognition | 50 | 49/50 | 49/50 | 49/50 |
 
-### Think-on (running)
+### Think-on (2026-09-25): no regression
 
-`thinkon.sh` interleaves control and candidate per model at a fixed 16384 window (`ALLOW_NO_LADDER=1`,
-`CTX_MAX=16384`), greedy (ADR 0029). A cell that caps is capped identically on equivalent builds, so it stays a
-like-for-like A/B, but it does not measure the window a model needs or its tok/s. ADR 0025 keeps think off in
-production here; this arm exists because every model comparison runs both modes.
+`thinkon.sh` interleaved control and candidate per model at a fixed 16384 window (`ALLOW_NO_LADDER=1`,
+`CTX_MAX=16384`). A cell that caps is capped identically on equivalent builds, so it stays a like-for-like A/B, but
+it does not measure the window a model needs or its tok/s. ADR 0025 keeps think off in production here; this arm
+exists because every model comparison runs both modes.
 
-Run directory, with scripts, logs and score files: `/opt/github/MaxusAI/bench-0343/` on the gfx1151 host.
+**Greedy only where the suite has a sampling card.** gemma4 and qwen3.6 run at their card's parameters with
+temperature 0 (`sampling_source`: `card:gemma4+temp0`, `card:qwen3.6+temp0`). nemotron3 and qwen3.8 have no card, so
+their think-on cells run at the model's packaged sampling defaults (`packaged-defaults-no-card`), which are not
+greedy: their cells differ between two runs by sampling alone, and they are compared as rates, never cell by cell.
+This section's earlier "greedy (ADR 0029)" held only for gemma4 and qwen3.6.
+
+Cell by cell (`cmp_scores.py`: every scored field, provenance and timing ignored), control first:
+
+```
+0 of 986 cells differ (scores_r0343ctrl_1_gemma4_26b-a4b-it-q4_K_M_thinkon.json vs scores_r0343cand_1_gemma4_26b-a4b-it-q4_K_M_thinkon.json)
+230 of 996 cells differ (scores_r0343ctrl_1_nemotron3_33b-q4_K_M_thinkon.json vs scores_r0343cand_1_nemotron3_33b-q4_K_M_thinkon.json)
+126 of 979 cells differ (scores_r0343ctrl_1_qwen3_8_27b-q4_K_M_thinkon.json vs scores_r0343cand_1_qwen3_8_27b-q4_K_M_thinkon.json)
+2 of 984 cells differ (scores_r0343ctrl_1_gemma4_31b-it-q4_K_M_thinkon.json vs scores_r0343cand_1_gemma4_31b-it-q4_K_M_thinkon.json)
+0 of 1009 cells differ (scores_r0343ctrl_1_qwen3_6_35b-a3b-q4_k_m_thinkon.json vs scores_r0343cand_1_qwen3_6_35b-a3b-q4_k_m_thinkon.json)
+```
+
+- **The greedy models match.** gemma4:26b and qwen3.6 are equal in every cell. gemma4:31b differs in two
+  descriptive fields of one block, and no scored field moved; the generation diverged somewhere in that block's
+  answer, and the cause (payload build or a cache-state near-tie) is not established:
+
+  ```
+    bboxm_pin_noanc_pos                answer_chars               829            -> 1069
+    bboxm_pin_noanc_pos                eval_count                 1801           -> 1843
+  2 of 984 cells differ (scores_r0343ctrl_1_gemma4_31b-it-q4_K_M_thinkon.json vs scores_r0343cand_1_gemma4_31b-it-q4_K_M_thinkon.json)
+  ```
+
+- **The sampled models, as rates** (`rates.py`: booleans counted, numeric accuracy fields averaged over the blocks
+  that carry them, `done_reason` tallied):
+
+  ```
+  $ python3 rates.py scores_r0343ctrl_1_nemotron3_33b-q4_K_M_thinkon.json scores_r0343cand_1_nemotron3_33b-q4_K_M_thinkon.json
+  blocks: 27 vs 27
+    anchor_beats_declared           3/20   ->    5/20  
+    anchor_present                  8/20   ->    9/20  
+    contract_followed               7/20   ->    8/20  
+    declaration_matches_boxes       7/20   ->    8/20  
+    invoice_no                      0/1    ->    1/1   
+    json_valid                     21/27   ->   22/27  
+    self_check                      6/8    ->    7/9   
+    serial_found                    2/3    ->    1/3   
+    total_right                     0/1    ->    1/1   
+    answer_chars                    827.259 ->    851.630   (n=27/27)
+    bbox_mean_iou                     0.493 ->      0.401   (n=3/3)
+    eval_count                     5247.593 ->   5462.370   (n=27/27)
+    hits_anchor                       2.250 ->      2.450   (n=20/20)
+    hits_bestfit                      4.350 ->      4.500   (n=20/20)
+    hits_declared                     2.400 ->      2.500   (n=20/20)
+    iou_anchor                        0.263 ->      0.281   (n=20/20)
+    iou_declared                      0.259 ->      0.274   (n=20/20)
+    labels_found                      5.217 ->      4.957   (n=23/23)
+    thinking_chars                12696.037 ->  13284.259   (n=27/27)
+    done_reason                  {'stop': 21, 'length': 6} -> {'length': 5, 'stop': 22}
+  $ python3 rates.py scores_r0343ctrl_1_qwen3_8_27b-q4_K_M_thinkon.json scores_r0343cand_1_qwen3_8_27b-q4_K_M_thinkon.json
+  blocks: 27 vs 27
+    answer_chars                    848.889 ->    841.259   (n=27/27)
+    bbox_mean_iou                     0.982 ->      0.978   (n=3/3)
+    eval_count                     1301.444 ->   1315.519   (n=27/27)
+    hits_bestfit                      4.950 ->      4.500   (n=20/20)
+    hits_declared                     5.950 ->      6.000   (n=20/20)
+    iou_anchor                        0.530 ->      0.528   (n=20/20)
+    iou_at_implied_scale              0.877 ->      0.959   (n=4/6)
+    iou_declared                      0.959 ->      0.956   (n=20/20)
+    labels_found                      5.957 ->      6.000   (n=23/23)
+    thinking_chars                 1982.741 ->   2020.926   (n=27/27)
+    done_reason                  {'stop': 27} -> {'stop': 27}
+  ```
+
+  nemotron3 moves both ways within one-run noise and is slightly ahead on the contract counts; qwen3.8 is flat
+  and ends every cell with `stop` in both arms.
+
+Run directory, with scripts, logs and score files: `/opt/github/MaxusAI/bench-0343/` on the gfx1151 host
+(`rates.py` is in `/opt/github/MaxusAI/bench-0344/`).
 
 ## Open items
 

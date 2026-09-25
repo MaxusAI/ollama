@@ -1,6 +1,6 @@
 # TASK: fold upstream v0.33.3 into main — plan
 
-**Opened:** 2026-09-04. **Status:** DECIDED 2026-09-04 (Glenn), housekeeping in
+**Opened:** 2026-09-04. **Status:** DECIDED 2026-09-04 (the maintainer), housekeeping in
 progress, no merge attempted on `main`. **D1 = keep `image_max_tokens`**: the
 per-request image-token budget survives, so this fold keeps the fork's gemma4
 MLX vision (option A below); adopting upstream's tower with the budget seam
@@ -311,7 +311,7 @@ data — `sync15_1_` (12b/26b/31b/qwen3.8) and `sync15nt_1_` (qwen3.6), build
 (#229/#257, "reproduced to three decimals") are Metal-host measurements. Pass
 criterion: converged arms identical on the score columns within run-to-run
 noise (n = 1, #258), no arm newly capped or errored. The Metal half of this
-gate is Glenn's, against mlx0332nv1. Under D1-B add the gemma4 MLX cells at
+gate is the maintainer's, against mlx0332nv1. Under D1-B add the gemma4 MLX cells at
 n≥5 with a positive control. Re-run the qwen3.5-MoE MMQ padding gate at
 b10760 and the qwen2.5vl poison probe (both `cuda-dynres-903`).
 
@@ -322,7 +322,7 @@ run only — a later `--skip-pinned` smoke would overwrite green with
 *skipped*); README **Current fold** pointer; deploy as
 `ollama-0.33.3-dynres-<n>-g<sha>` built from the tag; `:11434` stays parked.
 
-## Metal half — handoff (Glenn's host, 10.8.0.3; SSH refused from the CUDA host)
+## Metal half — handoff (the maintainer's host, 10.8.0.3; SSH refused from the CUDA host)
 
 Once #264 passes the CUDA gates, the Apple side is the same three steps as
 #243/#225, on the fold branch's tree:
@@ -490,7 +490,7 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
      never reached prompt processing — each burned its own 1800 s client timeout. Two hours
      lost to one stall, cleared only by the between-rung restart. At the ceiling MLX does not
      OOM, it crawls: the cache-thrashing check that would abort it is off by default (#212).
-     Glenn's call: the container was replaced mid-rung-3 with an identical one at 56 GiB (the
+     The maintainer's call: the container was replaced mid-rung-3 with an identical one at 56 GiB (the
      client's transport retry carried the arm in flight); the four affected arms all completed
      at rung 3, so their recorded rung of convergence is higher than baseline for three of them
      — an artefact of the stall, not the model. Evidence: `preflight-runs/vsuite-0333on-runner.log`.
@@ -525,7 +525,7 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
      calibrated on GPU), #277 (driver evicts on exit; README advice corrected to headroom),
      #279 (a `num_ctx` change reloads an MLX runner, either direction), #280 (comparing
      builds goes through the ADR 0012 generators; errored arms render `error`).
-7c. ☑ **`main` after those merges validated on CUDA, 2026-09-06** (Glenn's order: the OOM
+7c. ☑ **`main` after those merges validated on CUDA, 2026-09-06** (the maintainer's order: the OOM
    cases, then the think-off campaign, then preflight + the clamp on a real load), on
    `maxusai/ollama:main-a523d60b` — the tagged image's payload with `main`'s Go binary,
    payload byte-identical. Full write-up with generator tables only:
@@ -561,7 +561,7 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    on 11/56, the think-on run-to-run spread (trace length → cap → escalation); gemma4 stable
    across the 0.33 builds; qwen3.6 `scene_single` think-on flagged for an n ≥ 5 repeat. Three
    1800 s timeouts on 0.33.3's daytime leg were contention (`main` overnight finished the same arms).
-8. ☑ Landed 2026-09-04 (Glenn: go for steps 1–3, deploy held): #264 merged as `0c4f09d4`;
+8. ☑ Landed 2026-09-04 (the maintainer: go for steps 1–3, deploy held): #264 merged as `0c4f09d4`;
    annotated `v0.33.3-dynres` on that commit (`git describe` → `v0.33.3-dynres-0-g0c4f09d`);
    image rebuilt from the tag (`maxusai/ollama:sync-0.33.3`, stamp `0.33.3-dynres-0-g0c4f09d`,
    11 m 30 s on the warm cache); **full preflight on the tagged build: VERDICT PASS 20 / 8 / 0**
@@ -590,7 +590,7 @@ Artifacts back into the tree: the preflight run JSON under `preflight/runs/`
    path. Default equals 1120, as ADR 0008 requires. 0 server errors; the probe capped the MLX
    pool per #272 and tore its container down in a trap.
 
-9. ☐ **Deploy held by Glenn.** `:11497` still serves `0.33.2-dynres-5-g2b95b4a`
+9. ☐ **Deploy held by the maintainer.** `:11497` still serves `0.33.2-dynres-5-g2b95b4a`
    (`v0.33.2-dynres.1`); when deploying: `ollama-0.33.3-dynres-0-g0c4f09d` from
    `maxusai/ollama:sync-0.33.3`, `sync-0.33.2` retained as rollback, README **Deployed** line
    updated (ADR 0032 amendment), and — on this shared GPU — consider `OLLAMA_GPU_OVERHEAD` (headroom; not a hard cap, see 7b)

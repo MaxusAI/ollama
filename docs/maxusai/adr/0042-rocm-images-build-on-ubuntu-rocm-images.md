@@ -1,6 +1,6 @@
 # ADR 0042: the fork's ROCm images build on AMD's Ubuntu 24.04 ROCm images, never on AlmaLinux
 
-- **Status:** accepted 2026-09-24, **until further notice** (Glenn: build from
+- **Status:** accepted 2026-09-24, **until further notice** (the maintainer: build from
   `rocm/dev-ubuntu-24.04:7.2.4-complete` and `rocm/dev-ubuntu-24.04:10.0.0-full` "until
   further notice"; "no rocm/dev-almalinux-8 in our fork extra scripts"). It changes on his
   word only. Sits beside [ADR 0040](0040-rocm-10-is-experimental-until-it-is-faster.md), which
@@ -58,7 +58,7 @@ stage on the cached `rocm/dev-almalinux-8:7.2.1-complete` — was discarded unde
    carries the label `org.maxusai.rocm.image`.
 5. **Version stamping does not change.** `scripts/build_rocm.sh` stamps through
    `scripts/env.sh`, as ADR 0032 requires of every build.
-6. **Every build cache is on, for both toolchains** (Glenn, 2026-09-24: "in case we need it
+6. **Every build cache is on, for both toolchains** (the maintainer, 2026-09-24: "in case we need it
    again"). ccache for the CPU and ROCm compiles; apt `.debs` and lists, one pair per ROCm image;
    the ccache/cmake/ninja tarballs and the Go toolchain; one pristine llama.cpp checkout per
    `LLAMA_CPP_VERSION`, copied to the path `FetchContent` would clone to so compile commands and
@@ -104,7 +104,7 @@ fork publishes none (its release workflow fails fast), so that floor binds nothi
   `Dockerfile.rocm` must be brought level in the same fold. The fold's task doc records the
   check, and the check is a diff of those stages between the old and new tag.
 - **Retirement.** `Dockerfile.rocm` retires when upstream builds ROCm on an image AMD still
-  publishes and the two recipes are shown equivalent, or when Glenn lifts the rule. It is on
+  publishes and the two recipes are shown equivalent, or when the maintainer lifts the rule. It is on
   the [retirement register](../retirement-register.md) under fork tooling.
 - **History stays as written.** Images built before 2026-09-24, including the production
   `0.34.2-dynres-f67b1aef`, are AlmaLinux-built; the documents that describe them keep saying so.
