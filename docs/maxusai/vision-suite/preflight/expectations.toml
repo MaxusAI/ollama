@@ -84,7 +84,10 @@ platform = "cuda"
 # mlx_build records that. Preflight on the fold's deploy candidate passed 21,
 # skipped 7, with both pins asserted.
 version_pattern = '^0\.3[234]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
-patchset = ["001", "002", "004", "005", "903"]
+# 908 added 2026-09-26 in the v0.34.4 fold (#375): the device half of ce8caa6e6 reverted, the FA MMA tiling for head
+# dims 256/512. It changes attention kernels only, not image preprocessing, so the token ladders and pinned budgets
+# below were measured without it and still describe it; the first preflight on an image built with 908 re-asserts them.
+patchset = ["001", "002", "004", "005", "903", "908"]
 arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # The real payload identity. Was b10434 = 7e4c0a96880d (upstream v0.32.14-rc0's
 # pin) until the v0.32.15 upstream sync moved it to b10488 = 9d77fa172.
