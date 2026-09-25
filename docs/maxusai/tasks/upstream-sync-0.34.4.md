@@ -16,7 +16,7 @@ lands on this branch, your gate 4 and gate 6 legs can build from it.
 | 3, the patch series | **done** — all seven (001 002 004 005 801 802 903) apply clean to `b11081` on a real checkout, in order; served projectors unchanged |
 | 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's; **done on gfx1151**: `0.34.3-dynres-5-g29ae523-rocm7-gfx1151`, with a b11081 payload whose structure is unchanged against 0.34.3's |
 | 5, preflight | **PASS on CUDA**: run 2 PASS=21 SKIP=8, with the pins moved in `c79e50d98` after run 1 (FAIL=2 on the two pins, by design). **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378) |
-| 6, campaigns | **in progress on CUDA.** GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4. Think-on: a CUDA-only gemma4:26b loop from `ce8caa6e6`'s device half. See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
+| 6, campaigns | **in progress on CUDA.** GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: a CUDA-only gemma4:26b loop from `ce8caa6e6`'s device half. See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
 
 **Three hosts converged on this merge.** The ROCm and Metal hosts had each started the same fold before #375
 existed, stopped, and cross-checked instead; see [#375](https://github.com/MaxusAI/ollama/pull/375).
@@ -346,6 +346,15 @@ ocrbench — `echo840/OCRBench` [test], rows 0..200.
 - **GGUF q4 loses one Artistic Text item, deterministically.** Both candidate runs miss it and both production runs
   get it; paired, 170 both right, 29 both wrong, 1 production-only, McNemar exact p = 1.000. It is b11081's GGUF
   movement at the size of one item, the same kind as the think-off cells above.
+- **The item is `ce8caa6e6`'s device half.** The same arm on the candidate image with only the device half reverted
+  (`6dd809df497a6a4e`, n = 1, the arm being deterministic) scores 171, the same as production in every item.
+  `summarize_extbench.py --paired`, verbatim:
+
+  | pair | both ✓ | both ✗ | A only | B only | McNemar exact p |
+  |---|---|---|---|---|---|
+  | prodocr_q4_r1 vs c0344ocr_q4_r1 | 170 | 29 | 1 | 0 | 1.000 |
+  | prodocr_q4_r1 vs c0344ocr_q4dev_r1 | 171 | 29 | 0 | 0 | 1.000 |
+  | c0344ocr_q4_r1 vs c0344ocr_q4dev_r1 | 170 | 29 | 0 | 1 | 1.000 |
 
 #### Think on: a CUDA-only loop from ce8caa6e6's device half
 
