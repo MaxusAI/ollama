@@ -17,9 +17,12 @@ name: no-names
 # clean, so there is no backlog to scope around. A branch cut before #380 fails
 # until it merges main, which is the point.
 #
-# The title and body reach the script through the environment, never through
-# ${{ }} inside `run:`, so a crafted description cannot inject shell. `edited`
-# is a trigger because a description can gain a name without a new commit.
+# The title and body are read from the event file on the runner
+# ($GITHUB_EVENT_PATH). Not through ${{ }} inside `run:`, where a crafted
+# description could inject shell, and not through step `env:` either: Actions
+# prints env values in the public log, which outlives any later edit of the
+# description. `edited` is a trigger because a description can gain a name
+# without a new commit.
 #
 # Pull requests from forks get no secrets, so the job cannot run there; it is
 # skipped for them rather than failed. Unconditional otherwise, for the reason
@@ -57,8 +60,6 @@ jobs:
       - name: Does the tree, or this change's commits, title and body, name a person?
         env:
           NAME_DENYLIST: ${{ secrets.NAME_DENYLIST }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -66,7 +67,7 @@ jobs:
           if [ "$EVENT" = pull_request ]; then
             BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
             python3 docs/maxusai/tools/check_no_names.py --require-denylist \
-              --commits "$BASE..$HEAD_SHA" --text-env PR_TITLE --text-env PR_BODY .
+              --commits "$BASE..$HEAD_SHA" --github-event "$GITHUB_EVENT_PATH" .
           else
             python3 docs/maxusai/tools/check_no_names.py --require-denylist .
           fi

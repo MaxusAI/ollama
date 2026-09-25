@@ -11,6 +11,7 @@ are public.
 
     python3 test_check_no_names.py
 """
+import json
 import os
 import sys
 import tempfile
@@ -121,6 +122,30 @@ class TestConfiguration(unittest.TestCase):
     def test_an_invalid_pattern_is_an_error_not_a_pass(self):
         with self.assertRaises(guard.ConfigError):
             guard.load_denylist("zanzibar(", None)
+
+
+class TestReadsTheEventNotTheEnvironment(unittest.TestCase):
+    """Actions prints every step-level env: value in the public run log, so a
+    description passed that way is republished in a log that outlives any
+    later edit of the description. The event file on the runner is not printed."""
+
+    def event(self, payload):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump(payload, fh)
+        self.addCleanup(os.unlink, fh.name)
+        return fh.name
+
+    def test_title_and_body_come_from_the_event_file(self):
+        path = self.event({"pull_request": {"title": "docs: tidy", "body": "Merging is Zanzibar's call."}})
+        self.assertEqual(guard.event_texts(path),
+                         {"PR title": "docs: tidy", "PR body": "Merging is Zanzibar's call."})
+
+    def test_a_push_event_has_no_pull_request_text(self):
+        self.assertEqual(guard.event_texts(self.event({"ref": "refs/heads/main"})), {})
+
+    def test_an_empty_description_is_empty_text_not_an_error(self):
+        path = self.event({"pull_request": {"title": "t", "body": None}})
+        self.assertEqual(guard.event_texts(path), {"PR title": "t", "PR body": ""})
 
 
 class TestDoesNotCryWolf(TreeTest):

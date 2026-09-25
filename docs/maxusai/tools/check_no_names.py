@@ -26,7 +26,9 @@ and exits 0, so a fork or a fresh clone is not blocked; CI passes
 silently.
 
 NOTHING IT PRINTS CONTAINS A MATCH. CI logs of a public repo are public, so a
-finding is reported as path:line with every match replaced by <name>.
+finding is reported as path:line with every match replaced by <name>. For the
+same reason CI hands it the pull request through --github-event (the event file
+on the runner), never through step env: Actions prints env values in the log.
 
 CASE-INSENSITIVE, deliberately. The hostname that survived #380 was lower
 case, and the case-sensitive grep that verified #380 reported the tree clean.
@@ -37,6 +39,7 @@ and symlinks are skipped.
 """
 import argparse
 import collections
+import json
 import os
 import re
 import subprocess
@@ -121,6 +124,20 @@ def scan_texts(texts, pattern):
     return hits
 
 
+def event_texts(path):
+    """A pull request's title and body, from the Actions event file.
+
+    Read from $GITHUB_EVENT_PATH, not passed through step env: Actions prints
+    every step-level env value in the public run log, and that log outlives
+    any later edit of the description.
+    """
+    with open(path) as fh:
+        pr = json.load(fh).get("pull_request")
+    if not isinstance(pr, dict):
+        return {}
+    return {"PR title": pr.get("title") or "", "PR body": pr.get("body") or ""}
+
+
 def render(hit):
     return f"  {hit.where}:{hit.line}  {hit.context}"
 
@@ -149,6 +166,8 @@ def main(argv):
     ap.add_argument("--allowlist", default=DEFAULT_ALLOWLIST)
     ap.add_argument("--commits", metavar="RANGE",
                     help="also check these commits' messages, e.g. BASE..HEAD")
+    ap.add_argument("--github-event", metavar="FILE",
+                    help="also check the pull request title and body in this Actions event file")
     ap.add_argument("--text-env", metavar="VAR", action="append", default=[],
                     help="also check the text in this environment variable (repeatable)")
     ap.add_argument("--require-denylist", action="store_true",
@@ -167,6 +186,8 @@ def main(argv):
     tracked = tracked_files(args.root)
     hits = scan(args.root, tracked, pattern, load_allowlist(args.allowlist))
     texts = {var: os.environ.get(var, "") for var in args.text_env}
+    if args.github_event:
+        texts.update(event_texts(args.github_event))
     if args.commits:
         texts.update(commit_messages(args.root, args.commits))
     hits += scan_texts(texts, pattern)
