@@ -1,6 +1,6 @@
 # ADR 0039: nvfp4 global scales are stored as the checkpoint multiplier
 
-- **Status:** accepted 2026-09-20 (Glenn: "ADR 0039 first, then tag and deploy"); implemented in the
+- **Status:** accepted 2026-09-20 (the maintainer: "ADR 0039 first, then tag and deploy"); implemented in the
   v0.34.2 fold, where the files it touches had just moved. Arises from
   [#312](https://github.com/MaxusAI/ollama/issues/312) and gates part of
   [#287](https://github.com/MaxusAI/ollama/pull/287).

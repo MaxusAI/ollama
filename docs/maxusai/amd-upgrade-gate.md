@@ -226,7 +226,7 @@ reported on CUDA, so clauses 1–2 still apply there.
 
 ## Decision 2026-09-24 — ROCm images build on Ubuntu, not AlmaLinux
 
-**Glenn, until further notice:** the fork's ROCm images build on AMD's Ubuntu 24.04 ROCm
+**The maintainer, until further notice:** the fork's ROCm images build on AMD's Ubuntu 24.04 ROCm
 images — `rocm/dev-ubuntu-24.04:7.2.4-complete` for `rocm7`, `rocm/dev-ubuntu-24.04:10.0.0-full`
 for `rocm10` — and nothing the fork owns uses `rocm/dev-almalinux-8`. The recipe is
 `Dockerfile.rocm` through `scripts/build_rocm.sh`; upstream's `Dockerfile` is no longer how this

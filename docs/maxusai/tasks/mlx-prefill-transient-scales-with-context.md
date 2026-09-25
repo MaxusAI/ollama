@@ -1,7 +1,7 @@
 # TASK: the MLX prefill transient scales with context — price it per rung, bound the image overlay
 
 **Opened:** 2026-09-06. **Status:** OPEN, unassigned. **Found by:** the session-growth probe
-of the `main` validation (Glenn's item 3, "what a deploy of a `main` build should know").
+of the `main` validation (the maintainer's item 3, "what a deploy of a `main` build should know").
 **Evidence:** the probe records are in-repo under `vision-suite/preflight/runs/` —
 `gpu276-session-growth-2026-09-06.jsonl`, `gpu276-growth-shape-2026-09-06.jsonl`,
 `gpu276-slopes-2026-09-06.jsonl` (31b and qwen3.8 text slopes, measured the same evening); the

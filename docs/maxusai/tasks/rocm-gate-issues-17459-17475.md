@@ -154,7 +154,7 @@ Write `rocm-gate-issues-result.md` next to this file, and:
 - **A clean run is not proof of absence** for #17475 — it is a concurrency race, and the
   reporter needed three protocols to surface it. Report protocol-by-protocol counts.
 - If either reproduces, the write-up is the deliverable. Whether to post it upstream is
-  Glenn's call: ggml-org and ollama both restrict AI-written posts, and #17475 touches PII.
+  the maintainer's call: ggml-org and ollama both restrict AI-written posts, and #17475 touches PII.
   See [`upstream-mmq-submission-material.md`](../upstream-mmq-submission-material.md) for how
   that was handled last time.
 

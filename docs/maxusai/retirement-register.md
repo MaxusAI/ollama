@@ -34,14 +34,14 @@ _Nothing pending. `x/structured` moved to "Already retired" below on 2026-09-17.
 
 | item | retires when | status |
 |---|---|---|
-| `Dockerfile.gemma4budget` + `docs/maxusai/gemma4-budget-image.md` | the overlay cannot carry payload patches, and every fold has built full images since 0.32 | stale; Glenn's call |
+| `Dockerfile.gemma4budget` + `docs/maxusai/gemma4-budget-image.md` | the overlay cannot carry payload patches, and every fold has built full images since 0.32 | stale; the maintainer's call |
 | `Dockerfile.applearm` + `docs/maxusai/spec/apple-silicon-build.md` | the Metal half is built another way, or dropped | held with the Metal half |
-| `Dockerfile.rocm` + `scripts/build_rocm.sh` ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md)) — every ROCm image stage on `rocm/dev-ubuntu-24.04` (7.2.4-complete / 10.0.0-full), never AlmaLinux | upstream builds ROCm on an image AMD still publishes and the two recipes are shown equivalent, or Glenn lifts the rule | **until further notice** (2026-09-24); each fold diffs upstream's ROCm stages against it |
+| `Dockerfile.rocm` + `scripts/build_rocm.sh` ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md)) — every ROCm image stage on `rocm/dev-ubuntu-24.04` (7.2.4-complete / 10.0.0-full), never AlmaLinux | upstream builds ROCm on an image AMD still publishes and the two recipes are shown equivalent, or the maintainer lifts the rule | **until further notice** (2026-09-24); each fold diffs upstream's ROCm stages against it |
 | `rocm_v10_0` presets beside `rocm_v7_2` (`llama/server/CMakePresets.json`) and ROCm 10's split runtime libraries in `llama/server/CMakeLists.txt`'s bundling regexes ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md), from #359) | upstream ships a ROCm 10 preset and bundles those libraries itself | carried; the regexes match nothing on ROCm ≤ 7.2 |
 
 ## Already retired
 
-- **`x/structured`** (ADR 0009/0013), deleted 2026-09-17 in the v0.34.1 fold on Glenn's word, after the parity gate
+- **`x/structured`** (ADR 0009/0013), deleted 2026-09-17 in the v0.34.1 fold on the maintainer's word, after the parity gate
   found 0 regressions against xgrammar v0.2.5 in 108 verdicts. Its one finding — `allOf` with several branches is
   permissive on xgrammar — is recorded in ADR 0033's amendment and pinned by
   `mlxrunner/xgrammar/engine_behaviour_test.go`, with the ADR 0013 bound kept there as a budget test.

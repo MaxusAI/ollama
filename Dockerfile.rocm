@@ -2,7 +2,7 @@
 # vim: filetype=dockerfile
 #
 # The MaxusAI fork's ROCm image, built entirely on AMD's Ubuntu 24.04 ROCm images.
-# ADR 0042: until Glenn says otherwise, a fork ROCm build uses exactly
+# ADR 0042: until the maintainer says otherwise, a fork ROCm build uses exactly
 #
 #   rocm7  (production)    rocm/dev-ubuntu-24.04:7.2.4-complete   ROCM_VARIANT=rocm_v7_2
 #   rocm10 (experimental)  rocm/dev-ubuntu-24.04:10.0.0-full      ROCM_VARIANT=rocm_v10_0 (ADR 0040)
