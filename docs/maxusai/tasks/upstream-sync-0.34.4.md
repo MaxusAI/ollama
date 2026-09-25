@@ -249,7 +249,7 @@ workload was busy, and decoded at a quarter to a third of the control's rate, ev
 again over e4b's last seven. Under the same workload today, the ce8caa6e6-reverted build decodes gemma4:31b at
 the same 17–19 tok/s, so the slowdown is contention, not the build.
 
-#### MLX, think off: inside MLX-CUDA's own spread, with one consistent exception
+#### MLX, think off: overlapping MLX-CUDA's own spread, with one consistent difference
 
 MLX on CUDA is not bit-reproducible from run to run, so each arm ran twice, interleaved, and the verdict is against
 the spread rather than against zero.
@@ -259,12 +259,18 @@ the spread rather than against zero.
 | gemma4:12b-nvfp4 | 864 | 13 | 4 – 19 | 19 | 21 | **11 – 28** |
 | gemma4:26b-nvfp4 | 861 | 14 | 26 – 33 | 36 | 22 | **26 – 32** |
 | gemma4:31b-nvfp4-tower4bit | 867 | 19 | 23 – 31 | 26 | 39 | **30 – 44** |
-| qwen3.8:27b-nvfp4 | 862 | 1 | 9 – 10 | pending | 2 of 845 | **10 – 12** |
-| qwen3.6:35b-a3b-nvfp4 | 860 | 5 | 28 – 30 | pending | 47 | **32 – 37** |
+| qwen3.8:27b-nvfp4 | 862 | 1 | 9 – 11 | 19 | 2 | **10 – 12** |
+| qwen3.6:35b-a3b-nvfp4 | 860 | 5 | 6 – 30 | 34 | 47 | **31 – 45** |
 
-The second control runs of qwen3.8 and qwen3.6 are pending: the qwen3.8 run lost 16 blocks to an out-of-memory
-caused by the other workload, and is being re-run. Until then, their cross numbers stand beside candidate spreads of
-2 and 47.
+qwen3.8's second control run lost 16 blocks when MLX's admission check refused its load beside the other workload
+(28.1 GiB needed, 26.2 GiB free); those blocks were re-run on their own.
+
+Against the same-build pairs (production against itself, the control against production's recorded runs, and each
+arm against itself), the candidate-vs-control counts overlap on every model: 1–19 against 10–12 on qwen3.8, 5–47
+against 31–45 on qwen3.6, 14–36 against 26–32 on gemma4:26b. They reach past the top of the same-build range on two,
+gemma4:12b (4–21 against 11–28) and gemma4:31b-nvfp4-tower4bit (19–39 against 30–44), and 31b's cross counts sit
+highest overall. A scan of every cell for a value that all five runs not on the candidate share and both candidate
+runs replace with another finds exactly one in 4,513, on 31b.
 
 **The exception is one fine-text item.** gemma4:31b-nvfp4-tower4bit reads 3 of 4 at the 7 px tier in every run not
 on this build (production's two recorded runs, the control's two, and the 0.34.2 fold's candidate) and 2 of 4 in both
