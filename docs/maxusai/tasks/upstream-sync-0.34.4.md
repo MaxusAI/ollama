@@ -14,8 +14,8 @@ lands on this branch, your gate 4 and gate 6 legs can build from it.
 | 1, the merge | **done** — `c3e393d56`; 15 conflicted files. `go build` and `go vet` clean over all 80 packages; `go test` 58 packages ok, 0 failed; `server` green with `OLLAMA_FORMAT_TWO_PASS` unset **and** set. MLX tests skip here until gate 4 builds the payload |
 | 2, docs and paths | **done** — `check_source_paths.py` clean over the 66 files the fold wrote |
 | 3, the patch series | **done** — all eight (001 002 004 005 801 802 903, and 908 from 2026-09-26) apply clean to `b11081` on a real checkout, in order, and 908 reverse-applies, so a re-configure is safe; served projectors unchanged |
-| 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's; **done on gfx1151**: `0.34.3-dynres-5-g29ae523-rocm7-gfx1151`, with a b11081 payload whose structure is unchanged against 0.34.3's |
-| 5, preflight | **PASS on CUDA**: run 2 PASS=21 SKIP=8, with the pins moved in `c79e50d98` after run 1 (FAIL=2 on the two pins, by design). **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378) |
+| 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's; **done on gfx1151**: `0.34.3-dynres-5-g29ae523-rocm7-gfx1151`, with a b11081 payload whose structure is unchanged against 0.34.3's; rebuilt with 908 as `0.34.3-dynres-22-g5584539`, and **908 changes no gfx1151 kernel** |
+| 5, preflight | **PASS on CUDA**: run 2 PASS=21 SKIP=8, with the pins moved in `c79e50d98` after run 1 (FAIL=2 on the two pins, by design). **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378), and the same on the 908 image |
 | 6, campaigns | **in progress on CUDA.** GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: `ce8caa6e6`'s device half leaves 6 of 27 gemma4:26b cases in loops that never end, against 1 without it; 31b is unaffected. See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
 
 **Three hosts converged on this merge.** The ROCm and Metal hosts had each started the same fold before #375
@@ -435,6 +435,18 @@ MLX think-on, and a drafting probe (the knob and the flow, apart).
   same sha256.
 - **The ROCm 10 lane** (experimental, ADR 0040) builds too: 4152 entries and 150 gfx1151 kernel files, the same as
   0.34.3's ROCm 10 image.
+- **908 (2026-09-26): no gfx1151 kernel changes.** `558453953` built as
+  `maxusai-ollama:0.34.3-dynres-22-g5584539-rocm7-gfx1151` in 47 s from ccache, with all eight patches applied in both
+  stages. Against the image above, one payload file of 1863 differs: `libggml-hip.so`.
+  - In its gfx1151 code objects, 22 of the 138 offload bundles differ, and only in `.text`. The 78
+    `flash_attn_ext_f16` kernels that compile for gfx1151, 18 of them at D = 256, are byte-identical.
+  - The other 184 `flash_attn_ext_f16` entries are `NO_DEVICE_CODE` stubs. On RDNA every D = 512 variant is one. Each
+    stub differs in one byte, its `__LINE__` literal (1833 → 1807 and 1861 → 1835), because 908 deletes 26 lines above
+    them.
+  - The library's host code differs in 277 places: 252 `__LINE__` literals of the MMA launcher's two `CUDA_CHECK`s, 18
+    in the inlined Ampere rows (the D = 512 constants and the compare chain that selects them), and 7 in alignment
+    padding. The host picks the table by device. `ampere_mma_available()` is false on every AMD device, so gfx1151 takes
+    the RDNA table, which 908 leaves unchanged.
 
 ### Gate 5: preflight
 
@@ -444,6 +456,11 @@ MLX think-on, and a drafting probe (the knob and the flow, apart).
 - Both pinned budgets hold: 3328 → 3270 and 560 → 529.
 - `think_format` passes through the single pass on all three arches, in 1401, 127 and 273 tokens.
 - Every skip predates the profile.
+
+**On the 908 image** (`0.34.3-dynres-22-g5584539`), with 908 in the patch set, the verdict is again **PASS, PASS=20
+SKIP=12**. Every check reads the same value as on the first image, apart from the version and the image tag: the same
+ladders, the same pinned budgets, and `think_format` in 1401, 127 and 273 tokens. The run record is
+`runs/preflight-rocm7-0344-fold-g5584539.json`.
 
 ### Gate 6: think off and OCRBench
 
@@ -583,9 +600,9 @@ representation-sensitive test each, so the fold's attribution stays clean.
    the tiling, is five extra never-ending think-on loops on gemma4:26b (6 of 27 against 1, and gfx1151's 1), gemma4's
    think-off movement and the GGUF q4 OCRBench item; on gemma4:31b it changes numerics only. The host half, the
    decode selection, stays upstream's: it moves qwen3.6's think-off cells in both directions (11 better, 9 worse) and
-   causes no loop. Still to do for 908: the image rebuilt with it (gate 4), preflight on that image, the gemma4 GGUF
-   think-off cells and the 26b loop rate re-checked on the built payload, and the ROCm host's check that 908 leaves
-   gfx1151's kernels unchanged.
+   causes no loop. Still to do for 908 on CUDA: the image rebuilt with it (gate 4), preflight on that image, the gemma4 GGUF
+   think-off cells and the 26b loop rate re-checked on the built payload. The ROCm host's check is done: 908 changes no
+   gfx1151 kernel, and preflight passes on the rebuilt image (gates 4 and 5 on gfx1151).
 3. **The think+format default on MLX.** Metal's single pass with drafting on (`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=1`) runs
    next on the full 26b and 31b suites, and separates the flow from the drafting. An ADR superseding ADR 0004 follows
    the data, and records the budget semantics listed above.
