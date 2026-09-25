@@ -218,8 +218,8 @@ class TestAllowlistedCommits(unittest.TestCase):
     def test_commit_entries_are_split_from_paths(self):
         full = "c3e393d565c7ca6892f1950e9926b7495ec61396"
         paths, commits = guard.split_allowlist(
-            ["docs/x.py", f"commit {full}", "mlxrunner/tokenizer/testdata/"])
-        self.assertEqual(paths, ["docs/x.py", "mlxrunner/tokenizer/testdata/"])
+            ["docs/maxusai/vision-suite/gen_scenes.py", f"commit {full}", "mlxrunner/tokenizer/testdata/"])
+        self.assertEqual(paths, ["docs/maxusai/vision-suite/gen_scenes.py", "mlxrunner/tokenizer/testdata/"])
         self.assertEqual(commits, {full})
 
     def test_main_passes_when_the_only_match_is_allowlisted_and_prints_no_match(self):
