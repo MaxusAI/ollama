@@ -71,7 +71,7 @@ Establish three things. Guessing any of them wastes a twenty-minute run.
    `Dockerfile.rocm` via `scripts/build_rocm.sh`, on
    `rocm/dev-ubuntu-24.04:7.2.4-complete` (`rocm7`) or `:10.0.0-full` (`rocm10`)
    — never upstream's `Dockerfile` and never `rocm/dev-almalinux-8`, until
-   Glenn says otherwise (ADR 0042, 2026-09-24).** An Ubuntu-built and an
+   the maintainer says otherwise (ADR 0042, 2026-09-24).** An Ubuntu-built and an
    AlmaLinux-built 7.2.4 payload both pass `toolchain_pin` as `rocm-7.2.4`; the
    payload's `ROCM_IMAGE` stamp (`/usr/lib/ollama/rocm_v7_2/ROCM_IMAGE`) is what
    tells them apart, and an image without one predates `Dockerfile.rocm` and is

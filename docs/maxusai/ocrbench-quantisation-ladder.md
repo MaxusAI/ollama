@@ -8,7 +8,7 @@ CUDA host; the `mlx-metal` section is empty on purpose — it is for the Metal s
 fill from its own host. Nothing here mixes the two platforms into one table
 ([ADR 0012]; a missing same-platform baseline is stated, never substituted).
 
-Glenn's ask, 2026-09-18: the Metal host scored an OCRBench slice on the 0.34.0 fixed
+The maintainer's ask, 2026-09-18: the Metal host scored an OCRBench slice on the 0.34.0 fixed
 kernel — 175 correct of 200, 0.875 — so run the same slice on `mlx-cuda` and on the
 llama.cpp GGUF path across the ladder (`nvfp4`, `mxfp8`, `bf16` on MLX; `q4_K_M`,
 `q8_0`, `bf16` on GGUF) and compare.
