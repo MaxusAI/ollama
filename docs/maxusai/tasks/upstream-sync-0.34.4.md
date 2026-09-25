@@ -14,9 +14,9 @@ lands on this branch, your gate 4 and gate 6 legs can build from it.
 | 1, the merge | **done** — `c3e393d56`; 15 conflicted files. `go build` and `go vet` clean over all 80 packages; `go test` 58 packages ok, 0 failed; `server` green with `OLLAMA_FORMAT_TWO_PASS` unset **and** set. MLX tests skip here until gate 4 builds the payload |
 | 2, docs and paths | **done** — `check_source_paths.py` clean over the 66 files the fold wrote |
 | 3, the patch series | **done** — all seven (001 002 004 005 801 802 903) apply clean to `b11081` on a real checkout, in order; served projectors unchanged |
-| 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's |
-| 5, preflight | **run 1: FAIL=2 PASS=19 SKIP=8**, and the two failures are the pins, by design. The pins moved in `c79e50d98`; run 2 is queued |
-| 6, campaigns | **in progress on CUDA.** GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes. MLX think-off: inside its own spread, one fine-text item being repeated. Think-on: a CUDA-only gemma4:26b loop from `ce8caa6e6`'s device half. See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25) |
+| 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's; **done on gfx1151**: `0.34.3-dynres-5-g29ae523-rocm7-gfx1151`, with a b11081 payload whose structure is unchanged against 0.34.3's |
+| 5, preflight | **run 1: FAIL=2 PASS=19 SKIP=8**, and the two failures are the pins, by design. The pins moved in `c79e50d98`; run 2 is queued. **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378) |
+| 6, campaigns | **in progress on CUDA.** GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes. MLX think-off: inside its own spread, one fine-text item being repeated. Think-on: a CUDA-only gemma4:26b loop from `ce8caa6e6`'s device half. See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
 
 **Three hosts converged on this merge.** The ROCm and Metal hosts had each started the same fold before #375
 existed, stopped, and cross-checked instead; see [#375](https://github.com/MaxusAI/ollama/pull/375).
@@ -311,6 +311,151 @@ gemma4:26b-nvfp4, both flows, two repeats each, the full ladder.
 Queued, in order: the rest of gate 6's MLX controls, gate 5 run 2, the fine-text repeats, OCRBench, the loop rates,
 MLX think-on, and a drafting probe (the knob and the flow, apart).
 
+## Gates 4–6 on gfx1151 (2026-09-25)
+
+**Host.** The ROCm host, `amd-server`: Ryzen AI Max+ 395 with a Radeon 8060S (gfx1151), 96 GiB of VRAM.
+- The GPU was shared throughout with production on `:11434`, and during gate 6 with this host's own capture
+  containers.
+- Production moved to 0.34.3 this morning (#379). No campaign ran on production's container.
+
+### Gate 4: the image
+
+| | candidate | 0.34.3 gate image |
+|---|---|---|
+| image | `maxusai-ollama:0.34.3-dynres-5-g29ae523-rocm7-gfx1151` | `maxusai-ollama:0.34.2-dynres-24-gef19770-rocm7-gfx1151` |
+| built from | `29ae52351`, through `scripts/build_rocm.sh`: `Dockerfile.rocm` on `rocm/dev-ubuntu-24.04:7.2.4-complete`, gfx1151 | the v0.34.3 fold, the same way |
+| `llama-server --version` | commit `161755f29` (b11081) | commit `391fac164` (b10969) |
+| payload | 1863 entries, 96 gfx1151 rocBLAS kernel files | 1863 and 96. No file on one side only, and no SONAME or symlink change |
+
+- **Patches.** All seven compat patches apply, in both the CPU stage and the HIP stage, and both stages compile.
+- **Build time.** The image built in 22 s from ccache. Its native payload is byte-identical to the ROCm cross-check
+  build (`dd19f1202`): `llama-server`, `libllama-server-impl.so`, `libggml-hip.so` and `libggml-base.so` have the
+  same sha256.
+- **The ROCm 10 lane** (experimental, ADR 0040) builds too: 4152 entries and 150 gfx1151 kernel files, the same as
+  0.34.3's ROCm 10 image.
+
+### Gate 5: preflight
+
+`rocm7-0-34-4-dynres` (#378) was measured on this payload. The result is **VERDICT PASS, PASS=20 SKIP=12**:
+- The three ladders reproduce b10864's exactly. `tools/mtmd` changed by one error-handling hunk only.
+- `payload_pin` reads `161755f29` through the container route #376 fixed.
+- Both pinned budgets hold: 3328 → 3270 and 560 → 529.
+- `think_format` passes through the single pass on all three arches, in 1401, 127 and 273 tokens.
+- Every skip predates the profile.
+
+### Gate 6: think off and OCRBench
+
+The fold's cells are compared against the 0.34.3 gate image (`r0343cand`) and production 0.34.2 (`r0343ctrl`), with
+the same harness and environment. `compare.sh`, verbatim:
+
+```
+== think off
+  [r0343cand] 0 of 978 cells differ (scores_r0343cand_1_qwen3_6_35b-a3b-q4_k_m_thinkfalse.json vs scores_r0344fold_1_qwen3_6_35b-a3b-q4_k_m_thinkfalse.json)
+  [r0343ctrl] 0 of 978 cells differ (scores_r0343ctrl_1_qwen3_6_35b-a3b-q4_k_m_thinkfalse.json vs scores_r0344fold_1_qwen3_6_35b-a3b-q4_k_m_thinkfalse.json)
+  [r0343cand] 0 of 976 cells differ (scores_r0343cand_1_qwen3_8_27b-q4_K_M_thinkfalse.json vs scores_r0344fold_1_qwen3_8_27b-q4_K_M_thinkfalse.json)
+  [r0343ctrl] 0 of 976 cells differ (scores_r0343ctrl_1_qwen3_8_27b-q4_K_M_thinkfalse.json vs scores_r0344fold_1_qwen3_8_27b-q4_K_M_thinkfalse.json)
+  [r0343cand] 0 of 986 cells differ (scores_r0343cand_1_gemma4_31b-it-q4_K_M_thinkfalse.json vs scores_r0344fold_1_gemma4_31b-it-q4_K_M_thinkfalse.json)
+  [r0343ctrl] 0 of 986 cells differ (scores_r0343ctrl_1_gemma4_31b-it-q4_K_M_thinkfalse.json vs scores_r0344fold_1_gemma4_31b-it-q4_K_M_thinkfalse.json)
+  [r0343cand] 0 of 980 cells differ (scores_r0343cand_1_gemma4_26b-a4b-it-q4_K_M_thinkfalse.json vs scores_r0344fold_1_gemma4_26b-a4b-it-q4_K_M_thinkfalse.json)
+  [r0343ctrl] 0 of 980 cells differ (scores_r0343ctrl_1_gemma4_26b-a4b-it-q4_K_M_thinkfalse.json vs scores_r0344fold_1_gemma4_26b-a4b-it-q4_K_M_thinkfalse.json)
+  [r0343cand] 0 of 983 cells differ (scores_r0343cand_1_nemotron3_33b-q4_K_M_thinkfalse.json vs scores_r0344fold_1_nemotron3_33b-q4_K_M_thinkfalse.json)
+  [r0343ctrl] 0 of 983 cells differ (scores_r0343ctrl_1_nemotron3_33b-q4_K_M_thinkfalse.json vs scores_r0344fold_1_nemotron3_33b-q4_K_M_thinkfalse.json)
+```
+
+OCRBench, rows 0–200, gemma4:31b-it-q4_K_M. `summarize_extbench.py --paired --categories`, verbatim:
+
+```
+== OCRBench rows 0-200, gemma4:31b-it-q4_K_M
+| model | scored | errors | empty | correct | accuracy | think | endpoint |
+|---|---|---|---|---|---|---|---|
+| `gemma4:31b-it-q4_K_M` | 200 | 0 | 0 | 172 | **0.86** | false | generate |
+| `gemma4:31b-it-q4_K_M` | 200 | 0 | 0 | 172 | **0.86** | false | generate |
+| `gemma4:31b-it-q4_K_M` | 200 | 0 | 0 | 172 | **0.86** | false | generate |
+
+ocrbench — `echo840/OCRBench` [test], rows 0..200.
+
+⚠ **MIXED — rows are not one campaign** (hosts: ['http://127.0.0.1:11497', 'http://127.0.0.1:11499']; builds: ['0.34.2-dynres-24-gef19770', '0.34.2-dynres-f67b1aef', '0.34.3-dynres-5-g29ae523'])
+
+| pair | both ✓ | both ✗ | A only | B only | McNemar exact p |
+|---|---|---|---|---|---|
+| r0343ctrl_ocr_q4 vs r0343cand_ocr_q4 | 172 | 28 | 0 | 0 | 1.000 |
+| r0343ctrl_ocr_q4 vs r0344fold_ocr_q4 | 172 | 28 | 0 | 0 | 1.000 |
+| r0343cand_ocr_q4 vs r0344fold_ocr_q4 | 172 | 28 | 0 | 0 | 1.000 |
+
+| question type | n | prod-0.34.2 | img-0.34.3 | fold-0.34.4 |
+|---|---|---|---|---|
+| Artistic Text Recognition | 50 | 48/50 | 48/50 | 48/50 |
+| Handwriting Recognition | 50 | 34/50 | 34/50 | 34/50 |
+| Irregular Text Recognition | 50 | 41/50 | 41/50 | 41/50 |
+| Regular Text Recognition | 50 | 49/50 | 49/50 | 49/50 |
+```
+
+**b11081 moves no scored think-off cell and no OCRBench item on gfx1151.** That includes three MoE models under
+`fccf7166f`, the RDNA3.5 MoE tile heuristic. `ce8caa6e6` does not apply here, because RDNA has its own FA config table.
+
+### Gate 6: think on, under the aligned protocol (in progress)
+
+The arms are `fold` and `fold2p` on this image, in production's environment, over the full ladder, interleaved.
+llama-server drafts in neither arm: every server log reads `no implementations specified for speculative decoding`.
+**On this host, the two arms differ in the flow and nothing else.**
+
+**The loop probe.** Each arm was captured cold at 16384 with `thinkcap.py`, which uses the suite's own `gen()`.
+`probe_readout.py`, verbatim:
+
+```
+== gemma4:31b-it-q4_K_M scene_single_pinned
+  ladder fold2p: rung num_ctx=16384 done=stop eval=2359 json_valid=True think=3813 answer=1233 not_converged_at=None
+  cap16k fold2p: done=stop eval=2359 think=3813 answer=1233 | 74 lines, 69 distinct, top x6: "*   Let's refine:"
+  ladder fold  : rung num_ctx=16384 done=stop eval=2364 json_valid=True think=3813 answer=1278 not_converged_at=None
+  cap16k fold  : done=stop eval=2364 think=3813 answer=1278 | 74 lines, 69 distinct, top x6: "*   Let's refine:"
+  thinking: BYTE-IDENTICAL between arms (3813 chars)
+== gemma4:31b-it-q4_K_M multi_3img_anchored
+  ladder fold2p: rung num_ctx=16384 done=stop eval=3988 json_valid=True think=5858 answer=3505 not_converged_at=None
+  cap16k fold2p: done=stop eval=4755 think=7889 answer=3478 | 142 lines, 132 distinct, top x3: '- Key objects:'
+  ladder fold  : rung num_ctx=16384 done=stop eval=5236 json_valid=True think=8636 answer=3476 not_converged_at=None
+  cap16k fold  : done=stop eval=4758 think=7889 answer=3486 | 142 lines, 132 distinct, top x3: '- Key objects:'
+  thinking: BYTE-IDENTICAL between arms (7889 chars)
+== gemma4:26b-a4b-it-q4_K_M scene_single_pinned
+  ladder fold2p: rung num_ctx=16384 done=stop eval=5256 json_valid=True think=10145 answer=1252 not_converged_at=None
+  cap16k fold2p: done=stop eval=5256 think=10145 answer=1252 | 217 lines, 210 distinct, top x3: '- Kind: rectangle'
+  ladder fold  : rung num_ctx=16384 done=stop eval=5258 json_valid=True think=10145 answer=1271 not_converged_at=None
+  cap16k fold  : done=stop eval=5258 think=10145 answer=1271 | 217 lines, 210 distinct, top x3: '- Kind: rectangle'
+  thinking: BYTE-IDENTICAL between arms (10145 chars)
+== gemma4:26b-a4b-it-q4_K_M multi_3img_anchored
+  ladder fold2p: rung num_ctx=32768 done=stop eval=8335 json_valid=True think=15788 answer=3396 not_converged_at=None
+  cap16k fold2p: done=stop eval=8335 think=15788 answer=3396 | 443 lines, 298 distinct, top x5: '"Payment due within 30 days. Quote reference INV-2026-0801 on all corr'
+  ladder fold  : rung num_ctx=32768 done=stop eval=8331 json_valid=True think=15788 answer=3389 not_converged_at=None
+  cap16k fold  : done=length eval=8192 think=15788 answer=3084 | 443 lines, 298 distinct, top x5: '"Payment due within 30 days. Quote reference INV-2026-0801 on all corr'
+  thinking: BYTE-IDENTICAL between arms (15788 chars)
+```
+
+- **The two arms' thinking is byte-identical in all four cells, and nothing loops.**
+- **The budget semantics change** appears on gemma4:26b `multi_3img_anchored` at 16384:
+  - two-pass finishes at 8335 tokens, because pass two runs past `num_predict`;
+  - the single pass stops at `length` 8192 with the same thinking;
+  - the ladder finishes the single pass at 32768.
+
+**gemma4:31b, full suite.**
+- **The payload effect is nil.** Two-pass on b10969 against two-pass on b11081: 2 of 984 cells differ, both
+  descriptive.
+- **The flow moves 8 scored cells, all IoU noise, in both directions.** All 27 blocks end in `stop` with valid JSON
+  in both flows.
+- **Inside the suite, the thinking differs in 16 of 27 blocks.** Cold, it is byte-identical. An inference from the
+  slot logs: the two-pass flow's second request lands on the other parallel slot. That changes the KV layout that
+  later cells see, and the reduction order tips near-ties.
+
+**gemma4:26b.**
+- The two-pass arm leaves **one** case NOT CONVERGED at 131072: `bbox_contract_real_1img`.
+- It is a loop: 70 of 762 lines are distinct, and `*   ANCHOR: x1=72, y1=150, x2=216, y2=336.` repeats 98 times.
+- Cold at 32768, it is **byte-identical in both flows and on b10969**. So it predates the fold, and production 0.34.3
+  has it today.
+- The single-pass arm is running.
+
+**Queued, into 2026-09-26:** qwen3.8 (n = 2 per arm), nemotron3 (n = 2), then qwen3.6. qwen3.6's think runaway under
+q8_0 KV gives it the longest ladder.
+
+Throughput is not a finding on this host, because the GPU was shared.
+
 ## Found on `main`, not caused by this fold
 
 Sweeping the merged tree for the old representation found **three sites ADR 0039 missed**, all from upstream's MLX
@@ -340,4 +485,5 @@ representation-sensitive test each, so the fold's attribution stays clean.
    the data, and records the budget semantics listed above.
 4. **`TestMulGatherQMMGlobalScale`** is gated to Metal upstream and passes on CUDA with the gate widened (128.8 s);
    the widening is its own change. So are the three ADR 0039 misses above.
-5. **Gates 4 and 6 on gfx1151 and Metal**, on the hosts that own them.
+5. **Gate 6 think-on on gfx1151**: qwen3.8, nemotron3 and qwen3.6 under the aligned protocol, into 2026-09-26.
+   **Gates 4 and 6 on Metal**, on the host that owns them.
