@@ -35,7 +35,12 @@ case, and the case-sensitive grep that verified #380 reported the tree clean.
 
 THE ALLOWLIST (no_names_allowlist.txt, beside this script) holds paths, never
 names. A path ending in / covers every file under that directory. Binary files
-and symlinks are skipped.
+and symlinks are skipped. It may also hold `commit <full sha>` lines: that
+commit's MESSAGE is not checked. They are for messages that predate the rule and
+cannot be reworded without re-hashing every commit after them (a fold's merge
+commit, which every host's gate image names). A SHA names no one, so the file
+stays clean. Full 40-character SHAs only: a prefix could come to match a second
+commit, so a short one is a configuration error, not a skip.
 """
 import argparse
 import collections
@@ -90,6 +95,26 @@ def load_allowlist(path):
         return []
     with open(path) as fh:
         return _entries(fh.read())
+
+
+COMMIT_ENTRY = re.compile(r"commit\s+(\S+)$")
+FULL_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def split_allowlist(entries):
+    """(paths, commit SHAs) from allowlist entries. A `commit` entry must name
+    a full 40-character SHA; anything shorter or malformed is a ConfigError."""
+    paths, commits = [], set()
+    for e in entries:
+        m = COMMIT_ENTRY.fullmatch(e)
+        if not m:
+            paths.append(e)
+            continue
+        sha = m.group(1).lower()
+        if not FULL_SHA.fullmatch(sha):
+            raise ConfigError("an allowlisted commit must be a full 40-character SHA")
+        commits.add(sha)
+    return paths, commits
 
 
 def allowed(rel, allow):
@@ -148,15 +173,24 @@ def tracked_files(root):
     return [p for p in out.stdout.split("\0") if p]
 
 
-def commit_messages(root, revision_range):
-    """The branch's OWN commit messages. --first-parent keeps a fold's merged
-    upstream history out: those messages are upstream's, not ours to police."""
+def commit_messages(root, revision_range, skip=frozenset()):
+    """The branch's OWN commit messages, and how many allowlisted ones were
+    skipped. --first-parent keeps a fold's merged upstream history out: those
+    messages are upstream's, not ours to police."""
     out = subprocess.run(["git", "-C", root, "log", "--first-parent",
                           "--format=%H%x00%B%x00", revision_range],
                          capture_output=True, text=True, check=True)
     fields = out.stdout.split("\0")
-    return {f"commit {fields[i].strip()[:9]}": fields[i + 1]
-            for i in range(0, len(fields) - 1, 2) if fields[i].strip()}
+    texts, skipped = {}, 0
+    for i in range(0, len(fields) - 1, 2):
+        sha = fields[i].strip()
+        if not sha:
+            continue
+        if sha in skip:
+            skipped += 1
+            continue
+        texts[f"commit {sha[:9]}"] = fields[i + 1]
+    return texts, skipped
 
 
 def main(argv):
@@ -183,14 +217,23 @@ def main(argv):
         print("names: no deny-list configured (NAME_DENYLIST or --denylist-file); nothing was checked")
         return 2 if args.require_denylist else 0
 
+    try:
+        allow_paths, allow_commits = split_allowlist(load_allowlist(args.allowlist))
+    except ConfigError as exc:
+        print(f"names: {exc}")
+        return 2
     tracked = tracked_files(args.root)
-    hits = scan(args.root, tracked, pattern, load_allowlist(args.allowlist))
+    hits = scan(args.root, tracked, pattern, allow_paths)
     texts = {var: os.environ.get(var, "") for var in args.text_env}
     if args.github_event:
         texts.update(event_texts(args.github_event))
+    skipped = 0
     if args.commits:
-        texts.update(commit_messages(args.root, args.commits))
+        commit_texts, skipped = commit_messages(args.root, args.commits, allow_commits)
+        texts.update(commit_texts)
     hits += scan_texts(texts, pattern)
+    if skipped:
+        print(f"names: skipped {skipped} allowlisted commit message(s)")
 
     if not hits:
         print(f"names: none of {len(tracked)} tracked files"
