@@ -14,8 +14,12 @@ are public.
 import json
 import os
 import sys
+import contextlib
+import io
+import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -176,6 +180,61 @@ class TestDoesNotCryWolf(TreeTest):
                              ["docs/maxusai/vision-suite/gen_scenes.py", "mlxrunner/tokenizer/testdata/"])
         finally:
             os.unlink(fh.name)
+
+
+class TestAllowlistedCommits(unittest.TestCase):
+    """A fold's merge commit is named by every host's gate image, so its message
+    cannot be reworded without re-hashing everything after it. The allowlist
+    skips such a message by full SHA; nothing else about it changes."""
+
+    def repo(self, messages):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+
+        def git(*args):
+            return subprocess.run(["git", "-C", d.name, *args], check=True,
+                                  capture_output=True, text=True).stdout.strip()
+        git("init", "-q")
+        git("config", "user.email", "test@example.invalid")
+        git("config", "user.name", "test")
+        git("commit", "-q", "--allow-empty", "-m", "base")
+        shas = []
+        for message in messages:
+            git("commit", "-q", "--allow-empty", "-m", message)
+            shas.append(git("rev-parse", "HEAD"))
+        return d.name, shas
+
+    def test_an_allowlisted_commit_message_is_skipped_and_counted(self):
+        root, (old, new) = self.repo(["fold: merge (Zanzibar's call)", "docs: Quuxley agreed"])
+        texts, skipped = guard.commit_messages(root, "HEAD~2..HEAD", {old})
+        self.assertEqual(skipped, 1)
+        self.assertEqual([h.where for h in guard.scan_texts(texts, PATTERN)], [f"commit {new[:9]}"])
+
+    def test_a_short_sha_is_a_configuration_error_not_a_skip(self):
+        """A prefix could come to match a second commit."""
+        with self.assertRaises(guard.ConfigError):
+            guard.split_allowlist(["commit c3e393d56"])
+
+    def test_commit_entries_are_split_from_paths(self):
+        full = "c3e393d565c7ca6892f1950e9926b7495ec61396"
+        paths, commits = guard.split_allowlist(
+            ["docs/x.py", f"commit {full}", "mlxrunner/tokenizer/testdata/"])
+        self.assertEqual(paths, ["docs/x.py", "mlxrunner/tokenizer/testdata/"])
+        self.assertEqual(commits, {full})
+
+    def test_main_passes_when_the_only_match_is_allowlisted_and_prints_no_match(self):
+        root, (old,) = self.repo(["fold: Zanzibar's decision"])
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
+            fh.write(f"# predates the rule\ncommit {old}\n")
+        self.addCleanup(os.unlink, fh.name)
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"NAME_DENYLIST": "zanzibar|quuxley"}), \
+                contextlib.redirect_stdout(out):
+            rc = guard.main(["check_no_names.py", "--require-denylist", "--allowlist", fh.name,
+                             "--commits", "HEAD~1..HEAD", root])
+        self.assertEqual(rc, 0)
+        self.assertIn("skipped 1 allowlisted commit message", out.getvalue())
+        self.assertIsNone(PATTERN.search(out.getvalue()))
 
 
 if __name__ == "__main__":
