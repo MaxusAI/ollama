@@ -12,7 +12,7 @@
 
 ## Provenance
 
-- **Date / host:** 2026-09-17 22:36:32–23:56:07 local (80 min), `glenn-NucBox-EVO-X2`,
+- **Date / host:** 2026-09-17 22:36:32–23:56:07 local (80 min), `amd-server`,
   Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151**, 96 GiB firmware VRAM carve,
   30 GiB left to the OS. First vision run on this host since 2026-08-18, and the first since
   the APU was repasted.

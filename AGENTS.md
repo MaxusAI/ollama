@@ -111,3 +111,17 @@ keep account names, key filenames and SSH aliases in the operator's
 `~/.ssh/config` where they belong. The same applies to tokens, registry
 credentials and `.env` contents. When a doc needs the real values to be useful,
 that doc belongs outside this repo.
+
+**Name roles, never people.** Every host's agent posts as the same GitHub
+account, so a name written into a doc, an ADR, a commit message, a pull request
+or a comment is published under it. Agents pick the maintainer's name up from
+the conversation and the git author field and write it as attribution — "X's
+call", "Deciders: X", "(X, 2026-09-12)" — and on 2026-09-25 it had to be
+scrubbed from 24 tracked files (#380) and 32 issue, pull request and comment
+texts. Write **the maintainer** for the person who decides, approves and merges,
+and name a host by its collab label (`~/.config/collab/identity`, e.g.
+`amd-server/rocm-gfx1151`), never by a machine hostname that carries a personal
+name. `docs/maxusai/tools/check_no_names.py` enforces this in CI against the
+`NAME_DENYLIST` secret — the deny-list is never written into the tree — and
+checks a pull request's title, body and own commit messages as well as the tree.
+Run it locally with `--denylist-file` before posting.
