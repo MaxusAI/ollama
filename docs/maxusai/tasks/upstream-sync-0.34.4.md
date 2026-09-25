@@ -15,8 +15,8 @@ lands on this branch, your gate 4 and gate 6 legs can build from it.
 | 2, docs and paths | **done** — `check_source_paths.py` clean over the 66 files the fold wrote |
 | 3, the patch series | **done** — all seven (001 002 004 005 801 802 903) apply clean to `b11081` on a real checkout, in order; served projectors unchanged |
 | 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's; **done on gfx1151**: `0.34.3-dynres-5-g29ae523-rocm7-gfx1151`, with a b11081 payload whose structure is unchanged against 0.34.3's |
-| 5, preflight | **run 1: FAIL=2 PASS=19 SKIP=8**, and the two failures are the pins, by design. The pins moved in `c79e50d98`; run 2 is queued. **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378) |
-| 6, campaigns | **in progress on CUDA.** GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes. MLX think-off: inside its own spread, one fine-text item being repeated. Think-on: a CUDA-only gemma4:26b loop from `ce8caa6e6`'s device half. See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
+| 5, preflight | **PASS on CUDA**: run 2 PASS=21 SKIP=8, with the pins moved in `c79e50d98` after run 1 (FAIL=2 on the two pins, by design). **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378) |
+| 6, campaigns | **in progress on CUDA.** GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. Think-on: a CUDA-only gemma4:26b loop from `ce8caa6e6`'s device half. See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
 
 **Three hosts converged on this merge.** The ROCm and Metal hosts had each started the same fold before #375
 existed, stopped, and cross-checked instead; see [#375](https://github.com/MaxusAI/ollama/pull/375).
@@ -154,7 +154,8 @@ pinned budgets (3328 → 3270 and 560 → 529), the text baselines (19, 19, 13),
 which now runs the single pass: valid JSON after thinking at 486, 161 and 324 tokens.
 
 The pins moved in `c79e50d98` with run 1 as provenance: `llama_cpp_build = "161755f29"`, `mlx_build =
-"59d600b5e64c238427d0f8d897ab7c682ef4d3d2"`. Run 2, expected green, is queued behind gate 6.
+"59d600b5e64c238427d0f8d897ab7c682ef4d3d2"`. **Run 2: VERDICT PASS, PASS=21 SKIP=8.** Both pins pass, and every measured
+check reproduces run 1, down to `think_format`'s 486, 161 and 324 tokens.
 
 ### Gate 6: what was compared
 
@@ -249,7 +250,7 @@ workload was busy, and decoded at a quarter to a third of the control's rate, ev
 again over e4b's last seven. Under the same workload today, the ce8caa6e6-reverted build decodes gemma4:31b at
 the same 17–19 tok/s, so the slowdown is contention, not the build.
 
-#### MLX, think off: overlapping MLX-CUDA's own spread, with one consistent difference
+#### MLX, think off: overlapping MLX-CUDA's own spread, and no consistent difference
 
 MLX on CUDA is not bit-reproducible from run to run, so each arm ran twice, interleaved, and the verdict is against
 the spread rather than against zero.
@@ -270,12 +271,26 @@ arm against itself), the candidate-vs-control counts overlap on every model: 1�
 against 31–45 on qwen3.6, 14–36 against 26–32 on gemma4:26b. They reach past the top of the same-build range on two,
 gemma4:12b (4–21 against 11–28) and gemma4:31b-nvfp4-tower4bit (19–39 against 30–44), and 31b's cross counts sit
 highest overall. A scan of every cell for a value that all five runs not on the candidate share and both candidate
-runs replace with another finds exactly one in 4,513, on 31b.
+runs replace with another finds one in 4,513, and it does not survive repeats (below).
 
-**The exception is one fine-text item.** gemma4:31b-nvfp4-tower4bit reads 3 of 4 at the 7 px tier in every run not
-on this build (production's two recorded runs, the control's two, and the 0.34.2 fold's candidate) and 2 of 4 in both
-candidate runs. The other tiers are equal. One item at the smallest tier, n = 2, with the MLX pin moved: three more
-probe-only runs per arm, interleaved, are queued before it counts either way.
+**That one is a fine-text item, and it is noise.** It is gemma4:31b-nvfp4-tower4bit's 7 px tier (/4), as the
+standalone probe reads it (`finetext_probe.py`, the `ft_` file). That is not the reading the generator renders: the
+suite runs the same prompt as its own last arm, and `summarize_engine_compare.py` takes the tiers from that block,
+falling back to `ft_` only for runs older than the fold that added it. Both readings, every run of this model, and
+three more probe-only runs per arm, interleaved, each in a cold container:
+
+| run | build | suite `finetext` block, 7 px | probe `ft_`, 7 px |
+|---|---|---|---|
+| production, recorded 2026-09-20 (×2) | `0.34.2-dynres-0-g5bffaac` | 3, 3 | 3, 3 |
+| the 0.34.2 fold's candidate | `0.34.1-dynres-26-g3dade56` | 3 | 3 |
+| control, gate 6 (×2) | `0.34.2-dynres-0-g5bffaac` | **2**, 3 | 3, 3 |
+| candidate, gate 6 (×2) | `0.34.3-dynres-5-g29ae523` | **2**, 3 | **2**, **2** |
+| control, probe-only (×3) | `0.34.2-dynres-0-g5bffaac` | 3, **2**, 3 | 3, **2**, 3 |
+| candidate, probe-only (×3) | `0.34.3-dynres-5-g29ae523` | 3, 3, **2** | 3, 3, 3 |
+
+The generator's reading gives 2 in two of seven runs on production's image and two of five on the candidate's. The
+tier flips on both builds, and the other tiers (4/4/4/3) never move. An earlier version of this section, and a comment
+on #375, called this a consistent difference from the probe's column alone; that was wrong.
 
 #### Think on: a CUDA-only loop from ce8caa6e6's device half
 
