@@ -538,6 +538,28 @@ few percent is unreadable: it is either the result or the instrument.
 > by class, ROCm 10.0.0 regresses prefill on all five models; unsplit, it
 > appeared to regress on three and be flat on gemma4.
 
+
+**H23 — A knob with a prerequisite is measured in three arms, not two.** When
+turning a setting off requires changing a second setting, a two-arm A/B
+attributes both changes to the one being studied. Measure the prerequisite
+alone as its own arm and compare against *that*. Flash attention could not be
+disabled on this fork without also moving `OLLAMA_KV_CACHE_TYPE` from `q8_0` to
+`f16` — the runner refuses with `quantized V cache requires flash_attn to be
+enabled`. The three arms measured the cache change at 1.0% (noise) and flash
+attention at 51%; a two-arm test would have reported 52% for flash attention
+and been wrong by the whole of the difference. If the prerequisite cannot be
+isolated, the result names both changes or it names neither.
+
+**H24 — A percentage-of-peak says where the peak came from, and a value above
+100% means the denominator is wrong.** A ratio against a theoretical ceiling is
+only as trustworthy as the ceiling, and ceilings are easy to get wrong in
+silence. Derive it from the hardware's own report — `rocminfo` "Compute Unit" —
+not from an API whose units vary by architecture:
+`hipGetDeviceProperties().multiProcessorCount` returns **WGPs** on RDNA, each
+holding 2 CUs, so it reported 20 for gfx1151 against a true 40 and halved the
+ceiling. `gemm_ceiling_bench.cpp` printed "165% of peak" before this was
+caught; the impossible number is the only reason it was caught at all. Any
+efficiency figure over 100% is a bug in the denominator, never a fast kernel.
 ## 4. Conformance
 
 | requirement | enforced by |
