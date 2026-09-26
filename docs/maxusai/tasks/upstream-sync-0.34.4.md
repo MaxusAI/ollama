@@ -101,6 +101,7 @@ if single pass regresses on a served model.
 4. An EOS inside the thinking returns only the thinking, `response:""`, `done_reason:"stop"`.
 5. **On MLX a think+format request carries a grammar from its first token**, so with production's
    `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` it never drafts during the thinking, where pass one used to. Measure at 0 and 1.
+   Measured (the drafting probe, under gate 6): the single pass then thinks 1.5–1.7× slower than two-pass does.
 
 Think-off cells cannot tell the two flows apart — the suite always sends `format:"json"` and both constrain from
 token 0 when thinking is off — so gate 6 needs the think-on `bbox_contract_reasoning` cells. nemotron3 has no
@@ -439,6 +440,77 @@ gemma4:26b-nvfp4, both flows, two repeats each, the full ladder.
 Queued, in order: the rest of gate 6's MLX controls, gate 5 run 2, the fine-text repeats, OCRBench, the loop rates,
 MLX think-on, and a drafting probe (the knob and the flow, apart).
 
+#### MLX drafting probe: the knob decides whether think+format drafts, and drafting is 1.5–1.7× on the thinking
+
+This measures item 5 of "What single pass changes". In the single pass a think+format request reaches the MLX runner
+with its grammar attached from the first token: `requestGrammar` (`mlxrunner/client.go`) puts the schema behind a
+free-thinking `any_text` element. `draftingEnabled` (`mlxrunner/speculate.go`) decides once per request, on
+`request.Grammar == nil || draftUnderGrammar`. So under production's `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` the single
+pass drafts nothing, while the two-pass flow's first pass, which carries no grammar, drafts its thinking.
+
+Three arms on the fold's image, each in a canary container with production's environment otherwise, from 2026-09-26
+14:43 to 2026-09-27 01:18:
+
+| arm | flow | knob | drafts the thinking | stands for |
+|---|---|---|---|---|
+| F0 | single pass | 0 | no | the fold, deployed with production's environment |
+| P0 | two-pass (`OLLAMA_FORMAT_TWO_PASS=1`) | 0 | yes, in pass one | production today |
+| F1 | single pass | 1 | yes, under the grammar | the knob turned on |
+
+Each arm sent one text-only think+format request: a routing puzzle, a three-field JSON schema, temperature 0, seed 42,
+`num_ctx` 16384, `num_predict` 8192. It was sent three times to warm up and five times measured. Each model ran three
+rotations, with the arm order rotating. Every request in every arm thought until the 8,192-token cap, so this measures
+thinking speed and says nothing about answers.
+
+The windows were not quiet. The host's load reached 78 during qwen3.8's first rotation. From 20:07 other jobs shared
+the GPU: short bursts at first, then a steady one from 21:57 that grew from about 11 % of the SMs to about 40 %. Each
+request's window, taken from the runner log, was read against 5-second telemetry: every process's SM share from
+`nvidia-smi pmon`, and the load average. The listing gives the median of the five measured requests per arm and
+rotation. Beside it are the share of the window in which other processes held at least 10 % of the SMs (`cont`), their
+mean SM % (`peerSM`), and the mean load:
+
+```
+qwen3.8:27b-nvfp4
+F0 rot 1: n=5 median  17.10  range 12.9-22.4  cont   0%  peerSM   0.0  load1  46.7
+F0 rot 2: n=5 median  26.90  range 23.1-28.4  cont   0%  peerSM   0.0  load1   8.7
+F0 rot 3: n=5 median  26.21  range 20.9-28.0  cont   0%  peerSM   0.0  load1  12.4
+F1 rot 1: n=5 median  42.09  range 36.4-55.7  cont   0%  peerSM   0.0  load1  26.2
+F1 rot 2: n=5 median  45.43  range 37.3-53.1  cont   0%  peerSM   0.0  load1  12.8
+F1 rot 3: n=5 median  57.74  range 47.7-58.5  cont   0%  peerSM   0.0  load1   8.2
+P0 rot 1: n=5 median  44.12  range 41.1-50.2  cont   0%  peerSM   0.1  load1  19.3
+P0 rot 2: n=5 median  42.58  range 40.0-49.4  cont   0%  peerSM   0.0  load1  21.0
+P0 rot 3: n=5 median  45.77  range 38.0-47.3  cont  10%  peerSM   3.0  load1  16.9
+
+gemma4:31b-nvfp4
+F0 rot 1: n=5 median  31.97  range 27.2-33.0  cont  27%  peerSM  10.6  load1   9.2
+F0 rot 2: n=5 median  26.36  range 26.3-26.6  cont  93%  peerSM  31.1  load1  11.4
+F0 rot 3: n=5 median  24.48  range 24.3-30.3  cont  74%  peerSM  31.1  load1  14.9
+F1 rot 1: n=5 median  54.03  range 50.7-57.5  cont   0%  peerSM   0.0  load1   9.4
+F1 rot 2: n=5 median  51.46  range 46.5-53.7  cont  51%  peerSM  11.6  load1  11.2
+F1 rot 3: n=5 median  38.79  range 38.6-40.9  cont  97%  peerSM  36.2  load1  14.5
+P0 rot 1: n=5 median  48.00  range 46.6-51.5  cont   8%  peerSM   3.5  load1  13.1
+P0 rot 2: n=5 median  47.54  range 46.5-51.9  cont  54%  peerSM  11.3  load1  14.7
+P0 rot 3: n=5 median  40.51  range 33.9-53.2  cont  96%  peerSM  44.1  load1  11.4
+```
+
+- **Drafting is 1.5–1.7× on the thinking, and production's two-pass has it.** Compare production's flow with the
+  fold's default under production's knob, P0 against F0:
+  - qwen3.8: 44.1 tok/s across P0's fifteen requests, against 26.4 across F0's two quiet rotations (1.7×).
+  - gemma4:31b, rotation 1: 48.0 against F0's two uncontended requests, 32.7 and 33.0 (1.46×).
+  - gemma4:31b, rotation 3, with every arm under the heavy peer: 40.5 against 24.5 (1.65×).
+
+  F1 over F0 reads 1.6–2.2×.
+- **So the flow matters only through the knob.** Deployed with production's environment, the fold's default thinks
+  1.5–1.7× slower on MLX than production does today. See open item 7.
+- **F1 and P0 are level within the spread.** Both draft the thinking. On gemma4:31b, F1 over P0 reads 1.13, 1.08 and
+  0.96 across the rotations; on qwen3.8 it reads 0.95, 1.07 and 1.26. Within one arm, speed follows the request's draft
+  acceptance. In P0's third rotation on 31b, under the same peer, one request ran at 53.2 tok/s with acceptance 0.84
+  and the next at 33.9 with 0.50.
+- **Drafting changes greedy output on MLX-CUDA.** With drafting off, requests 2–8 of an arm repeat their thinking
+  exactly: gemma4:31b gives 15,386 characters every time, qwen3.8 gives 13,151, and the first request after a load
+  differs. Every drafted request thinks differently: 12,894–16,398 characters on 31b, 11,151–16,201 on qwen3.8. That is
+  why acceptance moves from request to request. It is the same effect as the think-off flips that warm drafting adds.
+
 ## Gates 4–6 on gfx1151 (2026-09-25)
 
 **Host.** The ROCm host, `amd-server`: Ryzen AI Max+ 395 with a Radeon 8060S (gfx1151), 96 GiB of VRAM.
@@ -619,11 +691,10 @@ representation-sensitive test each, so the fold's attribution stays clean.
 
 ## Open items
 
-1. **Gate 6 on CUDA, queued, in this order:** the drafting probe (running since 14:43, its speed readings under the
-   host load above), the KV-precision ×
-   flash-attention loop test that #387 asks for (gemma4:26b, with the tiling and without it), and a fixed-history MLX
-   think-on variant with every case as the first request after a cold restart, for Metal's finding that request
-   history moves MLX's loops.
+1. **Gate 6 on CUDA, queued, in this order:** the KV-precision × flash-attention loop test that #387 asks for
+   (gemma4:26b, with the tiling and without it; started 2026-09-27 01:18), and a fixed-history MLX think-on variant
+   with every case as the first request after a cold restart, for Metal's finding that request history moves MLX's
+   loops. The drafting probe is done (under gate 6, and item 7).
 2. **`ce8caa6e6`: the device half is carried as compat patch 908**, on the maintainer's word (2026-09-26). That half,
    the tiling, is five extra never-ending think-on loops on gemma4:26b (6 of 27 against 1, and gfx1151's 1), the
    think-off movement of gemma4:31b, 26b and e4b, and the GGUF q4 OCRBench item; on gemma4:31b's think-on it changes
@@ -648,3 +719,18 @@ representation-sensitive test each, so the fold's attribution stays clean.
    KV cache allocations, so it is not recreated for this alone. The v0.34.4 deploy mirrors production's container by
    `docker inspect`, as every CUDA deploy has, and adds the variable. If the live container carries a different value,
    it refuses rather than choose. The deploy itself waits on the maintainer's word.
+7. **The deploy's think+format configuration on MLX** (the drafting probe, under gate 6). The v0.34.4 deploy mirrors
+   production's container (item 6). So as prepared it runs the single pass with `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`,
+   which is arm F0: thinking 1.5–1.7× slower than production's two-pass today. The choices are the maintainer's:
+   - **`OLLAMA_FORMAT_TWO_PASS=1`**: today's speed and today's memory behaviour, ADR 0004's flow.
+   - **The knob at 1**: F1's speed. But drafting under a grammar brings back the 0.34.1 record's drafting retention
+     (an image, a stop and speculation) for think-off structured image requests on the qwen3.5 family, which are the
+     requests the knob was deployed for.
+   - **Draft while the grammar is still in its free-thinking element, and stop drafting at the closing**: the
+     drafting today's pass one does, in one pass. This is a code change in `mlxrunner`, and the size ladder
+     (`leak-repro5.sh`) gates it.
+   - **A per-family knob.** In the 0.34.1 fold's `held` series (gate 5b's runner log), gemma4:31b drafted under a
+     grammar on all 28 of its image requests (15,456 draft tokens) and 12b on 24 of them, and both held flat. qwen3.6
+     grew 0.60 GiB per request in the same run, which the retention later accounted for. So gemma4 could draft under a
+     grammar while the qwen3.5 family keeps the knob. gemma4:26b drafted only 96 tokens in that run, so it needs its
+     own ladder.
