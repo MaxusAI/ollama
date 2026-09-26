@@ -1,6 +1,8 @@
 # ADR 0005: per-model KV cache type, and KV policy for reasoning models
 
-Date: 2026-08-02 · Status: accepted (shipped with the `kv_cache_type` option)
+Date: 2026-08-02 · Status: accepted (shipped with the `kv_cache_type` option). Decision 2's server-wide
+`q8_0` default is superseded by [ADR 0043](0043-production-runs-an-f16-kv-cache-on-every-platform.md)
+(2026-09-26): production runs f16 on every platform, and a quantized cache is per model or per request only.
 
 ## Context
 

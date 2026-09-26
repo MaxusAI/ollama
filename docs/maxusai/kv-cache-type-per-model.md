@@ -67,10 +67,15 @@ quantization.
 - Go-only change — fits the overlay image recipe with the llama-server
   payload byte-equality proof intact.
 
-## Recommended deployment (gfx1151)
+## Recommended deployment
 
-Prod keeps `OLLAMA_KV_CACHE_TYPE=q8_0`; qwen3.6 reasoning models get
-`PARAMETER kv_cache_type f16`. KV cost at 32,768 ctx: ~3 GB → ~6 GB.
+**Superseded 2026-09-26 by [ADR 0043](adr/0043-production-runs-an-f16-kv-cache-on-every-platform.md):**
+production runs `OLLAMA_KV_CACHE_TYPE=f16` on every platform, set explicitly in every deploy source, and a
+quantized cache is opt-in per model or per request through this option. The recommendation below, from
+2026-08-02, is what gfx1151 drifted back to between 2026-08-08 and 2026-09-26.
+
+> Prod keeps `OLLAMA_KV_CACHE_TYPE=q8_0`; qwen3.6 reasoning models get
+> `PARAMETER kv_cache_type f16`. KV cost at 32,768 ctx: ~3 GB → ~6 GB.
 
 ## Attribution results (2026-08-02, run via this feature)
 
