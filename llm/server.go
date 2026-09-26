@@ -236,7 +236,16 @@ type CompletionRequest struct {
 	PreservedTokens []string // parser tokens to render as text; ignored by non-llama-server runners
 	ToolCallTag     string   // raw generic tool parser tag, if any
 	LeadingBOS      string   // textual BOS emitted by Go rendering, if any
-	// IncludeIntermediateMetrics adds cumulative metrics to non-final responses; final responses always include metrics.
+	// ThinkingClose holds the strings any of which ends the thinking the
+	// response begins with, which Format leaves free; none when the response
+	// starts in content.
+	ThinkingClose []string
+
+	// IncludeIntermediateMetrics adds cumulative metrics to non-final
+	// responses; final responses always include metrics. Only the two-pass
+	// think+format flow sets it (OLLAMA_FORMAT_TWO_PASS, ADR 0004), because its
+	// first pass is cancelled before a final response. Upstream removed it with
+	// its own two-pass code in v0.34.4; the fork keeps that flow as a switch.
 	IncludeIntermediateMetrics bool
 
 	// Logprobs specifies whether to include log probabilities in the response

@@ -84,7 +84,10 @@ platform = "cuda"
 # mlx_build records that. Preflight on the fold's deploy candidate passed 21,
 # skipped 7, with both pins asserted.
 version_pattern = '^0\.3[234]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
-patchset = ["001", "002", "004", "005", "903"]
+# 908 added 2026-09-26 in the v0.34.4 fold (#375): the device half of ce8caa6e6 reverted, the FA MMA tiling for head
+# dims 256/512. It changes attention kernels only, not image preprocessing, so the token ladders and pinned budgets
+# below were measured without it and still describe it; the first preflight on an image built with 908 re-asserts them.
+patchset = ["001", "002", "004", "005", "903", "908"]
 arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # The real payload identity. Was b10434 = 7e4c0a96880d (upstream v0.32.14-rc0's
 # pin) until the v0.32.15 upstream sync moved it to b10488 = 9d77fa172.
@@ -124,7 +127,7 @@ arches = ["nemotron_h_omni", "gemma4", "qwen35"]
 # corroboration: the meter (llama/compat/801) was enabled on the container and
 # reported clean over 33 nodes, so the fp16-accumulate class is now asserted at
 # v.blk.31.ffn_down itself rather than inferred from the decoded text.
-llama_cpp_build = "391fac164"   # b10969, v0.34.2 fold 2026-09-19 (b10864 5d806aa25 before it). Asserted by the fold's preflight before the ladders below are trusted on it
+llama_cpp_build = "161755f29"   # b11081, v0.34.4 fold 2026-09-25 (b10969 391fac164 before it, b10864 5d806aa25 before that). Asserted by the fold's preflight before the ladders below are trusted on it
 # Why this pin moved without the rows below moving with it. The v0.34.2 canary
 # ran with the pin still naming b10864: payload_pin failed, and every check it
 # gates ran anyway and passed on b10969 — all three token ladders 5/5 within
@@ -135,6 +138,14 @@ llama_cpp_build = "391fac164"   # b10969, v0.34.2 fold 2026-09-19 (b10864 5d806a
 # unchanged because the payload did not change them, not because they were
 # made green. Run: preflight-runs/full-0342-canary.{log,json}, image
 # maxusai/ollama:sync-0.34.2 (0.34.1-dynres-26-g3dade56), FAIL=1 PASS=20 SKIP=4.
+# v0.34.4 fold 2026-09-25, b10969 -> b11081, the same order again. The canary ran with this line still
+# naming 391fac164: payload_pin failed, and every check it gates ran on b11081 and passed. That is all three token
+# ladders 5/5 within +/-2, all three payload proofs, both applicable pinned budgets (gemma4 560 -> 529, nemotron
+# 3328 -> 3270), all three text baselines (19/19/13), the poison probe, and think_format on all three arches,
+# which now runs upstream's single pass. Unchanged because b11081 did not change them. b11081's llama-server
+# prints an "initializing ..." preamble before its version line, and the probe reads the version line (#376).
+# Run: preflight-runs/full-0344-canary-run1.{log,json}, image maxusai/ollama:sync-0.34.4
+# (0.34.3-dynres-5-g29ae523), FAIL=2 PASS=19 SKIP=8. The second FAIL is mlx_payload_pin, moved below.
 # The MLX payload identity. These CUDA images ship `mlx_cuda_v13` beside the
 # llama.cpp payload, so this profile serves BOTH stacks even though its platform
 # is "cuda". It carried no MLX pin until 2026-09-12, so mlx_payload_pin skipped
@@ -148,7 +159,12 @@ llama_cpp_build = "391fac164"   # b10969, v0.34.2 fold 2026-09-19 (b10864 5d806a
 # same change.
 # v0.34.1 fold 2026-09-17: d9add9d1 carries ce916dbb (#4452, the idle-core fix) and adds #4481, matrix
 # kernels for global-scale gather_qqmm, which upstream's MLX-C carry patch (mlx/compat/) exposes.
-mlx_build = "d9add9d11f3154111a4c85f267ec2fd307ecd18e"
+# v0.34.4 fold 2026-09-25: 59d600b5, upstream's MLX bump in v0.34.4. This profile's rows are llama.cpp's, so
+# the MLX evidence is the MLX gate on this image's own mlx_cuda_v13, not a ladder. go test ./mlx/...
+# ./mlxrunner/... gave 889 passed and 0 failed (mlx_test_gate.py VERDICT PASS). TestVisionGoldenParity did
+# not move from d9add9d1: 12b 0.0625, and the 31b 4-bit tower 0.0898 with mean, std and norm_mean identical.
+# The canary's mlx_payload_pin failed on the old value, as it should (actual 0.32.2-65-g59d600b).
+mlx_build = "59d600b5e64c238427d0f8d897ab7c682ef4d3d2"
 
 [profiles.rocm-0-32-1-dynres]
 platform = "rocm7"
@@ -226,6 +242,52 @@ pinned arms reproduce b9888's values exactly. That is the expected result --
 004/005 own the image-token pipeline and the payload bump did not touch it --
 and it is also the independent confirmation that the 2026-09 vision regression
 was never an image-path change, which is what the token counts said all along.
+"""
+
+[profiles.rocm7-0-34-4-dynres]
+platform = "rocm7"
+# The fold's gate images stamp 0.34.3-dynres-N-g<sha> until v0.34.4-dynres is cut
+# (ADR 0032), and 0.34.4-dynres-N-g<sha> after. A 0.34.3 build on b10969 also
+# matches, and then fails payload_pin, which is the right answer for it.
+version_pattern = '^0\.34\.[34]-dynres-\d+-g[0-9a-f]{7,40}$'
+# 908 added 2026-09-26 in the v0.34.4 fold (#375): the device half of ce8caa6e6 reverted. The ROCm build applies it,
+# in both stages, so the patch set lists it. On gfx1151 it changes no GPU code. The image built from 558453953 differs
+# from reference_image in one payload file of 1863, libggml-hip.so. In its gfx1151 code objects, the 78 FA MMA kernels
+# compiled for gfx1151 are byte-identical, and the 184 other flash_attn_ext_f16 entries are NO_DEVICE_CODE stubs whose
+# one changed byte is a __LINE__ literal. The library's host code changes only in __LINE__ literals and in the Ampere
+# config rows, which an AMD device never reads: gfx1151 takes the RDNA table, and 908 leaves that table unchanged.
+patchset = ["001", "002", "004", "005", "801", "802", "903", "908"]
+reference_image = "0.34.3-dynres-5-g29ae523"
+llama_cpp_build = "161755f29"   # b11081, v0.34.4 fold 2026-09-25; read through the container route (#376)
+# The GPU toolchain, read from the shipped rocBLAS SONAME (librocblas.so.5.2.70204).
+toolchain_build = "rocm-7.2.4"
+expect_patch_marker = 1
+arches = ["nemotron_h_omni", "gemma4", "qwen35"]
+notes = """
+gfx1151 (Ryzen AI Max+ 395 / Radeon 8060S), the v0.34.4 fold (#375). The image is
+built with Dockerfile.rocm on rocm/dev-ubuntu-24.04:7.2.4-complete (ADR 0042). Its
+payload's ROCM_IMAGE stamp says so, and that stamp is what tells it apart from an
+AlmaLinux-built 7.2.4 payload, which passes toolchain_pin identically.
+
+NO 906. Upstream's own HIP `prop.integrated` revert shipped by b10969, and 906
+was retired with it (3dade569). The fold's b11081 payload must not carry it.
+
+THE LADDERS ARE rocm-0-34-1-dynres's, RE-MEASURED. measure_ladder.py on the fold
+payload reproduced every ladder exactly. That is expected: between b10969 and
+b11081, tools/mtmd changed by one error-handling hunk (clip.cpp now returns an
+error when the compute graph fails to allocate) and nothing in the image-token
+pipeline. The pinned and think_format rows below are verified by this profile's
+first preflight run, not assumed.
+
+FIRST RUN, 2026-09-25: VERDICT PASS, PASS=20 SKIP=12, on
+maxusai-ollama:0.34.3-dynres-5-g29ae523-rocm7-gfx1151, run on a container of its own
+beside the gate-6 campaign (endpoint_exclusive PASS). It covers payload_pin,
+toolchain_pin, the three ladders 5/5, the three payload proofs and text baselines
+(19/19/13), and both pinned budgets (nemotron 3328 -> 3270, gemma4 560 -> 529).
+think_format passes on all three arches through the fold's single pass: valid JSON
+after thinking in 1401, 127 and 273 tokens. The skips all predate this profile: no
+rocm7 profile has recorded a poison-probe, aspect or extraction-quality expectation.
+The run record is runs/preflight-rocm7-0344-fold-g29ae523.json.
 """
 
 [profiles.cpu]
@@ -541,6 +603,64 @@ load_hparams line, so nothing here read them back.
 aspect_ladder and the think_format probes are carried from 0-34-0 unchanged.
 Neither is a silent carry: preflight runs both live, so a moved value fails the
 gate rather than passing on the strength of this note.
+"""
+
+[profiles.mlx-metal-0-34-4]
+platform = "mlx-metal"
+# The v0.34.4 fold (#375) moved BOTH payload pins, the first mlx-metal profile to
+# do so since 0-33-2: MLX d9add9d1 -> 59d600b5 and llama.cpp b10969 -> b11081
+# (161755f29), with XGrammar 0.2.5 -> 0.2.7 alongside. A new profile by the ADR
+# 0011 rule that created every predecessor: a payload move gets its own profile
+# even when the numbers turn out identical, because "identical" is a measurement.
+version_pattern = '^0\.34\.[34]-dynres-\d+-g[0-9a-f]{7,40}$'
+# The shape rocm7-0-34-4-dynres admits: the fold's interim builds stamp the 0.34.3
+# tag until v0.34.4-dynres is cut (the candidate is 0.34.3-dynres-5-g29ae523). Not
+# -dirty, not a .N point tag, not the legacy 0.34.x-maxusai-<sha> shape. The two
+# pins below are what tell this fold from a plain 0.34.3 build.
+mlx_build = "59d600b5e64c238427d0f8d897ab7c682ef4d3d2"
+# Read from the candidate's own payload (`llama-server --version` -> commit
+# 161755f29, on its second line since b11081 -- #376), not from the checkout.
+llama_cpp_build = "161755f29"
+patchset = []                     # llama.cpp compat patches do not apply to MLX
+reference_image = "native macOS build — no container"
+expect_patch_marker = 1
+# RE-MEASURED on this payload, not carried. nax_probe.m's kernel is byte-identical
+# to b11081's src_tensor_f16 (960 of 960 characters) and b11081 keeps the same
+# four-step gate (Metal4 family, GGML_METAL_TENSOR_DISABLE, the M5/M6/A19/A20
+# allowlist that GGML_METAL_TENSOR_ENABLE bypasses, the runtime compile), so the
+# probe still answers for this payload. The payload's llama-server carries 28
+# GGML_METAL_HAS_TENSOR strings, as on 0-34-2 -- and a count cannot see a kernel
+# rewrite, so the GGUF A/B is the measurement: default vs GGML_METAL_TENSOR_DISABLE=1,
+# one cold server per arm, warmed, a different prompt every rep, num_predict=1,
+# num_ctx=8192 (docs/maxusai/m5-neural-accelerators.md section 2).
+#   dense gemma4:31b-it-q4_K_M, ~3,380-token prompts, 4 reps: 343.6 vs 155.9 tok/s = 2.20x
+#   MoE qwen3.6:35b-a3b-q4_K_M, ~4,950-token prompts, 8 reps: 2395.7 vs 1417.9 = 1.69x
+# 0-34-2 recorded 2.09x / 1.37x on b10969. The prompts are shorter than the method's
+# ~4,000 for the dense model, so compare the ratios, not the absolute rates. The MoE
+# pair was re-run at 8 reps with the arm order swapped after a 4-rep run whose
+# default arm spread 1548-3337 tok/s (a ~2 s prefill); the 8-rep arms do not overlap.
+expect_metal_tensor_api = true
+arches = ["gemma4", "gemma4_unified", "qwen35moe", "qwen35"]
+notes = """
+Successor to mlx-metal-0-34-2 after the v0.34.4 fold (#375).
+Every ladder below was re-measured on 0.34.3-dynres-5-g29ae523 (29ae52351) against the
+build-under-test on :11437 with measure_ladder.py, one freshly restarted server per
+arch, and came back BYTE-IDENTICAL to the 0-34-2 rows: gemma4 and gemma4_unified
+[1102 x 5] at prefix 19, qwen35moe and qwen35 [68, 146, 578, 2306, 5186] at prefix 13.
+24 of 24 compared values and both prefixes -- the fifth consecutive payload move to
+leave MLX token accounting inert, and the first of those five in which MLX_VERSION moved.
+BUDGET/PIXEL FIELDS ARE CARRIED on a different justification from 0-34-2's, because MLX
+moved: they describe the Go sizing model (llm.ImageTokensForSize, llm.BudgetFillSize),
+which bded80481..29ae52351 does not touch (the fold's llm/llama_server.go hunks are the
+think+format flow), and the ladders that model produces re-measured identical. Still
+flagged budgets_observed = false: the native MLX path emits no load_hparams line.
+THINK+FORMAT CHANGED SHAPE IN THIS FOLD. Upstream v0.34.4 replaced the two-pass flow
+with a single pass; the fork keeps two-pass behind OLLAMA_FORMAT_TWO_PASS=1. The
+think_format probes are carried from 0-34-2 and run live against the single-pass
+default, which is what ships. On MLX that default never drafts (grammar from the first
+token, OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0), and the think-on loops that follow from that
+on some gemma4 inputs are a campaign finding on #375, not a preflight one: this
+profile does not encode them.
 """
 
 [profiles.metal-0-32-14]
@@ -1092,6 +1212,92 @@ pinned_not_applicable = """image_min_tokens/image_max_tokens are arch-gated to \
 gemma4 and nemotron_h_omni; qwen35's visionServerArgs branch ignores them."""
 
 [expect.rocm-0-34-1-dynres.qwen35.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.rocm7-0-34-4-dynres.nemotron_h_omni]
+status = "measured"
+measured_on = "2026-09-25"
+model = "nemotron3:33b-q4_K_M"
+patch_stride = 32
+budget_min_tokens = 256
+budget_max_tokens = 3328
+image_min_pixels = 262144
+image_max_pixels = 3407872
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 19, text_only == 20; measured with image_prefix (B8), not text_baseline
+ladder = [266, 266, 578, 2306, 3270]
+
+[expect.rocm7-0-34-4-dynres.nemotron_h_omni.pinned]
+size = "2048x1152"
+pin_tokens = 3328
+expect_tokens = 3270
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 2306
+control_tolerance = 4
+
+[expect.rocm7-0-34-4-dynres.nemotron_h_omni.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.rocm7-0-34-4-dynres.gemma4]
+status = "measured"
+measured_on = "2026-09-25"
+model = "gemma4:31b-it-q4_K_M"
+patch_stride = 48
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280
+image_max_pixels = 2580480
+scaling = "flat"   # verified: 004 fills every image to the budget, so the ladder is flat
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.rocm7-0-34-4-dynres.gemma4.pinned]
+# Pinned below the ceiling for the reason rocm-0-34-1-dynres gives: 004 fills
+# every image to the budget max, so a pin at 1120 would equal the control.
+size = "2048x1152"
+pin_tokens = 560
+expect_tokens = 529
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 1102
+control_tolerance = 4
+
+[expect.rocm7-0-34-4-dynres.gemma4.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.rocm7-0-34-4-dynres.qwen35]
+status = "measured"
+measured_on = "2026-09-25"
+model = "qwen3.8:27b-q4_K_M"
+patch_stride = 32
+budget_min_tokens = 1024
+budget_max_tokens = 4096
+image_min_pixels = 1048576
+image_max_pixels = 4194304
+custom_bounds = ["min"]   # only these are set by our flags
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [1034, 1034, 1034, 2306, 4082]
+
+# Structurally unpinnable, carried from rocm-0-34-1-dynres: visionServerArgs
+# still gates image_min/max_tokens to gemma4 and nemotron_h_omni.
+pinned_not_applicable = """image_min_tokens/image_max_tokens are arch-gated to \
+gemma4 and nemotron_h_omni; qwen35's visionServerArgs branch ignores them."""
+
+[expect.rocm7-0-34-4-dynres.qwen35.think_format]
 num_predict = 4000
 require_nonempty_response = true
 require_valid_json = true
@@ -2458,6 +2664,174 @@ require_nonempty_thinking = true
 # upstream's grammar engine and this is the only probe that exercises it;
 # preflight runs it live, so a regression fails here rather than being
 # inherited.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.mlx-metal-0-34-4.gemma4]
+status = "measured"
+measured_on = "2026-09-25"
+model = "gemma4:31b-mlx-bf16"
+patch_stride = 48
+# Carried from mlx-metal-0-34-2, not re-observed: the native MLX path emits no
+# load_hparams line, so payload_proof has nothing to read here either. MLX DID
+# move across this fold (d9add9d1 -> 59d600b5), but these four fields are the Go
+# sizing model's (llm.ImageTokensForSize / llm.BudgetFillSize), which the fold did
+# not touch -- its llm/llama_server.go hunks are the think+format flow -- and the
+# ladder below re-measured byte-identical on the moved payload. The stride
+# arithmetic still catches a hand-edit typo
+# (test_pixel_budgets_equal_tokens_times_stride_squared).
+budgets_observed = false
+budget_min_tokens = 70   # carried, see note above
+budget_max_tokens = 1120   # carried, see note above
+image_min_pixels = 161280   # carried, see note above
+image_max_pixels = 2580480   # carried, see note above
+scaling = "flat"
+# Aspect axis, carried from 0-34-2. Not a silent carry: check_aspect_ladder
+# runs these three live on every preflight, so a moved value fails the gate
+# rather than passing on the strength of this comment.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.mlx-metal-0-34-4.gemma4_unified]
+status = "measured"
+measured_on = "2026-09-25"
+model = "gemma4:12b-nvfp4"
+patch_stride = 48
+# Carried from mlx-metal-0-34-2, not re-observed: the native MLX path emits no
+# load_hparams line, so payload_proof has nothing to read here either. MLX DID
+# move across this fold (d9add9d1 -> 59d600b5), but these four fields are the Go
+# sizing model's (llm.ImageTokensForSize / llm.BudgetFillSize), which the fold did
+# not touch -- its llm/llama_server.go hunks are the think+format flow -- and the
+# ladder below re-measured byte-identical on the moved payload. The stride
+# arithmetic still catches a hand-edit typo
+# (test_pixel_budgets_equal_tokens_times_stride_squared).
+budgets_observed = false
+budget_min_tokens = 70   # carried, see note above
+budget_max_tokens = 1120   # carried, see note above
+image_min_pixels = 161280   # carried, see note above
+image_max_pixels = 2580480   # carried, see note above
+scaling = "flat"
+# Aspect axis, carried from 0-34-2. Not a silent carry: check_aspect_ladder
+# runs these three live on every preflight, so a moved value fails the gate
+# rather than passing on the strength of this comment.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.mlx-metal-0-34-4.qwen35moe]
+status = "measured"
+measured_on = "2026-09-25"
+model = "qwen3.6:35b-a3b-nvfp4"
+patch_stride = 32
+# Carried from mlx-metal-0-34-2, not re-observed: the native MLX path emits no
+# load_hparams line, so payload_proof has nothing to read here either. MLX DID
+# move across this fold (d9add9d1 -> 59d600b5), but these four fields are the Go
+# sizing model's (llm.ImageTokensForSize / llm.BudgetFillSize), which the fold did
+# not touch -- its llm/llama_server.go hunks are the think+format flow -- and the
+# ladder below re-measured byte-identical on the moved payload. The stride
+# arithmetic still catches a hand-edit typo
+# (test_pixel_budgets_equal_tokens_times_stride_squared).
+budgets_observed = false
+budget_min_tokens = 64   # carried, see note above
+budget_max_tokens = 16384   # carried, see note above
+image_min_pixels = 65536   # carried, see note above
+image_max_pixels = 16777216   # carried, see note above
+scaling = "dynamic"
+# Aspect axis, carried from 0-34-2. Not a silent carry: check_aspect_ladder
+# runs these three live on every preflight, so a moved value fails the gate
+# rather than passing on the strength of this comment.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
+
+[expect.mlx-metal-0-34-4.qwen35]
+status = "measured"
+measured_on = "2026-09-25"
+model = "qwen3.8:27b-nvfp4"
+patch_stride = 32
+# Carried from mlx-metal-0-34-2, not re-observed: the native MLX path emits no
+# load_hparams line, so payload_proof has nothing to read here either. MLX DID
+# move across this fold (d9add9d1 -> 59d600b5), but these four fields are the Go
+# sizing model's (llm.ImageTokensForSize / llm.BudgetFillSize), which the fold did
+# not touch -- its llm/llama_server.go hunks are the think+format flow -- and the
+# ladder below re-measured byte-identical on the moved payload. The stride
+# arithmetic still catches a hand-edit typo
+# (test_pixel_budgets_equal_tokens_times_stride_squared).
+budgets_observed = false
+budget_min_tokens = 64   # carried, see note above
+budget_max_tokens = 16384   # carried, see note above
+image_min_pixels = 65536   # carried, see note above
+image_max_pixels = 16777216   # carried, see note above
+scaling = "dynamic"
+# Aspect axis, carried from 0-34-2. Not a silent carry: check_aspect_ladder
+# runs these three live on every preflight, so a moved value fails the gate
+# rather than passing on the strength of this comment.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
+
+[expect.mlx-metal-0-34-4.gemma4.think_format]
+# Carried from mlx-metal-0-34-2 unchanged. On this fold think+format is
+# upstream's single pass by default (OLLAMA_FORMAT_TWO_PASS=1 restores two-pass),
+# and ADR 0033's grammar engine constrains it from the first token; preflight
+# runs this probe live against that default, so a regression fails here rather
+# than being inherited.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.mlx-metal-0-34-4.gemma4_unified.think_format]
+# Carried from mlx-metal-0-34-2 unchanged. On this fold think+format is
+# upstream's single pass by default (OLLAMA_FORMAT_TWO_PASS=1 restores two-pass),
+# and ADR 0033's grammar engine constrains it from the first token; preflight
+# runs this probe live against that default, so a regression fails here rather
+# than being inherited.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.mlx-metal-0-34-4.qwen35moe.think_format]
+# Carried from mlx-metal-0-34-2 unchanged. On this fold think+format is
+# upstream's single pass by default (OLLAMA_FORMAT_TWO_PASS=1 restores two-pass),
+# and ADR 0033's grammar engine constrains it from the first token; preflight
+# runs this probe live against that default, so a regression fails here rather
+# than being inherited.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.mlx-metal-0-34-4.qwen35.think_format]
+# Carried from mlx-metal-0-34-2 unchanged. On this fold think+format is
+# upstream's single pass by default (OLLAMA_FORMAT_TWO_PASS=1 restores two-pass),
+# and ADR 0033's grammar engine constrains it from the first token; preflight
+# runs this probe live against that default, so a regression fails here rather
+# than being inherited.
 schema.type = "object"
 schema.required = ["facts"]
 schema.properties.facts.type = "array"

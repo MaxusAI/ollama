@@ -242,6 +242,13 @@ var (
 	// gfx1151 (docs/maxusai/amd-upgrade-gate.md, clause 3), and this is what
 	// lets one image measure it on and off.
 	IntegratedGPUDirectIO = BoolWithDefault("OLLAMA_IGPU_DIRECT_IO")
+	// FormatTwoPass restores the fork's two-pass think+format flow (ADR 0004):
+	// a first pass that stops at the model's think-close marker, then a
+	// textual continuation under the grammar. Unset is upstream v0.34.4's
+	// single pass, where the runner leaves the thinking free and constrains
+	// only the content after it, in one generation. MaxusAI fork: kept as the
+	// rollback in case single pass regresses on a served model.
+	FormatTwoPass = Bool("OLLAMA_FORMAT_TWO_PASS")
 	// NoCloudEnv checks the OLLAMA_NO_CLOUD environment variable.
 	NoCloudEnv = Bool("OLLAMA_NO_CLOUD")
 	// CreateRemote forces model creation through the server API even when the server is local.
@@ -340,6 +347,7 @@ func AsMap() map[string]EnvVar {
 		"OLLAMA_NO_CLOUD":             {"OLLAMA_NO_CLOUD", NoCloud(), "Disable Ollama cloud features (remote inference and web search)"},
 		"OLLAMA_NOHISTORY":            {"OLLAMA_NOHISTORY", NoHistory(), "Do not preserve readline history"},
 		"OLLAMA_NOPRUNE":              {"OLLAMA_NOPRUNE", NoPrune(), "Do not prune model blobs on startup"},
+		"OLLAMA_FORMAT_TWO_PASS":      {"OLLAMA_FORMAT_TWO_PASS", FormatTwoPass(), "Use the two-pass think+format flow instead of the single pass (ADR 0004 rollback)"},
 		"OLLAMA_NUM_PARALLEL":         {"OLLAMA_NUM_PARALLEL", NumParallel(), "Maximum number of parallel requests"},
 		"OLLAMA_ORIGINS":              {"OLLAMA_ORIGINS", AllowedOrigins(), "A comma separated list of allowed origins"},
 		"OLLAMA_SCHED_SPREAD":         {"OLLAMA_SCHED_SPREAD", SchedSpread(), "Always schedule model across all GPUs"},
