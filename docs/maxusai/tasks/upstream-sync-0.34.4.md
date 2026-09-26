@@ -593,15 +593,20 @@ representation-sensitive test each, so the fold's attribution stays clean.
 
 ## Open items
 
-1. **Gate 6 on CUDA, queued:** MLX think-on (running: the agreed protocol, then a fixed-history variant with every
-   case as the first request after a cold restart, for Metal's finding that request history moves MLX's loops) and
-   the drafting probe.
+1. **Gate 6 on CUDA, queued, in this order:** MLX think-on under the agreed protocol (running), gates 5 and 6 on the
+   908 image (preflight, then GGUF think-off on all eight models), the drafting probe, the KV-precision ×
+   flash-attention loop test that #387 asks for (gemma4:26b, with the tiling and without it), and a fixed-history MLX
+   think-on variant with every case as the first request after a cold restart, for Metal's finding that request
+   history moves MLX's loops.
 2. **`ce8caa6e6`: the device half is carried as compat patch 908**, on the maintainer's word (2026-09-26). That half,
    the tiling, is five extra never-ending think-on loops on gemma4:26b (6 of 27 against 1, and gfx1151's 1), gemma4's
    think-off movement and the GGUF q4 OCRBench item; on gemma4:31b it changes numerics only. The host half, the
    decode selection, stays upstream's: it moves qwen3.6's think-off cells in both directions (11 better, 9 worse) and
-   causes no loop. Still to do for 908 on CUDA: the image rebuilt with it (gate 4), preflight on that image, the gemma4 GGUF
-   think-off cells and the 26b loop rate re-checked on the built payload. The ROCm host's check is done: 908 changes no
+   causes no loop. **The image is rebuilt with it** (`maxusai/ollama:sync-0.34.4-908`, `90bb7ffc0be6`,
+   `0.34.3-dynres-22-g5584539`). Against the tested candidate, three of its 2,697 payload files differ: `bin/ollama`
+   and the two `libggml-cuda.so`. Its sm_120a PTX is identical to the device-half library every measurement used, in
+   all 6,240 kernels, once CUB's and Thrust's ABI tags are normalised (they encode the compiled-architecture list).
+   Still to do for 908 on CUDA: preflight on that image, and the GGUF think-off cells re-run on it (queued, item 1). The ROCm host's check is done: 908 changes no
    gfx1151 kernel, and preflight passes on the rebuilt image (gates 4 and 5 on gfx1151).
 3. **The think+format default on MLX.** Metal's single pass with drafting on (`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=1`) runs
    next on the full 26b and 31b suites, and separates the flow from the drafting. An ADR superseding ADR 0004 follows
@@ -610,3 +615,8 @@ representation-sensitive test each, so the fold's attribution stays clean.
    the widening is its own change. So are the three ADR 0039 misses above.
 5. **Gate 6 think-on on gfx1151**: qwen3.8, nemotron3 and qwen3.6 under the aligned protocol, into 2026-09-26.
    **Gates 4 and 6 on Metal**, on the host that owns them.
+6. **The CUDA deploy sets `OLLAMA_KV_CACHE_TYPE=f16` explicitly** (the maintainer's decision, 2026-09-26, after #386
+   and #387). Production does not set the variable today; it runs the default, and its log shows f16 in all 12 of its
+   KV cache allocations, so it is not recreated for this alone. The v0.34.4 deploy mirrors production's container by
+   `docker inspect`, as every CUDA deploy has, and adds the variable. If the live container carries a different value,
+   it refuses rather than choose. The deploy itself waits on the maintainer's word.
