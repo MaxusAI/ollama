@@ -26,8 +26,9 @@ back to `0.32.1-gemma4budget-85ebcb79`.
 | Deployed image | `maxusai-ollama:0.34.3-rocm724-main-650f8fda` (promoted 2026-09-25 07:32) |
 | Deployed version | `0.34.3-dynres-0-g650f8fd`, a build of `main` at the `v0.34.3-dynres` tag (ADR 0032) |
 | Build type | `Dockerfile.rocm` through `scripts/build_rocm.sh` (`ROCM_TOOLCHAIN=rocm7 AMDGPU_TARGETS=gfx1151`), on `rocm/dev-ubuntu-24.04:7.2.4-complete` ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md)). **This is the first Ubuntu-built production image on this host**, and the payload's `ROCM_IMAGE` stamp says so. It is gfx1151 only. Compat **001 + 002 + 004 + 005 + 801 + 802 + 903**: 802, the LM-graph node meter, is new here and inert unless `OLLAMA_LM_NODE_STATS` is set |
+| KV cache | **f16** since 2026-09-26 07:23 ([ADR 0005](adr/0005-per-model-kv-cache-type.md)). From the 2026-08-08 cutover until then it was `q8_0` by accident; see the [2026-09-26 decision](#decision-2026-09-26--productions-kv-cache-back-to-f16) |
 | Payload | **b10969** (`391fac164`), unchanged from 0.34.2; compat 906 **retired** — b10969 ships upstream's own HIP `prop.integrated` revert |
-| Previous image | `maxusai-ollama:0.34.2-rocm724-main-f67b1aef` (`0.34.2-dynres-f67b1aef`, AlmaLinux-built, b10969) — **retained for rollback** as the stopped container `ollama-rocm-0.34.2-f67b1aef`; `0.34.1-rocm724-main-16649e8c` (b10864 + 906) and `0.32.1-rocm-dynres-5d5b7a72` (b9888) before it |
+| Previous image | `maxusai-ollama:0.34.2-rocm724-main-f67b1aef` (`0.34.2-dynres-f67b1aef`, AlmaLinux-built, b10969) — **retained for rollback** as the stopped container `ollama-rocm-0.34.2-f67b1aef`, which was created with `q8_0` (read the 2026-09-26 decision before using it); `0.34.1-rocm724-main-16649e8c` (b10864 + 906) and `0.32.1-rocm-dynres-5d5b7a72` (b9888) before it |
 | Superseded pin | `0.32.1-dynres-296eb020` recorded here until 2026-09-19; the host was in fact running `5d5b7a72`, so this row had drifted from the host it describes |
 | Blocked target | `0.32.5-gemma4budget-4259c191` (built, verified, **rolled back** 2026-07-31) — never unblocked; superseded, not cleared |
 | Host | Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151**, ROCm, Linux |
@@ -296,6 +297,51 @@ fail `payload_pin` here, by design. Every row it measures reproduced the b10864 
 **How the host was confirmed idle.** A client polls `GET /api/ps` about every 2 s from the docker bridge. The
 promotion counted only working requests, and there were none in the two minutes before the swap. No model was
 loaded.
+
+## Decision 2026-09-26 — production's KV cache back to f16
+
+**Outcome: fixed.** `ollama-rocm` was recreated at 07:23:52 on 2026-09-26 with `OLLAMA_KV_CACHE_TYPE=f16`. The
+image (`0.34.3-rocm724-main-650f8fda`) and every other argument are unchanged. It was down for about one second. A
+model load now logs `--cache-type-k f16 --cache-type-v f16 --flash-attn on`.
+
+**Why.** [ADR 0005](adr/0005-per-model-kv-cache-type.md) traced qwen3.6's think-mode runaway on grounding prompts
+to a `q8_0` KV cache. On 2026-08-03 the operator recreated production with f16 by hand. That did not hold:
+
+- The deployment's compose file, `docker/ollama-rocm/docker-compose.yml` in `MaxusAI/ollama-deployments`, had said
+  `q8_0` since its first commit, and nobody changed it.
+- The 2026-08-08 cutover went back through compose, so production returned to `q8_0`. The 2026-08-13 and
+  2026-08-17 deploys used compose too.
+- The 0.34.2 promotion (2026-09-21) and the 0.34.3 promotion (2026-09-25) copied the running container's
+  arguments, and `q8_0` with them.
+
+So production served qwen3.6 with a `q8_0` KV cache for seven weeks. The ROCm gate's `prod` profile
+(`tasks/rocm-gate/gatelib.py`) and the 2026-09-17 ROCm baseline recorded `q8_0` as production's environment, which
+was true when they ran.
+
+**How it was found.** The v0.34.4 fold's think-on protocol on this host (#375) runs in production's environment.
+In it, qwen3.6 `bbox_contract_real_1img` did not finish at the ladder's top, 131072: it stopped on the 122 880-token
+budget, and the second half of its thinking was 35 distinct lines out of 2,282. That is ADR 0005's signature. The
+llama-server command line had `--cache-type-k q8_0 --cache-type-v q8_0`, and no model sets `kv_cache_type`.
+
+**What changed with it.**
+
+- The compose file says f16 now (`MaxusAI/ollama-deployments` `31923a9`), with the reason in a comment.
+- `gatelib.py`'s `PROD_ENV` says f16, so the next gate run reproduces production again.
+- An f16 KV cache takes twice the memory of `q8_0`: about 3 GB → 6 GB per model at 32K context (ADR 0005). The host
+  has 96 GiB of VRAM.
+
+Rollback, to `q8_0` on the same image:
+
+```
+docker stop ollama-rocm && docker rename ollama-rocm ollama-rocm-f16-rolledback &&
+docker rename ollama-rocm-0.34.3-q8kv ollama-rocm &&
+docker update --restart unless-stopped ollama-rocm && docker start ollama-rocm
+```
+
+**The 0.34.2 rollback container still says `q8_0`.** `ollama-rocm-0.34.2-f67b1aef` was created with production's
+arguments on 2026-09-21, so starting it, as the 2026-09-25 rollback does, brings `q8_0` back. It has not been
+recreated. To roll back to 0.34.2, start a new container from its image with the 2026-09-25 arguments and
+`OLLAMA_KV_CACHE_TYPE=f16` instead.
 
 ## Decision 2026-09-21 — 0.34.2 promoted, ROCm 10.0.0 declined on measurement
 
