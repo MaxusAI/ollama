@@ -68,7 +68,12 @@ captures.
 |---|---|---|---|---|---|---|
 | qwen3.6 `bbox_contract_real_1img` | never finishes at 131072; second half 35/2282 lines distinct | running | **loops**: all 57344 tokens, no answer; second half 77/1647 | queued | queued | queued |
 | qwen3.6 `bbox_contract_adv_real` | never finishes at 131072; second half 27/3165 | running | **finishes**: 12,120 tokens, valid JSON, 6/6 labels | — | — | — |
-| gemma4:26b `bbox_contract_real_1img` | never finishes at 131072, in both flows | loops: all 24576 tokens at 32768; second half 10/381 | running | queued | queued | — |
+| gemma4:26b `bbox_contract_real_1img` | never finishes at 131072, in both flows | loops: all 24576 tokens at 32768; second half 10/381 | **loops**: all 57344 tokens, no answer; second half 26/1224 | queued | queued | — |
+
+**So far, f16 with flash attention on stops one of the three loops.** qwen3.6 `adv_real` finishes. qwen3.6
+`real_1img` and gemma4:26b `real_1img` still loop. gemma4's thinking locks up after its first quarter (157, 20, 18
+and 26 distinct lines out of 612 per quarter), and repeats "Wait, I'm still getting the same numbers. Let me
+re-examine the image." 77 times.
 
 **What the looping thinking goes over, in both qwen3.6 cases.** The prompts ask for pixel coordinates without
 giving the image's size, and the model keeps re-deciding it: "I will assume W=1920, H=1080 … Maybe the image is
