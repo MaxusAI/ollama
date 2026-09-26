@@ -70,34 +70,41 @@ captures.
 | case | `q8_0`, FA on, in the protocol | `q8_0`, FA on, cold | f16, FA on | f16, FA off | f32, FA off | f32, FA on |
 |---|---|---|---|---|---|---|
 | qwen3.6 `bbox_contract_real_1img` | never finishes at 131072; second half 35/2282 lines distinct | loops: all 24576 tokens at 32768; second half 49/436 | **loops**: all 57344 tokens, no answer; second half 77/1647 | queued | queued | queued |
-| qwen3.6 `bbox_contract_adv_real` | never finishes at 131072; second half 27/3165 | running | **finishes**: 12,120 tokens, valid JSON, 6/6 labels | — | — | — |
+| qwen3.6 `bbox_contract_adv_real` | never finishes at 131072; second half 27/3165 | **finishes**: 17,626 tokens, valid JSON, 6/6 labels | **finishes**: 12,120 tokens, valid JSON, 6/6 labels | — | — | — |
 | gemma4:26b `bbox_contract_real_1img` | never finishes at 131072, in both flows | loops: all 24576 tokens at 32768; second half 10/381 | **loops**: all 57344 tokens, no answer; second half 26/1224 | queued | queued | — |
 
-**f16 delays the loop rather than preventing it, and once the delay was enough to finish.** Estimated token at which
-the loop starts:
+**Captured cold, f16 turns no loop into a finish. It delays the loops, and it shortens the thinking in the case that
+finishes.** Estimated token at which the loop starts:
 
 | case | `q8_0` | f16, FA on |
 |---|---|---|
 | qwen3.6 `bbox_contract_real_1img` | about 14,650 (cold) and 14,890 (in the protocol) | about 23,000 |
-| qwen3.6 `bbox_contract_adv_real` | about 8,750 (in the protocol) | no loop; finishes at 12,120 |
+| qwen3.6 `bbox_contract_adv_real` | about 8,750 in the protocol; cold, no loop, finishes at 17,626 | no loop; finishes at 12,120 |
 | gemma4:26b `bbox_contract_real_1img` | about 3,290 (cold) | about 4,670 |
 
-**The cold captures stand for the protocol's cells.** qwen3.6 `real_1img`'s cold `q8_0` capture at 32768 is
-byte-identical to the first 58,820 characters of the protocol's thinking at 131072, which is the whole cold capture.
-The trajectory depends on neither the run's history nor `num_ctx`, which matches ADR 0005. So the cold f16 against
-cold `q8_0` comparison isolates the KV type. The two diverge 246 characters in ("Single JSON object" against "A single
-JSON object").
+**Cold captures isolate the KV type. The protocol's cells can also carry the run's history.**
 
-**So far, f16 with flash attention on stops one of the three loops.** qwen3.6 `adv_real` finishes. qwen3.6
-`real_1img` and gemma4:26b `real_1img` still loop. gemma4's thinking locks up after its first quarter (157, 20, 18
+- qwen3.6 `real_1img`'s cold `q8_0` capture at 32768 is byte-identical to the protocol's thinking at 131072 for its
+  whole length, 58,820 characters. That trajectory depends on neither history nor `num_ctx`, which matches ADR 0005.
+  Its cold f16 capture diverges from the cold `q8_0` one 246 characters in ("Single JSON object" against "A single
+  JSON object").
+- qwen3.6 `adv_real` is different. Its cold `q8_0` capture takes the same 5,930 prompt tokens as the protocol's
+  cell, and finishes. The protocol's thinking diverges from it 369 characters in, and never finishes. So the
+  protocol's loop on this case came from the run's state and not from the KV type. The likeliest causes, which
+  are inferred and not tested, are the prompt cache reused from the previous cell (the same first image and
+  prompt head) and the parallel slot the request landed on.
+
+**So f16 with flash attention on turns none of the three cold cases from a loop into a finish.** qwen3.6 `adv_real`
+finishes under both KV types, 5,500 tokens sooner with f16. qwen3.6 `real_1img` and gemma4:26b `real_1img` loop under
+both, and f16 moves the start of the loop later. gemma4's thinking locks up after its first quarter (157, 20, 18
 and 26 distinct lines out of 612 per quarter), and repeats "Wait, I'm still getting the same numbers. Let me
 re-examine the image." 77 times.
 
 **What the looping thinking goes over, in both qwen3.6 cases.** The prompts ask for pixel coordinates without
 giving the image's size, and the model keeps re-deciding it: "I will assume W=1920, H=1080 … Maybe the image is
-smaller … Let's assume W=1200, H=675". With f16 it committed to one size in `adv_real` and finished. Its answer
-declared `ref_size` [1000, 600] against the true 1920×1080. Its `hits_anchor` is 0, and 3 of 6 boxes hit only in
-the best-fitting dialect, norm-1000.
+smaller … Let's assume W=1200, H=675". In `adv_real` it commits to one size and finishes, under both KV types. Both
+answers declare `ref_size` [1000, 600] against the true 1920×1080. Their `hits_anchor` is 0, and 3 of 6 boxes hit
+only in the best-fitting dialect, norm-1000.
 
 ## CUDA (`ai-server/mlx-cuda`)
 
