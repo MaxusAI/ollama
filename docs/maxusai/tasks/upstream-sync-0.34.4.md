@@ -15,8 +15,8 @@ lands on this branch, your gate 4 and gate 6 legs can build from it.
 | 2, docs and paths | **done** — `check_source_paths.py` clean over the 66 files the fold wrote |
 | 3, the patch series | **done** — all eight (001 002 004 005 801 802 903, and 908 from 2026-09-26) apply clean to `b11081` on a real checkout, in order, and 908 reverse-applies, so a re-configure is safe; served projectors unchanged |
 | 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's; **done on gfx1151**: `0.34.3-dynres-5-g29ae523-rocm7-gfx1151`, with a b11081 payload whose structure is unchanged against 0.34.3's; rebuilt with 908 as `0.34.3-dynres-22-g5584539`, and **908 changes no gfx1151 kernel** |
-| 5, preflight | **PASS on CUDA**: run 2 PASS=21 SKIP=8, with the pins moved in `c79e50d98` after run 1 (FAIL=2 on the two pins, by design). **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378), and the same on the 908 image |
-| 6, campaigns | **in progress on CUDA.** GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: `ce8caa6e6`'s device half leaves 6 of 27 gemma4:26b cases in loops that never end, against 1 without it; 31b is unaffected. See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
+| 5, preflight | **PASS on CUDA**: run 2 PASS=21 SKIP=8, with the pins moved in `c79e50d98` after run 1 (FAIL=2 on the two pins, by design); run 3, on the image with 908, the same. **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378), and the same on the 908 image |
+| 6, campaigns | **in progress on CUDA.** GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. On the image with 908, gemma4:31b, 26b and e4b and nemotron3 equal production; e2b and the qwen models keep the host half's movement. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: `ce8caa6e6`'s device half leaves 6 of 27 gemma4:26b cases in loops that never end, against 1 without it; 31b is unaffected. See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
 
 **Three hosts converged on this merge.** The ROCm and Metal hosts had each started the same fold before #375
 existed, stopped, and cross-checked instead; see [#375](https://github.com/MaxusAI/ollama/pull/375).
@@ -222,6 +222,32 @@ gemma4:31b's movement is the device half, the compile-time tiling. qwen3.6's is 
 selection in `fattn.cu` fires on sm_120 for its shape, and reverting only the tiling leaves every one of its 30 moved
 cells where the fold put them.
 
+**On the image built with 908** (`90bb7ffc0be6`), preflight passes (run 3: PASS=21 SKIP=8, every value as run 2),
+and the whole GGUF think-off suite ran against production's control and the unpatched fold:
+
+| model | cells | 908 image vs production | vs the fold | moves with |
+|---|---|---|---|---|
+| gemma4:31b-it-q4_K_M | 868 | **0** | 30 | the device half |
+| gemma4:26b-a4b-it-q4_K_M | 862 | **0** | 28 | the device half |
+| gemma4:e4b-it-q4_K_M | 863 / 864 | **0** | 53 | the device half |
+| gemma4:e2b-it-q4_K_M | 866 | 62 | 54 | both halves |
+| qwen3.8:27b-q4_K_M | 858 | 17 | 7 | mostly the host half |
+| qwen3.6:35b-a3b-q4_K_M | 860 | 30 | **0** | the host half |
+| nemotron3:33b-q4_K_M | 864 | **0** | **0** | neither |
+| nemotron3:33b-q8 | 867 | **0** | **0** | neither |
+
+gemma4:e2b is the one gemma4 that 908 does not return to production, and which part of the host half reaches it is
+not isolated. Its moved scored fields go 23 better and 13 worse, and its headline reads better than either build:
+scene IoU 0.466 against production's 0.300 and the fold's 0.259, and 4/6 boxes against 3/6
+(`summarize_engine_compare.py`). An earlier version of this record said the device half accounts for every gemma4 cell;
+that held for 31b, 26b and e4b only.
+
+**This run's decode rates are the host's, not the build's.** Every model decoded 2–5× slower than production's
+control, nemotron3 included (66 against 281 tok/s), though 908 does not touch its kernels. GPU telemetry, logged
+from this run on, shows why: 11–13% utilisation at full clocks and 132–145 W, while the host's load average read 72–85
+on its 32 cores. The paired loop-rate arms, which shared one condition, put the device half level with or ahead of the
+tiling (gemma4:26b 176 against 137 tok/s, 31b 57 against 57).
+
 The candidate as rendered by `summarize_engine_compare.py` is below: the tables and provenance line verbatim, its two
 headings demoted to sit inside this section. Against the control's tables, six quality cells differ: the scene IoU of
 four models (gemma4:31b 0.963 → 0.966, e4b 0.461 → 0.458, e2b 0.300 → 0.259, qwen3.6 0.972 → 0.976), e2b's 12 px
@@ -376,8 +402,8 @@ finishes the same request. gfx1151 runs the same b11081 and finishes it.
 
 The loop is the compile-time tiling, so no runtime switch can select the old behaviour for it. **The maintainer's
 decision (2026-09-26): carry the device half as compat patch 908** (`llama/compat/908-revert-fattn-mma-gemma4-tiling.patch`,
-124 lines in one CUDA source file). It removes the loop and restores gemma4's think-off cells, but not qwen3.6's,
-which move with the host half (above); the host half stays upstream's.
+124 lines in one CUDA source file). It removes the loop and restores the think-off cells of gemma4:31b, 26b and e4b;
+gemma4:e2b and the qwen models also move with the host half, which stays upstream's (above).
 
 **Loop rates.** The full think-on suite on the full ladder, single pass, the fold against the device-half revert on
 the same image with the same suite order, so the same history (GGUF loops here are history-independent). Single runs,
@@ -593,20 +619,22 @@ representation-sensitive test each, so the fold's attribution stays clean.
 
 ## Open items
 
-1. **Gate 6 on CUDA, queued, in this order:** MLX think-on under the agreed protocol (running), gates 5 and 6 on the
-   908 image (preflight, then GGUF think-off on all eight models), the drafting probe, the KV-precision ×
+1. **Gate 6 on CUDA, queued, in this order:** the drafting probe (running since 14:43, its speed readings under the
+   host load above), the KV-precision ×
    flash-attention loop test that #387 asks for (gemma4:26b, with the tiling and without it), and a fixed-history MLX
    think-on variant with every case as the first request after a cold restart, for Metal's finding that request
    history moves MLX's loops.
 2. **`ce8caa6e6`: the device half is carried as compat patch 908**, on the maintainer's word (2026-09-26). That half,
-   the tiling, is five extra never-ending think-on loops on gemma4:26b (6 of 27 against 1, and gfx1151's 1), gemma4's
-   think-off movement and the GGUF q4 OCRBench item; on gemma4:31b it changes numerics only. The host half, the
+   the tiling, is five extra never-ending think-on loops on gemma4:26b (6 of 27 against 1, and gfx1151's 1), the
+   think-off movement of gemma4:31b, 26b and e4b, and the GGUF q4 OCRBench item; on gemma4:31b's think-on it changes
+   numerics only. The host half, the
    decode selection, stays upstream's: it moves qwen3.6's think-off cells in both directions (11 better, 9 worse) and
    causes no loop. **The image is rebuilt with it** (`maxusai/ollama:sync-0.34.4-908`, `90bb7ffc0be6`,
    `0.34.3-dynres-22-g5584539`). Against the tested candidate, three of its 2,697 payload files differ: `bin/ollama`
    and the two `libggml-cuda.so`. Its sm_120a PTX is identical to the device-half library every measurement used, in
    all 6,240 kernels, once CUB's and Thrust's ABI tags are normalised (they encode the compiled-architecture list).
-   Still to do for 908 on CUDA: preflight on that image, and the GGUF think-off cells re-run on it (queued, item 1). The ROCm host's check is done: 908 changes no
+   **Gates 5 and 6 pass on it** (above): preflight PASS=21 SKIP=8, and GGUF think-off equals production on gemma4:31b,
+   26b and e4b and on nemotron3, while e2b and the qwen models keep the host half's movement. The ROCm host's check is done: 908 changes no
    gfx1151 kernel, and preflight passes on the rebuilt image (gates 4 and 5 on gfx1151).
 3. **The think+format default on MLX.** Metal's single pass with drafting on (`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=1`) runs
    next on the full 26b and 31b suites, and separates the flow from the drafting. An ADR superseding ADR 0004 follows

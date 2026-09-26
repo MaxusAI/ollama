@@ -139,9 +139,11 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   b10969's. With the retuned tiling, gemma4:26b-a4b think-on on CUDA left 6 of
   27 suite cases in loops that never converge at the 131072 rung; with this
   revert it leaves 1, the same count gfx1151 shows on the same b11081, where
-  RDNA's own table means the tuning never applies. The same half accounts for
-  every gemma4 GGUF think-off cell b11081 moved on CUDA and for one OCRBench q4
-  item; reverted, both return to production's b10969 values exactly. The
+  RDNA's own table means the tuning never applies. With 908, the GGUF think-off
+  cells b11081 moved on gemma4:31b, 26b and e4b and one OCRBench q4 item return
+  to production's b10969 values exactly. gemma4:e2b moves with both halves, so
+  with 908 it still differs from production (62 of 866 cells, its scene IoU
+  higher). The
   commit's host half (the Ada decode-kernel selection in `fattn.cu`) is **not**
   reverted: it moves qwen3.6's think-off cells in both directions and causes no
   loop. Measurements and the one-commit and split-half attribution:
