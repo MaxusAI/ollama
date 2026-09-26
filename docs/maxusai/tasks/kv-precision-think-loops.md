@@ -34,6 +34,9 @@ flow, and in production's environment with only two knobs changed:
 
   A loop shows as a second half with few distinct lines. For the adversarial arms (`adv_*`), read `hits_anchor`
   and not `contract_followed`, as the suite notes.
+- **Loop onset.** `kvloop_read.py` also reports where the loop starts: the first 100-line window in which under 5%
+  of the lines are new to the thinking. This finds cycles of any period. It gives the line and an estimate of the
+  token, scaled by the capture's characters per token.
 - **Flags.** `OLLAMA_FLASH_ATTENTION=0` makes the fork pass `--flash-attn off`. If it is unset, the fork passes
   `auto`, which enables flash attention on these GPUs. Record the runner's `--cache-type-k`, `--cache-type-v` and
   `--flash-attn` flags with each capture; [`kvloop.sh`](../vision-suite/kvloop.sh) logs them.
@@ -66,9 +69,24 @@ captures.
 
 | case | `q8_0`, FA on, in the protocol | `q8_0`, FA on, cold | f16, FA on | f16, FA off | f32, FA off | f32, FA on |
 |---|---|---|---|---|---|---|
-| qwen3.6 `bbox_contract_real_1img` | never finishes at 131072; second half 35/2282 lines distinct | running | **loops**: all 57344 tokens, no answer; second half 77/1647 | queued | queued | queued |
+| qwen3.6 `bbox_contract_real_1img` | never finishes at 131072; second half 35/2282 lines distinct | loops: all 24576 tokens at 32768; second half 49/436 | **loops**: all 57344 tokens, no answer; second half 77/1647 | queued | queued | queued |
 | qwen3.6 `bbox_contract_adv_real` | never finishes at 131072; second half 27/3165 | running | **finishes**: 12,120 tokens, valid JSON, 6/6 labels | — | — | — |
 | gemma4:26b `bbox_contract_real_1img` | never finishes at 131072, in both flows | loops: all 24576 tokens at 32768; second half 10/381 | **loops**: all 57344 tokens, no answer; second half 26/1224 | queued | queued | — |
+
+**f16 delays the loop rather than preventing it, and once the delay was enough to finish.** Estimated token at which
+the loop starts:
+
+| case | `q8_0` | f16, FA on |
+|---|---|---|
+| qwen3.6 `bbox_contract_real_1img` | about 14,650 (cold) and 14,890 (in the protocol) | about 23,000 |
+| qwen3.6 `bbox_contract_adv_real` | about 8,750 (in the protocol) | no loop; finishes at 12,120 |
+| gemma4:26b `bbox_contract_real_1img` | about 3,290 (cold) | about 4,670 |
+
+**The cold captures stand for the protocol's cells.** qwen3.6 `real_1img`'s cold `q8_0` capture at 32768 is
+byte-identical to the first 58,820 characters of the protocol's thinking at 131072, which is the whole cold capture.
+The trajectory depends on neither the run's history nor `num_ctx`, which matches ADR 0005. So the cold f16 against
+cold `q8_0` comparison isolates the KV type. The two diverge 246 characters in ("Single JSON object" against "A single
+JSON object").
 
 **So far, f16 with flash attention on stops one of the three loops.** qwen3.6 `adv_real` finishes. qwen3.6
 `real_1img` and gemma4:26b `real_1img` still loop. gemma4's thinking locks up after its first quarter (157, 20, 18
