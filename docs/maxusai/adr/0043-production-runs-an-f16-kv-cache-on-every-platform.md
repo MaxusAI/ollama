@@ -23,9 +23,10 @@ It let an instance keep `q8_0` as its default, provided that reasoning models go
   that its production sets none either. The fleet's results were already f16 everywhere except on gfx1151.
 - **`q8_0` changes think-on results.** The v0.34.4 fold's think-on protocol ran on gfx1151 in production's
   `q8_0` environment, and qwen3.6 left two grounding cases unfinished at 131072 tokens. Captured cold, the KV type
-  moves the trajectory within the first few hundred characters. With f16, the loops that remain start later: one
-  qwen3.6 case from about token 14,650 to about 23,000. The case that finishes does so 5,500 tokens sooner. No cold
-  case turns from a loop into a finish on f16 alone
+  moves the trajectory within the first few hundred characters. The case that finishes does so 5,500 tokens sooner
+  on f16. The loops that remain come back on every numerical path, f32 with flash attention off included, and only
+  where they start moves, in both directions. So f16 is production's setting for parity and headroom, not a cure for
+  prompt-driven loops
   ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md)). ADR 0005's measured inflation, up to
   5.8 times the thinking on a grounding prompt, is the same effect.
 

@@ -69,18 +69,20 @@ captures.
 
 | case | `q8_0`, FA on, in the protocol | `q8_0`, FA on, cold | f16, FA on | f16, FA off | f32, FA off | f32, FA on |
 |---|---|---|---|---|---|---|
-| qwen3.6 `bbox_contract_real_1img` | never finishes at 131072; second half 35/2282 lines distinct | loops: all 24576 tokens at 32768; second half 49/436 | **loops**: all 57344 tokens, no answer; second half 77/1647 | queued | queued | queued |
+| qwen3.6 `bbox_contract_real_1img` | never finishes at 131072; second half 35/2282 lines distinct | loops: all 24576 tokens at 32768; second half 49/436 | **loops**: all 57344 tokens, no answer; second half 77/1647 | queued | **loops**: all 57344 tokens, no answer; second half 76/1643 | queued |
 | qwen3.6 `bbox_contract_adv_real` | never finishes at 131072; second half 27/3165 | **finishes**: 17,626 tokens, valid JSON, 6/6 labels | **finishes**: 12,120 tokens, valid JSON, 6/6 labels | — | — | — |
 | gemma4:26b `bbox_contract_real_1img` | never finishes at 131072, in both flows | loops: all 24576 tokens at 32768; second half 10/381 | **loops**: all 57344 tokens, no answer; second half 26/1224 | queued | queued | — |
 
-**Captured cold, f16 turns no loop into a finish. It delays the loops, and it shortens the thinking in the case that
-finishes.** Estimated token at which the loop starts:
+**Captured cold, no precision turns a loop into a finish, and the loop's start moves in both directions.** f32 with
+flash attention off, the most precise attention the build has, loops *earliest* on qwen3.6 `real_1img`. Its thinking
+diverges from both flash-attention runs 30 characters in, settles into a 76-line cycle after its first quarter, and
+repeats "Let's assume the image is 1600x900." 79 times. Estimated token at which the loop starts:
 
-| case | `q8_0` | f16, FA on |
-|---|---|---|
-| qwen3.6 `bbox_contract_real_1img` | about 14,650 (cold) and 14,890 (in the protocol) | about 23,000 |
-| qwen3.6 `bbox_contract_adv_real` | about 8,750 in the protocol; cold, no loop, finishes at 17,626 | no loop; finishes at 12,120 |
-| gemma4:26b `bbox_contract_real_1img` | about 3,290 (cold) | about 4,670 |
+| case | `q8_0`, FA on | f16, FA on | f32, FA off |
+|---|---|---|---|
+| qwen3.6 `bbox_contract_real_1img` | about 14,650 (cold) and 14,890 (in the protocol) | about 23,000 | about 7,390 |
+| qwen3.6 `bbox_contract_adv_real` | about 8,750 in the protocol; cold, no loop, finishes at 17,626 | no loop; finishes at 12,120 | — |
+| gemma4:26b `bbox_contract_real_1img` | about 3,290 (cold) | about 4,670 | running |
 
 **Cold captures isolate the KV type. The protocol's cells can also carry the run's history.**
 
@@ -94,9 +96,10 @@ finishes.** Estimated token at which the loop starts:
   are inferred and not tested, are the prompt cache reused from the previous cell (the same first image and
   prompt head) and the parallel slot the request landed on.
 
-**So f16 with flash attention on turns none of the three cold cases from a loop into a finish.** qwen3.6 `adv_real`
-finishes under both KV types, 5,500 tokens sooner with f16. qwen3.6 `real_1img` and gemma4:26b `real_1img` loop under
-both, and f16 moves the start of the loop later. gemma4's thinking locks up after its first quarter (157, 20, 18
+**So no KV type or attention path turns a cold case from a loop into a finish.** qwen3.6 `adv_real` finishes under
+both KV types, 5,500 tokens sooner with f16. qwen3.6 `real_1img` loops under all three paths measured so far, and
+gemma4:26b `real_1img` under both KV types. The numerical path changes where the loop starts, but not in one
+direction. What decides these two loops is the prompt, which withholds the image size, and not the precision. gemma4's thinking locks up after its first quarter (157, 20, 18
 and 26 distinct lines out of 612 per quarter), and repeats "Wait, I'm still getting the same numbers. Let me
 re-examine the image." 77 times.
 
