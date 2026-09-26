@@ -16,6 +16,8 @@
 #   NUM_CTX    capture context, default 65536 (num_predict = NUM_CTX - 8192)
 #   OUT        output directory, default ./kvloop-out
 #   PORT       host port, default 11494;  NAME  container name, default ollama-kvloop
+#   BIND       address the port binds to, default 127.0.0.1 (set 0.0.0.0 to expose it)
+#   IPC_ARGS   shared-memory flags, default "--ipc host --shm-size 16g" (set "" to drop them)
 #   EXTRA_ENV  more "-e K=V" flags, to match production's environment
 #
 # OLLAMA_FLASH_ATTENTION=0 makes the fork pass --flash-attn off; unset would be "auto", which enables it.
@@ -25,6 +27,7 @@ set -uo pipefail
 : "${IMG:?set IMG}" "${CASES:?set CASES}" "${STORE:?set STORE}" "${GPU_ARGS:?set GPU_ARGS}"
 ARMS=${ARMS:-"f16:1 f16:0 f32:0 f32:1"}
 NUM_CTX=${NUM_CTX:-65536}; OUT=${OUT:-./kvloop-out}; PORT=${PORT:-11494}; NAME=${NAME:-ollama-kvloop}
+BIND=${BIND:-127.0.0.1}; IPC_ARGS=${IPC_ARGS---ipc host --shm-size 16g}
 EXTRA_ENV=${EXTRA_ENV:-}
 VS=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$OUT"
@@ -32,8 +35,8 @@ export HTTP_TIMEOUT=${HTTP_TIMEOUT:-9000}   # a looping capture at shared-GPU sp
 
 start() {  # start <kv> <fa>
   docker rm -f "$NAME" >/dev/null 2>&1
-  # shellcheck disable=SC2086  # GPU_ARGS and EXTRA_ENV are flag lists
-  docker run -d --name "$NAME" -p "$PORT:11434" $GPU_ARGS --ipc host --shm-size 16g \
+  # shellcheck disable=SC2086  # GPU_ARGS, IPC_ARGS and EXTRA_ENV are flag lists
+  docker run -d --name "$NAME" -p "$BIND:$PORT:11434" $GPU_ARGS $IPC_ARGS \
     -v "$STORE:/root/.ollama" -e OLLAMA_HOST=0.0.0.0:11434 -e OLLAMA_MODELS=/root/.ollama/models \
     -e OLLAMA_DEBUG=1 -e OLLAMA_NUM_PARALLEL=2 -e OLLAMA_MAX_LOADED_MODELS=1 -e OLLAMA_NOPRUNE=1 \
     -e OLLAMA_KV_CACHE_TYPE="$1" -e OLLAMA_FLASH_ATTENTION="$2" $EXTRA_ENV "$IMG" >/dev/null || return 1

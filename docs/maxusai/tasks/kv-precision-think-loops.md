@@ -78,13 +78,36 @@ the best-fitting dialect, norm-1000.
 
 ## CUDA (`ai-server/mlx-cuda`)
 
-*To be added by the CUDA host.* Its production and gate runs were f16 already (#375), so its "f16, FA on" column
-is the loop-rate table there. The cells worth running are FA off and f32, on the cases that loop there. For
-example, gemma4:26b's cases with `ce8caa6e6`'s tiling, and the one without it.
+**Queued on the CUDA host, after its drafting probe** (#387, 2026-09-26). Its production and gate runs were f16 already
+(#375). The plan:
+
+- **Cases:** gemma4:26b-a4b-it-q4_K_M, with three cases:
+  - `multi_3img_anchored`, which loops on the fold and finishes with 908;
+  - `bbox_contract_real_1img`, the case shared across hosts;
+  - `bbox_contract_box2d_1img`, the 908 build's one loop.
+- **Builds:** each case runs on both builds, with `ce8caa6e6`'s tiling (the fold as shipped) and without it (the 908
+  image).
+- **Arms:** `f16:1 f16:0 f32:0 f32:1`. `f16:1` stays in as the run's own control, because the loop-rate table on
+  #375 ran in the suite at the default `OLLAMA_NUM_PARALLEL`, and `kvloop.sh` captures cold at 2.
+- **Deploy source (ADR 0043, decision 1):** production does not set the variable today and runs the f16 default
+  (12 of 12 KV allocations). The v0.34.4 deploy sets `OLLAMA_KV_CACHE_TYPE=f16` explicitly. It refuses if the live
+  container carries a different value.
 
 ## Metal (`mlx-metal`)
 
-*To be added by the Metal host:*
-- whether the MLX runner's KV precision or attention path can be varied at all, next to its drafting finding on
-  #375;
-- the same matrix on GGUF through llama.cpp's Metal backend, where it applies.
+**On MLX, neither knob exists** (the Metal host on #387, from the fold's code at `29ae52351`):
+
+- `OLLAMA_KV_CACHE_TYPE` and `kv_cache_type` are resolved only for llama-server (`resolveKVCacheType`, called from
+  `NewLlamaServer`). The MLX runner's `KVCache` allocates in the dtype of the model's own projections
+  (`mlxrunner/cache/kvcache.go`).
+- Every MLX text model's attention goes through `mlx.FastScaledDotProductAttention`, MLX's fused kernel
+  (`mlxrunner/nn/sdpa.go`), and no variable switches it.
+- On MLX, drafting and request history are what move the loops (#375). Varying the KV precision or the attention
+  path there would take a code change.
+
+**GGUF on llama.cpp's Metal backend does apply.** The arms can run there. The GPU time is the maintainer's call,
+because the host's protocol campaign is using it.
+
+**Deploy source (ADR 0043, decision 1):** production is a launchd agent. It sets `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`
+and no `OLLAMA_KV_CACHE_TYPE`, and it could hold one. Setting f16 there is a production change for the maintainer,
+and it affects only the GGUF models the server runs.
