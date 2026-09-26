@@ -511,6 +511,22 @@ P0 rot 3: n=5 median  40.51  range 33.9-53.2  cont  96%  peerSM  44.1  load1  11
   differs. Every drafted request thinks differently: 12,894–16,398 characters on 31b, 11,151–16,201 on qwen3.8. That is
   why acceptance moves from request to request. It is the same effect as the think-off flips that warm drafting adds.
 
+#### KV precision and flash attention against the gemma4:26b GGUF loops (#387)
+
+These are #387's cold captures on both builds. The cases are `multi_3img_anchored`, `bbox_contract_real_1img` and
+`bbox_contract_box2d_1img`. The arms are f16 and f32, each with flash attention on and off. The run was 2026-09-27
+01:18–04:29, and the full table is on #387.
+
+- **Two byte-identities.** With flash attention on, f32 reproduces f16 byte for byte on both builds: CUDA's flash
+  attention converts an f32 cache to f16 first. With flash attention off, the fold and the 908 image are
+  byte-identical at both precisions, because 908 changes only the flash-attention tiling.
+- **What loops.** The flash-attention-on columns repeat the loop-rate run. The tiling loops `multi_3img_anchored`,
+  which the 908 image finishes in 3,882 tokens against production's 3,883. The revert loops `box2d_1img`. `real_1img`
+  loops on both builds.
+- **Flash attention off.** At f16 it finishes all three cases. At f32 it loops `multi_3img_anchored`.
+- **The verdict.** No KV type or attention path reliably removes these loops, which matches the gfx1151 host's
+  reading. Production keeps f16 with flash attention on (ADR 0043).
+
 ## Gates 4–6 on gfx1151 (2026-09-25)
 
 **Host.** The ROCm host, `amd-server`: Ryzen AI Max+ 395 with a Radeon 8060S (gfx1151), 96 GiB of VRAM.
@@ -691,10 +707,9 @@ representation-sensitive test each, so the fold's attribution stays clean.
 
 ## Open items
 
-1. **Gate 6 on CUDA, queued, in this order:** the KV-precision × flash-attention loop test that #387 asks for
-   (gemma4:26b, with the tiling and without it; started 2026-09-27 01:18), and a fixed-history MLX think-on variant
-   with every case as the first request after a cold restart, for Metal's finding that request history moves MLX's
-   loops. The drafting probe is done (under gate 6, and item 7).
+1. **Gate 6 on CUDA:** the fixed-history MLX think-on variant is running (since 2026-09-27 04:29). Every case runs as
+   the first request after a cold restart, for Metal's finding that request history moves MLX's loops. The drafting
+   probe (item 7) and #387's KV-precision × flash-attention test are done; both are under gate 6.
 2. **`ce8caa6e6`: the device half is carried as compat patch 908**, on the maintainer's word (2026-09-26). That half,
    the tiling, is five extra never-ending think-on loops on gemma4:26b (6 of 27 against 1, and gfx1151's 1), the
    think-off movement of gemma4:31b, 26b and e4b, and the GGUF q4 OCRBench item; on gemma4:31b's think-on it changes
