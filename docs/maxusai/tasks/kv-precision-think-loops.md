@@ -71,7 +71,7 @@ captures.
 |---|---|---|---|---|---|---|
 | qwen3.6 `bbox_contract_real_1img` | never finishes at 131072; second half 35/2282 lines distinct | loops: all 24576 tokens at 32768; second half 49/436 | **loops**: all 57344 tokens, no answer; second half 77/1647 | **loops**: all 57344 tokens, no answer; second half 12/906 | **loops**: all 57344 tokens, no answer; second half 76/1643 | queued |
 | qwen3.6 `bbox_contract_adv_real` | never finishes at 131072; second half 27/3165 | **finishes**: 17,626 tokens, valid JSON, 6/6 labels | **finishes**: 12,120 tokens, valid JSON, 6/6 labels | — | — | — |
-| gemma4:26b `bbox_contract_real_1img` | never finishes at 131072, in both flows | loops: all 24576 tokens at 32768; second half 10/381 | **loops**: all 57344 tokens, no answer; second half 26/1224 | queued | **loops**: all 57344 tokens, no answer; second half 20/1322 | — |
+| gemma4:26b `bbox_contract_real_1img` | never finishes at 131072, in both flows | loops: all 24576 tokens at 32768; second half 10/381 | **loops**: all 57344 tokens, no answer; second half 26/1224 | **finishes**: 5,800 tokens, valid JSON, 6/6 labels | **loops**: all 57344 tokens, no answer; second half 20/1322 | — |
 
 **Captured cold, no precision turns a loop into a finish, and the loop's start moves in both directions.** f32 with
 flash attention off, the most precise attention the build has, loops *earliest* on qwen3.6 `real_1img`. Its thinking
@@ -82,7 +82,7 @@ repeats "Let's assume the image is 1600x900." 79 times. Estimated token at which
 |---|---|---|---|---|
 | qwen3.6 `bbox_contract_real_1img` | about 14,650 (cold) and 14,890 (in the protocol) | about 23,000 | about 7,800 | about 7,390 |
 | qwen3.6 `bbox_contract_adv_real` | about 8,750 in the protocol; cold, no loop, finishes at 17,626 | no loop; finishes at 12,120 | — | — |
-| gemma4:26b `bbox_contract_real_1img` | about 3,290 (cold) | about 4,670 | running | about 3,000 |
+| gemma4:26b `bbox_contract_real_1img` | about 3,290 (cold) | about 4,670 | no loop; finishes at 5,800 | about 3,000 |
 
 On qwen3.6 `real_1img`, both flash-attention-off runs loop earlier than both flash-attention-on runs. That is one case
 with one run per cell, so it is not a trend.
@@ -99,7 +99,13 @@ with one run per cell, so it is not a trend.
   are inferred and not tested, are the prompt cache reused from the previous cell (the same first image and
   prompt head) and the parallel slot the request landed on.
 
-**So no KV type or attention path turns a cold case from a loop into a finish.** qwen3.6 `adv_real` finishes under
+**One run of the eight on the two looping cases escaped, and not on the most precise path.** gemma4:26b with f16
+and flash attention off finished in 5,800 tokens. All six of its boxes are right in the 0–1000 frame, although its
+declaration says pixels (`hits_bestfit` 6, `hits_declared` 1). f32 with flash attention off, which is more precise,
+loops on the same case. Neither precision nor the attention path decides the outcome in one direction. Whether a
+run escapes looks like chance in the numerics, and the prompt sets the trap every time.
+
+**So no KV type or attention path reliably turns a cold case from a loop into a finish.** qwen3.6 `adv_real` finishes under
 both KV types, 5,500 tokens sooner with f16. qwen3.6 `real_1img` and gemma4:26b `real_1img` loop under all three paths measured so far.
 On both, f32 with flash attention off loops earliest. The numerical path changes where the loop starts, but not in one
 direction. What decides these two loops is the prompt, which withholds the image size, and not the precision. gemma4's thinking locks up after its first quarter (157, 20, 18
