@@ -114,7 +114,7 @@ decision and its measurements live (`docs/maxusai/`).
 | **`think` + `format` in one request** | defers the grammar until the thinking→content transition and folds pass-one metrics into the final response | the same, plus: a model with a known think-close marker stops pass one exactly there and continues textually, so runaway thinking cannot burn the budget; pass-one metrics are reconstructed when a runner does not report them; the second pass is pinned to pass one's truncation window | ADR 0002/0004/0010 |
 | **drafting under a grammar (MLX)** | always on | on by default to match upstream; `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` restores the gate | ADR 0033 |
 | **stop sequences (MLX)** | not honoured by the MLX runner | honoured, with a possible stop prefix held back until it matches or the stream ends | `mlxrunner/stopper.go` |
-| **KV cache type** | one global `OLLAMA_KV_CACHE_TYPE` | per model, with K/V pair syntax and a policy for reasoning models | ADR 0005 |
+| **KV cache type** | one global `OLLAMA_KV_CACHE_TYPE` | per model, with K/V pair syntax; production runs f16 on every platform, and a quantized cache is per model or per request | ADR 0005, ADR 0043 |
 
 **Serving and scheduling**
 

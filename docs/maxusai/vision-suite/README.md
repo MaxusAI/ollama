@@ -452,6 +452,12 @@ Always check `prompt_eval_count` before attributing such a delta to a patch.
   single type or K/V pair like `q8_0/f16`.
 - Multi-image Q4 is scored dialect-aware like scene boxes (`q4_bbox_space`
   reports the matched space); models answer norm-1000 regardless of prompt.
+- Test servers run production's KV type, f16 (ADR 0043), unless the test is
+  about the KV type, and every run records the type it used. For a KV or
+  attention-path question, `thinkcap.py` captures one cell cold with its
+  thinking kept, `kvloop.sh` runs the KV type x flash-attention arms on a
+  docker host, and `kvloop_read.py` reads out the loop profile and the score
+  (tasks/kv-precision-think-loops.md).
 - Caveat: with `OLLAMA_KV_CACHE_TYPE=q8_0`, qwen3.6 think-on inflates
   prompt-dependently: document unaffected, scene ~19K thinking tokens (vs
   3.3K at f16), multi no convergence within 131K (vs 9.0K at f16). Use f16
