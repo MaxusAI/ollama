@@ -69,7 +69,7 @@ captures.
 
 | case | `q8_0`, FA on, in the protocol | `q8_0`, FA on, cold | f16, FA on | f16, FA off | f32, FA off | f32, FA on |
 |---|---|---|---|---|---|---|
-| qwen3.6 `bbox_contract_real_1img` | never finishes at 131072; second half 35/2282 lines distinct | loops: all 24576 tokens at 32768; second half 49/436 | **loops**: all 57344 tokens, no answer; second half 77/1647 | queued | **loops**: all 57344 tokens, no answer; second half 76/1643 | queued |
+| qwen3.6 `bbox_contract_real_1img` | never finishes at 131072; second half 35/2282 lines distinct | loops: all 24576 tokens at 32768; second half 49/436 | **loops**: all 57344 tokens, no answer; second half 77/1647 | **loops**: all 57344 tokens, no answer; second half 12/906 | **loops**: all 57344 tokens, no answer; second half 76/1643 | queued |
 | qwen3.6 `bbox_contract_adv_real` | never finishes at 131072; second half 27/3165 | **finishes**: 17,626 tokens, valid JSON, 6/6 labels | **finishes**: 12,120 tokens, valid JSON, 6/6 labels | — | — | — |
 | gemma4:26b `bbox_contract_real_1img` | never finishes at 131072, in both flows | loops: all 24576 tokens at 32768; second half 10/381 | **loops**: all 57344 tokens, no answer; second half 26/1224 | queued | **loops**: all 57344 tokens, no answer; second half 20/1322 | — |
 
@@ -78,11 +78,14 @@ flash attention off, the most precise attention the build has, loops *earliest* 
 diverges from both flash-attention runs 30 characters in, settles into a 76-line cycle after its first quarter, and
 repeats "Let's assume the image is 1600x900." 79 times. Estimated token at which the loop starts:
 
-| case | `q8_0`, FA on | f16, FA on | f32, FA off |
-|---|---|---|---|
-| qwen3.6 `bbox_contract_real_1img` | about 14,650 (cold) and 14,890 (in the protocol) | about 23,000 | about 7,390 |
-| qwen3.6 `bbox_contract_adv_real` | about 8,750 in the protocol; cold, no loop, finishes at 17,626 | no loop; finishes at 12,120 | — |
-| gemma4:26b `bbox_contract_real_1img` | about 3,290 (cold) | about 4,670 | about 3,000 |
+| case | `q8_0`, FA on | f16, FA on | f16, FA off | f32, FA off |
+|---|---|---|---|---|
+| qwen3.6 `bbox_contract_real_1img` | about 14,650 (cold) and 14,890 (in the protocol) | about 23,000 | about 7,800 | about 7,390 |
+| qwen3.6 `bbox_contract_adv_real` | about 8,750 in the protocol; cold, no loop, finishes at 17,626 | no loop; finishes at 12,120 | — | — |
+| gemma4:26b `bbox_contract_real_1img` | about 3,290 (cold) | about 4,670 | running | about 3,000 |
+
+On qwen3.6 `real_1img`, both flash-attention-off runs loop earlier than both flash-attention-on runs. That is one case
+with one run per cell, so it is not a trend.
 
 **Cold captures isolate the KV type. The protocol's cells can also carry the run's history.**
 
