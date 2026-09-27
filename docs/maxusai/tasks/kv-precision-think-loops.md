@@ -329,8 +329,8 @@ backend at its defaults (f16 KV, flash attention auto), greedy, and the full lad
 - qwen3.6 finishes 23 of 27. `scene_single`, `multi_3img`, `multi_3img_anchored` and `bbox_contract` never finish
   at 131072. On gfx1151's GGUF, at f16, qwen3.6 finishes all four of those.
 - qwen3.6's `bbox_contract_real_1img` **finishes** on Metal, at 65536, in 34,337 tokens. It is the first path on
-  which that case finished. It looped on every path gfx1151 tried: `q8_0`, f16 and f32, with flash attention on and
-  off.
+  which that case finished. It looped on every path gfx1151 tried: `q8_0` with flash attention on, f16 with it on and
+  off, and f32 with it off.
 
 Metal's llama.cpp and ROCm's are the same model, weights and prompts under another numerical path. They loop on
 different cases, which is this task's finding again: the path moves where a loop starts, and sometimes whether it
