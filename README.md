@@ -80,26 +80,28 @@ deprecated alias for `mlx-metal` and will disappear from the generator with it.
 
 ### What differs from upstream, concretely
 
-Measured against upstream ollama v0.34.1 at llama.cpp `b10864`. Every row is a
+Measured against upstream ollama v0.34.4 at llama.cpp `b11081`. Every row is a
 capability the fork has and upstream does not; the record column is where the
-decision and its measurements live (`docs/maxusai/`).
+decision and its measurements live (`docs/maxusai/`). The
+[retirement register](docs/maxusai/retirement-register.md) tracks when each one can go.
 
 **Vision correctness on the llama.cpp path — the deployed engine**
 
 | | upstream ollama | this fork | record |
 |---|---|---|---|
-| **nemotron-3 vision** | fixed 512×512 canvas — **256 tokens per image**, whatever the aspect ratio | native-aspect dynamic resolution, **256–3,328 tokens**, position embeddings interpolated to the patch grid in-graph | patch `002`, ADR 0001 |
+| **nemotron-3 vision** | fixed 512×512 canvas — **256 tokens per image**, whatever the aspect ratio. Upstream's MLX `nemotron_h` has been native-aspect since v0.34.3 | native-aspect dynamic resolution, **256–3,328 tokens**, position embeddings interpolated to the patch grid in-graph | patch `002`, ADR 0001 |
 | **gemma4 image budget** | default limits **70–1,120 tokens** (40–280 before b10864); an under-budget image keeps its natural rounded grid and is letterbox-padded | every image scaled to *fill* the requested budget and snapped to gemma4's supported ladder (70/140/280/560/1120), never padded — off-ladder grids measurably break `box_2d` vertical grounding. The budget is a per-request option (`image_min_tokens`/`image_max_tokens`, defaults 70/1120) and the scheduler reloads when the resolved flags change. Upstream has since adopted the same default limits; the fill is still fork-only | patch `004`, ADR 0003/0008/0016 |
-| **qwen2.5-vl on CUDA** | f16 vision matmuls accumulate in fp16; on some ordinary images a few elements of millions reach `inf` at `v.blk.31.ffn_down` and the caption collapses into one repeated glyph | fp32 accumulation forced for every `qwen25vl` runner, keyed on the GGUF architecture. Offered upstream as [ollama#18070](https://github.com/ollama/ollama/pull/18070) | `llm/llama_server.go` |
-| **MoE + MMQ on CUDA** | ids-path tail padding sized from `ne11`; under broadcast `ne11 == 1`, so the buffer gets no padding and the kernel overruns by up to a 512-row tile | padding sized from the flattened row count. Reported as [llama.cpp#27044](https://github.com/ggml-org/llama.cpp/issues/27044) | patch `903` |
-| **transparent images** | pixels as decoded | composited over white before the resize, matching the mlx-vlm reference | ADR 0015 |
+| **qwen2.5-vl on CUDA** | f16 vision matmuls accumulate in fp16; on some ordinary images a few elements of millions reach `inf` at `v.blk.31.ffn_down` and the caption collapses into one repeated glyph | fp32 accumulation forced for every Qwen-VL runner (`qwen2vl` and `qwen25vl`, one family under two converter spellings), keyed on the GGUF architecture. Offered upstream as [ollama#18070](https://github.com/ollama/ollama/pull/18070), still open | `llm/llama_server.go` |
+| **MoE + MMQ on CUDA** | ids-path tail padding sized from `ne11`; under broadcast `ne11 == 1`, so the buffer gets no padding and the kernel overruns by up to a 512-row tile | padding sized from the flattened row count. Reported as [llama.cpp#27044](https://github.com/ggml-org/llama.cpp/issues/27044), still open | patch `903` |
+| **gemma4 flash attention on CUDA** | `b11081` retunes the MMA configs and tile sizes for head dims 256/512 (`ce8caa6e6`). On gemma4:26b that tiling leaves 6 of 27 think-on cases in loops that never end, against 1 without it | the device half of `ce8caa6e6` is reverted to `b10969`'s tiling; the host half, the decode selection, stays upstream's | patch `908`, the [v0.34.4 fold record](docs/maxusai/tasks/upstream-sync-0.34.4.md) |
 
 **Structured output and generation control**
 
 | | upstream ollama | this fork | record |
 |---|---|---|---|
 | **`think` + `format` in one request** | since v0.34.4, one pass: the grammar applies from the first token, after free thinking that ends at the parser's closing strings | the same by default. `OLLAMA_FORMAT_TWO_PASS=1` keeps the fork's two-pass flow: pass one thinks without the grammar and stops at the think-close marker, and pass two answers under it. Production runs it, because on MLX it lets the thinking draft | ADR 0045 (0002/0004/0010) |
-| **drafting under a grammar (MLX)** | always on | on by default to match upstream; `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` restores the gate | ADR 0033 |
+| **whitespace in structured output (MLX)** | the JSON grammar allows an unlimited whitespace run between tokens, so a stalled decode can fill `num_predict` with indentation and never close the answer | runs bounded at 32 characters per separator (`max_whitespace_cnt` on the `json_schema` element) | ADR 0035 (proposed) |
+| **drafting under a grammar (MLX)** | always on | on by default to match upstream; `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` restores the gate, and production sets it | ADR 0033 |
 | **stop sequences (MLX)** | not honoured by the MLX runner | honoured, with a possible stop prefix held back until it matches or the stream ends | `mlxrunner/stopper.go` |
 | **KV cache type** | one global `OLLAMA_KV_CACHE_TYPE` | per model, with K/V pair syntax and a policy for reasoning models | ADR 0005 |
 
@@ -109,11 +111,12 @@ decision and its measurements live (`docs/maxusai/`).
 |---|---|---|---|
 | **MLX admission** | weights against free device memory (and, since v0.34.1, a system-memory bound on integrated GPUs) | weights + KV priced at the requested `num_ctx` + a per-architecture headroom; an explicit rung that does not fit is refused, an automatic one is clamped | ADR 0034 |
 | **MLX memory ceiling** | none | `OLLAMA_MLX_MEMORY_LIMIT` and a cache limit, set per runner from the admitted budget | runner knobs |
-| **nvfp4 global scales** | — | held in MLX's `m × 2688` representation and divided back out by every wrapper that applies the scale itself, which is not the identity in float32 (17 of 31b's 191 vision scales move one ulp) | ADR 0039 (proposed) |
+| **nvfp4 global scales** | stored in MLX's `m × 2688` form and divided back out wherever a wrapper applies the scale itself (`globalScaleFactor`, [ollama#18550](https://github.com/ollama/ollama/pull/18550)). That is not the identity in float32: 17 of gemma4:31b's 191 vision scales move one ulp | stored as the checkpoint's own multiplier `m`, with upstream's helpers defined in those terms, so every call site is exact | ADR 0039 |
 | **model identity in a record** | a tag | the manifest digest: the library re-published `gemma4:*-nvfp4` with bf16 vision towers under unchanged tags and config blobs | ADR 0038 (proposed) |
-| **gemma4 image chunk vs. generation batch (GGUF)** | the batch follows `num_ctx` (1024 above 4096), so a top-rung gemma4 image (up to 1120 tokens) is decoded in two pieces, bidirectional only within each | a gemma4 vision runner starts from the batch rung that holds its image ceiling (2048 at 1120) and steps down only when it does not fit | ADR 0036 |
-| **gemma4 on MLX** | upstream's own vision and audio tower with a fixed per-checkpoint soft-token set, no per-request budget | vision through upstream's `MediaModel` with a per-request budget seam; audio not shipped | ADR 0021 |
-| **media prompts on MLX** | — | prefill chunks span-aligned around image blocks; a late image is refused | ADR 0014 |
+| **gemma4 image chunk vs. generation batch (GGUF)** | the batch follows `num_ctx` (1024 above 4096), so a top-rung gemma4 image (up to 1120 tokens) is decoded in two pieces, bidirectional only within each. The fix that fits an image chunk to one ubatch, [llama.cpp#28954](https://github.com/ggml-org/llama.cpp/issues/28954), is still open | a gemma4 vision runner starts from the batch rung that holds its image ceiling (2048 at 1120) and steps down only when it does not fit | ADR 0036 |
+| **gemma4 on MLX** | upstream's own vision and audio tower. Since v0.34.4 it picks each image's budget from the 70/140/280/560/1120 ladder, closest to the input resolution, with no API parameter ([ollama#18603](https://github.com/ollama/ollama/pull/18603)) | vision through the fork's pipeline on upstream's `MediaModel`, with the GGUF path's per-request budget (`image_min_tokens`/`image_max_tokens`, defaults 70/1120), filled and snapped to the ladder; audio not shipped | ADR 0021 (0003/0008) |
+| **transparent images (gemma4 on MLX)** | alpha dropped by RGB conversion before the resize, so the colour stored under a transparent pixel shows | composited over white before the resize, as mlx-vlm's `convert_to_rgb` does | ADR 0015 |
+| **media prompts on MLX** | chunk boundaries extended around non-causal spans (`extendChunk`, since v0.34.1) | prefill chunks span-aligned around image blocks, the opening chunk included, with bidirectional expansions matched all-or-nothing; a late image is refused | ADR 0014 |
 | **scheduler** | — | log sites never drop fields under contention; head-of-line and evict-all-wait fixes; attached media charged against capabilities before the load; capability advertising corrected for MLX architectures | `server/sched.go`, `images.go` |
 | **panic hygiene (MLX)** | — | a cleanup that fails while a request is unwinding never replaces the panic that caused it | `mlxrunner/unwind.go` |
 
