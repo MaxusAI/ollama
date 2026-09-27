@@ -894,8 +894,9 @@ llama-server drafts in neither arm: every server log reads `no implementations s
   31b.
 - **The payload effect is nil.** 0 of 746 cells differ between two-pass on b10969 and two-pass on b11081, over the 23
   blocks that both finished on the 16384 rung.
-- Metal's MLX count for 26b was 6 unfinished in the single pass against 1 in two-pass. Here it is 1 and 1: **where
-  neither flow drafts, the flows loop equally.**
+- Metal's final MLX count for 26b (#375) is 4 unfinished in the single pass, which never drafts there, against 1 in
+  two-pass and 1 in the single pass with drafting on. An interim count of 6 was quoted here first. Here it is 1 and 1:
+  **where neither flow drafts, the flows loop equally.**
 
 **qwen3.8 and nemotron3** have no sampling card, so they run at packaged sampling and are compared as rates, n = 2 runs
 per arm. `rates2.py` (in the run directory) pools each arm's two runs, verbatim:
