@@ -2694,6 +2694,9 @@ func TestChatWithPromptEndingInThinkTag(t *testing.T) {
 	}
 
 	t.Run("structured outputs restart non-stream", func(t *testing.T) {
+		// Two-pass think+format (ADR 0004) is the OLLAMA_FORMAT_TWO_PASS rollback
+		// since v0.34.4 made single pass the default; this restart pins it.
+		t.Setenv("OLLAMA_FORMAT_TWO_PASS", "1")
 		var (
 			requestsMu sync.Mutex
 			requests   []llm.CompletionRequest
@@ -2825,6 +2828,9 @@ func TestChatWithPromptEndingInThinkTag(t *testing.T) {
 	})
 
 	t.Run("structured outputs restart streaming", func(t *testing.T) {
+		// Two-pass think+format (ADR 0004) is the OLLAMA_FORMAT_TWO_PASS rollback
+		// since v0.34.4 made single pass the default; this restart pins it.
+		t.Setenv("OLLAMA_FORMAT_TWO_PASS", "1")
 		var (
 			requestsMu sync.Mutex
 			requests   []llm.CompletionRequest
@@ -3175,6 +3181,11 @@ func (p *leakyThinkParser) Add(s string, done bool) (string, string, []api.ToolC
 func (p *leakyThinkParser) PreservedTokens() []string { return nil }
 func (p *leakyThinkParser) HasToolSupport() bool      { return false }
 func (p *leakyThinkParser) HasThinkingSupport() bool  { return true }
+
+// ThinkingClose satisfies upstream v0.34.4's Parser interface. The parser
+// names no closing string: it never marks where its thinking ends, which is
+// the property the two-pass transition tests exercise.
+func (p *leakyThinkParser) ThinkingClose() []string { return nil }
 
 func TestChatTransitionRequiresDeferring(t *testing.T) {
 	// With think:false on a thinking-capable parser, the format was applied
@@ -4000,6 +4011,9 @@ func setupTransitionThinkingModel(t *testing.T, mock *mockRunner, modelName stri
 // two continues the exact token stream with the format applied, and the final
 // metrics count every token once.
 func TestGenerateThinkFormatMarkerFlow(t *testing.T) {
+	// Two-pass think+format (ADR 0004) is the OLLAMA_FORMAT_TWO_PASS rollback
+	// since v0.34.4 made single pass the default; this test pins it.
+	t.Setenv("OLLAMA_FORMAT_TWO_PASS", "1")
 	gin.SetMode(gin.TestMode)
 
 	mock := &mockRunner{}
@@ -4115,6 +4129,9 @@ func TestGenerateThinkFormatMarkerFlow(t *testing.T) {
 // double request when streaming: thinking chunks first, then constrained
 // content, one final done chunk with merged metrics.
 func TestGenerateThinkFormatMarkerFlowStreaming(t *testing.T) {
+	// Two-pass think+format (ADR 0004) is the OLLAMA_FORMAT_TWO_PASS rollback
+	// since v0.34.4 made single pass the default; this test pins it.
+	t.Setenv("OLLAMA_FORMAT_TWO_PASS", "1")
 	gin.SetMode(gin.TestMode)
 
 	mock := &mockRunner{}
@@ -4194,6 +4211,9 @@ func TestGenerateThinkFormatMarkerFlowStreaming(t *testing.T) {
 // thinking-only result instead of attempting a continuation the runner would
 // reject.
 func TestGenerateThinkFormatContextFull(t *testing.T) {
+	// Two-pass think+format (ADR 0004) is the OLLAMA_FORMAT_TWO_PASS rollback
+	// since v0.34.4 made single pass the default; this test pins it.
+	t.Setenv("OLLAMA_FORMAT_TWO_PASS", "1")
 	gin.SetMode(gin.TestMode)
 
 	mock := &mockRunner{contextLength: 20}
@@ -4252,6 +4272,9 @@ func TestGenerateThinkFormatContextFull(t *testing.T) {
 // (never closes thinking on its own) cannot burn to num_predict. The final
 // metrics count every token once.
 func TestChatThinkFormatMarkerStop(t *testing.T) {
+	// Two-pass think+format (ADR 0004) is the OLLAMA_FORMAT_TWO_PASS rollback
+	// since v0.34.4 made single pass the default; this test pins it.
+	t.Setenv("OLLAMA_FORMAT_TWO_PASS", "1")
 	gin.SetMode(gin.TestMode)
 
 	mock := &mockRunner{}
@@ -4411,6 +4434,9 @@ func TestChatThinkFormatLengthNoContinuation(t *testing.T) {
 // vision-shaped: the runner's prefill counts carry image-embedding tokens
 // that text tokenization cannot see, and prompt_eval_count must include them.
 func TestGenerateThinkFormatTransitionMetrics(t *testing.T) {
+	// Two-pass think+format (ADR 0004) is the OLLAMA_FORMAT_TWO_PASS rollback
+	// since v0.34.4 made single pass the default; this test pins it.
+	t.Setenv("OLLAMA_FORMAT_TWO_PASS", "1")
 	gin.SetMode(gin.TestMode)
 
 	mock := &mockRunner{}
@@ -4553,6 +4579,9 @@ func TestGenerateThinkFormatTransitionMetrics(t *testing.T) {
 // intermediate copies must be blanked, so no chunk before done exposes a
 // mid-stream counter.
 func TestGenerateThinkFormatTransitionMetricsReportedPassOne(t *testing.T) {
+	// Two-pass think+format (ADR 0004) is the OLLAMA_FORMAT_TWO_PASS rollback
+	// since v0.34.4 made single pass the default; this test pins it.
+	t.Setenv("OLLAMA_FORMAT_TWO_PASS", "1")
 	gin.SetMode(gin.TestMode)
 
 	mock := &mockRunner{}
@@ -4716,6 +4745,9 @@ func TestGenerateThinkFormatTransitionMetricsReportedPassOne(t *testing.T) {
 // including the image-embedding tokens of a vision-shaped request, which
 // only the runner's prefill counts carry.
 func TestChatThinkFormatTransitionMetrics(t *testing.T) {
+	// Two-pass think+format (ADR 0004) is the OLLAMA_FORMAT_TWO_PASS rollback
+	// since v0.34.4 made single pass the default; this test pins it.
+	t.Setenv("OLLAMA_FORMAT_TWO_PASS", "1")
 	gin.SetMode(gin.TestMode)
 
 	mock := &mockRunner{}
@@ -4844,6 +4876,9 @@ func TestChatThinkFormatTransitionMetrics(t *testing.T) {
 // tokenizing the prompt would understate this by imageTokens and the test
 // would catch it.
 func TestChatThinkFormatTransitionMetricsReportedPassOne(t *testing.T) {
+	// Two-pass think+format (ADR 0004) is the OLLAMA_FORMAT_TWO_PASS rollback
+	// since v0.34.4 made single pass the default; this test pins it.
+	t.Setenv("OLLAMA_FORMAT_TWO_PASS", "1")
 	gin.SetMode(gin.TestMode)
 
 	mock := &mockRunner{}

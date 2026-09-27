@@ -23,14 +23,32 @@ import (
 // golden delta (issue #312).
 const Nvfp4MaxProduct = 448 * 6
 
+// globalScaleFactor converts a stored global scale into the multiplier an
+// output needs. Upstream stores MLX's m*Nvfp4MaxProduct form and divides it
+// back out here; this fork stores the checkpoint's own m (ADR 0039), which
+// already IS the multiplier, so the conversion is the identity. Upstream's
+// call sites -- scaleAndCast, and the fused SwiGLUScaled that defers a
+// projection's scale -- are correct as written once this is right. Dividing
+// here instead would scale every deferred nvfp4 gate and up projection by
+// 1/2688, and it would compile.
+func globalScaleFactor(scale *Array) *Array {
+	return scale
+}
+
+// identityGlobalScale is the stored form of "no global scale": 1 under
+// ADR 0039, where upstream's representation needs Nvfp4MaxProduct.
+func identityGlobalScale() *Array {
+	return FromValue(float32(1))
+}
+
 // scaleAndCast applies a global scale to an output and casts back, fusing the
-// divide, multiply and cast into one kernel. Eagerly this is several: MLX
-// promotes binary operands with an astype, so a bf16 input times a float32
-// scale round-trips through a full-size float32 intermediate.
+// multiply and cast into one kernel. Eagerly this is several: MLX promotes
+// binary operands with an astype, so a bf16 input times a float32 scale
+// round-trips through a full-size float32 intermediate.
 var scaleAndCast = Compile2(
 	"GlobalScaleOutput",
 	func(out, scale *Array) *Array {
-		return Mul(out, scale).AsType(out.DType())
+		return Mul(out, globalScaleFactor(scale)).AsType(out.DType())
 	},
 	Shapeless(),
 )
