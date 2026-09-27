@@ -987,4 +987,5 @@ representation-sensitive test each, so the fold's attribution stays clean.
    - **The GGUF leg ran on gfx1151 (2026-09-27): yes.** With f16 KV, `orig` loops from about token 4,148. `size` and
      `commit` finish in 5,875 and 5,633 tokens with every answer right. The control finishes in 3,616.
      See [the gfx1151 section](#gate-6-think-on-under-the-aligned-protocol).
-   - The MLX leg, where the case never converges, is proposed, not run; the maintainer decides.
+   - **Both CUDA legs are running on the CUDA host** (2026-09-27, on the maintainer's word), GGUF and MLX, n = 5 on
+     MLX. The CUDA host records them here.
