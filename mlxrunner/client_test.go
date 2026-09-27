@@ -59,10 +59,6 @@ func TestCompletionForwardsMedia(t *testing.T) {
 	}
 }
 
-func testIntPtr(v int) *int {
-	return &v
-}
-
 func TestRequestGrammar(t *testing.T) {
 	schema := `{"type":"object","properties":{"answer":{"type":"string"}}}`
 	// The tag carries max_whitespace_cnt so a stalled decode cannot spend the whole
