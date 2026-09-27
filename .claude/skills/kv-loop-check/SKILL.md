@@ -45,7 +45,9 @@ This skill owns the **procedure**. The evidence lives in
    because a quantized V cache needs flash attention. Read the runner's logged `--cache-type-k/v` and
    `--flash-attn` flags. Unset `OLLAMA_FLASH_ATTENTION` means `auto`, which turns flash attention on.
 4. **Test the prompt and production's sampling.** Use `vision-suite/promptcap.py`: `size` states the image size,
-   and `commit` asks the model to commit to one size estimate. Setting `THINK_TEMPERATURE=1` gives the card's
+   and `commit` asks the model to commit to one size estimate. Two cases carry the unanswerable sentence it
+   replaces: `bbox_contract_real_1img`, and `multi_3img_anchored`'s calibration box. `multi_3img` is the same prompt
+   without that paragraph, so it is the control. Setting `THINK_TEMPERATURE=1` gives the card's
    sampling. Sampled runs are draws, so report a rate over three or more runs, never one cell.
 5. **Write the result into the task doc's section for your host, or comment on the PR.** Give the arms, the
    runner's flags, the onsets and the byte-identities.

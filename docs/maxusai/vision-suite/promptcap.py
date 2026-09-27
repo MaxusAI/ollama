@@ -11,7 +11,11 @@ VARIANT
           size YOU used ..."; the resize is invisible to it) with the image's real pixel size, as a client that
           holds the image can state it
   commit  replaces the same instruction with one to commit to a single size estimate and not revisit it
-Both variants drop the same sentence, so they differ only in whether the model is given the size.
+Both variants drop the same sentence, so they differ only in whether the model is given the size. Two prompts carry
+it: bbox_contract_real_1img, and multi_3img_anchored's calibration box, which is about image 1 ("If you resized
+image 1 internally, use the size YOU used."). multi_3img is the same prompt without that calibration paragraph, and
+bbox_contract_adv_real asks for pixels without the sentence; on those the variants refuse. The size stated is image
+1's.
 Sampling is sampling.py's: greedy for think-on by default (the suite's policy), or the model card's with
 THINK_TEMPERATURE=1, which is what production sends. Cold, like thinkcap.py: every model is evicted first. The output
 adds a capture block naming the variant and the sampling actually applied."""
@@ -31,22 +35,32 @@ import client  # noqa: E402
 import sampling  # noqa: E402
 import vision_suite as vs  # noqa: E402
 
-RESIZE = re.compile(r"If\s+you\s+resized\s+the\s+image\s+internally,\s+give\s+the\s+size\s+YOU\s+used,\s+not\s+the"
-                    r"\s+size\s+you\s+were\s+sent\.")
+RESIZE = re.compile(r"If\s+you\s+resized\s+(?P<img>the\s+image|image\s+1)\s+internally,\s+"
+                    r"(?:give\s+the\s+size\s+YOU\s+used,\s+not\s+the\s+size\s+you\s+were\s+sent"
+                    r"|use\s+the\s+size\s+YOU\s+used)\.")
 
 
-def transform(prompt, variant):
+def transform(prompt, variant, first_image="scene_hd.png"):
     if variant == "orig":
         return prompt
-    w, h = vs.GT["scene_hd"]["size"]
+    w, h = vs.GT[os.path.splitext(first_image)[0]]["size"]
+
+    def single(m):  # the single-image contract prompts' wording, or multi_3img_anchored's image 1
+        return m.group("img").startswith("the")
+
     if variant == "size":
-        new, n = RESIZE.subn(f"The image is {w}x{h} pixels (width x height); give pixel coordinates in that frame.",
-                             prompt, 1)
+        def repl(m):
+            return f"{'The image' if single(m) else 'Image 1'} is {w}x{h} pixels (width x height); give pixel " \
+                   f"coordinates in that frame."
     elif variant == "commit":
-        new, n = RESIZE.subn("If you do not know the image's pixel size, choose your best estimate once, give it "
-                             "as ref_size, and do not revisit it.", prompt, 1)
+        def repl(m):
+            if single(m):
+                return ("If you do not know the image's pixel size, choose your best estimate once, give it as "
+                        "ref_size, and do not revisit it.")
+            return "If you do not know image 1's pixel size, choose your best estimate once and do not revisit it."
     else:
         sys.exit(f"unknown variant {variant!r}")
+    new, n = RESIZE.subn(repl, prompt, 1)
     if n != 1:
         sys.exit(f"variant {variant!r} did not apply to {test}'s prompt")
     return new
@@ -55,7 +69,7 @@ def transform(prompt, variant):
 if __name__ == "__main__":
     vs.HOST, vs.MODEL = host, model
     entry = next(t for t in vs.tests if t[0] == test)
-    prompt = transform(entry[1]() if callable(entry[1]) else entry[1], variant)
+    prompt = transform(entry[1]() if callable(entry[1]) else entry[1], variant, entry[2][0])
     if os.environ.get("DRY"):
         print(prompt)
         sys.exit(0)
