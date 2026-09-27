@@ -16,7 +16,7 @@ lands on this branch, your gate 4 and gate 6 legs can build from it.
 | 3, the patch series | **done** — all eight (001 002 004 005 801 802 903, and 908 from 2026-09-26) apply clean to `b11081` on a real checkout, in order, and 908 reverse-applies, so a re-configure is safe; served projectors unchanged |
 | 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's; **done on gfx1151**: `0.34.3-dynres-5-g29ae523-rocm7-gfx1151`, with a b11081 payload whose structure is unchanged against 0.34.3's; rebuilt with 908 as `0.34.3-dynres-22-g5584539`, and **908 changes no gfx1151 kernel** |
 | 5, preflight | **PASS on CUDA**: run 2 PASS=21 SKIP=8, with the pins moved in `c79e50d98` after run 1 (FAIL=2 on the two pins, by design); run 3, on the image with 908, the same. **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378), and the same on the 908 image |
-| 6, campaigns | **in progress on CUDA.** GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. On the image with 908, gemma4:31b, 26b and e4b and nemotron3 equal production; e2b and the qwen models keep the host half's movement. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: `ce8caa6e6`'s device half leaves 6 of 27 gemma4:26b cases in loops that never end, against 1 without it; 31b is unaffected. See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
+| 6, campaigns | **done on CUDA** (2026-09-27). GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. On the image with 908, gemma4:31b, 26b and e4b and nemotron3 equal production; e2b and the qwen models keep the host half's movement. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: `ce8caa6e6`'s device half leaves 6 of 27 gemma4:26b cases in loops that never end, against 1 without it; 31b is unaffected. MLX think-on: the single pass loops no more than two-pass, with or without a fixed history. gemma4:26b `multi_3img_anchored` never converges in any of 8 runs. Drafting: under production's knob the single pass never drafts, so it thinks 1.5–1.7× slower (open item 7). See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
 
 **Three hosts converged on this merge.** The ROCm and Metal hosts had each started the same fold before #375
 existed, stopped, and cross-checked instead; see [#375](https://github.com/MaxusAI/ollama/pull/375).
@@ -527,6 +527,63 @@ These are #387's cold captures on both builds. The cases are `multi_3img_anchore
 - **The verdict.** No KV type or attention path reliably removes these loops, which matches the gfx1151 host's
   reading. Production keeps f16 with flash attention on (ADR 0043).
 
+#### MLX think-on with a fixed history: the same counts, and one stable loop
+
+Metal found on #375 that MLX's think-on loops depend on request history. A gemma4:26b case that looped twice in the
+suite finished as the first request after a cold restart. The agreed protocol's run (above) sends a model's cases in
+sequence on one server, so its per-flow counts carry that history.
+
+This variant fixes the history. It sends every case alone, and the suite restarts the server before every rung
+(`RESTART_CMD`), so every rung of every case is the first request after a cold load. Everything else is the same:
+image, cases, flows, environment (`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`), the ladder 16384 → 131072, and two repeats. It
+ran 2026-09-27 04:29–17:40, with a pause from 11:12 to 11:35; the interrupted arm was re-run whole.
+
+`fh-compare-0344.py` renders both runs from the suite's score files: the history-laden run (`on0344*`, "hist") beside
+the fixed-history run (`fh0344*`, "fixed"). In the column names, `f` is the single pass, `p` is two-pass, and the digit
+is the repeat. A cell is `NC` (not converged at 131072), or the thinking's token count and the rung it finished on:
+
+| model | case | hist f1 | hist f2 | hist p1 | hist p2 | fixed f1 | fixed f2 | fixed p1 | fixed p2 |
+|---|---|---|---|---|---|---|---|---|---|
+| gemma4:31b-nvfp4 | `scene_single_pinned` | 2012·16k | 2007·16k | 2012·16k | 2011·16k | 2007·16k | 2012·16k | 2009·16k | 2009·16k |
+| gemma4:31b-nvfp4 | `multi_3img_anchored` | 5749·16k | 6272·16k | 6493·128k | 6459·16k | 5749·16k | 6698·16k | 7109·16k | 5924·32k |
+| qwen3.8:27b-nvfp4 | `scene_single_pinned` | 1480·16k | 2065·16k | 1502·16k | 1566·16k | 1641·16k | 1429·16k | 1696·16k | 1787·16k |
+| qwen3.8:27b-nvfp4 | `multi_3img_anchored` | 1804·16k | 1934·16k | 1781·16k | 1711·16k | 1799·16k | 1794·16k | 1799·16k | 1679·16k |
+| gemma4:26b-nvfp4 | `scene_single_pinned` | 6367·16k | 5535·16k | 6568·16k | 3614·16k | 3687·16k | 4195·16k | 6419·16k | 4003·16k |
+| gemma4:26b-nvfp4 | `multi_3img_anchored` | **NC** | **NC** | **NC** | **NC** | **NC** | **NC** | **NC** | **NC** |
+| gemma4:26b-nvfp4 | `bboxm_free_noanc_pos` | 7314·16k | 2720·32k | 3129·16k | 7395·32k | 2864·16k | 5372·16k | 5199·32k | 4319·32k |
+| gemma4:26b-nvfp4 | `scene_single_anchored` | 7062·16k | 4987·16k | 5800·16k | 4564·16k | 8881·32k | 7594·16k | 5391·16k | 7635·16k |
+| gemma4:26b-nvfp4 | `multi_3img` | 6658·16k | 7658·16k | 8253·16k | 6900·64k | 8431·64k | 5948·32k | 7582·128k | 6371·32k |
+| gemma4:26b-nvfp4 | `bbox_contract_box2d_1img` | 5777·16k | 4003·16k | 2614·16k | 2620·16k | 4027·16k | 6079·16k | 2602·16k | 2696·16k |
+| gemma4:26b-nvfp4 | `bbox_contract_positional_1img` | 5321·16k | 2683·32k | 3815·32k | 3892·16k | 3747·16k | 1770·16k | 2937·16k | 5120·16k |
+| qwen3.6:35b-a3b-nvfp4 | `scene_single_pinned` | 6417·64k | 4145·16k | 19941·64k | 13610·128k | 6702·16k | 9101·32k | 16622·128k | **NC** |
+| qwen3.6:35b-a3b-nvfp4 | `multi_3img_anchored` | 9958·64k | 9451·32k | 12768·32k | 13452·32k | 10185·32k | 12581·64k | 14647·32k | 3525·16k |
+
+```
+history-laden single pass repeat 1: NOT CONVERGED 1 of 13 scored cases
+history-laden single pass repeat 2: NOT CONVERGED 1 of 13 scored cases
+history-laden two-pass repeat 1: NOT CONVERGED 1 of 13 scored cases
+history-laden two-pass repeat 2: NOT CONVERGED 1 of 13 scored cases
+fixed-history single pass repeat 1: NOT CONVERGED 1 of 13 scored cases
+fixed-history single pass repeat 2: NOT CONVERGED 1 of 13 scored cases
+fixed-history two-pass repeat 1: NOT CONVERGED 1 of 13 scored cases
+fixed-history two-pass repeat 2: NOT CONVERGED 2 of 13 scored cases
+```
+
+- **Fixing the history changes no count.** Every arm leaves 1 of 13 cases not converged in both runs. The one
+  exception is the fixed-history two-pass repeat 2, with 2.
+- **gemma4:26b `multi_3img_anchored` never converges, in any of the 8 runs**: both flows, both histories, both
+  repeats. So neither the flow nor the history decides it. That fits the gfx1151 host's reading on #387, which it
+  measured on `bbox_contract_real_1img`: greedy think-on loops on a request for an image size the model cannot see,
+  and stating the size ends the loop. Whether this case's prompt sets the same trap is not measured here (item 8).
+- **Metal's five 26b cases converge in every run on CUDA**, in both flows and both histories. In the fixed-history run
+  some converge only on a higher rung. Each rung there is a fresh cold load, so that is MLX-CUDA's per-load variation,
+  not history.
+- **One case leans against the drafted two-pass flow: qwen3.6 `scene_single_pinned`.** In both histories, every
+  two-pass run thinks longer than every single-pass run. Two-pass took 13,610 to 19,941 tokens, 16,622 on the top rung,
+  and has the one extra NOT CONVERGED; single pass took 4,145 to 9,101. Four runs against four on one case is a lean,
+  not a verdict. It points the same way as Metal's discriminator: at drafting, not the flow.
+- **So on MLX-CUDA think-on, the single-pass default loops no more than two-pass, with or without a fixed history.**
+
 ## Gates 4–6 on gfx1151 (2026-09-25)
 
 **Host.** The ROCm host, `amd-server`: Ryzen AI Max+ 395 with a Radeon 8060S (gfx1151), 96 GiB of VRAM.
@@ -707,9 +764,8 @@ representation-sensitive test each, so the fold's attribution stays clean.
 
 ## Open items
 
-1. **Gate 6 on CUDA:** the fixed-history MLX think-on variant is running (since 2026-09-27 04:29). Every case runs as
-   the first request after a cold restart, for Metal's finding that request history moves MLX's loops. The drafting
-   probe (item 7) and #387's KV-precision × flash-attention test are done; both are under gate 6.
+1. **Gate 6 on CUDA is done** (2026-09-27 17:40). The fixed-history MLX think-on variant finished last, after the
+   drafting probe (item 7) and #387's KV-precision × flash-attention test. All three are under gate 6.
 2. **`ce8caa6e6`: the device half is carried as compat patch 908**, on the maintainer's word (2026-09-26). That half,
    the tiling, is five extra never-ending think-on loops on gemma4:26b (6 of 27 against 1, and gfx1151's 1), the
    think-off movement of gemma4:31b, 26b and e4b, and the GGUF q4 OCRBench item; on gemma4:31b's think-on it changes
@@ -749,3 +805,6 @@ representation-sensitive test each, so the fold's attribution stays clean.
      grew 0.60 GiB per request in the same run, which the retention later accounted for. So gemma4 could draft under a
      grammar while the qwen3.5 family keeps the knob. gemma4:26b drafted only 96 tokens in that run, so it needs its
      own ladder.
+8. **Whether `multi_3img_anchored`'s prompt sets #387's size trap on CUDA.** Run `promptcap.py` (#387) on gemma4:26b,
+   GGUF and MLX, with the original prompt against one that states the image size. Proposed, not run; the
+   maintainer decides.
