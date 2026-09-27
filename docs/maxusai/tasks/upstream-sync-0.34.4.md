@@ -572,9 +572,13 @@ fixed-history two-pass repeat 2: NOT CONVERGED 2 of 13 scored cases
 - **Fixing the history changes no count.** Every arm leaves 1 of 13 cases not converged in both runs. The one
   exception is the fixed-history two-pass repeat 2, with 2.
 - **gemma4:26b `multi_3img_anchored` never converges, in any of the 8 runs**: both flows, both histories, both
-  repeats. So neither the flow nor the history decides it. That fits the gfx1151 host's reading on #387, which it
-  measured on `bbox_contract_real_1img`: greedy think-on loops on a request for an image size the model cannot see,
-  and stating the size ends the loop. Whether this case's prompt sets the same trap is not measured here (item 8).
+  repeats. So neither the flow nor the history decides it. Its prompt is `multi_3img`'s plus one calibration
+  paragraph, and that paragraph ends with #387's trap sentence: "If you resized image 1 internally, use the size YOU
+  used." The source is `vision_suite.py`, `MULTI_ANCHORED_PROMPT = MULTI_PROMPT + …`; the gfx1151 host pointed it out
+  on #375. The images and the scorer are the same, so the table holds a minimal pair: `multi_3img` converges in 8 of
+  8 runs, `multi_3img_anchored` in 0 of 8. On gfx1151's GGUF the same paragraph only makes the answer 2.3× longer
+  (about 3,560 to 8,330 tokens), and it does not loop. The pair isolates the paragraph; item 8 would isolate the
+  sentence.
 - **Metal's five 26b cases converge in every run on CUDA**, in both flows and both histories. In the fixed-history run
   some converge only on a higher rung. Each rung there is a fresh cold load, so that is MLX-CUDA's per-load variation,
   not history.
@@ -805,6 +809,7 @@ representation-sensitive test each, so the fold's attribution stays clean.
      grew 0.60 GiB per request in the same run, which the retention later accounted for. So gemma4 could draft under a
      grammar while the qwen3.5 family keeps the knob. gemma4:26b drafted only 96 tokens in that run, so it needs its
      own ladder.
-8. **Whether `multi_3img_anchored`'s prompt sets #387's size trap on CUDA.** Run `promptcap.py` (#387) on gemma4:26b,
-   GGUF and MLX, with the original prompt against one that states the image size. Proposed, not run; the
-   maintainer decides.
+8. **Whether the trap sentence alone makes `multi_3img_anchored` loop on CUDA.** `promptcap.py` covers this case
+   since #387's `b13f2c35d`, stating image 1's size (1920×1080). The check is three captures on gemma4:26b, on MLX
+   and on GGUF: `orig`, `size` and `commit` at 32768. `multi_3img`'s `orig` capture is the control. Proposed, not
+   run; the maintainer decides.
