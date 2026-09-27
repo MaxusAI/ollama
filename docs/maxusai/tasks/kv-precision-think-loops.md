@@ -193,6 +193,33 @@ greedy-commit_gemma4_26b-a4b-it-q4_K_M_multi_3img_anchored_32768
 - **The image that ships loops too, byte for byte.** On the 908 image (`0.34.3-dynres-22-g5584539`), both `orig`
   captures equal the fold image's in thinking, answer and token counts: the control finishes in 3,616 tokens, and
   the anchored prompt loops through the same 61,234 characters. 908 changes no gfx1151 kernel.
+- **So does today's production, and the loop predates the fold.** Production's image (`0.34.3-rocm724-main-650f8fda`:
+  b10969, two-pass) was run in a bench container with production's settings: f16, flash attention on, two slots.
+  Its thinking equals the fold image's in all three captures. The control finishes. The anchored prompt loops through
+  the same 61,234 characters. `size` finishes in 5,445 tokens with every question right; its answer is the same
+  content as compact JSON, which is what two-pass produces. Production has run f16 since 2026-09-26, and under its
+  earlier `q8_0` this case finished. The suite's greedy decoding is the worst case: at the card's sampling, production
+  meets this loop as a rate, if at all.
+
+`kvloop_read.py` on production's image, verbatim:
+
+```
+greedy-orig_gemma4_26b-a4b-it-q4_K_M_multi_3img_32768
+  arm=greedy-orig  done=stop  tokens=3617  thinking=5618 chars  answer=3086 chars
+  thinking: 90/102 lines distinct, second half 42/51, most repeated x3: '- **Key Objects:**'
+  onset: no loop found
+  score (multi_3img): json_valid=True q1_right=True q2_right=True q4_bbox_hit=True q4_bbox_space=norm1000/xyxy chart_values_found=5
+greedy-orig_gemma4_26b-a4b-it-q4_K_M_multi_3img_anchored_32768
+  arm=greedy-orig  done=length  tokens=24576  thinking=61234 chars  answer=0 chars
+  thinking: 239/1717 lines distinct, second half 11/859, most repeated x288: 'The text "DYNAMO" is at y ~ 530.'
+  onset: loop from line 280 of 1,717, about token 4,148
+  score (multi_3img_anchored): json_valid=False q1_right=False q2_right=False q4_bbox_hit=False chart_values_found=0
+greedy-size_gemma4_26b-a4b-it-q4_K_M_multi_3img_anchored_32768
+  arm=greedy-size  done=stop  tokens=5445  thinking=9557 chars  answer=1751 chars
+  thinking: 177/239 lines distinct, second half 93/120, most repeated x4: '"ANCHOR"'
+  onset: no loop found
+  score (multi_3img_anchored): json_valid=True q1_right=True q2_right=True q4_bbox_hit=True q4_bbox_space=norm1000/xyxy chart_values_found=5
+```
 
 **The CUDA host's legs of item 8** (#375, fold record `5a6305139`), with the same tool and settings:
 - **GGUF, CUDA's fold image:** the same answer as here. `orig` loops, from about token 2,129; `size`, `commit` and the
