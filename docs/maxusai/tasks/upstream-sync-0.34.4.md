@@ -16,7 +16,7 @@ lands on this branch, your gate 4 and gate 6 legs can build from it.
 | 3, the patch series | **done** — all eight (001 002 004 005 801 802 903, and 908 from 2026-09-26) apply clean to `b11081` on a real checkout, in order, and 908 reverse-applies, so a re-configure is safe; served projectors unchanged |
 | 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's; **done on gfx1151**: `0.34.3-dynres-5-g29ae523-rocm7-gfx1151`, with a b11081 payload whose structure is unchanged against 0.34.3's; rebuilt with 908 as `0.34.3-dynres-22-g5584539`, and **908 changes no gfx1151 kernel** |
 | 5, preflight | **PASS on CUDA**: run 2 PASS=21 SKIP=8, with the pins moved in `c79e50d98` after run 1 (FAIL=2 on the two pins, by design); run 3, on the image with 908, the same. **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378), and the same on the 908 image |
-| 6, campaigns | **done on CUDA** (2026-09-27). GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. On the image with 908, gemma4:31b, 26b and e4b and nemotron3 equal production; e2b and the qwen models keep the host half's movement. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: `ce8caa6e6`'s device half leaves 6 of 27 gemma4:26b cases in loops that never end, against 1 without it; 31b is unaffected. MLX think-on: the single pass loops no more than two-pass, with or without a fixed history. gemma4:26b `multi_3img_anchored` never converges in any of 8 runs. Drafting: under production's knob the single pass never drafts, so it thinks 1.5–1.7× slower (open item 7). See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is done (2026-09-27): on all five GGUF models the single pass leaves the same cases unfinished as two-pass, and those loops come from the prompt (#387). See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
+| 6, campaigns | **done on CUDA** (2026-09-27). GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. On the image with 908, gemma4:31b, 26b and e4b and nemotron3 equal production; e2b and the qwen models keep the host half's movement. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: `ce8caa6e6`'s device half leaves 6 of 27 gemma4:26b cases in loops that never end, against 1 without it; 31b is unaffected. MLX think-on: the single pass loops no more than two-pass, with or without a fixed history. gemma4:26b `multi_3img_anchored` never converges in any of 8 runs. Item 8: its trap sentence alone loops it on GGUF on the fold image, not on the image that ships; on MLX it finishes about one cold draw in five, with the sentence or without it. Drafting: under production's knob the single pass never drafts, so it thinks 1.5–1.7× slower (open item 7). See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is done (2026-09-27): on all five GGUF models the single pass leaves the same cases unfinished as two-pass, and those loops come from the prompt (#387). See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
 
 **Three hosts converged on this merge.** The ROCm and Metal hosts had each started the same fold before #375
 existed, stopped, and cross-checked instead; see [#375](https://github.com/MaxusAI/ollama/pull/375).
@@ -590,6 +590,137 @@ fixed-history two-pass repeat 2: NOT CONVERGED 2 of 13 scored cases
   not a verdict. It points the same way as Metal's discriminator: at drafting, not the flow.
 - **So on MLX-CUDA think-on, the single-pass default loops no more than two-pass, with or without a fixed history.**
 
+#### Open item 8 on CUDA: the trap sentence
+
+Item 8 asks whether the trap sentence alone, "If you resized image 1 internally, use the size YOU used.", makes
+gemma4:26b loop on `multi_3img_anchored`. `promptcap.py` (#387, `b13f2c35d`) sends the suite's own request
+(`vision_suite.gen`, format `"json"`), cold, greedy, at 32768 (24,576 tokens), in three variants. `orig` is unchanged.
+`size` replaces the sentence with image 1's size (1920×1080). `commit` replaces it with an instruction to commit to one
+estimate. `multi_3img`'s `orig` is the control. It ran on 2026-09-27, one container at a time on GPU0:
+
+- **GGUF**: gemma4:26b-a4b-it-q4_K_M with production's settings (f16 KV, flash attention on), one capture each, on the
+  fold image (`sync-0.34.4`) and on the image that ships (`sync-0.34.4-908`). CUDA GGUF is deterministic. The fold's
+  `orig` capture is a byte-exact prefix of #387's capture of the same prompt on the fold, f16 with flash attention
+  on, at 65536: all 61,602 characters of its thinking match.
+- **MLX**: gemma4:26b-nvfp4 in the fixed-history run's container (production's environment, single pass,
+  `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`), five cold captures of each prompt, the order rotated each repeat. With the knob
+  at 0 the single pass never drafts. Even so, every cold MLX-CUDA load takes its own greedy trajectory, and the runner
+  logs show one runner start per capture. So each capture is one draw, and the answer is a rate.
+
+`item8-cuda-read-0344.py` (in the run directory) reads each capture with #387's `kvloop_read.py` and scores it with
+`score_multi`, one line per capture, as the gfx1151 host's `item8_read.py` does. GGUF, verbatim:
+
+```
+$ item8-cuda-read-0344.py --compact promptcap-cuda        # the fold image
+== gguf: gemma4:26b-a4b-it-q4_K_M, server 0.34.3-dynres-5-g29ae523
+multi_3img orig: prompt 5e3ea981f6d5551e images 7a5285fe1380ac49 num_ctx 32768 num_predict 24576
+  r1: stop    5,425 | 2nd half 90/90 | x3 '- **Key Objects:**' | no loop | all right, anchor None
+  finished 1 of 1, every question right in 1
+multi_3img_anchored orig: prompt aa1042593bd9fc5c images 7a5285fe1380ac49 num_ctx 32768 num_predict 24576
+  r1: length 24,576 | 2nd half 9/437 | x203 '- ANCHOR: [72, 148, 216, 336]' | loop from ~2,129 | no answer
+  finished 0 of 1, every question right in 0; of the 1 capped, the most repeated line is a box in 1
+multi_3img_anchored size: prompt 5e75102279f8d97e images 7a5285fe1380ac49 num_ctx 32768 num_predict 24576
+  r1: stop    6,595 | 2nd half 143/147 | x3 '- Key objects:' | no loop | all right, anchor [0, 0, 1920, 1080]
+  finished 1 of 1, every question right in 1
+multi_3img_anchored commit: prompt f1b94fb7c51eec6e images 7a5285fe1380ac49 num_ctx 32768 num_predict 24576
+  r1: stop    5,863 | 2nd half 105/108 | x3 '- Key objects:' | no loop | all right, anchor [0, 0, 1920, 1080]
+  finished 1 of 1, every question right in 1
+$ item8-cuda-read-0344.py --compact promptcap-cuda-908    # the image that ships
+== gguf: gemma4:26b-a4b-it-q4_K_M, server 0.34.3-dynres-22-g5584539
+multi_3img orig: prompt 5e3ea981f6d5551e images 7a5285fe1380ac49 num_ctx 32768 num_predict 24576
+  r1: stop    4,692 | 2nd half 80/81 | x3 '- **Key Objects:**' | no loop | all right, anchor None
+  finished 1 of 1, every question right in 1
+multi_3img_anchored orig: prompt aa1042593bd9fc5c images 7a5285fe1380ac49 num_ctx 32768 num_predict 24576
+  r1: stop    3,882 | 2nd half 51/51 | x3 '- **Key objects:**' | no loop | all right, anchor [0, 0, 1000, 562]
+  finished 1 of 1, every question right in 1
+multi_3img_anchored size: prompt 5e75102279f8d97e images 7a5285fe1380ac49 num_ctx 32768 num_predict 24576
+  r1: stop    6,012 | 2nd half 104/104 | x3 '- Key objects:' | no loop | all right, anchor [0, 0, 1920, 1080]
+  finished 1 of 1, every question right in 1
+multi_3img_anchored commit: prompt f1b94fb7c51eec6e images 7a5285fe1380ac49 num_ctx 32768 num_predict 24576
+  r1: stop    4,657 | 2nd half 80/82 | x3 '- Key objects:' | no loop | all right, anchor [0, 0, 1920, 1080]
+  finished 1 of 1, every question right in 1
+```
+
+For MLX, the same run's output continues. It also counts the fixed-history run's draws from the suite's score files:
+each rung there is a cold load, and a ladder escalates only on a cap.
+
+```
+== mlx: gemma4:26b-nvfp4, server 0.34.3-dynres-5-g29ae523
+multi_3img orig: prompt 5e3ea981f6d5551e images 7a5285fe1380ac49 num_ctx 32768 num_predict 24576
+  r1: stop    5,623 | 2nd half 98/135 | x3 '- Text found:' | no loop | all right, anchor None
+  r2: stop    9,722 | 2nd half 158/196 | x15 'CIPHER: [600, 166, 781, 391]' | no loop | all right, anchor None
+  r3: stop    6,759 | 2nd half 115/137 | x11 '- ANCHOR: [73, 147, 218, 336]' | no loop | all right, anchor None
+  r4: length 24,576 | 2nd half 23/598 | x60 '- ANCHOR: [74, 147, 218, 336]' | loop from ~7,676 | no answer
+  r5: length 24,576 | 2nd half 4/686 | x545 "Let's try:" | loop from ~8,283 | no answer
+  finished 3 of 5, every question right in 3; of the 2 capped, the most repeated line is a box in 1
+multi_3img_anchored orig: prompt aa1042593bd9fc5c images 7a5285fe1380ac49 num_ctx 32768 num_predict 24576
+  r1: stop   11,342 | 2nd half 110/253 | x22 '- BEACON: [320, 110, 465, 305]' | no loop | all right, anchor [0, 0, 1000, 1000]
+  r2: length 24,576 | 2nd half 5/515 | x195 '- BEACON: [320, 111, 465, 305]' | loop from ~2,761 | no answer
+  r3: length 24,576 | 2nd half 9/614 | x147 '- ANCHOR: [73, 147, 218, 335]' | loop from ~3,121 | no answer
+  r4: length 24,576 | 2nd half 6/516 | x202 '- ANCHOR: [73, 147, 218, 336]' | loop from ~1,457 | no answer
+  r5: length 24,576 | 2nd half 5/463 | x219 '- ANCHOR: [73, 147, 218, 336]' | loop from ~3,288 | no answer
+  finished 1 of 5, every question right in 1; of the 4 capped, the most repeated line is a box in 4
+multi_3img_anchored size: prompt 5e75102279f8d97e images 7a5285fe1380ac49 num_ctx 32768 num_predict 24576
+  r1: length 24,576 | 2nd half 7/1116 | x411 '"q1" in image 3.' | loop from ~4,798 | no answer
+  r2: stop   10,277 | 2nd half 158/217 | x5 '"MAXUS INDUSTRIAL SUPPLY"' | no loop | all right, anchor [0, 0, 1920, 1080]
+  r3: length 24,576 | 2nd half 49/1525 | x59 "Let's check if any word from image" | loop from ~3,248 | no answer
+  r4: length 24,576 | 2nd half 11/565 | x122 '- BEACON: [320, 108, 467, 305]' | loop from ~7,309 | no answer
+  r5: length 24,576 | 2nd half 17/798 | x91 "Let's re-estimate." | loop from ~5,638 | no answer
+  finished 1 of 5, every question right in 1; of the 4 capped, the most repeated line is a box in 1
+multi_3img_anchored commit: prompt f1b94fb7c51eec6e images 7a5285fe1380ac49 num_ctx 32768 num_predict 24576
+  r1: stop    7,194 | 2nd half 99/182 | x6 '- Key objects:' | no loop | all right, anchor [0, 0, 1000, 1000]
+  r2: length 24,576 | 2nd half 6/484 | x187 '- ANCHOR: [73, 147, 218, 335]' | loop from ~1,792 | no answer
+  r3: length 24,576 | 2nd half 6/502 | x192 '- ANCHOR: [73, 147, 218, 335]' | loop from ~2,418 | no answer
+  r4: length 24,576 | 2nd half 6/515 | x203 '- ANCHOR: [73, 147, 218, 336]' | loop from ~1,530 | no answer
+  r5: length 24,576 | 2nd half 6/475 | x186 '- ANCHOR: [73, 147, 218, 335]' | loop from ~1,223 | no answer
+  finished 1 of 5, every question right in 1; of the 4 capped, the most repeated line is a box in 4
+  per repeat, captures finished: r1 3 of 4, r2 2 of 4, r3 1 of 4, r4 0 of 4, r5 0 of 4
+  control finished 3 of 5; the three anchored variants pooled 3 of 15; Fisher two-sided p = 0.131
+
+== suite, fixed-history run (fh0344), gemma4:26b-nvfp4: draws with a known outcome at 24,576 tokens
+  multi_3img f1: 16k capped (censored), 32k capped, 64k finished in 8,431
+  multi_3img f2: 16k capped (censored), 32k finished in 5,948
+  multi_3img single pass: finished within 24,576 in 2 of 3 draws
+  multi_3img p1: 16k capped (censored), 32k capped, 64k capped, 128k finished in 7,582
+  multi_3img p2: 16k capped (censored), 32k finished in 6,371
+  multi_3img two-pass: finished within 24,576 in 2 of 4 draws
+  multi_3img_anchored f1: 16k capped (censored), 32k capped, 64k capped, 128k capped
+  multi_3img_anchored f2: 16k capped (censored), 32k capped, 64k capped, 128k capped
+  multi_3img_anchored single pass: finished within 24,576 in 0 of 6 draws
+  multi_3img_anchored p1: 16k capped (censored), 32k capped, 64k capped, 128k capped
+  multi_3img_anchored p2: 16k capped (censored), 32k capped, 64k capped, 128k capped
+  multi_3img_anchored two-pass: finished within 24,576 in 0 of 6 draws
+  single pass, with promptcap's MLX captures: multi_3img 5 of 8, multi_3img_anchored orig 1 of 11; Fisher two-sided p = 0.0408
+```
+
+- **GGUF on the fold image: yes, the sentence alone.** This is gfx1151's result. `orig` loops from about token 2,129,
+  re-listing image 1's boxes ("- ANCHOR: [72, 148, 216, 336]" ×203, 9 distinct lines in the second half), and never
+  answers. `size` and `commit` finish in 6,595 and 5,863 tokens, and the control in 5,425, each with every question
+  right.
+- **GGUF on the image that ships: no.** On `sync-0.34.4-908` all four finish with every question right. `orig` takes
+  3,882 tokens, and its thinking and answer are byte-identical to #387's f16, flash-attention-on capture on the 908
+  image at 65536; production finishes the same request in 3,883 (above). `size` takes 6,012, `commit` 4,657 and the
+  control 4,692. So on CUDA the loop needs both the sentence and `ce8caa6e6`'s tiling, which 908 reverts (item 2). On
+  gfx1151, where that tiling does not apply, the f16 path loops on the sentence by itself.
+- **MLX: the sentence does not set the loop rate.** `orig`, `size` and `commit` each finished 1 of 5 draws. The control
+  loops too: it finished 3 of 5. Five draws per prompt cannot separate the paragraph from the control: the three
+  anchored variants pooled finished 3 of 15 (Fisher's exact test, two-sided, p = 0.13). The fixed-history run's
+  single-pass draws lean the same way. There the control finished 2 of 3 and `orig` 0 of 6, which gives 5 of 8
+  against 1 of 11 together (p = 0.04).
+- **Stating the size changes how the case loops, not how often.**
+  - Every capped `orig` and `commit` draw re-lists image 1's boxes, for example "- ANCHOR: [73, 147, 218, 336]"
+    ×147–219, from about token 1,200–3,300.
+  - With the size stated, the loops start later, at about 3,200–7,300, and they vary. One repeats a box. The others
+    repeat a question ('"q1" in image 3.' ×411), a check across the images (×59) or a re-estimate
+    ("Let's re-estimate." ×91).
+  - The control's two loops start later still, at about 7,700 and 8,300.
+- **Finishes fell off by repeat: 3, 2, 1, 0 and 0 of 4.** Every repeat ran each prompt once, in a rotated order, so
+  the comparisons above are balanced across repeats. A split chosen after seeing the data is weak evidence of drift,
+  and nothing carried over between captures, since each one started a new runner.
+- **This is how to read the fixed-history table.** Every rung there is one cold draw. So a case that converges only
+  on a higher rung drew a loop first. `multi_3img_anchored`'s four NOT CONVERGED cells in that run are 16 capped
+  draws, 12 of them with 24,576 tokens or more.
+
 ## Gates 4–6 on gfx1151 (2026-09-25)
 
 **Host.** The ROCm host, `amd-server`: Ryzen AI Max+ 395 with a Radeon 8060S (gfx1151), 96 GiB of VRAM.
@@ -987,5 +1118,9 @@ representation-sensitive test each, so the fold's attribution stays clean.
    - **The GGUF leg ran on gfx1151 (2026-09-27): yes.** With f16 KV, `orig` loops from about token 4,148. `size` and
      `commit` finish in 5,875 and 5,633 tokens with every answer right. The control finishes in 3,616.
      See [the gfx1151 section](#gate-6-think-on-under-the-aligned-protocol).
-   - **Both CUDA legs are running on the CUDA host** (2026-09-27, on the maintainer's word), GGUF and MLX, n = 5 on
-     MLX. The CUDA host records them here.
+   - **The CUDA legs ran (2026-09-27).** On GGUF the answer depends on the image. On the fold image the sentence
+     alone makes the case loop, as on gfx1151. On the image that ships, all four captures finish with every question
+     right, because the loop also needs `ce8caa6e6`'s tiling, which 908 reverts (item 2). On MLX, five cold draws of
+     each prompt, `orig`, `size` and `commit` each finished 1 of 5 and the control 3 of 5. So the sentence does not
+     set MLX's loop rate; stating the size changes only how the case loops. See
+     [Open item 8 on CUDA](#open-item-8-on-cuda-the-trap-sentence).
