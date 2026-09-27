@@ -23,12 +23,13 @@ back to `0.32.1-gemma4budget-85ebcb79`.
 
 | | |
 |---|---|
-| Deployed image | `maxusai-ollama:0.34.3-rocm724-main-650f8fda` (promoted 2026-09-25 07:32) |
-| Deployed version | `0.34.3-dynres-0-g650f8fd`, a build of `main` at the `v0.34.3-dynres` tag (ADR 0032) |
-| Build type | `Dockerfile.rocm` through `scripts/build_rocm.sh` (`ROCM_TOOLCHAIN=rocm7 AMDGPU_TARGETS=gfx1151`), on `rocm/dev-ubuntu-24.04:7.2.4-complete` ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md)). **This is the first Ubuntu-built production image on this host**, and the payload's `ROCM_IMAGE` stamp says so. It is gfx1151 only. Compat **001 + 002 + 004 + 005 + 801 + 802 + 903**: 802, the LM-graph node meter, is new here and inert unless `OLLAMA_LM_NODE_STATS` is set |
+| Deployed image | `maxusai-ollama:0.34.4-rocm724-main-b43ee8e3` (promoted 2026-09-28 07:39) |
+| Deployed version | `0.34.4-dynres-0-gb43ee8e`, a build of `main` at the `v0.34.4-dynres` tag (ADR 0032) |
+| Build type | `Dockerfile.rocm` through `scripts/build_rocm.sh` (`ROCM_TOOLCHAIN=rocm7 AMDGPU_TARGETS=gfx1151`), on `rocm/dev-ubuntu-24.04:7.2.4-complete` ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md)), as every production image since 0.34.3. It is gfx1151 only. Compat **001 + 002 + 004 + 005 + 801 + 802 + 903 + 908**: 908 reverts the device half of `ce8caa6e6`, a CUDA flash-attention tiling, and changes no gfx1151 kernel. 802, the LM-graph node meter, is inert unless `OLLAMA_LM_NODE_STATS` is set |
 | KV cache | **f16** since 2026-09-26 07:23 ([ADR 0005](adr/0005-per-model-kv-cache-type.md)). From the 2026-08-08 cutover until then it was `q8_0` by accident; see the [2026-09-26 decision](#decision-2026-09-26--productions-kv-cache-back-to-f16) |
-| Payload | **b10969** (`391fac164`), unchanged from 0.34.2; compat 906 **retired** — b10969 ships upstream's own HIP `prop.integrated` revert |
-| Previous image | `maxusai-ollama:0.34.2-rocm724-main-f67b1aef` (`0.34.2-dynres-f67b1aef`, AlmaLinux-built, b10969) — **retained for rollback** as the stopped container `ollama-rocm-0.34.2-f67b1aef`, which was created with `q8_0` (read the 2026-09-26 decision before using it); `0.34.1-rocm724-main-16649e8c` (b10864 + 906) and `0.32.1-rocm-dynres-5d5b7a72` (b9888) before it |
+| Think+format flow | **two-pass** (`OLLAMA_FORMAT_TWO_PASS=1`) since 2026-09-28, the maintainer's choice at the 0.34.4 deploy. v0.34.4's default is the single pass; see the [2026-09-28 decision](#decision-2026-09-28--0344-promoted-with-the-two-pass-flow) |
+| Payload | **b11081** (`161755f29`) since 2026-09-28; b10969 (`391fac164`) for 0.34.2 and 0.34.3. Compat 906 stays **retired**: upstream ships its own HIP `prop.integrated` revert |
+| Previous image | `maxusai-ollama:0.34.3-rocm724-main-650f8fda` (`0.34.3-dynres-0-g650f8fd`, b10969) — **retained for rollback** as the stopped container `ollama-rocm-0.34.3-650f8fda`, which runs f16. Before it, `0.34.2-rocm724-main-f67b1aef` (the stopped container `ollama-rocm-0.34.2-f67b1aef`, created with `q8_0`: read the 2026-09-26 decision before using it), `0.34.1-rocm724-main-16649e8c` (b10864 + 906) and `0.32.1-rocm-dynres-5d5b7a72` (b9888) |
 | Superseded pin | `0.32.1-dynres-296eb020` recorded here until 2026-09-19; the host was in fact running `5d5b7a72`, so this row had drifted from the host it describes |
 | Blocked target | `0.32.5-gemma4budget-4259c191` (built, verified, **rolled back** 2026-07-31) — never unblocked; superseded, not cleared |
 | Host | Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151**, ROCm, Linux |
@@ -342,6 +343,78 @@ docker update --restart unless-stopped ollama-rocm && docker start ollama-rocm
 arguments on 2026-09-21, so starting it, as the 2026-09-25 rollback does, brings `q8_0` back. It has not been
 recreated. To roll back to 0.34.2, start a new container from its image with the 2026-09-25 arguments and
 `OLLAMA_KV_CACHE_TYPE=f16` instead.
+
+## Decision 2026-09-28 — 0.34.4 promoted, with the two-pass flow
+
+**Outcome: promoted.** `ollama-rocm` moved from `0.34.3-dynres-0-g650f8fd` to `0.34.4-dynres-0-gb43ee8e` at 07:39 on
+2026-09-28, on the maintainer's word ("deploy the gfx1151 release image with two-pass"). It was down for about one
+second. The payload moved from b10969 to **b11081** (`161755f29`), with compat 908 added.
+
+**The flow is two-pass.** The container sets `OLLAMA_FORMAT_TWO_PASS=1`, so think+format requests keep ADR 0004's
+flow, not v0.34.4's single-pass default. The CUDA deploy made the same choice (MaxusAI/ollama#375, item 7). On
+gfx1151's GGUF the fold's think-on protocol found no loop difference between the flows on any of five models, so
+parity with CUDA decided it.
+- The compose file carries the setting (MaxusAI/ollama-deployments `3354a42`), so a compose redeploy cannot drop it.
+- **The compose `.env` still names `0.32.1-rocm-dynres-5d5b7a72`.** `docker compose up` would start 0.32.1. Do not
+  redeploy through compose until its image line names this image.
+
+Rollback:
+
+1. Stop the new container and rename it aside.
+2. Rename the retained 0.34.3 container back to `ollama-rocm`.
+3. Restore its restart policy and start it.
+
+```
+docker stop ollama-rocm && docker rename ollama-rocm ollama-rocm-0.34.4-rolledback &&
+docker rename ollama-rocm-0.34.3-650f8fda ollama-rocm &&
+docker update --restart unless-stopped ollama-rocm && docker start ollama-rocm
+```
+
+The retained container runs f16 and has `--restart no`.
+
+**What the evidence covers, and why it covers the promoted image.** The v0.34.4 fold's gfx1151 gates
+([upstream-sync-0.34.4.md](tasks/upstream-sync-0.34.4.md), "Gates 4–6 on gfx1151") measured the fold image and the
+908 image, `0.34.3-dynres-22-g5584539`:
+
+- Think off: every scored cell of five models equals the 0.34.3 candidate's and production 0.34.2's.
+- OCRBench: every item is equal, 172 = 172.
+- Think on: on all five models the single pass leaves the same cases unfinished as two-pass.
+
+The promoted image is a build at the `v0.34.4-dynres` tag, `maxusai-ollama:0.34.4-dynres-0-gb43ee8e-rocm7-gfx1151`,
+tagged in production's naming as `0.34.4-rocm724-main-b43ee8e3`. It carries that evidence because:
+
+- **Native payload.** It is byte-identical to the 908 image's. `llama-server`, `libllama-server-impl.so`,
+  `libggml-hip.so`, `libggml-base.so` and `libmtmd.so` have the same sha256.
+- **Payload structure.** `payload_diff.sh` finds 1863 = 1863 entries, no SONAME or symlink change, and 96/96
+  gfx1151 rocBLAS kernels.
+- **Go source.** It equals the 908 build's tree, apart from `mlxrunner/client_test.go`, which is test-only.
+
+Those gate campaigns ran with production's KV type at the time, `q8_0`, and the promoted container runs f16. The KV
+type alone moves greedy think-on cells in both directions (MaxusAI/ollama#387), so the think-on cells are not
+expected to reproduce exactly under f16.
+
+**Preflight (gate 5), on the release image and on the promoted container.** Profile `rocm7-0-34-4-dynres`, with
+`--quality`: **PASS=20 SKIP=12** both times, the same 32 checks as the 908 image's run. On the promoted container,
+all seven model loads show `--cache-type-k f16 --cache-type-v f16 --flash-attn on` (ADR 0043, decision 4). The run
+records are `vision-suite/preflight/runs/preflight-rocm7-0344-release-gb43ee8e.json` and
+`preflight-rocm7-0344-prod-gb43ee8e.json`.
+
+**One known loop, which production already had.** Under f16 and greedy think-on, gemma4:26b loops on
+`multi_3img_anchored`, a prompt that asks for "the size YOU used" (MaxusAI/ollama#387). 0.34.3's image has the same
+loop, byte for byte, so this promotion neither adds nor removes it. At the card's sampling it is a rate, and stating
+the image's size ends it.
+
+### Clause outcomes
+
+| clause | outcome |
+|---|---|
+| 1–2 | **As 2026-09-19.** Both overridden on evidence; nothing has changed upstream. |
+| 3. `--direct-io` | **Satisfied under (b):** `OLLAMA_IGPU_DIRECT_IO=0` exists. **Under (c) by transitivity, not by a direct A/B.** On b11081 with direct-io on, think off equals b10969 with it on in every scored cell of five models. On 2026-09-21, b10969 with it on equalled b10969 with it off (0/54 blocks). A direct on/off A/B on b11081 was not run. |
+| 4. Vision A/B, ≥6 consecutive rows, 0 degenerate | **PASSED on the byte-identical candidate.** Five models, qwen3.6 (`qwen35moe`) among them, think off, equal to the 0.34.3 candidate and production 0.34.2 in every scored cell. Zero degenerate rows. It ran under `q8_0`. |
+| 5. `make proof` | **Waived — still does not exist.** |
+
+**How the host was confirmed idle.** As for 0.34.3: no model was loaded, and there was no working request in the two
+minutes before the swap. `deploy-0344.sh` refuses to swap otherwise.
 
 ## Decision 2026-09-21 — 0.34.2 promoted, ROCm 10.0.0 declined on measurement
 
