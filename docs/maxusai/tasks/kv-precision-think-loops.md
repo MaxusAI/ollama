@@ -16,13 +16,15 @@ flow, and in production's environment with only two knobs changed:
 |---|---|---|
 | `q8_0` | the control, where it was the environment | does not exist: a quantized V cache needs flash attention |
 | f16 | production (ADR 0043) | the flash-attention kernels against `mul_mat`, at the same storage |
-| f32 | expected to equal f16 on CUDA and HIP (see below) | the most precise attention the build has |
+| f32 | **equals f16, byte for byte**, on CUDA and HIP; not run ([ADR 0044](../adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md)) | the most precise attention the build has |
 
 - **Why f32 needs flash attention off.** At b11081, CUDA's and HIP's flash attention convert an f32 K/V cache to
   f16 before their kernels run (`ggml/src/ggml-cuda/fattn.cu`: `need_f16_K = K->type == GGML_TYPE_F32 …`; the
-  tile and MMA kernels always take f16). With flash attention on, f32 storage should reproduce f16 exactly, at
-  twice the memory. Only with flash attention off does the attention itself run in f32. Metal's llama.cpp
-  backend may differ.
+  tile and MMA kernels always take f16).
+  - **Measured on both hosts: with flash attention on, f32 reproduces f16 byte for byte.** On gfx1151 that is
+    qwen3.6 `real_1img`, 143,475 characters of thinking. On CUDA it is gemma4:26b, all six pairs.
+  - So it is not run ([ADR 0044](../adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md), SPEC H25).
+  - Only with flash attention off does the attention itself run in f32. Metal's llama.cpp backend is unmeasured.
 - **Budget.** `num_ctx` is 65536, so the capture has 57344 tokens (`thinkcap.py` sets `num_predict = num_ctx -
   8192`). ADR 0005 found qwen3.6's trajectories token-identical across `num_ctx`, so budgets compare as token
   counts.
@@ -47,7 +49,7 @@ On a docker host (ROCm or CUDA), `kvloop.sh` starts one container per arm and ca
 
 ```
 IMG=<the fold image> STORE=<model store> GPU_ARGS="--gpus all" \
-  ARMS="f16:1 f16:0 f32:0 f32:1" \
+  ARMS="f16:1 f16:0 f32:0" \
   CASES="gemma4:26b-a4b-it-q4_K_M|bbox_contract_real_1img" \
   OUT=kvloop-<host> ./kvloop.sh
 python3 kvloop_read.py kvloop-<host>/*.json
@@ -69,7 +71,7 @@ captures.
 
 | case | `q8_0`, FA on, in the protocol | `q8_0`, FA on, cold | f16, FA on | f16, FA off | f32, FA off | f32, FA on |
 |---|---|---|---|---|---|---|
-| qwen3.6 `bbox_contract_real_1img` | never finishes at 131072; second half 35/2282 lines distinct | loops: all 24576 tokens at 32768; second half 49/436 | **loops**: all 57344 tokens, no answer; second half 77/1647 | **loops**: all 57344 tokens, no answer; second half 12/906 | **loops**: all 57344 tokens, no answer; second half 76/1643 | queued |
+| qwen3.6 `bbox_contract_real_1img` | never finishes at 131072; second half 35/2282 lines distinct | loops: all 24576 tokens at 32768; second half 49/436 | **loops**: all 57344 tokens, no answer; second half 77/1647 | **loops**: all 57344 tokens, no answer; second half 12/906 | **loops**: all 57344 tokens, no answer; second half 76/1643 | byte-identical to f16, FA on: loops, 143,475 characters |
 | qwen3.6 `bbox_contract_adv_real` | never finishes at 131072; second half 27/3165 | **finishes**: 17,626 tokens, valid JSON, 6/6 labels | **finishes**: 12,120 tokens, valid JSON, 6/6 labels | — | — | — |
 | gemma4:26b `bbox_contract_real_1img` | never finishes at 131072, in both flows | loops: all 24576 tokens at 32768; second half 10/381 | **loops**: all 57344 tokens, no answer; second half 26/1224 | **finishes**: 5,800 tokens, valid JSON, 6/6 labels | **loops**: all 57344 tokens, no answer; second half 20/1322 | — |
 

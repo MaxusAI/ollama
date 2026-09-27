@@ -24,6 +24,11 @@ should not have to choose one KV type for every model on an instance.
   (f32, f16, bf16, q8_0, q4_0, q4_1, q5_0, q5_1, iq4_nl); an invalid value
   logs a warning and falls back to the env so a Modelfile typo cannot make a
   model unloadable.
+- `f32` is accepted, but it buys nothing under flash attention. At b11081,
+  CUDA's and HIP's flash attention convert it to f16 before their kernels, so
+  it gives f16's output byte for byte at twice the memory, as measured on
+  gfx1151 and CUDA
+  ([ADR 0044](adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md)).
 - The launch still passes the two separate flags `--cache-type-k <t>
   --cache-type-v <t>` (there is no combined `--cache-type-kv` in llama.cpp).
 - Reload semantics come free: the field lives in `Runner`, and the scheduler's

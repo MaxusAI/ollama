@@ -12,7 +12,9 @@
 #              <render gid>", CUDA "--gpus all"
 # Optional:
 #   ARMS       space-separated <kv>:<fa> pairs, fa 1 = flash attention on, 0 = off
-#              (default "f16:1 f16:0 f32:0 f32:1"; q8_0:0 does not exist, a quantized V cache needs FA)
+#              (default "f16:1 f16:0 f32:0"; q8_0:0 does not exist, a quantized V cache needs FA; f32:1 is
+#              f16:1 byte for byte on CUDA and HIP, ADR 0044 / SPEC H25, so run it only for the re-check
+#              after a llama.cpp bump: ARMS="f16:1 f32:1")
 #   NUM_CTX    capture context, default 65536 (num_predict = NUM_CTX - 8192)
 #   OUT        output directory, default ./kvloop-out
 #   PORT       host port, default 11494;  NAME  container name, default ollama-kvloop
@@ -25,7 +27,7 @@
 # not assumed. Greedy results do not move with GPU sharing; timing does.
 set -uo pipefail
 : "${IMG:?set IMG}" "${CASES:?set CASES}" "${STORE:?set STORE}" "${GPU_ARGS:?set GPU_ARGS}"
-ARMS=${ARMS:-"f16:1 f16:0 f32:0 f32:1"}
+ARMS=${ARMS:-"f16:1 f16:0 f32:0"}
 NUM_CTX=${NUM_CTX:-65536}; OUT=${OUT:-./kvloop-out}; PORT=${PORT:-11494}; NAME=${NAME:-ollama-kvloop}
 BIND=${BIND:-127.0.0.1}; IPC_ARGS=${IPC_ARGS---ipc host --shm-size 16g}
 EXTRA_ENV=${EXTRA_ENV:-}

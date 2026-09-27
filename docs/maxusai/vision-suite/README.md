@@ -456,8 +456,13 @@ Always check `prompt_eval_count` before attributing such a delta to a patch.
   about the KV type, and every run records the type it used. For a KV or
   attention-path question, `thinkcap.py` captures one cell cold with its
   thinking kept, `kvloop.sh` runs the KV type x flash-attention arms on a
-  docker host, and `kvloop_read.py` reads out the loop profile and the score
-  (tasks/kv-precision-think-loops.md).
+  docker host, `kvloop_read.py` reads out the loop profile and the score, and
+  `promptcap.py` captures a prompt variant or production's card sampling
+  (tasks/kv-precision-think-loops.md; the procedure is the `kv-loop-check`
+  skill).
+- Never run an f32 KV cache with flash attention on as an arm. On CUDA and
+  HIP it is f16, byte for byte, at twice the memory (ADR 0044, SPEC H25). f32
+  changes the attention's precision only with flash attention off.
 - Caveat: with `OLLAMA_KV_CACHE_TYPE=q8_0`, qwen3.6 think-on inflates
   prompt-dependently: document unaffected, scene ~19K thinking tokens (vs
   3.3K at f16), multi no convergence within 131K (vs 9.0K at f16). Use f16
