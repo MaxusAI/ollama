@@ -120,6 +120,37 @@ smaller … Let's assume W=1200, H=675". In `adv_real` it commits to one size an
 answers declare `ref_size` [1000, 600] against the true 1920×1080. Their `hits_anchor` is 0, and 3 of 6 boxes hit
 only in the best-fitting dialect, norm-1000.
 
+## Prompt and sampling check (gfx1151, 2026-09-27)
+
+The KV and attention arms could not stop these loops, so the next question was whether the prompt, or production's
+sampling, can. The case is `bbox_contract_real_1img`, captured cold on the fold image with f16 and flash attention
+on, at 32768 (24,576 tokens), by [`promptcap.py`](../vision-suite/promptcap.py):
+
+- **size:** the prompt's one unanswerable instruction ("If you resized the image internally, give the size YOU used,
+  not the size you were sent") is replaced by the image's real size;
+- **commit:** the same sentence is replaced by "choose your best estimate once, give it as ref_size, and do not
+  revisit it";
+- **card:** the original prompt at the model card's sampling, which is what production sends. It is sampled, so
+  there are three runs per model.
+
+The greedy original loops on both models (the table above).
+
+| arm | qwen3.6 | gemma4:26b |
+|---|---|---|
+| greedy, **size** | finishes, 20,299 tokens; boxes in 0–1000 (2/6 as pixels) | **finishes, 2,081 tokens; 6/6 pixel boxes, IoU 0.71, contract followed** |
+| greedy, **commit** | **loops** from about token 7,800 ("Let's assume the image is 1920x1080." x27) | **finishes, 4,345 tokens; 6/6, IoU 0.73, contract followed** |
+| **card**, 3 runs | 3/3 finish (4,924, 15,637 and 22,947 tokens); pixel boxes 1/6, 5/6 and 2/6, mostly in the 0–1000 frame | 3/3 finish (1,680, 6,837 and 7,138); 6/6 pixel boxes in two runs, and 0–1000 in one |
+
+**The reading:**
+
+- **The unanswerable sentence is the loop's trigger.** Take it out, and gemma4:26b answers in a few thousand tokens
+  with correct pixel boxes, whether or not it is given the size.
+- **qwen3.6 does not produce pixel coordinates.** Even given the size, it answers in its own 0–1000 frame under a
+  pixel declaration. For qwen3.6 a caller converts from 0–1000, which the bbox contract already requires
+  ([SPEC C1](../spec/vision-bbox-response-contract.md), ADR 0027: pin norm-1000).
+- **At production's sampling, none of the six runs loops.** The suite's greedy think-on is the worst case, as
+  `sampling.py` says. The loops are real, but production users are unlikely to meet them on this prompt.
+
 ## CUDA (`ai-server/mlx-cuda`)
 
 **Run on the CUDA host on 2026-09-26** (#387): `kvloop.sh` at `0bbd5e67c`, unmodified. The captures are cold, at

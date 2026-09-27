@@ -21,7 +21,10 @@ This skill owns the **procedure**. The evidence lives in
   image's size (`bbox_contract_real_1img`, `bbox_contract_adv_real`). The same scene in normalized coordinates
   finishes.
 - **The suite's think-on is greedy, which is the worst case** (`sampling.py`, `THINK_TEMPERATURE=0`). Production
-  sends the model card's sampling.
+  sends the model card's sampling. On the pixel-coordinate case, all 6 card-sampled runs finish (2026-09-27).
+- **A prompt that asks for something the model cannot see is a loop trigger.** "Give the size YOU used" after an
+  invisible internal resize loops gemma4:26b and qwen3.6. With it replaced, gemma4 answers correctly. qwen3.6
+  answers in 0–1000 whatever the prompt says, so pin norm-1000 (SPEC C1).
 
 ## Procedure
 
