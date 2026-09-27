@@ -16,7 +16,8 @@ lands on this branch, your gate 4 and gate 6 legs can build from it.
 | 3, the patch series | **done** — all eight (001 002 004 005 801 802 903, and 908 from 2026-09-26) apply clean to `b11081` on a real checkout, in order, and 908 reverse-applies, so a re-configure is safe; served projectors unchanged |
 | 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's; **done on gfx1151**: `0.34.3-dynres-5-g29ae523-rocm7-gfx1151`, with a b11081 payload whose structure is unchanged against 0.34.3's; rebuilt with 908 as `0.34.3-dynres-22-g5584539`, and **908 changes no gfx1151 kernel** |
 | 5, preflight | **PASS on CUDA**: run 2 PASS=21 SKIP=8, with the pins moved in `c79e50d98` after run 1 (FAIL=2 on the two pins, by design); run 3, on the image with 908, the same. **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378), and the same on the 908 image |
-| 6, campaigns | **done on CUDA** (2026-09-27). GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. On the image with 908, gemma4:31b, 26b and e4b and nemotron3 equal production; e2b and the qwen models keep the host half's movement. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: `ce8caa6e6`'s device half leaves 6 of 27 gemma4:26b cases in loops that never end, against 1 without it; 31b is unaffected. MLX think-on: the single pass loops no more than two-pass, with or without a fixed history. gemma4:26b `multi_3img_anchored` never converges in any of 8 runs. Item 8: its trap sentence alone loops it on GGUF on the fold image, not on the image that ships; on MLX it finishes about one cold draw in five, with the sentence or without it. Drafting: under production's knob the single pass never drafts, so it thinks 1.5–1.7× slower (open item 7). See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is done (2026-09-27): on all five GGUF models the single pass leaves the same cases unfinished as two-pass, and those loops come from the prompt (#387). See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
+| 6, campaigns | **done on CUDA** (2026-09-27). GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. On the image with 908, gemma4:31b, 26b and e4b and nemotron3 equal production; e2b and the qwen models keep the host half's movement. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: `ce8caa6e6`'s device half leaves 6 of 27 gemma4:26b cases in loops that never end, against 1 without it; 31b is unaffected. MLX think-on: the single pass loops no more than two-pass, with or without a fixed history. gemma4:26b `multi_3img_anchored` never converges in any of 8 runs. Item 8: its trap sentence alone loops it on GGUF on the fold image, not on the image that ships; on MLX it finishes about one cold draw in five, with the sentence or without it. Drafting: under production's knob the single pass never drafts, so it thinks 1.5–1.7× slower, and the deploy runs two-pass (open item 7). See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is done (2026-09-27): on all five GGUF models the single pass leaves the same cases unfinished as two-pass, and those loops come from the prompt (#387). See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
+| tag and deploy | **not yet.** The CUDA deploy is prepared. It mirrors production (`0.34.2-dynres-0-g5bffaac`) and adds `OLLAMA_KV_CACHE_TYPE=f16` and `OLLAMA_FORMAT_TWO_PASS=1` (open items 6 and 7). It waits on the merge, the `v0.34.4-dynres` tag, the release image and the maintainer's word |
 
 **Three hosts converged on this merge.** The ROCm and Metal hosts had each started the same fold before #375
 existed, stopped, and cross-checked instead; see [#375](https://github.com/MaxusAI/ollama/pull/375).
@@ -101,7 +102,8 @@ if single pass regresses on a served model.
 4. An EOS inside the thinking returns only the thinking, `response:""`, `done_reason:"stop"`.
 5. **On MLX a think+format request carries a grammar from its first token**, so with production's
    `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` it never drafts during the thinking, where pass one used to. Measure at 0 and 1.
-   Measured (the drafting probe, under gate 6): the single pass then thinks 1.5–1.7× slower than two-pass does.
+   Measured (the drafting probe, under gate 6): the single pass then thinks 1.5–1.7× slower than two-pass does. The
+   CUDA deploy therefore runs two-pass (open item 7).
 
 Think-off cells cannot tell the two flows apart — the suite always sends `format:"json"` and both constrain from
 token 0 when thinking is off — so gate 6 needs the think-on `bbox_contract_reasoning` cells. nemotron3 has no
@@ -501,7 +503,8 @@ P0 rot 3: n=5 median  40.51  range 33.9-53.2  cont  96%  peerSM  44.1  load1  11
 
   F1 over F0 reads 1.6–2.2×.
 - **So the flow matters only through the knob.** Deployed with production's environment, the fold's default thinks
-  1.5–1.7× slower on MLX than production does today. See open item 7.
+  1.5–1.7× slower on MLX than production does today. So the deploy runs two-pass (open item 7, the maintainer's
+  decision).
 - **F1 and P0 are level within the spread.** Both draft the thinking. On gemma4:31b, F1 over P0 reads 1.13, 1.08 and
   0.96 across the rotations; on qwen3.8 it reads 0.95, 1.07 and 1.26. Within one arm, speed follows the request's draft
   acceptance. In P0's third rotation on 31b, under the same peer, one request ran at 53.2 tok/s with acceptance 0.84
@@ -1095,12 +1098,19 @@ representation-sensitive test each, so the fold's attribution stays clean.
 6. **The CUDA deploy sets `OLLAMA_KV_CACHE_TYPE=f16` explicitly** (the maintainer's decision, 2026-09-26, after #386
    and #387). Production does not set the variable today; it runs the default, and its log shows f16 in all 12 of its
    KV cache allocations, so it is not recreated for this alone. The v0.34.4 deploy mirrors production's container by
-   `docker inspect`, as every CUDA deploy has, and adds the variable. If the live container carries a different value,
-   it refuses rather than choose. The deploy itself waits on the maintainer's word.
-7. **The deploy's think+format configuration on MLX** (the drafting probe, under gate 6). The v0.34.4 deploy mirrors
-   production's container (item 6). So as prepared it runs the single pass with `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`,
-   which is arm F0: thinking 1.5–1.7× slower than production's two-pass today. The choices are the maintainer's:
-   - **`OLLAMA_FORMAT_TWO_PASS=1`**: today's speed and today's memory behaviour, ADR 0004's flow.
+   `docker inspect`, as every CUDA deploy has, and adds the variable, and item 7's `OLLAMA_FORMAT_TWO_PASS=1`. If the
+   live container carries a different value, it refuses rather than choose. The deploy itself waits on the
+   maintainer's word.
+7. **The deploy's think+format configuration on MLX: two-pass** (the maintainer's decision, 2026-09-27, after the
+   drafting probe under gate 6). The v0.34.4 deploy sets `OLLAMA_FORMAT_TWO_PASS=1` beside item 6's f16. That keeps
+   today's speed, today's memory behaviour and ADR 0004's flow. Mirroring production alone would have run the single
+   pass with `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`, which is arm F0, and thinks 1.5–1.7× slower than production's
+   two-pass today. `deploy-v0344.sh` adds the switch the way it adds f16:
+   - It refuses if the live container carries another value.
+   - It rolls back unless the new container's environment carries the switch and the server's startup config reads
+     `OLLAMA_FORMAT_TWO_PASS:true`.
+
+   It was chosen over three other options:
    - **The knob at 1**: F1's speed. But drafting under a grammar brings back the 0.34.1 record's drafting retention
      (an image, a stop and speculation) for think-off structured image requests on the qwen3.5 family, which are the
      requests the knob was deployed for.
