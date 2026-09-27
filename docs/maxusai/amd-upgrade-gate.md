@@ -355,8 +355,10 @@ flow, not v0.34.4's single-pass default. The CUDA deploy made the same choice (M
 gfx1151's GGUF the fold's think-on protocol found no loop difference between the flows on any of five models, so
 parity with CUDA decided it.
 - The compose file carries the setting (MaxusAI/ollama-deployments `3354a42`), so a compose redeploy cannot drop it.
-- **The compose `.env` still names `0.32.1-rocm-dynres-5d5b7a72`.** `docker compose up` would start 0.32.1. Do not
-  redeploy through compose until its image line names this image.
+- **The compose `.env` names this image** since MaxusAI/ollama-deployments `55e2fa2` (2026-09-28). Until then it
+  named `0.32.1-rocm-dynres-5d5b7a72`. `docker compose config` now renders production's image and settings. It
+  differs from the running container only in `label=disable` (an SELinux option, with no effect on this host), an added
+  healthcheck, and a compose network in place of the default bridge. Check the network before a compose redeploy.
 
 Rollback:
 
@@ -409,9 +411,26 @@ the image's size ends it.
 | clause | outcome |
 |---|---|
 | 1–2 | **As 2026-09-19.** Both overridden on evidence; nothing has changed upstream. |
-| 3. `--direct-io` | **Satisfied under (b):** `OLLAMA_IGPU_DIRECT_IO=0` exists. **Under (c) by transitivity, not by a direct A/B.** On b11081 with direct-io on, think off equals b10969 with it on in every scored cell of five models. On 2026-09-21, b10969 with it on equalled b10969 with it off (0/54 blocks). A direct on/off A/B on b11081 was not run. |
+| 3. `--direct-io` | **Satisfied under (c) on b11081, validated.** Re-validated because the payload moved, on the promoted image in production's environment (2026-09-28): **0/54 blocks differ** between dio-on and dio-off (qwen3.6 and gemma4:31b, think off; every scored cell equal, 0 of 978 and 0 of 986). Both arms were verified at the runner flag line: dio-on passed `--load-mode dio` on both runner starts, dio-off (`OLLAMA_IGPU_DIRECT_IO=0`) on neither. Also satisfied under (b): the opt-out exists. |
 | 4. Vision A/B, ≥6 consecutive rows, 0 degenerate | **PASSED on the byte-identical candidate.** Five models, qwen3.6 (`qwen35moe`) among them, think off, equal to the 0.34.3 candidate and production 0.34.2 in every scored cell. Zero degenerate rows. It ran under `q8_0`. |
 | 5. `make proof` | **Waived — still does not exist.** |
+
+**Clause 3 on b11081, 2026-09-28.** The A/B (`dio-ab.sh`, in the run directory) ran the vision suite with think off in
+two arms of the promoted image, each model on a cold server, in production's environment: f16, flash attention on, two
+slots, two-pass. Its output, verbatim:
+
+```
+##### runner flag lines, per arm 2026-09-28T09:02:07+10:00
+  dio-on:       2 --load-mode dio
+  dio-on: runner starts: 2
+  dio-off: runner lines with --load-mode: 0
+  dio-off: runner starts: 2
+##### cmp_scores.py, dio-on against dio-off 2026-09-28T09:02:07+10:00
+0 of 978 cells differ (scores_r0344dioon_1_qwen3_6_35b-a3b-q4_k_m_thinkfalse.json vs scores_r0344diooff_1_qwen3_6_35b-a3b-q4_k_m_thinkfalse.json)
+0 of 986 cells differ (scores_r0344dioon_1_gemma4_31b-it-q4_K_M_thinkfalse.json vs scores_r0344diooff_1_gemma4_31b-it-q4_K_M_thinkfalse.json)
+```
+
+All 108 blocks, 27 for each model in each arm, finished with valid JSON on `0.34.4-dynres-0-gb43ee8e`.
 
 **How the host was confirmed idle.** As for 0.34.3: no model was loaded, and there was no working request in the two
 minutes before the swap. `deploy-0344.sh` refuses to swap otherwise.
