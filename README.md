@@ -140,17 +140,41 @@ Metal and CUDA. But it is not the path to reach for by default:
   "Roughly half" is a fair central estimate and a poor description of any
   single case: the spread is 2.2× and it is not architectural (the two dense
   pairs sit at 75% and 53%, the two MoE at 34% and 39%). Two of the four
-  `mlx-cuda` arms had no stable throughput to quote at all.
-- **Its bigger cost is variance, not speed.** `mlx-cuda`'s per-request spread
-  is ~5× the `cuda` path's and reaches 46% within a single arm — same host,
-  same prompt, back to back — while every `cuda` arm held inside ±1.5% first
-  time. For anything that sets a timeout or compares two builds, that matters
-  more than the ratio. It is per-model: `gemma4:31b-nvfp4` reproduced to 1.1%
-  across four independent measurements.
+  `mlx-cuda` arms had no stable throughput to quote at all. The report is dated:
+  it measured `0.33.2-dynres-5-g2b95b4a` on 2026-08-30. The MLX pin has moved
+  since then, to `59d600b5` in v0.34.4, and the matched comparison has not been
+  re-run.
+- **Its bigger cost is variance, not speed.**
+  - **Throughput.** `mlx-cuda`'s per-request spread is ~5× the `cuda` path's and
+    reaches 46% within a single arm — same host, same prompt, back to back —
+    while every `cuda` arm held inside ±1.5% first time. It is per-model:
+    `gemma4:31b-nvfp4` reproduced to 1.1% across four independent measurements.
+  - **Output.** At temperature 0 a drafted request takes its own path every
+    time. Even undrafted, each cold load takes its own greedy trajectory. The
+    same gemma4:26b request finished 1 to 3 times in 5 cold loads, depending on
+    the prompt. On the `cuda` path, the same request repeats byte for byte
+    ([v0.34.4 fold record](docs/maxusai/tasks/upstream-sync-0.34.4.md): the
+    drafting probe, and open item 8).
+
+  For anything that sets a timeout or compares two builds, this matters more
+  than the ratio. Compare MLX builds with repeats, never single runs.
+- **Structured output with thinking depends on drafting.** Such a request
+  thinks 1.5–1.7× faster when its thinking drafts. Production runs the two-pass
+  flow, which lets it draft ([ADR 0045](docs/maxusai/adr/0045-think-format-single-pass-by-default-two-pass-in-production.md)).
+- **Two traps, both measured:**
+  - **Pin `num_ctx`.** Unset, the default is derived from total VRAM: 262144 on
+    the CUDA host's 105.5 GiB. That collapses decode 25×, to 1.48 tok/s against
+    37.97 at 8192
+    ([record](docs/maxusai/grammar-speculation-measured-inert.md)).
+  - **Persist the kernel cache.** Without `MLX_PTX_CACHE_DIR`, every fresh
+    container recompiles MLX's JIT kernels, so its first request takes 10–15
+    minutes. Keep one cache directory per GPU architecture
+    ([vision-suite README](docs/maxusai/vision-suite/README.md)).
 - **On Metal it is the other way round.** A matched campaign measured MLX
-  ~2.4× faster than llama-server (gemma4 12b: 121 vs 50 tok/s decode). So the
-  CUDA gap is CUDA-specific, not an MLX property — do not generalise either
-  number to the other platform.
+  ~2.4× faster than llama-server (gemma4 12b: 121 vs 50 tok/s decode;
+  [2026-08-08](docs/maxusai/vision-campaign-2026-08-08-mlx.md), single samples,
+  directional only). So the CUDA gap is CUDA-specific, not an MLX property — do
+  not generalise either number to the other platform.
 - **Engine and quantization move together in every figure above** — nvfp4 on
   MLX against q4_K_M on GGUF, because those are the artefacts that exist. So
   the throughput numbers describe the two stacks **as shipped**, not the
@@ -158,15 +182,22 @@ Metal and CUDA. But it is not the path to reach for by default:
   uncontrolled comparison: a quality difference cannot be attributed to the
   engine either. Nobody has separated them; until someone does, treat "which
   is better" as open.
-- It is **converging with upstream's own MLX work** and is expected to be
-  superseded by it; the fork has already retired its constrained-sampling
-  layer in favour of upstream's engine (ADR 0033).
+- **It is converging with upstream's own MLX work**, and is expected to be
+  superseded by it.
+  - The fork has retired its constrained-sampling layer in favour of upstream's
+    engine (ADR 0033).
+  - Since v0.34.4 it follows upstream's single-pass structured outputs by
+    default (ADR 0045).
+  - What remains fork-only on MLX is in the tables above.
 
 Use GGML/llama-server for anything where throughput or comparability matters.
 
-Every row above is a delta we would rather not have. Each is offered upstream where
-it is upstream's to take, and deleted from here once it lands there — the
-`qwen25vl` gate and the MMQ padding fix are both filed and pending.
+Every row in the tables above is a delta we would rather not have. Each is
+offered upstream where it is upstream's to take, and deleted from here once it
+lands there. The Qwen-VL accumulation gate
+([ollama#18070](https://github.com/ollama/ollama/pull/18070)) and the MMQ
+padding fix ([llama.cpp#27044](https://github.com/ggml-org/llama.cpp/issues/27044))
+are filed and pending. The gemma4 tiling revert (`908`) is not filed yet.
 
 ---
 
