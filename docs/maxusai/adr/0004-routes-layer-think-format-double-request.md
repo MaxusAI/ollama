@@ -7,6 +7,10 @@
   Transition-flow metrics amended 2026-08-08 by
   [ADR 0010](0010-transition-flow-metrics-reconstruction.md) (the cancel path
   no longer forwards pass-two metrics raw).
+- **Superseded 2026-09-28** by [ADR 0045](0045-think-format-single-pass-by-default-two-pass-in-production.md) as the
+  statement of which flow the fork runs. Since v0.34.4, upstream's single pass is the code default, and this flow runs
+  behind `OLLAMA_FORMAT_TWO_PASS=1`, which production sets. This ADR remains the reference for how the two-pass
+  flow works.
 - **Date:** 2026-08-02
 - **Deciders:** MaxusAI fork maintainers
 

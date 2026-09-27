@@ -1089,9 +1089,9 @@ representation-sensitive test each, so the fold's attribution stays clean.
    **Gates 5 and 6 pass on it** (above): preflight PASS=21 SKIP=8, and GGUF think-off equals production on gemma4:31b,
    26b and e4b and on nemotron3, while e2b and the qwen models keep the host half's movement. The ROCm host's check is done: 908 changes no
    gfx1151 kernel, and preflight passes on the rebuilt image (gates 4 and 5 on gfx1151).
-3. **The think+format default on MLX.** Metal's single pass with drafting on (`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=1`) runs
-   next on the full 26b and 31b suites, and separates the flow from the drafting. An ADR superseding ADR 0004 follows
-   the data, and records the budget semantics listed above.
+3. **The think+format default on MLX: [ADR 0045](../adr/0045-think-format-single-pass-by-default-two-pass-in-production.md)** (2026-09-28). Metal's run separated the flow from the
+   drafting: on MLX, drafting sets the loop rate (#375). ADR 0045 supersedes ADR 0004 as the statement of which flow
+   runs. It records the two flows' budget semantics and proposes the switch's retirement condition.
 4. **`TestMulGatherQMMGlobalScale`** is gated to Metal upstream and passes on CUDA with the gate widened (128.8 s);
    the widening is its own change. So are the three ADR 0039 misses above.
 5. **Gate 6 think-on on gfx1151**: qwen3.8, nemotron3 and qwen3.6 under the aligned protocol, into 2026-09-26.
