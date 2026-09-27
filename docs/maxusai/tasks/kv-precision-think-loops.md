@@ -151,6 +151,80 @@ The greedy original loops on both models (the table above).
 - **At production's sampling, none of the six runs loops.** The suite's greedy think-on is the worst case, as
   `sampling.py` says. The loops are real, but production users are unlikely to meet them on this prompt.
 
+## The KV type against the fold's own change (gfx1151 protocol, 2026-09-27)
+
+The fold's think-on protocol (#375) runs the whole suite on qwen3.6 in two arms on one fold image. `fold` is the
+fold's single-pass structured output. `fold2p` is the same image with `OLLAMA_FORMAT_TWO_PASS=1`, ADR 0004's two-pass
+flow. So `fold` against `fold2p` isolates the fold's one behaviour change. The cells are greedy
+(`card:qwen3.6+temp0`) and climb the full ladder to 131072. The pair ran under `q8_0`, production's KV type at the
+time, and runs again under f16. `fold2p` has now finished under both, so the KV type can be set beside the fold's
+change.
+
+[`cmp_scored.py`](../vision-suite/cmp_scored.py) prints, test by test, the quality fields that moved and the side
+each move favours (`A+` or `B+`). It leaves out lengths and budgets, and compares only the tests that finished in
+both runs.
+
+The fold's change, both arms under `q8_0` (A = `fold`, B = `fold2p`):
+
+```
+bbox_contract_box2d_1img: iou_anchor 0.633->0.892 B+; iou_declared 0.633->0.892 B+; self_check False->True
+bbox_contract_positional_1img: iou_anchor 0.635->0.616 A+; iou_declared 0.635->0.616 A+
+bboxm_free_noanc_pos: iou_declared 0.836->0.957 B+
+bboxm_pin_anc_pos: iou_anchor 0.57->0.968 B+; iou_declared 0.57->0.968 B+
+multi_3img: q4_bbox_space 'norm1000/xyxy'->'pixel/xyxy'
+quality moves: 5 favour B, 2 favour A, 2 label changes (A = scores_r0344p_fold_1_qwen3_6_35b-a3b-q4_k_m_thinkon.json, B = scores_r0344p_fold2p_1_qwen3_6_35b-a3b-q4_k_m_thinkon.json)
+```
+
+The KV type, both runs in the `fold2p` arm (A = `q8_0`, B = f16):
+
+```
+bbox_contract: iou_declared 0.89->0.956 B+
+bbox_contract_anchored: iou_anchor 0.938->0.6 A+; iou_declared 0.938->0.6 A+; self_check True->False
+bbox_contract_anchored_1img: iou_anchor 0.757->0.648 A+; iou_declared 0.757->0.648 A+; self_check False->True
+bbox_contract_box2d_1img: iou_anchor 0.892->0.967 B+; iou_declared 0.892->0.967 B+
+bbox_contract_multi: bestfit_dialect 'real/xyxy'->'norm1000/xyxy'; contract_followed False->True B+; declaration_matches_boxes False->True B+; declared_ref [1920, 1080]->[1000, 1000]; declared_type 'real'->'norm1000'; hits_bestfit 3->6 B+; hits_declared 3->6 B+; implied_scale 0.838->None; iou_at_implied_scale 0.489->None; iou_declared 0.202->0.931 B+
+bbox_contract_perobject: iou_declared 0.954->0.964 B+
+bbox_contract_pinned: iou_declared 0.959->0.966 B+
+bbox_contract_positional_1img: iou_anchor 0.616->0.968 B+; iou_declared 0.616->0.968 B+
+bbox_contract_reasoning: bestfit_dialect 'norm1/xyxy'->'norm1000/xyxy'; declared_ref [1000, 600]->[1000, 1000]; declared_type 'norm1'->'norm1000'; iou_declared 0.55->0.676 B+
+bboxm_free_anc_named: iou_anchor 0.964->0.949 A+; iou_declared 0.964->0.949 A+
+bboxm_free_anc_pos: iou_anchor 0.951->0.97 B+; iou_declared 0.951->0.97 B+
+bboxm_free_noanc_named: contract_followed False->True B+; declaration_matches_boxes False->True B+; declared_ref [1920, 1080]->[1000, 1000]; declared_type 'real'->'norm1000'; hits_declared 1->6 B+; iou_declared 0.057->0.855 B+
+bboxm_free_noanc_pos: contract_followed True->False A+; declaration_matches_boxes True->False A+; hits_bestfit 6->1 A+; hits_declared 6->1 A+; iou_declared 0.957->0.079 A+
+bboxm_pin_anc_named: iou_anchor 0.966->0.692 A+; iou_declared 0.966->0.692 A+; self_check True->False
+bboxm_pin_anc_pos: iou_anchor 0.968->0.919 A+; iou_declared 0.968->0.919 A+
+bboxm_pin_noanc_named: iou_declared 0.719->0.959 B+
+bboxm_pin_noanc_pos: contract_followed True->False A+; declaration_matches_boxes True->False A+; hits_bestfit 6->3 A+; hits_declared 6->3 A+; iou_declared 0.952->0.325 A+
+document_single: name_bbox_mean_iou 0.577->0.733 B+
+multi_3img: q4_bbox_space 'pixel/xyxy'->'norm1000/xyxy'
+multi_3img_anchored: q4_bbox_hit False->True B+; q4_bbox_space None->'norm1000/xyxy'
+scene_single_anchored: bbox_mean_iou 0.057->0.039 A+
+bbox_contract_adv_real: finished only in B
+quality moves: 22 favour B, 21 favour A, 15 label changes (A = scores_r0344p_fold2p_1_qwen3_6_35b-a3b-q4_k_m_thinkon.json, B = scores_r0344pf16_fold2p_1_qwen3_6_35b-a3b-q4_k_m_thinkon.json)
+```
+
+Derived from the output above, not generator output: 25 tests finish in both runs of each comparison.
+
+- The fold's change moves the quality of 4 of them, 3 toward `fold2p`, and a label in 1 more.
+- The KV type moves the quality of 20, 12 toward f16 and 8 toward `q8_0`, and a label in 1 more.
+- `bbox_contract_adv_real` finishes only under f16. `bbox_contract_real_1img` finishes in none of the three runs.
+
+On this host a greedy qwen3.6 run reproduces cell for cell: the v0.34.3 fold's control and candidate agreed in all
+1009 cells ([upstream-sync-0.34.3.md](upstream-sync-0.34.3.md)). So both counts are effects, not noise.
+
+**The reading:**
+
+- **The KV type moves five times as many tests as the fold's change, and in no net direction.** The largest moves
+  go both ways. With f16, `bboxm_free_noanc_named`'s IoU goes from 0.057 to 0.855, and `bbox_contract_multi`'s from
+  0.202 to 0.931. With `q8_0`, `bboxm_free_noanc_pos` keeps 0.957 where f16 has 0.079, and `bboxm_pin_noanc_pos`
+  keeps 0.952 where f16 has 0.325. A greedy trajectory that diverges early ends on a different answer, and the KV
+  type is enough to make it diverge: the cold `real_1img` captures above part 246 characters in.
+- **So f16 is not a quality setting.** It is production's setting for parity and headroom
+  ([ADR 0043](../adr/0043-production-runs-an-f16-kv-cache-on-every-platform.md)), and this measures the parity half.
+- **Compare arms only at one KV type, on one host and across hosts.** A KV mismatch between two arms, or between two
+  hosts, moves more cells than the change under test. The `q8_0` pair stands as a pair. The f16 pair is compared
+  within itself when its `fold` arm finishes.
+
 ## CUDA (`ai-server/mlx-cuda`)
 
 **Run on the CUDA host on 2026-09-26** (#387): `kvloop.sh` at `0bbd5e67c`, unmodified. The captures are cold, at

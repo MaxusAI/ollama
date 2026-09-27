@@ -2302,6 +2302,35 @@ class TestClipFingerprint(unittest.TestCase):
         self.assertIn("Check the model and image match", out)
 
 
+class TestCmpScored(unittest.TestCase):
+    """cmp_scored.py compares only finished blocks, and only quality fields, with the side each move favours."""
+
+    DONE = {"done_reason": "stop", "eval_count": 900, "num_predict": 8192}
+
+    def cmp(self, a, b):
+        import cmp_scored
+        return cmp_scored.compare(a, b)
+
+    def test_capped_and_errored_blocks_are_not_scores(self):
+        a = {"t1": dict(self.DONE, iou_declared=0.9), "t2": dict(self.DONE, iou_declared=0.9)}
+        b = {"t1": {"done_reason": "length", "eval_count": 8192, "num_predict": 8192, "iou_declared": 0.1},
+             "t2": {"error": "blown generation budget", "iou_declared": 0.1}}
+        lines, fav_a, fav_b, labels = self.cmp(a, b)
+        self.assertEqual((fav_a, fav_b, labels), (0, 0, 0))
+        self.assertEqual(lines, ["t1: finished only in A", "t2: finished only in A"])
+
+    def test_direction_tolerance_and_labels(self):
+        a = {"t": dict(self.DONE, iou_declared=0.963, iou_anchor=0.5, degenerate_boxes=0, declared_type="real",
+                       eval_count=900)}
+        b = {"t": dict(self.DONE, iou_declared=0.968, iou_anchor=0.9, degenerate_boxes=2, declared_type="norm1000",
+                       eval_count=5000)}
+        lines, fav_a, fav_b, labels = self.cmp(a, b)
+        self.assertEqual((fav_a, fav_b, labels), (1, 1, 1))  # the 0.005 IoU step and eval_count are not moves
+        self.assertIn("iou_anchor 0.5->0.9 B+", lines[0])
+        self.assertIn("degenerate_boxes 0->2 A+", lines[0])
+        self.assertNotIn("iou_declared", lines[0])
+
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

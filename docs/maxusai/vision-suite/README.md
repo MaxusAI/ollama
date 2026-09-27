@@ -188,6 +188,13 @@ first is image accounting and the second is generation length.
   the ladder rung each row reached.
 - `summarize_reps.py <tag…>` — repeated arms as mean and spread, with the
   context-ladder rung and `num_predict` as the first rows (ADR 0029, SPEC H4a).
+- `cmp_scored.py A.json B.json [tol]` — which quality fields moved between two
+  score files, test by test, and the side each move favours (`A+` or `B+`),
+  over the tests that finished in both. Capped and errored blocks are not
+  scores (SPEC H5). Lengths and budgets are left out, and labels such as the
+  declared type print without a side. Counting every scalar field says whether
+  two runs differ; this says where, and which way
+  ([tasks/kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md)).
 - `summarize_geometry.py <tag-prefix> <arm> […]` — **template T4** (ADR 0012):
   the geometry sweep, one row per geometry, one column group per model. The
   anchor frame/ratio and chk/anc/bf columns keep SPEC C17's two failure modes

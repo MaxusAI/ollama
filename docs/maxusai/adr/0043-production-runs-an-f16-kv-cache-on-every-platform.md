@@ -53,5 +53,8 @@ What `q8_0` saves is memory: about 3 GB against 6 GB per model at 32K context (A
 - ADR 0005's decision 2 no longer lets an instance keep `q8_0` as its default.
 - Think-on results measured under `q8_0` carry that caveat. On gfx1151 that is everything since 2026-08-08,
   including the v0.34.4 fold's think-on protocol. The fold's qwen3.6 pair is re-run with f16.
+- Two arms, or two hosts, compare only at one KV type. In the fold's protocol on gfx1151, the KV type moved the
+  quality of 20 of 25 qwen3.6 think-on tests, in both directions, where the fold's own structured-output change
+  moved 4 ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md), 2026-09-27).
 - Each host measures whether KV precision and the attention path decide the loops that remain, in
   [kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md).

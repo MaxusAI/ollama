@@ -22,6 +22,10 @@ This skill owns the **procedure**. The evidence lives in
   finishes.
 - **The suite's think-on is greedy, which is the worst case** (`sampling.py`, `THINK_TEMPERATURE=0`). Production
   sends the model card's sampling. On the pixel-coordinate case, all 6 card-sampled runs finish (2026-09-27).
+- **The KV type moves greedy think-on scores more than a fold's code change, in both directions.** In the v0.34.4
+  fold's protocol on gfx1151 it moved the quality of 20 of 25 qwen3.6 tests, where the fold's structured-output
+  change moved 4 (2026-09-27). Compare arms only at one KV type. `vision-suite/cmp_scored.py` shows which quality
+  fields moved and which way.
 - **A prompt that asks for something the model cannot see is a loop trigger.** "Give the size YOU used" after an
   invisible internal resize loops gemma4:26b and qwen3.6. With it replaced, gemma4 answers correctly. qwen3.6
   answers in 0–1000 whatever the prompt says, so pin norm-1000 (SPEC C1).
