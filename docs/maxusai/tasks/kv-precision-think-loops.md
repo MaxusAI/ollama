@@ -155,8 +155,8 @@ The greedy original loops on both models (the table above).
 
 `multi_3img_anchored` is `multi_3img`'s prompt plus one calibration paragraph. That paragraph ends with the same kind
 of sentence: "If you resized image 1 internally, use the size YOU used." `promptcap.py` replaces it too. On the CUDA
-host, MLX's gemma4:26b never converges on this case in 8 runs, and converges on `multi_3img` in all 8 (#375). This
-host ran the GGUF leg of #375's open item 8: gemma4:26b-a4b q4_K_M on the fold image, captured cold and greedy, with
+host's fixed-history run, MLX's gemma4:26b leaves this case NOT CONVERGED in all 8 runs and converges on
+`multi_3img` in all 8, some on a higher rung (#375). This host ran the GGUF leg of #375's open item 8: gemma4:26b-a4b q4_K_M on the fold image, captured cold and greedy, with
 f16 and flash attention on, at 32768. The `orig` prompts' fingerprints equal the suite's `prompt_sha`.
 `kvloop_read.py`, verbatim:
 
@@ -190,6 +190,19 @@ greedy-commit_gemma4_26b-a4b-it-q4_K_M_multi_3img_anchored_32768
   that loops. This is the pattern above again: the numerical path moves where a loop starts, in both directions, and
   the prompt sets the trap. It does not change ADR 0043. f16 is production's setting for parity and headroom, and the
   fix for the loop is the prompt.
+- **The image that ships loops too, byte for byte.** On the 908 image (`0.34.3-dynres-22-g5584539`), both `orig`
+  captures equal the fold image's in thinking, answer and token counts: the control finishes in 3,616 tokens, and
+  the anchored prompt loops through the same 61,234 characters. 908 changes no gfx1151 kernel.
+
+**The CUDA host's legs of item 8** (#375, fold record `5a6305139`), with the same tool and settings:
+- **GGUF, CUDA's fold image:** the same answer as here. `orig` loops, from about token 2,129; `size`, `commit` and the
+  control finish.
+- **GGUF, the image CUDA ships (908):** all four finish. On CUDA the loop also needs `ce8caa6e6`'s flash-attention
+  tiling, which 908 reverts. On gfx1151, whose RDNA tile table that commit does not touch, the sentence is enough.
+  Again the numerical path decides whether the trap closes.
+- **MLX, five cold draws per prompt:** `orig`, `size` and `commit` each finish 1 of 5, and the control 3 of 5. On MLX
+  the sentence does not set the loop rate; stating the size changes only how the case loops. So the ladder's
+  "converges on `multi_3img` in all 8" hides looping draws: each rung is one cold draw.
 
 ## The KV type against the fold's own change (gfx1151 protocol, 2026-09-27)
 
