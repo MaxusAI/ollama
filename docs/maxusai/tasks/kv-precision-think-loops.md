@@ -120,19 +120,32 @@ only in the best-fitting dialect, norm-1000.
 
 ## CUDA (`ai-server/mlx-cuda`)
 
-**Queued on the CUDA host, after its drafting probe** (#387, 2026-09-26). Its production and gate runs were f16 already
-(#375). The plan:
+**Run on the CUDA host on 2026-09-26** (#387): `kvloop.sh` at `0bbd5e67c`, unmodified. The captures are cold, at
+`OLLAMA_NUM_PARALLEL=2`, single pass, on GPU0 (sm_120). Every one of the 24 captures has `--cache-type-k/v` and
+`--flash-attn` flags that match its arm. The model is gemma4:26b-a4b-it-q4_K_M, on two builds: the fold as shipped
+(b11081 with `ce8caa6e6`'s FA tiling) and the 908 image (the tiling reverted).
 
-- **Cases:** gemma4:26b-a4b-it-q4_K_M, with three cases:
-  - `multi_3img_anchored`, which loops on the fold and finishes with 908;
-  - `bbox_contract_real_1img`, the case shared across hosts;
-  - `bbox_contract_box2d_1img`, the 908 build's one loop.
-- **Builds:** each case runs on both builds, with `ce8caa6e6`'s tiling (the fold as shipped) and without it (the 908
-  image).
-- **Arms:** `f16:1 f16:0 f32:0 f32:1`. `f16:1` stays in as the run's own control, because the loop-rate table on
-  #375 ran in the suite at the default `OLLAMA_NUM_PARALLEL`, and `kvloop.sh` captures cold at 2.
-- **Deploy source (ADR 0043, decision 1):** production does not set the variable today and runs the f16 default
-  (12 of 12 KV allocations). The v0.34.4 deploy sets `OLLAMA_KV_CACHE_TYPE=f16` explicitly. It refuses if the live
+**Two byte-identities reduce the 24 captures to 12 distinct trajectories:**
+
+- f32 with FA on reproduces f16 with FA on, byte for byte, on both builds and all three cases. That confirms that
+  flash attention converts an f32 K/V cache to f16 first.
+- With FA off, the two builds are byte-identical at both f16 and f32. That is a positive control for 908's scope,
+  which is FA's MMA tiling only.
+
+| case | fold, FA on (f16 = f32) | 908, FA on (f16 = f32) | FA off, f16 (both builds) | FA off, f32 (both builds) |
+|---|---|---|---|---|
+| `multi_3img_anchored` | **loops** from about token 2,105; second half 7/983 | finishes: 3,882, valid JSON | finishes: 8,547, valid JSON | **loops** from about 4,117; second half 5/1521 |
+| `bbox_contract_real_1img` | **loops** from about 3,455; 12/923 | **loops** from about 1,543; 8/1452 | finishes: 3,340, 6/6 labels, `hits_bestfit` 6, `hits_declared` 1 | finishes: 5,363, the same answer |
+| `bbox_contract_box2d_1img` | finishes: 2,377, IoU 0.973 | **loops** from about 4,247; 19/1367 | finishes: 4,332, IoU 0.962 | finishes: 2,378, IoU 0.962 |
+
+- **Loop counts per path:** fold with FA on 2/3, 908 with FA on 2/3, f16 with FA off 0/3, f32 with FA off 1/3. Each
+  path is one fixed trajectory, not a draw. The most precise path loops on `multi_3img_anchored`, where f16 with
+  FA off finishes.
+- **`real_1img` with f16 and FA off escapes the same way on both hosts.** All six boxes are right in the 0–1000 frame
+  under a pixel declaration. It takes 3,340 tokens on CUDA and 5,800 on gfx1151.
+- **The FA-on columns agree with #375's in-suite loop-rate run.**
+- **Deploy source (ADR 0043, decision 1):** production does not set the variable and runs the f16 default (12 of 12
+  KV allocations). The v0.34.4 deploy sets `OLLAMA_KV_CACHE_TYPE=f16` explicitly, and refuses if the live
   container carries a different value.
 
 ## Metal (`mlx-metal`)
