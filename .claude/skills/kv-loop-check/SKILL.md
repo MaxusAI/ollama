@@ -16,7 +16,8 @@ This skill owns the **procedure**. The evidence lives in
   `fattn.cu` converts f32 K/V to f16 before its kernels. Never run it as an arm. The one exception is a single
   `ARMS="f16:1 f32:1"` pair after a llama.cpp bump, compared byte for byte.
 - **No KV type or attention path reliably turns the known loops into finishes.** Where a loop starts moves with
-  the numerical path, in both directions (both hosts, 2026-09-26 and 27).
+  the numerical path, in both directions (both hosts, 2026-09-26 and 27). It can go against f16 too: on gfx1151,
+  gemma4:26b's `multi_3img_anchored` finishes under `q8_0` and loops under f16.
 - **The known loops are prompt-driven.** They come from asking for absolute pixel coordinates without giving the
   image's size (`bbox_contract_real_1img`, `bbox_contract_adv_real`). The same scene in normalized coordinates
   finishes.

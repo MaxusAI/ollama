@@ -83,7 +83,8 @@ def main(paths):
             continue
         s = SCORERS[test](r.get("response") or "")
         keys = [k for k in ("json_valid", "labels_found", "hits_declared", "iou_declared", "hits_anchor",
-                            "hits_bestfit", "bestfit_dialect", "contract_followed") if k in s]
+                            "hits_bestfit", "bestfit_dialect", "contract_followed",
+                            "q1_right", "q2_right", "q4_bbox_hit", "q4_bbox_space", "chart_values_found") if k in s]
         print(f"  score ({test}): " + " ".join(f"{k}={s[k]}" for k in keys))
 
 

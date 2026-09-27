@@ -151,6 +151,46 @@ The greedy original loops on both models (the table above).
 - **At production's sampling, none of the six runs loops.** The suite's greedy think-on is the worst case, as
   `sampling.py` says. The loops are real, but production users are unlikely to meet them on this prompt.
 
+## A second trap: `multi_3img_anchored` (gfx1151, 2026-09-27)
+
+`multi_3img_anchored` is `multi_3img`'s prompt plus one calibration paragraph. That paragraph ends with the same kind
+of sentence: "If you resized image 1 internally, use the size YOU used." `promptcap.py` replaces it too. On the CUDA
+host, MLX's gemma4:26b never converges on this case in 8 runs, and converges on `multi_3img` in all 8 (#375). This
+host ran the GGUF leg of #375's open item 8: gemma4:26b-a4b q4_K_M on the fold image, captured cold and greedy, with
+f16 and flash attention on, at 32768. The `orig` prompts' fingerprints equal the suite's `prompt_sha`.
+`kvloop_read.py`, verbatim:
+
+```
+greedy-orig_gemma4_26b-a4b-it-q4_K_M_multi_3img_32768
+  arm=greedy-orig  done=stop  tokens=3616  thinking=5618 chars  answer=3086 chars
+  thinking: 90/102 lines distinct, second half 42/51, most repeated x3: '- **Key Objects:**'
+  onset: no loop found
+  score (multi_3img): json_valid=True q1_right=True q2_right=True q4_bbox_hit=True q4_bbox_space=norm1000/xyxy chart_values_found=5
+greedy-orig_gemma4_26b-a4b-it-q4_K_M_multi_3img_anchored_32768
+  arm=greedy-orig  done=length  tokens=24576  thinking=61234 chars  answer=0 chars
+  thinking: 239/1717 lines distinct, second half 11/859, most repeated x288: 'The text "DYNAMO" is at y ~ 530.'
+  onset: loop from line 280 of 1,717, about token 4,148
+  score (multi_3img_anchored): json_valid=False q1_right=False q2_right=False q4_bbox_hit=False chart_values_found=0
+greedy-size_gemma4_26b-a4b-it-q4_K_M_multi_3img_anchored_32768
+  arm=greedy-size  done=stop  tokens=5875  thinking=9557 chars  answer=3510 chars
+  thinking: 177/239 lines distinct, second half 93/120, most repeated x4: '"ANCHOR"'
+  onset: no loop found
+  score (multi_3img_anchored): json_valid=True q1_right=True q2_right=True q4_bbox_hit=True q4_bbox_space=norm1000/xyxy chart_values_found=5
+greedy-commit_gemma4_26b-a4b-it-q4_K_M_multi_3img_anchored_32768
+  arm=greedy-commit  done=stop  tokens=5633  thinking=10023 chars  answer=3431 chars
+  thinking: 174/217 lines distinct, second half 107/109, most repeated x3: '- Key objects:'
+  onset: no loop found
+  score (multi_3img_anchored): json_valid=True q1_right=True q2_right=True q4_bbox_hit=True q4_bbox_space=norm1000/xyxy chart_values_found=5
+```
+
+- **The trap sentence alone makes the case loop, and replacing it ends the loop.** The control finishes in 3,616
+  tokens. The anchored prompt loops from about token 4,148, re-deriving image 1's height. With only the sentence
+  replaced, it finishes in 5,875 tokens (`size`) or 5,633 (`commit`), with every question right.
+- **Under `q8_0` the same case finished**, in 8,331 tokens, both in the fold's protocol and cold. Here f16 is the side
+  that loops. This is the pattern above again: the numerical path moves where a loop starts, in both directions, and
+  the prompt sets the trap. It does not change ADR 0043. f16 is production's setting for parity and headroom, and the
+  fix for the loop is the prompt.
+
 ## The KV type against the fold's own change (gfx1151 protocol, 2026-09-27)
 
 The fold's think-on protocol (#375) runs the whole suite on qwen3.6 in two arms on one fold image. `fold` is the
