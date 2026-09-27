@@ -82,8 +82,10 @@ All of this ran in the v0.34.4 fold, on the fold's own images. The fold record a
     times in 5 cold draws, depending on the prompt (open item 8).
 - **Loops on GGUF: none from the flow (gfx1151).** Neither flow drafts. On all five models the two flows leave the
   same cases unfinished, and those loops come from the prompt.
-  - Quality leans toward two-pass: 3 of 4 moved cases under `q8_0`, and 5 of 7 under f16 with one mixed.
-  - It is a lean, not a verdict, since the KV type moves more cases than the flow does.
+  - Quality has no net direction. qwen3.6 leans toward two-pass: 3 of 4 moved cases under `q8_0`, and 5 of 7 under
+    f16 with one mixed. nemotron3 leans toward the single pass on the bbox contract (`contract_followed` 23/40
+    against 15/40, p ≈ 0.1, not established). The other three models do not move.
+  - The KV type moves more cases than the flow does.
 
 So on MLX the question is whether the thinking drafts, not which flow runs. On GGUF, the two flows are equal.
 
@@ -103,7 +105,8 @@ So on MLX the question is whether the thinking drafts, not which flow runs. On G
    `docker inspect` would otherwise run whatever flow the code defaults to. The CUDA script adds the variable, as it
    adds `OLLAMA_KV_CACHE_TYPE=f16` ([#387](https://github.com/MaxusAI/ollama/pull/387)). It refuses a live container
    that sets another value, and rolls back unless the new server's startup config reads
-   `OLLAMA_FORMAT_TWO_PASS:true`.
+   `OLLAMA_FORMAT_TWO_PASS:true`. gfx1151's deploy script does the same for both variables, and rolls back unless the
+   config reads both. That host's compose file carries them too.
 
 ### What each flow does with the budget
 
