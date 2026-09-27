@@ -23,28 +23,23 @@
 > - An experimental MLX runtime for Apple Silicon and CUDA — see the caveats
 >   below before using it for anything that matters.
 >
-> **Current fold:** [`v0.34.1-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.34.1-dynres)
-> — upstream v0.34.1, llama.cpp `b10864`, MLX `d9add9d1`. `main` moves ahead of this between
-> folds; the tag is the fixed point to build and roll back to.
-> **Deployed:** `main` at `16649e8`, stamped `0.34.1-dynres-16-g16649e8`, on the CUDA host since
-> 2026-09-18 22:30 — the tag's native payload with a Go-only rebuild that adds ADR 0036 (a gemma4
-> vision runner starts from the batch rung holding its image ceiling), with
-> `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` on the container (ADR 0033; see the fold's memory finding in
-> [`docs/maxusai/tasks/upstream-sync-0.34.1.md`](docs/maxusai/tasks/upstream-sync-0.34.1.md)).
-> The matrix below is the tag's full preflight run; the rebuild changes no native input, and its
-> verification on production is in the task doc's deploy section.
-> On the Apple Silicon host the same commit has served the mlx-metal surface on `:11435` since
-> 2026-09-18, stamped `0.34.0-maxusai-8a7ba949` — the same build as `0.34.1-dynres-0-g8a7ba94` (ADR 0032,
-> 2026-09-19 amendment) — and was promoted on 2026-09-19 with the MLX #3912 kernel fix kept
-> ([ADR 0037](docs/maxusai/adr/0037-keep-the-mlx-3912-kernel-fix.md)), with
-> `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` in its launchd environment as on the CUDA container.
-> **The AMD/gfx1151 host joined on 2026-09-19 18:55**, stamped `0.34.1-dynres-16649e8c` from a
-> full `FLAVOR=rocm` build of the same commit, when the
-> [upgrade gate](docs/maxusai/amd-upgrade-gate.md#decision-2026-09-19--the-gate-lifts-on-evidence)
-> lifted — it had held that host on 0.32.1 since 2026-07-31, and all three platforms now serve
-> one commit. That build **must** carry `llama/compat/906-revert-hip-integrated-flag.patch`:
-> llama.cpp b10864 misses upstream's HIP revert by 78 minutes, and without it vision output on
-> gfx1151 is silently wrong — no crash, no warning, unchanged token counts.
+> **Current fold:** [`v0.34.4-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.34.4-dynres)
+> — upstream v0.34.4, llama.cpp `b11081` with compat patch 908, MLX `59d600b5`, XGrammar 0.2.7. `main` moves ahead
+> of this between folds; the tag is the fixed point to build and roll back to.
+> **Deployed:** the tag, stamped `0.34.4-dynres-0-gb43ee8e`. It went onto the CUDA host at 07:37 on 2026-09-28, and
+> onto the AMD/gfx1151 host at 07:39 ([#391](https://github.com/MaxusAI/ollama/pull/391)).
+> - **Build:** on each host, the natively gated payload with the tag's Go binary.
+> - **think+format:** both hosts run the two-pass flow (`OLLAMA_FORMAT_TWO_PASS=1`, ADR 0004; open item 7 of the
+>   [fold record](docs/maxusai/tasks/upstream-sync-0.34.4.md)).
+> - **KV cache:** both set `OLLAMA_KV_CACHE_TYPE=f16` explicitly ([#387](https://github.com/MaxusAI/ollama/pull/387)).
+> - **Drafting:** the CUDA container also keeps `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` (ADR 0033).
+>
+> The matrix below is each host's preflight on its production container.
+> On the Apple Silicon host, `0.34.0-maxusai-8a7ba949` has served the mlx-metal surface on `:11435` since
+> 2026-09-18. It is the same build as `0.34.1-dynres-0-g8a7ba94` (ADR 0032, 2026-09-19 amendment). It was promoted
+> on 2026-09-19 with the MLX #3912 kernel fix kept
+> ([ADR 0037](docs/maxusai/adr/0037-keep-the-mlx-3912-kernel-fix.md)), with `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` in its
+> launchd environment as on the CUDA container.
 
 > Fork builds are stamped `<upstream-version>-dynres-<n>-g<sha>`; `dynres`
 > names the change that started the fork, not the company that runs it.
@@ -54,36 +49,28 @@
 ### What tested green for this fold
 
 <!-- GENERATED — do not hand-edit. Regenerate on each fold from the release's
-     full preflight run:
+     full preflight runs:
        python3 docs/maxusai/vision-suite/preflight/release_matrix.py \
-           --version <fold-version> docs/maxusai/vision-suite/preflight/runs/<full-run>.json
-     Feed it the FULL run only: the generator takes the newest run per surface,
+           --version <fold-version> docs/maxusai/vision-suite/preflight/runs/*.json
+     Feed it FULL runs only: the generator takes the newest run per surface,
      so a later smoke (which deliberately skips probes) would overwrite green
      cells with "skipped". The release notes carry the same generated matrix.
+     runs/ is gitignored; a run meant for this table is committed with `git add -f`.
 
-     For v0.34.1 the two surfaces carry equivalent stamps of one build (ADR 0032,
-     2026-09-19 amendment), so name both:
-       release_matrix.py --version 0.34.1-dynres \
-           --version 0.34.0-maxusai-8a7ba949 runs/*.json
-     The mlx-metal run is committed (runs/preflight-mlx-metal-0340-8a7ba949.json);
-     the CUDA host's post-deploy run is not, so today the two rows are each
-     generated on their own host and pasted verbatim. Committing the CUDA run
-     makes the command above regenerate both.
+     For v0.34.4 both production runs are committed, and the table below is the
+     verbatim output of `release_matrix.py --version 0.34.4-dynres runs/*.json`:
+       runs/preflight-cuda-0344-prod-gb43ee8e.json   the CUDA container, after the deploy
+       runs/preflight-rocm7-0344-prod-gb43ee8e.json  the gfx1151 container (#391) -->
 
-     The table below is the verbatim generator output for the v0.34.1 fold and
-     is NOT hand-edited to match a later generator. release_matrix.py has since
-     gained an "M5 tensor path" column (the three metal_tensor_* checks); both
-     runs here predate those checks, so it regenerates as "not run" on every
-     row, and the column appears at the next fold's regeneration. -->
-
-| surface | Build identity | Image size ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
-|---|---|---|---|---|---|---|---|---|
-| **cuda** | green | green | green | green | skipped | green | green | `0.34.1-dynres-0-g8a7ba94` |
-| **mlx-cuda** | not run | not run | not run | not run | not run | not run | not run | — |
-| **mlx-metal** | skipped | green | skipped | green | not run | skipped | green | `0.34.0-maxusai-8a7ba949` |
-| **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | — |
-| **rocm** | not run | not run | not run | not run | not run | not run | not run | — |
-| **cpu** | not run | not run | not run | not run | not run | not run | not run | — |
+| surface | Build identity | M5 tensor path | Image size ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
+|---|---|---|---|---|---|---|---|---|---|
+| **cuda** | green | n/a | green | green | green | not run | green | green | `0.34.4-dynres-0-gb43ee8e` |
+| **mlx-cuda** | not run | not run | not run | not run | not run | not run | not run | not run | — |
+| **mlx-metal** | not run | not run | not run | not run | not run | not run | not run | not run | — |
+| **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | not run | — |
+| **rocm7** | green | n/a | green | green | green | skipped | skipped | green | `0.34.4-dynres-0-gb43ee8e` |
+| **rocm10** | not run | not run | not run | not run | not run | not run | not run | not run | — |
+| **cpu** | not run | not run | not run | not run | not run | not run | not run | not run | — |
 
 Generated by `release_matrix.py` from recorded preflight runs. A surface with no run for this release reads *not run* — absence is shown, never assumed green. A group is reported at its weakest check, so one skipped probe does not read as a pass.
 
