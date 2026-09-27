@@ -16,7 +16,7 @@ lands on this branch, your gate 4 and gate 6 legs can build from it.
 | 3, the patch series | **done** — all eight (001 002 004 005 801 802 903, and 908 from 2026-09-26) apply clean to `b11081` on a real checkout, in order, and 908 reverse-applies, so a re-configure is safe; served projectors unchanged |
 | 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's; **done on gfx1151**: `0.34.3-dynres-5-g29ae523-rocm7-gfx1151`, with a b11081 payload whose structure is unchanged against 0.34.3's; rebuilt with 908 as `0.34.3-dynres-22-g5584539`, and **908 changes no gfx1151 kernel** |
 | 5, preflight | **PASS on CUDA**: run 2 PASS=21 SKIP=8, with the pins moved in `c79e50d98` after run 1 (FAIL=2 on the two pins, by design); run 3, on the image with 908, the same. **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378), and the same on the 908 image |
-| 6, campaigns | **done on CUDA** (2026-09-27). GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. On the image with 908, gemma4:31b, 26b and e4b and nemotron3 equal production; e2b and the qwen models keep the host half's movement. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: `ce8caa6e6`'s device half leaves 6 of 27 gemma4:26b cases in loops that never end, against 1 without it; 31b is unaffected. MLX think-on: the single pass loops no more than two-pass, with or without a fixed history. gemma4:26b `multi_3img_anchored` never converges in any of 8 runs. Drafting: under production's knob the single pass never drafts, so it thinks 1.5–1.7× slower (open item 7). See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is in progress, with no single-pass regression so far. See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
+| 6, campaigns | **done on CUDA** (2026-09-27). GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. On the image with 908, gemma4:31b, 26b and e4b and nemotron3 equal production; e2b and the qwen models keep the host half's movement. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: `ce8caa6e6`'s device half leaves 6 of 27 gemma4:26b cases in loops that never end, against 1 without it; 31b is unaffected. MLX think-on: the single pass loops no more than two-pass, with or without a fixed history. gemma4:26b `multi_3img_anchored` never converges in any of 8 runs. Drafting: under production's knob the single pass never drafts, so it thinks 1.5–1.7× slower (open item 7). See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is done (2026-09-27): on all five GGUF models the single pass leaves the same cases unfinished as two-pass, and those loops come from the prompt (#387). See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25) |
 
 **Three hosts converged on this merge.** The ROCm and Metal hosts had each started the same fold before #375
 existed, stopped, and cross-checked instead; see [#375](https://github.com/MaxusAI/ollama/pull/375).
@@ -576,9 +576,11 @@ fixed-history two-pass repeat 2: NOT CONVERGED 2 of 13 scored cases
   paragraph, and that paragraph ends with #387's trap sentence: "If you resized image 1 internally, use the size YOU
   used." The source is `vision_suite.py`, `MULTI_ANCHORED_PROMPT = MULTI_PROMPT + …`; the gfx1151 host pointed it out
   on #375. The images and the scorer are the same, so the table holds a minimal pair: `multi_3img` converges in 8 of
-  8 runs, `multi_3img_anchored` in 0 of 8. On gfx1151's GGUF the same paragraph only makes the answer 2.3× longer
-  (about 3,560 to 8,330 tokens), and it does not loop. The pair isolates the paragraph; item 8 would isolate the
-  sentence.
+  8 runs, `multi_3img_anchored` in 0 of 8. On gfx1151's GGUF under `q8_0` the same paragraph triples the thinking
+  (5,236 to 15,788 characters; the whole generation goes from about 3,560 to 8,330 tokens, 2.3×) and leaves the answer
+  about as long. Under f16, production's setting, it loops, and replacing the sentence ends the loop (item 8's GGUF
+  leg, in [the gfx1151 section](#gate-6-think-on-under-the-aligned-protocol)). The pair isolates the paragraph; item 8
+  isolates the sentence.
 - **Metal's five 26b cases converge in every run on CUDA**, in both flows and both histories. In the fixed-history run
   some converge only on a higher rung. Each rung there is a fresh cold load, so that is MLX-CUDA's per-load variation,
   not history.
@@ -687,7 +689,15 @@ ocrbench — `echo840/OCRBench` [test], rows 0..200.
 **b11081 moves no scored think-off cell and no OCRBench item on gfx1151.** That includes three MoE models under
 `fccf7166f`, the RDNA3.5 MoE tile heuristic. `ce8caa6e6` does not apply here, because RDNA has its own FA config table.
 
-### Gate 6: think on, under the aligned protocol (in progress)
+### Gate 6: think on, under the aligned protocol
+
+**Done 2026-09-27. On GGUF, the single pass loops no more than two-pass on any of the five models.** Each flow leaves
+the same cases unfinished: none on gemma4:31b, qwen3.8 and nemotron3; `bbox_contract_real_1img` on gemma4:26b; and
+on qwen3.6 two cases under a `q8_0` KV cache and one under f16. Those loops come from the prompt, not the flow.
+
+**Every run here used this host's production KV cache at the time, `q8_0`** (#386), except qwen3.6's second pair,
+which used f16. The flow comparisons stand, because both arms of each pair share one KV type. The counts carry the
+`q8_0` caveat (#387): under f16, gemma4:26b's `multi_3img_anchored` loops as well (item 8's GGUF leg, below).
 
 The arms are `fold` and `fold2p` on this image, in production's environment, over the full ladder, interleaved.
 llama-server drafts in neither arm: every server log reads `no implementations specified for speculative decoding`.
@@ -739,14 +749,176 @@ llama-server drafts in neither arm: every server log reads `no implementations s
   later cells see, and the reduction order tips near-ties.
 
 **gemma4:26b.**
-- The two-pass arm leaves **one** case NOT CONVERGED at 131072: `bbox_contract_real_1img`.
+- Both arms leave **one** case NOT CONVERGED at 131072, the same one: `bbox_contract_real_1img`. Every other case ends
+  with `stop` and valid JSON, on the 16384 rung or the 32768 rung.
 - It is a loop: 70 of 762 lines are distinct, and `*   ANCHOR: x1=72, y1=150, x2=216, y2=336.` repeats 98 times.
 - Cold at 32768, it is **byte-identical in both flows and on b10969**. So it predates the fold, and production 0.34.3
-  has it today.
-- The single-pass arm is running.
+  has it today. Its trigger is the prompt: with the image's size stated, gemma4:26b answers in 2,081 tokens with six
+  correct pixel boxes (#387).
+- **The flow moves no scored cell by more than 0.005.** Four IoU cells move by 0.001 to 0.002 toward two-pass. The
+  thinking is identical in 23 of 27 blocks; the rest differ in the suite through the KV-layout effect described for
+  31b.
+- **The payload effect is nil.** 0 of 746 cells differ between two-pass on b10969 and two-pass on b11081, over the 23
+  blocks that both finished on the 16384 rung.
+- Metal's MLX count for 26b was 6 unfinished in the single pass against 1 in two-pass. Here it is 1 and 1: **where
+  neither flow drafts, the flows loop equally.**
 
-**Queued, into 2026-09-26:** qwen3.8 (n = 2 per arm), nemotron3 (n = 2), then qwen3.6. qwen3.6's think runaway under
-q8_0 KV gives it the longest ladder.
+**qwen3.8 and nemotron3** have no sampling card, so they run at packaged sampling and are compared as rates, n = 2 runs
+per arm. `rates2.py` (in the run directory) pools each arm's two runs, verbatim:
+
+```
+== qwen3.8:27b-q4_K_M
+                                       fold2p             fold   (blocks 54 vs 54)
+  anchor_beats_declared            0/40             0/40      
+  anchor_present                  22/40            22/40      
+  contract_followed               40/40            40/40      
+  declaration_matches_boxes       40/40            40/40      
+  declaration_valid               40/40            40/40      
+  invoice_no                       2/2              2/2       
+  json_valid                      54/54            54/54      
+  q1_right                         4/4              4/4       
+  q2_right                         4/4              4/4       
+  q4_bbox_hit                      2/4              2/4       
+  self_check                      22/22            22/22      
+  serial_found                     6/6              6/6       
+  think                           54/54            54/54      
+  total_right                      2/2              2/2       
+  answer_chars                        857.000          863.463
+  bbox_mean_iou                         0.976            0.979
+  eval_count                         1288.389         1275.815
+  hits_anchor                           3.300            3.300
+  hits_bestfit                          4.525            4.875
+  hits_declared                         6.000            6.000
+  iou_anchor                            0.527            0.528
+  iou_at_implied_scale                  0.939            0.957
+  iou_declared                          0.960            0.960
+  labels_found                          6.000            6.000
+  name_bbox_mean_iou                    0.387            0.772
+  thinking_chars                     1906.833         1867.500
+  done_reason                    {'stop': 54}     {'stop': 54}
+  NOT CONVERGED                             -                -
+== nemotron3:33b-q4_K_M
+                                       fold2p             fold   (blocks 54 vs 54)
+  anchor_beats_declared            7/40             4/40      
+  anchor_present                  20/40            22/40      
+  contract_followed               15/40            23/40      
+  declaration_matches_boxes       15/40            23/40      
+  declaration_valid               21/40            33/40      
+  invoice_no                       2/2              2/2       
+  json_valid                      54/54            54/54      
+  q1_right                         4/4              4/4       
+  q2_right                         4/4              4/4       
+  q4_bbox_hit                      4/4              3/4       
+  self_check                      14/20            15/22      
+  serial_found                     5/6              5/6       
+  think                           54/54            54/54      
+  total_right                      2/2              2/2       
+  answer_chars                       1172.833         1104.241
+  bbox_mean_iou                         0.604            0.592
+  eval_count                         5109.944         5168.778
+  hits_anchor                           2.325            2.900
+  hits_bestfit                          4.675            5.100
+  hits_declared                         2.475            4.000
+  iou_anchor                            0.280            0.317
+  iou_at_implied_scale                    nan            0.049
+  iou_declared                          0.300            0.441
+  labels_found                          5.674            5.935
+  name_bbox_mean_iou                    0.123            0.006
+  thinking_chars                    11910.704        12275.019
+  done_reason                    {'stop': 54}     {'stop': 54}
+  NOT CONVERGED                             -                -
+```
+
+- **qwen3.8: every boolean rate is identical**, and all four runs finished on the 16384 rung. `name_bbox_mean_iou`
+  moves from 0.387 to 0.772 toward the single pass, but it rests on `document_single` alone at n = 2, so it is noise
+  until it repeats.
+- **nemotron3: nothing is lost.** In both flows all 54 blocks end with `stop` and valid JSON; the ladder resolved every
+  cell that capped at 16384 (5–7 per run). The single pass follows the bbox contract more often
+  (`contract_followed` 23/40 against 15/40, `declaration_valid` 33/40 against 21/40). At n = 2 on a sampled model
+  that is p ≈ 0.1 (Fisher, two-sided): no regression, possibly better, not established.
+
+**qwen3.6** runs greedy on its card and is compared cell by cell. The pair ran twice: under `q8_0`, which was this
+host's production KV cache from 2026-08-08 until it was found on 2026-09-26 (#386), and under f16, production's
+setting now (#387). Derived from `done_reason` through `was_capped`, not generator output:
+
+- `q8_0`: both flows finish 25 of 27 cases. `bbox_contract_real_1img` and `bbox_contract_adv_real` never finish at
+  131072, in either flow.
+- f16: both flows finish 26 of 27. Only `bbox_contract_real_1img` never finishes, in either flow. `adv_real` finishes
+  in 16,272 tokens (single pass) and 10,312 (two-pass).
+
+The flow's scored effect, from #387's `cmp_scored.py`, verbatim: quality fields only, over the cases that finished in
+both arms, A = `fold` (single pass) and B = `fold2p` (two-pass).
+
+```
+== q8_0
+bbox_contract_box2d_1img: iou_anchor 0.633->0.892 B+; iou_declared 0.633->0.892 B+; self_check False->True
+bbox_contract_positional_1img: iou_anchor 0.635->0.616 A+; iou_declared 0.635->0.616 A+
+bboxm_free_noanc_pos: iou_declared 0.836->0.957 B+
+bboxm_pin_anc_pos: iou_anchor 0.57->0.968 B+; iou_declared 0.57->0.968 B+
+multi_3img: q4_bbox_space 'norm1000/xyxy'->'pixel/xyxy'
+quality moves: 5 favour B, 2 favour A, 2 label changes (A = scores_r0344p_fold_1_qwen3_6_35b-a3b-q4_k_m_thinkon.json, B = scores_r0344p_fold2p_1_qwen3_6_35b-a3b-q4_k_m_thinkon.json)
+== f16
+bbox_contract_adv_norm1: iou_anchor 0.931->0.968 B+; iou_declared 0.931->0.968 B+
+bbox_contract_adv_real: hits_anchor 0->2 B+; hits_declared 0->2 B+; iou_anchor 0.155->0.305 B+; iou_declared 0.155->0.305 B+
+bbox_contract_anchored: iou_anchor 0.899->0.6 A+; iou_declared 0.899->0.6 A+; self_check True->False
+bbox_contract_box2d_1img: iou_anchor 0.647->0.967 B+; iou_declared 0.647->0.967 B+
+bbox_contract_perobject: iou_declared 0.652->0.964 B+
+bbox_contract_reasoning: declared_ref [1000, 562]->[1000, 1000]; declared_type 'real'->'norm1000'; hits_bestfit 1->6 B+; iou_declared 0.923->0.676 A+
+bboxm_free_anc_pos: iou_anchor 0.947->0.97 B+; iou_declared 0.947->0.97 B+
+quality moves: 12 favour B, 3 favour A, 3 label changes (A = scores_r0344pf16_fold_1_qwen3_6_35b-a3b-q4_k_m_thinkon.json, B = scores_r0344pf16_fold2p_1_qwen3_6_35b-a3b-q4_k_m_thinkon.json)
+```
+
+- **No loop regression from the single pass**, under either KV cache.
+- **The quality moves lean toward two-pass:** 3 of 4 cases under `q8_0`, and 5 of 7 under f16 with one mixed. Only
+  `bbox_contract_box2d_1img` moves the same way under both (0.633 and 0.647 against 0.892 and 0.967). The rest change
+  with the KV type, which by itself moves the quality of 20 of 25 cases (#387). So it is a lean, not a verdict.
+- **The loops come from the prompt.** `bbox_contract_real_1img` asks for "the size YOU used" after an internal resize
+  the model cannot see, and it loops under every KV type and attention path measured (#387). Cold, `adv_real`
+  finishes under both KV types; its `q8_0` loop in the suite came from the run's state.
+
+**Open item 8, the GGUF leg: `multi_3img_anchored`** (2026-09-27, at the maintainer's word). This was gemma4:26b-a4b
+q4_K_M on the fold image, with production's settings: f16 KV and flash attention on, single pass. Each case was
+captured cold by `promptcap.py` (#387, `b13f2c35d`), greedy, at 32768 (24,576 tokens). The `orig` prompts'
+fingerprints equal the suite's `prompt_sha`. `item8_read.py` (in the run directory) reads each capture with #387's
+`kvloop_read.py` and scores it with `score_multi`, verbatim:
+
+```
+multi_3img orig: done=stop tokens=3616 thinking=5618 answer=3086 chars
+  thinking: 90/102 lines distinct, second half 42/51, most repeated x3: '- **Key Objects:**'
+  onset: no loop found
+  score_multi: json_valid=True q1_right=True q2_right=True q4_bbox_hit=True q4_bbox_space=norm1000/xyxy chart_values_found=5
+  __IMAGE__ anchor: None
+multi_3img_anchored orig: done=length tokens=24576 thinking=61234 answer=0 chars
+  thinking: 239/1717 lines distinct, second half 11/859, most repeated x288: 'The text "DYNAMO" is at y ~ 530.'
+  onset: loop from line 280 of 1,717, about token 4,148
+  score_multi: json_valid=False q1_right=False q2_right=False q4_bbox_hit=False q4_bbox_space=None chart_values_found=0
+  __IMAGE__ anchor: unparsed (AttributeError)
+multi_3img_anchored size: done=stop tokens=5875 thinking=9557 answer=3510 chars
+  thinking: 177/239 lines distinct, second half 93/120, most repeated x4: '"ANCHOR"'
+  onset: no loop found
+  score_multi: json_valid=True q1_right=True q2_right=True q4_bbox_hit=True q4_bbox_space=norm1000/xyxy chart_values_found=5
+  __IMAGE__ anchor: [0, 0, 1920, 1080]
+multi_3img_anchored commit: done=stop tokens=5633 thinking=10023 answer=3431 chars
+  thinking: 174/217 lines distinct, second half 107/109, most repeated x3: '- Key objects:'
+  onset: no loop found
+  score_multi: json_valid=True q1_right=True q2_right=True q4_bbox_hit=True q4_bbox_space=norm1000/xyxy chart_values_found=5
+  __IMAGE__ anchor: [0, 0, 1000, 1000]
+```
+
+- **The trap sentence alone makes the case loop, and replacing it ends the loop.**
+  - The control, `multi_3img`, finishes in 3,616 tokens.
+  - `multi_3img_anchored` loops from about token 4,148 and never answers. It re-derives image 1's height: "The text
+    "DYNAMO" is at y ~ 530.", "The orange circle is at y ~ 554 to 799." and "This means the image height is at least
+    800." repeat 288 times each, and the second half has 11 distinct lines.
+  - With only that sentence replaced, it finishes in 5,875 tokens (`size`) or 5,633 (`commit`), with every question
+    right.
+- **Under `q8_0` the same case finished.** The protocol's cells end at 8,331 and 8,335 tokens, and their 15,788
+  characters of thinking equal the cold probe's above. On this host the KV type decides the case, and production's
+  f16 is the setting that loops. That matches #387: where a loop starts moves with the numerical path, and the prompt
+  sets the trap.
+- **The anchor tells which frame the model used.** With the size stated, gemma4 declares `[0, 0, 1920, 1080]` but
+  answers in 0–1000, which is the "anchor lies" case in the suite's README; the scorer still finds the box, in
+  norm-1000. With the commit instruction it declares `[0, 0, 1000, 1000]`, the frame it answers in.
 
 Throughput is not a finding on this host, because the GPU was shared.
 
@@ -811,5 +983,9 @@ representation-sensitive test each, so the fold's attribution stays clean.
      own ladder.
 8. **Whether the trap sentence alone makes `multi_3img_anchored` loop on CUDA.** `promptcap.py` covers this case
    since #387's `b13f2c35d`, stating image 1's size (1920×1080). The check is three captures on gemma4:26b, on MLX
-   and on GGUF: `orig`, `size` and `commit` at 32768. `multi_3img`'s `orig` capture is the control. Proposed, not
-   run; the maintainer decides.
+   and on GGUF: `orig`, `size` and `commit` at 32768. `multi_3img`'s `orig` capture is the control.
+   - **The GGUF leg ran on gfx1151 (2026-09-27): yes.** With f16 KV, `orig` loops from about token 4,148. `size` and
+     `commit` finish in 5,875 and 5,633 tokens with every answer right. The control finishes in 3,616.
+     See [the gfx1151 section](#gate-6-think-on-under-the-aligned-protocol).
+   - **Both CUDA legs are running on the CUDA host** (2026-09-27, on the maintainer's word), GGUF and MLX, n = 5 on
+     MLX. The CUDA host records them here.
