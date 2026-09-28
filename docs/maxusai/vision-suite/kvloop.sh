@@ -13,7 +13,7 @@
 # Optional:
 #   ARMS       space-separated <kv>:<fa> pairs, fa 1 = flash attention on, 0 = off
 #              (default "f16:1 f16:0 f32:0"; q8_0:0 does not exist, a quantized V cache needs FA; f32:1 is
-#              f16:1 byte for byte on CUDA and HIP, ADR 0044 / SPEC H25, so run it only for the re-check
+#              f16:1 byte for byte on CUDA, HIP and Metal, ADR 0044 / SPEC H25, so run it only for the re-check
 #              after a llama.cpp bump: ARMS="f16:1 f32:1")
 #   NUM_CTX    capture context, default 65536 (num_predict = NUM_CTX - 8192)
 #   OUT        output directory, default ./kvloop-out
@@ -24,7 +24,9 @@
 #
 # OLLAMA_FLASH_ATTENTION=0 makes the fork pass --flash-attn off; unset would be "auto", which enables it.
 # Each capture logs the runner's --cache-type-k, --cache-type-v and --flash-attn flags, so the arm is proven,
-# not assumed. Greedy results do not move with GPU sharing; timing does.
+# not assumed. Greedy results hold under GPU sharing only at a fixed batch: the automatic batch follows free memory,
+# and gemma4's output moves with it (#387). On CUDA with flash attention off it is always 512 (upstream's rule), so
+# those arms differ in batch too. Set NUM_BATCH=2048 to pin -b/-ub when comparing gemma4 across arms.
 set -uo pipefail
 : "${IMG:?set IMG}" "${CASES:?set CASES}" "${STORE:?set STORE}" "${GPU_ARGS:?set GPU_ARGS}"
 ARMS=${ARMS:-"f16:1 f16:0 f32:0"}

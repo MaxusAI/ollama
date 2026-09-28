@@ -12,8 +12,8 @@ This skill owns the **procedure**. The evidence lives in
 
 - **Production runs an f16 KV cache on every platform** (ADR 0043). gfx1151 ran `q8_0` by accident from
   2026-08-08 to 2026-09-26, so any gfx1151 think-on result from that window carries that caveat.
-- **f32 with flash attention on is f16, byte for byte, on CUDA and HIP at b11081** (ADR 0044, SPEC H25).
-  `fattn.cu` converts f32 K/V to f16 before its kernels. Never run it as an arm. The one exception is a single
+- **f32 with flash attention on is f16, byte for byte, on CUDA, HIP and Metal at b11081** (ADR 0044, SPEC H25).
+  llama.cpp's graph casts f32 K/V to f16 before flash attention, on every backend (`build_attn_mha`). Never run it as an arm. The one exception is a single
   `ARMS="f16:1 f32:1"` pair after a llama.cpp bump, compared byte for byte.
 - **No KV type or attention path reliably turns the known loops into finishes.** Where a loop starts moves with
   the numerical path, in both directions (both hosts, 2026-09-26 and 27). It can go against f16 too: on gfx1151,
@@ -60,5 +60,16 @@ This skill owns the **procedure**. The evidence lives in
 - **`/tmp` does not survive a reboot.** Keep captures, logs, watchers and helper scripts on durable disk.
 - A looping 57,344-token capture on a shared GPU outlives the suite's derived HTTP timeout. `kvloop.sh` sets
   `HTTP_TIMEOUT=9000`.
-- Sharing the GPU changes timing, never greedy output. Do not report timing from a shared run.
+- **Sharing the GPU can change greedy output, through the batch.** Do not report timing from a shared run either.
+  - The fork's automatic batch (`automaticGenerationBatch`, `server/sched.go`) picks llama-server's `-b/-ub` from the
+    memory free at each launch. A neighbour's memory use can lower it: 2048 → 1024 → 512.
+  - **CUDA with flash attention off is the exception.** There the batch is always 512 (256 above 4096 context on a
+    GPU of 8 GiB or less), set before the image-chunk floor and the memory check (upstream's rule,
+    ollama/ollama#16353). So a CUDA flash-attention-off arm runs gemma4's images in pieces even on a quiet GPU. HIP
+    and Metal keep the automatic batch.
+  - gemma4's greedy output moves with the batch, in both directions (the Metal host on #387: `real_1img` loops at
+    512 and answers at 2048; `multi_3img_anchored` the reverse). Its SWA cache and its image chunking both depend
+    on it. qwen3.6's does not.
+  - Before comparing gemma4 captures across arms or hosts, read each launch's `-b/-ub` and look for "images decode
+    in pieces". To take the batch out of the comparison, pin it: `NUM_BATCH=2048` (the suite's `-b/-ub` pin).
 - `q8_0` contains an underscore. Match arm labels; do not split on `_` (`kvloop_read.py` does this).

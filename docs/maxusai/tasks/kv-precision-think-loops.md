@@ -16,15 +16,16 @@ flow, and in production's environment with only two knobs changed:
 |---|---|---|
 | `q8_0` | the control, where it was the environment | does not exist: a quantized V cache needs flash attention |
 | f16 | production (ADR 0043) | the flash-attention kernels against `mul_mat`, at the same storage |
-| f32 | **equals f16, byte for byte**, on CUDA and HIP; not run ([ADR 0044](../adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md)) | the most precise attention the build has |
+| f32 | **equals f16, byte for byte**, on CUDA, HIP and Metal; not run ([ADR 0044](../adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md)) | the most precise attention the build has |
 
-- **Why f32 needs flash attention off.** At b11081, CUDA's and HIP's flash attention convert an f32 K/V cache to
-  f16 before their kernels run (`ggml/src/ggml-cuda/fattn.cu`: `need_f16_K = K->type == GGML_TYPE_F32 …`; the
-  tile and MMA kernels always take f16).
-  - **Measured on both hosts: with flash attention on, f32 reproduces f16 byte for byte.** On gfx1151 that is
-    qwen3.6 `real_1img`, 143,475 characters of thinking. On CUDA it is gemma4:26b, all six pairs.
+- **Why f32 needs flash attention off.** At b11081, llama.cpp's graph casts an f32 K and V to f16 just before flash
+  attention, on every backend (`build_attn_mha`, `src/llama-graph.cpp`; the Metal host on #387). So an f32 cache
+  never reaches a flash-attention kernel, and the f32-to-f16 conversion in CUDA and HIP's `fattn.cu` never runs.
+  - **Measured on three hosts: with flash attention on, f32 reproduces f16 byte for byte.** On gfx1151 that is
+    qwen3.6 `real_1img`, 143,475 characters of thinking. On CUDA it is gemma4:26b, all six pairs. On Metal it is
+    qwen3.6 and gemma4:26b, two cases each.
   - So it is not run ([ADR 0044](../adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md), SPEC H25).
-  - Only with flash attention off does the attention itself run in f32. Metal's llama.cpp backend is unmeasured.
+  - Only with flash attention off does the attention itself run in f32.
 - **Budget.** `num_ctx` is 65536, so the capture has 57344 tokens (`thinkcap.py` sets `num_predict = num_ctx -
   8192`). ADR 0005 found qwen3.6's trajectories token-identical across `num_ctx`, so budgets compare as token
   counts.
@@ -88,6 +89,12 @@ repeats "Let's assume the image is 1600x900." 79 times. Estimated token at which
 
 On qwen3.6 `real_1img`, both flash-attention-off runs loop earlier than both flash-attention-on runs. That is one case
 with one run per cell, so it is not a trend.
+
+**Every gfx1151 capture ran at the full batch.** Each launch in this host's logs records `-b/-ub`. gemma4 always
+ran at 2048, its image-chunk floor, with flash attention on or off. qwen3.6 ran at 1024 up to 32768 and 2048 above.
+None logged "images decode in pieces". So on gfx1151 the flash-attention-off arms changed the attention path and
+nothing else. On CUDA they also changed the batch: there a rule sets 512 whenever flash attention is off, and it
+checks for a CUDA device, so HIP keeps the automatic batch (the CUDA section).
 
 **Cold captures isolate the KV type. The protocol's cells can also carry the run's history.**
 
@@ -314,8 +321,8 @@ On this host a greedy qwen3.6 run reproduces cell for cell: the v0.34.3 fold's c
 
 **Two byte-identities reduce the 24 captures to 12 distinct trajectories:**
 
-- f32 with FA on reproduces f16 with FA on, byte for byte, on both builds and all three cases. That confirms that
-  flash attention converts an f32 K/V cache to f16 first.
+- f32 with FA on reproduces f16 with FA on, byte for byte, on both builds and all three cases. llama.cpp's graph
+  casts an f32 K and V to f16 before flash attention (`build_attn_mha`, ADR 0044).
 - With FA off, the two builds are byte-identical at both f16 and f32. That is a positive control for 908's scope,
   which is FA's MMA tiling only.
 
@@ -328,8 +335,16 @@ On this host a greedy qwen3.6 run reproduces cell for cell: the v0.34.3 fold's c
 - **Loop counts per path:** fold with FA on 2/3, 908 with FA on 2/3, f16 with FA off 0/3, f32 with FA off 1/3. Each
   path is one fixed trajectory, not a draw. The most precise path loops on `multi_3img_anchored`, where f16 with
   FA off finishes.
+- **The FA-off columns also changed the batch** (the CUDA host on #387, 2026-09-28).
+  - Every FA-off launch ran at `-b/-ub 512` with gemma4's images decoded in pieces. The FA-on launches ran at 2048.
+  - The cause is a rule, not memory. On CUDA, `automaticGenerationBatch` returns 512 whenever FA is off, before
+    gemma4's 2048 image-chunk floor and the memory check (upstream's, ollama/ollama#16353). A quiet GPU gives 512 too.
+  - So the FA-off columns differ from the FA-on ones in batch as well as in attention path. Their loop counts cannot be
+    put on flash attention alone, and gemma4's output moves with the batch (the Metal host, below). Only a pinned
+    `num_batch` compares the two paths at one batch.
+  - The fold = 908 identity with FA off still holds: both ran at 512, and 908 changes only FA kernels.
 - **`real_1img` with f16 and FA off escapes the same way on both hosts.** All six boxes are right in the 0–1000 frame
-  under a pixel declaration. It takes 3,340 tokens on CUDA and 5,800 on gfx1151.
+  under a pixel declaration. It takes 3,340 tokens on CUDA, at batch 512, and 5,800 on gfx1151, at batch 2048.
 - **The FA-on columns agree with #375's in-suite loop-rate run.**
 - **Deploy source (ADR 0043, decision 1):** production does not set the variable and runs the f16 default (12 of 12
   KV allocations). The v0.34.4 deploy sets `OLLAMA_KV_CACHE_TYPE=f16` explicitly, and refuses if the live
