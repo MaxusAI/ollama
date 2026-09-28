@@ -3,7 +3,8 @@
 - **Status:** accepted 2026-09-28 for the two decisions it records. Both are the maintainer's.
   - The fold keeps upstream's single pass as the default, with ADR 0004's flow behind `OLLAMA_FORMAT_TWO_PASS=1`
     ([#375](https://github.com/MaxusAI/ollama/pull/375)).
-  - Production runs that switch. Decided 2026-09-27; deployed on CUDA and gfx1151 on 2026-09-28.
+  - Production runs that switch. Decided 2026-09-27; deployed on CUDA and gfx1151 on 2026-09-28, and on the Metal host the same day
+    ([#402](https://github.com/MaxusAI/ollama/pull/402)).
 
   The retirement condition at the end is proposed.
 - **Supersedes:** [ADR 0004](0004-routes-layer-think-format-double-request.md) as the statement of which flow the fork
@@ -100,7 +101,8 @@ So on MLX the question is whether the thinking drafts, not which flow runs. On G
    - On MLX this restores the thinking speed production had before v0.34.4, and Metal's lower gemma4 loop counts. It
      also keeps `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` and the protection that knob gives.
    - gfx1151 serves GGUF, where the flows tie, and runs two-pass for the same behaviour as CUDA.
-   - The Metal host's deploy is decided separately.
+   - The Metal host's launchd agent sets it too, since its deploy on 2026-09-28 at 14:07
+     ([#402](https://github.com/MaxusAI/ollama/pull/402)).
 3. **Every deploy script sets the switch explicitly, and checks it.** A deploy that mirrors the live container by
    `docker inspect` would otherwise run whatever flow the code defaults to. The CUDA script adds the variable, as it
    adds `OLLAMA_KV_CACHE_TYPE=f16` ([#387](https://github.com/MaxusAI/ollama/pull/387)). It refuses a live container
