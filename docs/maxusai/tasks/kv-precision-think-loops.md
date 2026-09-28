@@ -16,7 +16,7 @@ flow, and in production's environment with only two knobs changed:
 |---|---|---|
 | `q8_0` | the control, where it was the environment | does not exist: a quantized V cache needs flash attention |
 | f16 | production (ADR 0043) | the flash-attention kernels against `mul_mat`, at the same storage |
-| f32 | **equals f16, byte for byte**, on CUDA and HIP; not run ([ADR 0044](../adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md)) | the most precise attention the build has |
+| f32 | **equals f16, byte for byte**, on CUDA, HIP and Metal; not run ([ADR 0044](../adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md)) | the most precise attention the build has |
 
 - **Why f32 needs flash attention off.** At b11081, CUDA's and HIP's flash attention convert an f32 K/V cache to
   f16 before their kernels run (`ggml/src/ggml-cuda/fattn.cu`: `need_f16_K = K->type == GGML_TYPE_F32 …`; the
