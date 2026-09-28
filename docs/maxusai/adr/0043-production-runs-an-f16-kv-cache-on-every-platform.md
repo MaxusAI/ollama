@@ -52,9 +52,16 @@ What `q8_0` saves is memory: about 3 GB against 6 GB per model at 32K context (A
   production serves.
 - ADR 0005's decision 2 no longer lets an instance keep `q8_0` as its default.
 - Think-on results measured under `q8_0` carry that caveat. On gfx1151 that is everything since 2026-08-08,
-  including the v0.34.4 fold's think-on protocol. The fold's qwen3.6 pair is re-run with f16.
+  including the v0.34.4 fold's think-on protocol. The fold's qwen3.6 pair was re-run with f16 (2026-09-27): both
+  flows finish 26 of 27 cases, where under `q8_0` both finished 25.
 - Two arms, or two hosts, compare only at one KV type. In the fold's protocol on gfx1151, the KV type moved the
   quality of 20 of 25 qwen3.6 think-on tests, in both directions, where the fold's own structured-output change
   moved 4 ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md), 2026-09-27).
-- Each host measures whether KV precision and the attention path decide the loops that remain, in
-  [kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md).
+- Each host measured whether KV precision and the attention path decide the loops that remain
+  ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md)). On gfx1151 and CUDA, no KV type or attention
+  path reliably removes them; where a loop starts moves in both directions. The loops come from the prompt. MLX has
+  no KV-type or attention knob.
+- **Deploy sources (decision 1), 2026-09-28.** gfx1151's and CUDA's v0.34.4 deploys set `OLLAMA_KV_CACHE_TYPE=f16`
+  explicitly and check it in the new server's startup config; gfx1151's compose file carries it too. Metal's launchd
+  agent sets none. Its GGUF models get llama-server's f16 default; setting the variable there is the maintainer's
+  call.
