@@ -64,4 +64,5 @@ What `q8_0` saves is memory: about 3 GB against 6 GB per model at 32K context (A
 - **Deploy sources (decision 1), 2026-09-28.** gfx1151's and CUDA's v0.34.4 deploys set `OLLAMA_KV_CACHE_TYPE=f16`
   explicitly and check it in the new server's startup config; gfx1151's compose file carries it too. Metal's launchd
   agent sets none. Its GGUF models get llama-server's f16 default; setting the variable there is the maintainer's
-  call.
+  call. **Metal: resolved later on 2026-09-28** ([#402](https://github.com/MaxusAI/ollama/pull/402)). Its v0.34.4 deploy adds the
+  variable to the launchd plist, and production's first GGUF load after it shows `--cache-type-k f16 --cache-type-v f16` in the runner's flags, and llama.cpp allocates the KV cache as `K (f16)` and `V (f16)`.

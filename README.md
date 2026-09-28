@@ -30,9 +30,9 @@
 > **Deployed:** the tag, stamped `0.34.4-dynres-0-gb43ee8e`. It went onto the CUDA host at 07:37 on 2026-09-28, onto
 > the AMD/gfx1151 host at 07:39 ([#391](https://github.com/MaxusAI/ollama/pull/391)), and onto the Apple Silicon host's
 > mlx-metal surface (`:11435`) at 14:07.
-> - **Build:** on the GGUF hosts, the natively gated payload with the tag's Go binary. On the Apple Silicon host, both
->   halves are built at the tag.
-> - **think+format:** all three hosts run the two-pass flow (`OLLAMA_FORMAT_TWO_PASS=1`, ADR 0004; open item 7 of the
+> - **Build:** on the CUDA and gfx1151 hosts, the natively gated payload with the tag's Go binary. On the Apple Silicon
+>   host, both halves are built at the tag.
+> - **think+format:** all three hosts run the two-pass flow (`OLLAMA_FORMAT_TWO_PASS=1`, [ADR 0045](docs/maxusai/adr/0045-think-format-single-pass-by-default-two-pass-in-production.md); open item 7 of the
 >   [fold record](docs/maxusai/tasks/upstream-sync-0.34.4.md)).
 > - **KV cache:** all three set `OLLAMA_KV_CACHE_TYPE=f16` explicitly ([#387](https://github.com/MaxusAI/ollama/pull/387)).
 > - **Drafting:** the CUDA container and the Apple Silicon launchd agent also keep `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`

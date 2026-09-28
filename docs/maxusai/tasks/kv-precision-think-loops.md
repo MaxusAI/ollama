@@ -365,4 +365,5 @@ starts at all.
 
 **Deploy source (ADR 0043, decision 1):** production is a launchd agent. It sets `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`
 and no `OLLAMA_KV_CACHE_TYPE`, and it could hold one. Setting f16 there is a production change for the maintainer,
-and it affects only the GGUF models the server runs.
+and it affects only the GGUF models the server runs. **Resolved 2026-09-28** ([#402](https://github.com/MaxusAI/ollama/pull/402)): the v0.34.4 deploy sets
+`OLLAMA_KV_CACHE_TYPE=f16` in the plist, and production's first GGUF load after it shows `--cache-type-k f16 --cache-type-v f16` in the runner's flags, and llama.cpp allocates the KV cache as `K (f16)` and `V (f16)`.
