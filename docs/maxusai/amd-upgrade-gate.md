@@ -29,7 +29,7 @@ back to `0.32.1-gemma4budget-85ebcb79`.
 | KV cache | **f16** since 2026-09-26 07:23 ([ADR 0005](adr/0005-per-model-kv-cache-type.md)). From the 2026-08-08 cutover until then it was `q8_0` by accident; see the [2026-09-26 decision](#decision-2026-09-26--productions-kv-cache-back-to-f16) |
 | Think+format flow | **two-pass** (`OLLAMA_FORMAT_TWO_PASS=1`) since 2026-09-28, the maintainer's choice at the 0.34.4 deploy. v0.34.4's default is the single pass; see the [2026-09-28 decision](#decision-2026-09-28--0344-promoted-with-the-two-pass-flow) |
 | Payload | **b11081** (`161755f29`) since 2026-09-28; b10969 (`391fac164`) for 0.34.2 and 0.34.3. Compat 906 stays **retired**: upstream ships its own HIP `prop.integrated` revert |
-| Previous image | `maxusai-ollama:0.34.3-rocm724-main-650f8fda` (`0.34.3-dynres-0-g650f8fd`, b10969) — **retained for rollback** as the stopped container `ollama-rocm-0.34.3-650f8fda`, which runs f16. Before it, `0.34.2-rocm724-main-f67b1aef` (the stopped container `ollama-rocm-0.34.2-f67b1aef`, created with `q8_0`: read the 2026-09-26 decision before using it), `0.34.1-rocm724-main-16649e8c` (b10864 + 906) and `0.32.1-rocm-dynres-5d5b7a72` (b9888) |
+| Previous image | `maxusai-ollama:0.34.3-rocm724-main-650f8fda` (`0.34.3-dynres-0-g650f8fd`, b10969) — **retained for rollback** as the stopped container `ollama-rocm-0.34.3-650f8fda`, which runs f16. Before it, `0.34.2-rocm724-main-f67b1aef` (the stopped container `ollama-rocm-0.34.2-f67b1aef`, recreated with f16 on 2026-09-28), `0.34.1-rocm724-main-16649e8c` (b10864 + 906) and `0.32.1-rocm-dynres-5d5b7a72` (b9888) |
 | Superseded pin | `0.32.1-dynres-296eb020` recorded here until 2026-09-19; the host was in fact running `5d5b7a72`, so this row had drifted from the host it describes |
 | Blocked target | `0.32.5-gemma4budget-4259c191` (built, verified, **rolled back** 2026-07-31) — never unblocked; superseded, not cleared |
 | Host | Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151**, ROCm, Linux |
@@ -339,10 +339,13 @@ docker rename ollama-rocm-0.34.3-q8kv ollama-rocm &&
 docker update --restart unless-stopped ollama-rocm && docker start ollama-rocm
 ```
 
-**The 0.34.2 rollback container still says `q8_0`.** `ollama-rocm-0.34.2-f67b1aef` was created with production's
-arguments on 2026-09-21, so starting it, as the 2026-09-25 rollback does, brings `q8_0` back. It has not been
-recreated. To roll back to 0.34.2, start a new container from its image with the 2026-09-25 arguments and
-`OLLAMA_KV_CACHE_TYPE=f16` instead.
+**The 0.34.2 rollback container said `q8_0` until 2026-09-28.** `ollama-rocm-0.34.2-f67b1aef` was created with
+production's arguments on 2026-09-21, so starting it, as the 2026-09-25 rollback does, would have brought `q8_0` back.
+**It was recreated with f16 on 2026-09-28**, at the maintainer's word.
+- The only change is `OLLAMA_KV_CACHE_TYPE=f16`. The image, ports, devices, groups, security options, IPC, shm,
+  mount and the rest of the environment are unchanged, compared field by field before the old container was removed.
+- It is created and never started, with restart policy `no`.
+- The 2026-09-25 rollback commands work as written again.
 
 ## Decision 2026-09-28 — 0.34.4 promoted, with the two-pass flow
 
