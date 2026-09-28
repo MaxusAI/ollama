@@ -81,6 +81,23 @@ measurably worse on qwen3.8 and costs one cell out of fourteen on qwen3.6.
   finite.
 - **A `real` pin.** qwen3.6's anchor converts 6/6 at **1 of 14** geometries under
   `real`, against 14/14 under norm-1000.
+
+  **Measured 2026-09-27** on gfx1151, f16, cold
+  ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md)). The
+  request was a `real` pin that also asks for "the size YOU used" when the
+  image was resized internally. The model cannot observe that resize.
+  - Greedy, both qwen3.6 and gemma4:26b think until the budget runs out.
+  - With that sentence replaced by the image's size, gemma4:26b answers in
+    **2,081 tokens** with correct pixel boxes (**6/6**, IoU 0.71). qwen3.6 also
+    finishes, but still answers in its 0–1000 frame: 2 of 6 boxes are right as
+    pixels.
+  - With that sentence replaced by an instruction to commit to one estimate,
+    gemma4:26b answers correctly again, and qwen3.6 still loops.
+  - At the cards' sampling, all 6 runs finish, but only gemma4 returns pixel
+    boxes, in 2 of its 3 runs.
+
+  C1 stands: pin norm-1000. A caller that must have pixels states the size, and
+  never asks for a size the model cannot see.
 - **Small square images**, for qwen3.6: the single think-on failure is `sq320`
   (320×320), which is exactly where C14 says both of C7's checks lose
   discriminating power at once.

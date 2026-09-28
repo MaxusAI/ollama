@@ -103,7 +103,7 @@ decision and its measurements live (`docs/maxusai/`). The
 | **whitespace in structured output (MLX)** | the JSON grammar allows an unlimited whitespace run between tokens, so a stalled decode can fill `num_predict` with indentation and never close the answer | runs bounded at 32 characters per separator (`max_whitespace_cnt` on the `json_schema` element) | ADR 0035 (proposed) |
 | **drafting under a grammar (MLX)** | always on | on by default to match upstream; `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` restores the gate, and production sets it | ADR 0033 |
 | **stop sequences (MLX)** | not honoured by the MLX runner | honoured, with a possible stop prefix held back until it matches or the stream ends | `mlxrunner/stopper.go` |
-| **KV cache type** | one global `OLLAMA_KV_CACHE_TYPE` | per model, with K/V pair syntax and a policy for reasoning models | ADR 0005 |
+| **KV cache type** | one global `OLLAMA_KV_CACHE_TYPE` | per model, with K/V pair syntax; production runs f16 on every platform, and a quantized cache is per model or per request | ADR 0005, ADR 0043 |
 
 **Serving and scheduling**
 
