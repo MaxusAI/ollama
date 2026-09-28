@@ -331,13 +331,10 @@ llama-server command line had `--cache-type-k q8_0 --cache-type-v q8_0`, and no 
 - An f16 KV cache takes twice the memory of `q8_0`: about 3 GB → 6 GB per model at 32K context (ADR 0005). The host
   has 96 GiB of VRAM.
 
-Rollback, to `q8_0` on the same image:
-
-```
-docker stop ollama-rocm && docker rename ollama-rocm ollama-rocm-f16-rolledback &&
-docker rename ollama-rocm-0.34.3-q8kv ollama-rocm &&
-docker update --restart unless-stopped ollama-rocm && docker start ollama-rocm
-```
+**No `q8_0` fallback remains (2026-09-28).** This decision first kept the `q8_0` container, as
+`ollama-rocm-0.34.3-q8kv`, so the KV change could be rolled back. The maintainer removed it on 2026-09-28: production
+runs f16 from here on, with no `q8_0` fallback. A model that wants a quantized cache sets it per model or per request
+(ADR 0043). Every rollback container on this host is f16.
 
 **The 0.34.2 rollback container said `q8_0` until 2026-09-28.** `ollama-rocm-0.34.2-f67b1aef` was created with
 production's arguments on 2026-09-21, so starting it, as the 2026-09-25 rollback does, would have brought `q8_0` back.
