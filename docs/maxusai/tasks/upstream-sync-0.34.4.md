@@ -442,6 +442,70 @@ gemma4:26b-nvfp4, both flows, two repeats each, the full ladder.
 Queued, in order: the rest of gate 6's MLX controls, gate 5 run 2, the fine-text repeats, OCRBench, the loop rates,
 MLX think-on, and a drafting probe (the knob and the flow, apart).
 
+#### 908 against upstream: no lost precision, and the loops follow the rounding
+
+Two questions decide whether `ce8caa6e6` is an upstream bug worth reporting, and both were tested on 2026-09-28 on
+plain llama.cpp. The two builds are `b11081` (`161755f2`) as released, and the same tree with only 908 applied. Both
+were built on the CUDA host against CUDA 13.0 for `120-virtual`, as production's payload is, and neither carries any
+other fork patch. The scripts are in the run directory.
+
+- **Does the loop travel? No.** The input was ggml-org's public gemma-4-26B-A4B Q4_0 with its BF16 mmproj, and the
+  exact request ollama's runner sent for `multi_3img_anchored`. The prompt was rebuilt from the gemma4 renderer, and
+  its length matches the runner's debug log: 2,060 bytes. Decoding was greedy, with production's llama-server
+  flags. The tiling that loops ollama's Q4_K_M finishes here, with every question right, and the revert loops.
+  `lcpp-repro.py`, verbatim:
+
+```
+b11081 multi_3img_anchored orig: stop=eos tokens=8342 prompt_tokens=3146 wall=112.8s
+  thinking: 313/438 lines distinct, second half 193/219, most repeated x4: '"Quarterly unit shipments (k)"'
+  onset: no loop found
+  answer: 3641 chars
+b11081-908only multi_3img_anchored orig: stop=limit tokens=24576 prompt_tokens=3146 wall=260.9s
+  thinking: 148/1589 lines distinct, second half 17/795, most repeated x92: "Let's re-estimate."
+  onset: loop from line 160 of 1,589, about token 3,562
+  answer: 0 chars
+```
+
+- **Did the retune lose precision? No.** This used llama.cpp's own `test-backend-ops`: `FLASH_ATTN_EXT` against the
+  CPU reference, over the default cases at head sizes 256 and 512. A one-line diagnostic, identical in both trees,
+  prints every case's NMSE, not only the failures.
+  - Both builds pass all 263 cases. 94 cases at head size 512 are unsupported on CUDA in both.
+  - In every group of head size and batch size, the error ratio released/reverted is 0.96–1.02.
+  - The larger error falls on either build about equally often.
+
+  The paired errors, from `tbo-908-compare.py`, verbatim:
+
+```
+cases: released 263, reverted 263, paired with an error on both 167
+  released: ? 99, OK 70, unsupported 94
+  reverted: ? 95, OK 74, unsupported 94
+
+| hsk | nb | cases | median NMSE released | median reverted | max released | max reverted | released larger | reverted larger | equal | geo-mean ratio released/reverted |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 256 | 1 | 36 | 1.090e-05 | 1.070e-05 | 4.359e-05 | 4.691e-05 | 18 | 18 | 0 | 1.000 |
+| 256 | 3 | 28 | 1.110e-05 | 1.113e-05 | 2.368e-05 | 2.333e-05 | 19 | 9 | 0 | 1.012 |
+| 256 | 16 | 1 | 8.604e-05 | 8.524e-05 | 8.604e-05 | 8.524e-05 | 1 | 0 | 0 | 1.009 |
+| 256 | 32 | 35 | 1.112e-05 | 1.111e-05 | 4.469e-05 | 4.498e-05 | 18 | 17 | 0 | 0.998 |
+| 256 | 64 | 10 | 6.542e-06 | 6.460e-06 | 8.659e-05 | 8.491e-05 | 5 | 5 | 0 | 0.989 |
+| 256 | 67 | 1 | 1.151e-05 | 1.156e-05 | 1.151e-05 | 1.156e-05 | 0 | 1 | 0 | 0.996 |
+| 256 | 75 | 28 | 1.127e-05 | 1.114e-05 | 2.259e-05 | 2.303e-05 | 15 | 13 | 0 | 1.003 |
+| 256 | 512 | 6 | 8.170e-05 | 8.444e-05 | 3.364e-04 | 3.334e-04 | 2 | 4 | 0 | 0.967 |
+| 512 | 1 | 6 | 1.081e-05 | 1.131e-05 | 4.677e-05 | 4.783e-05 | 1 | 5 | 0 | 0.959 |
+| 512 | 3 | 5 | 1.124e-05 | 1.113e-05 | 1.634e-05 | 1.730e-05 | 2 | 3 | 0 | 0.993 |
+| 512 | 4 | 1 | 2.287e-05 | 2.235e-05 | 2.287e-05 | 2.235e-05 | 1 | 0 | 0 | 1.023 |
+| 512 | 32 | 4 | 1.098e-05 | 1.106e-05 | 1.110e-05 | 1.122e-05 | 1 | 3 | 0 | 0.992 |
+| 512 | 64 | 2 | 2.770e-05 | 2.764e-05 | 4.445e-05 | 4.419e-05 | 1 | 1 | 0 | 0.997 |
+| 512 | 75 | 4 | 1.130e-05 | 1.119e-05 | 1.137e-05 | 1.134e-05 | 3 | 1 | 0 | 1.003 |
+
+failures (released, reverted): 0
+```
+
+- **So the loops follow the rounding, as #387 found for the KV types.** Which case loops depends on the weights.
+  ollama's Q4_K_M loops more with the new tiling, 6 of 27 against 1. The public Q4_0 loops one case the other way.
+- **908 is a fork choice, not an upstream bug.** It keeps the numerics production was gated on, which also decode
+  faster on gemma4:26b (176 against 137 tok/s). Nothing is filed upstream. It retires when a fold's loop-rate run on
+  the pin's own tiling matches 908's.
+
 #### MLX drafting probe: the knob decides whether think+format drafts, and drafting is 1.5–1.7× on the thinking
 
 This measures item 5 of "What single pass changes". In the single pass a think+format request reaches the MLX runner
@@ -1077,7 +1141,9 @@ representation-sensitive test each, so the fold's attribution stays clean.
 
 1. **Gate 6 on CUDA is done** (2026-09-27 17:40). The fixed-history MLX think-on variant finished last, after the
    drafting probe (item 7) and #387's KV-precision × flash-attention test. All three are under gate 6.
-2. **`ce8caa6e6`: the device half is carried as compat patch 908**, on the maintainer's word (2026-09-26). That half,
+2. **`ce8caa6e6`: the device half is carried as compat patch 908**, on the maintainer's word (2026-09-26). It is not an upstream bug: the retune loses no precision in `test-backend-ops`, and on
+   ggml-org's public Q4_0 the loop runs the other way. So 908 keeps the numerics production was gated on, and nothing
+   is filed upstream ([908 against upstream](#908-against-upstream-no-lost-precision-and-the-loops-follow-the-rounding), 2026-09-28). That half,
    the tiling, is five extra never-ending think-on loops on gemma4:26b (6 of 27 against 1, and gfx1151's 1), the
    think-off movement of gemma4:31b, 26b and e4b, and the GGUF q4 OCRBench item; on gemma4:31b's think-on it changes
    numerics only. The host half, the

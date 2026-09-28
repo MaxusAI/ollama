@@ -94,7 +94,7 @@ decision and its measurements live (`docs/maxusai/`). The
 | **gemma4 image budget** | default limits **70–1,120 tokens** (40–280 before b10864); an under-budget image keeps its natural rounded grid and is letterbox-padded | every image scaled to *fill* the requested budget and snapped to gemma4's supported ladder (70/140/280/560/1120), never padded — off-ladder grids measurably break `box_2d` vertical grounding. The budget is a per-request option (`image_min_tokens`/`image_max_tokens`, defaults 70/1120) and the scheduler reloads when the resolved flags change. Upstream has since adopted the same default limits; the fill is still fork-only | patch `004`, ADR 0003/0008/0016 |
 | **qwen2.5-vl on CUDA** | f16 vision matmuls accumulate in fp16; on some ordinary images a few elements of millions reach `inf` at `v.blk.31.ffn_down` and the caption collapses into one repeated glyph | fp32 accumulation forced for every Qwen-VL runner (`qwen2vl` and `qwen25vl`, one family under two converter spellings), keyed on the GGUF architecture. Offered upstream as [ollama#18070](https://github.com/ollama/ollama/pull/18070), still open | `llm/llama_server.go` |
 | **MoE + MMQ on CUDA** | ids-path tail padding sized from `ne11`; under broadcast `ne11 == 1`, so the buffer gets no padding and the kernel overruns by up to a 512-row tile | padding sized from the flattened row count. Reported as [llama.cpp#27044](https://github.com/ggml-org/llama.cpp/issues/27044), still open | patch `903` |
-| **gemma4 flash attention on CUDA** | `b11081` retunes the MMA configs and tile sizes for head dims 256/512 (`ce8caa6e6`). On gemma4:26b that tiling leaves 6 of 27 think-on cases in loops that never end, against 1 without it | the device half of `ce8caa6e6` is reverted to `b10969`'s tiling; the host half, the decode selection, stays upstream's. The revert shows no speed cost: in the paired runs on CUDA, gemma4:31b decoded 57 tok/s with either tiling, and gemma4:26b 176 tok/s against the new tiling's 137. On gfx1151 the patch changes no kernel | patch `908`, the [v0.34.4 fold record](docs/maxusai/tasks/upstream-sync-0.34.4.md) |
+| **gemma4 flash attention on CUDA** | `b11081` retunes the MMA configs and tile sizes for head dims 256/512 (`ce8caa6e6`). Its accuracy is unchanged in llama.cpp's `test-backend-ops`, but the rounding moves. With ollama's Q4_K_M, gemma4:26b leaves 6 of 27 think-on cases in loops that never end, against 1 without it; with ggml-org's Q4_0, a case loops the other way | the device half of `ce8caa6e6` is reverted to `b10969`'s tiling, which keeps the numerics production was gated on; the host half, the decode selection, stays upstream's. The revert shows no speed cost: in the paired runs on CUDA, gemma4:31b decoded 57 tok/s with either tiling, and gemma4:26b 176 tok/s against the new tiling's 137. On gfx1151 the patch changes no kernel | patch `908`, the [v0.34.4 fold record](docs/maxusai/tasks/upstream-sync-0.34.4.md) |
 
 **Structured output and generation control**
 
@@ -215,7 +215,9 @@ offered upstream where it is upstream's to take, and deleted from here once it
 lands there. The Qwen-VL accumulation gate
 ([ollama#18070](https://github.com/ollama/ollama/pull/18070)) and the MMQ
 padding fix ([llama.cpp#27044](https://github.com/ggml-org/llama.cpp/issues/27044))
-are filed and pending. The gemma4 tiling revert (`908`) is not filed yet.
+are filed and pending. The gemma4 tiling revert (`908`) is not upstream's to take:
+`ce8caa6e6` loses no precision in llama.cpp's `test-backend-ops`, so the revert is the fork's own
+choice to keep production's gated numerics.
 
 ---
 
