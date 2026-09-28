@@ -89,6 +89,11 @@ repeats "Let's assume the image is 1600x900." 79 times. Estimated token at which
 On qwen3.6 `real_1img`, both flash-attention-off runs loop earlier than both flash-attention-on runs. That is one case
 with one run per cell, so it is not a trend.
 
+**Every gfx1151 capture ran at the full batch.** Each launch in this host's logs records `-b/-ub`. gemma4 always
+ran at 2048, its image-chunk floor, with flash attention on or off. qwen3.6 ran at 1024 up to 32768 and 2048 above.
+None logged "images decode in pieces". So on gfx1151 the flash-attention-off arms changed the attention path and
+nothing else. On CUDA they also changed the batch (the CUDA section).
+
 **Cold captures isolate the KV type. The protocol's cells can also carry the run's history.**
 
 - qwen3.6 `real_1img`'s cold `q8_0` capture at 32768 is byte-identical to the protocol's thinking at 131072 for its
@@ -328,8 +333,14 @@ On this host a greedy qwen3.6 run reproduces cell for cell: the v0.34.3 fold's c
 - **Loop counts per path:** fold with FA on 2/3, 908 with FA on 2/3, f16 with FA off 0/3, f32 with FA off 1/3. Each
   path is one fixed trajectory, not a draw. The most precise path loops on `multi_3img_anchored`, where f16 with
   FA off finishes.
+- **The FA-off columns also changed the batch** (the CUDA host on #387, 2026-09-28).
+  - Every FA-off launch ran at `-b/-ub 512` with gemma4's images decoded in pieces. FA off needs more memory, so the
+    fork's automatic batch stepped down. The FA-on launches ran at 2048.
+  - So the FA-off columns differ from the FA-on ones in batch as well as in attention path. Their loop counts cannot be
+    put on flash attention alone, and gemma4's output moves with the batch (the Metal host, below).
+  - The fold = 908 identity with FA off still holds: both ran at 512, and 908 changes only FA kernels.
 - **`real_1img` with f16 and FA off escapes the same way on both hosts.** All six boxes are right in the 0–1000 frame
-  under a pixel declaration. It takes 3,340 tokens on CUDA and 5,800 on gfx1151.
+  under a pixel declaration. It takes 3,340 tokens on CUDA, at batch 512, and 5,800 on gfx1151, at batch 2048.
 - **The FA-on columns agree with #375's in-suite loop-rate run.**
 - **Deploy source (ADR 0043, decision 1):** production does not set the variable and runs the f16 default (12 of 12
   KV allocations). The v0.34.4 deploy sets `OLLAMA_KV_CACHE_TYPE=f16` explicitly, and refuses if the live
