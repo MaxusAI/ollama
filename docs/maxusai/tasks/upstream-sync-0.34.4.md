@@ -584,13 +584,26 @@ These are #387's cold captures on both builds. The cases are `multi_3img_anchore
 `bbox_contract_box2d_1img`. The arms are f16 and f32, each with flash attention on and off. The run was 2026-09-27
 01:18–04:29, and the full table is on #387.
 
-- **Two byte-identities.** With flash attention on, f32 reproduces f16 byte for byte on both builds: CUDA's flash
-  attention converts an f32 cache to f16 first. With flash attention off, the fold and the 908 image are
-  byte-identical at both precisions, because 908 changes only the flash-attention tiling.
+- **Two byte-identities.**
+  - With flash attention on, f32 reproduces f16 byte for byte on both builds. llama.cpp's own graph casts an f32 K
+    and V to f16 just before flash attention (`build_attn_mha`), on every backend: Metal found the cast on #387.
+    CUDA's graphs show it too. f32 builds 2,764 nodes against f16's 2,704 with flash attention on, one K cast and
+    one V cast in each of 30 layers, and both build 2,829 with it off.
+  - With flash attention off, the fold and the 908 image are byte-identical at both precisions, because 908 changes
+    only the flash-attention tiling. Both ran at the same batch, which is described next.
 - **What loops.** The flash-attention-on columns repeat the loop-rate run. The tiling loops `multi_3img_anchored`,
   which the 908 image finishes in 3,882 tokens against production's 3,883. The revert loops `box2d_1img`. `real_1img`
   loops on both builds.
-- **Flash attention off.** At f16 it finishes all three cases. At f32 it loops `multi_3img_anchored`.
+- **Flash attention off.** At f16 it finishes all three cases. At f32 it loops `multi_3img_anchored`. These cells
+  change the batch as well as the attention path, so they cannot be read as flash attention's effect alone.
+  - Every flash-attention-off launch ran at `-b/-ub 512`, with images decoded in pieces. The flash-attention-on arms
+    ran at 2048.
+  - On CUDA, flash attention off never promotes the automatic batch past 512. It drops to 256 when a CUDA device has
+    8 GiB or less free and the context is above 4096. This is upstream's rule in `automaticGenerationBatch`
+    (ollama/ollama#16353). It returns before gemma4's 2048 image-chunk floor and the fit check (`generationBatchFits`)
+    apply. So a quiet GPU still gives 512, and only a pinned `num_batch` compares the two paths at one batch.
+  - Metal's batch finding on #387 prompted the check, on 2026-09-28. The loop-rate run and item 8's two CUDA GGUF
+    legs ran at 2048 throughout.
 - **The verdict.** No KV type or attention path reliably removes these loops, which matches the gfx1151 host's
   reading. Production keeps f16 with flash attention on (ADR 0043).
 
