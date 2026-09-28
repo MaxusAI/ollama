@@ -25,7 +25,8 @@
 # OLLAMA_FLASH_ATTENTION=0 makes the fork pass --flash-attn off; unset would be "auto", which enables it.
 # Each capture logs the runner's --cache-type-k, --cache-type-v and --flash-attn flags, so the arm is proven,
 # not assumed. Greedy results hold under GPU sharing only at a fixed batch: the automatic batch follows free memory,
-# and gemma4's output moves with it (#387). Set NUM_BATCH=2048 to pin -b/-ub when comparing gemma4 across arms.
+# and gemma4's output moves with it (#387). On CUDA with flash attention off it is always 512 (upstream's rule), so
+# those arms differ in batch too. Set NUM_BATCH=2048 to pin -b/-ub when comparing gemma4 across arms.
 set -uo pipefail
 : "${IMG:?set IMG}" "${CASES:?set CASES}" "${STORE:?set STORE}" "${GPU_ARGS:?set GPU_ARGS}"
 ARMS=${ARMS:-"f16:1 f16:0 f32:0"}

@@ -63,6 +63,10 @@ This skill owns the **procedure**. The evidence lives in
 - **Sharing the GPU can change greedy output, through the batch.** Do not report timing from a shared run either.
   - The fork's automatic batch (`automaticGenerationBatch`, `server/sched.go`) picks llama-server's `-b/-ub` from the
     memory free at each launch. A neighbour's memory use can lower it: 2048 → 1024 → 512.
+  - **CUDA with flash attention off is the exception.** There the batch is always 512 (256 above 4096 context on a
+    GPU of 8 GiB or less), set before the image-chunk floor and the memory check (upstream's rule,
+    ollama/ollama#16353). So a CUDA flash-attention-off arm runs gemma4's images in pieces even on a quiet GPU. HIP
+    and Metal keep the automatic batch.
   - gemma4's greedy output moves with the batch, in both directions (the Metal host on #387: `real_1img` loops at
     512 and answers at 2048; `multi_3img_anchored` the reverse). Its SWA cache and its image chunking both depend
     on it. qwen3.6's does not.

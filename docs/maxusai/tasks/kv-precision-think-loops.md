@@ -93,7 +93,8 @@ with one run per cell, so it is not a trend.
 **Every gfx1151 capture ran at the full batch.** Each launch in this host's logs records `-b/-ub`. gemma4 always
 ran at 2048, its image-chunk floor, with flash attention on or off. qwen3.6 ran at 1024 up to 32768 and 2048 above.
 None logged "images decode in pieces". So on gfx1151 the flash-attention-off arms changed the attention path and
-nothing else. On CUDA they also changed the batch (the CUDA section).
+nothing else. On CUDA they also changed the batch: there a rule sets 512 whenever flash attention is off, and it
+checks for a CUDA device, so HIP keeps the automatic batch (the CUDA section).
 
 **Cold captures isolate the KV type. The protocol's cells can also carry the run's history.**
 
@@ -320,8 +321,8 @@ On this host a greedy qwen3.6 run reproduces cell for cell: the v0.34.3 fold's c
 
 **Two byte-identities reduce the 24 captures to 12 distinct trajectories:**
 
-- f32 with FA on reproduces f16 with FA on, byte for byte, on both builds and all three cases. That confirms that
-  flash attention converts an f32 K/V cache to f16 first.
+- f32 with FA on reproduces f16 with FA on, byte for byte, on both builds and all three cases. llama.cpp's graph
+  casts an f32 K and V to f16 before flash attention (`build_attn_mha`, ADR 0044).
 - With FA off, the two builds are byte-identical at both f16 and f32. That is a positive control for 908's scope,
   which is FA's MMA tiling only.
 
@@ -335,10 +336,12 @@ On this host a greedy qwen3.6 run reproduces cell for cell: the v0.34.3 fold's c
   path is one fixed trajectory, not a draw. The most precise path loops on `multi_3img_anchored`, where f16 with
   FA off finishes.
 - **The FA-off columns also changed the batch** (the CUDA host on #387, 2026-09-28).
-  - Every FA-off launch ran at `-b/-ub 512` with gemma4's images decoded in pieces. FA off needs more memory, so the
-    fork's automatic batch stepped down. The FA-on launches ran at 2048.
+  - Every FA-off launch ran at `-b/-ub 512` with gemma4's images decoded in pieces. The FA-on launches ran at 2048.
+  - The cause is a rule, not memory. On CUDA, `automaticGenerationBatch` returns 512 whenever FA is off, before
+    gemma4's 2048 image-chunk floor and the memory check (upstream's, ollama/ollama#16353). A quiet GPU gives 512 too.
   - So the FA-off columns differ from the FA-on ones in batch as well as in attention path. Their loop counts cannot be
-    put on flash attention alone, and gemma4's output moves with the batch (the Metal host, below).
+    put on flash attention alone, and gemma4's output moves with the batch (the Metal host, below). Only a pinned
+    `num_batch` compares the two paths at one batch.
   - The fold = 908 identity with FA off still holds: both ran at 512, and 908 changes only FA kernels.
 - **`real_1img` with f16 and FA off escapes the same way on both hosts.** All six boxes are right in the 0–1000 frame
   under a pixel declaration. It takes 3,340 tokens on CUDA, at batch 512, and 5,800 on gfx1151, at batch 2048.
