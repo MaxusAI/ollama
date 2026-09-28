@@ -218,7 +218,7 @@ to fix something nobody is working on. What the evidence changes is the nature o
 and the pin now has a measured cost** — half of `gemma4:31b` on the CPU, and model loads that
 stall for minutes without direct I/O.
 
-That is a decision, not a conclusion, and it is Glenn's to make. What this document supports is
+That is a decision, not a conclusion, and it is the maintainer's to make. What this document supports is
 making it on evidence.
 
 **That decision has since changed twice.** Clause 4 was run the next day and the candidate failed

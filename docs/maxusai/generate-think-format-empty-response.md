@@ -405,7 +405,7 @@ new issue — #10538/#11691 already track this and #14288 is the pending fix).
 Positioned as a **collaborative superset of #14288**: we adopted its routes-layer
 double-request architecture and carry three hardenings on top, each backed by a
 measurement. Rewritten 2026-08-02 for the routes-layer implementation
-(supersedes the earlier runner-layer pitch). **Do not post without Glenn's
+(supersedes the earlier runner-layer pitch). **Do not post without the maintainer's
 explicit go.**
 
 > Confirming this is still needed on v0.32.x, and adding measurements from a

@@ -8,7 +8,9 @@ H15–H18 added 2026-09-19 from the 0.34 fold's kernel investigation
 2026-09-20 from gating the M5 tensor path
 ([m5-neural-accelerators.md](../m5-neural-accelerators.md)); H22 added 2026-09-20
 from the ROCm 10.0.0 throughput comparison on gfx1151
-([rocm-10-throughput-2026-09-20.md](../rocm-10-throughput-2026-09-20.md)).
+([rocm-10-throughput-2026-09-20.md](../rocm-10-throughput-2026-09-20.md)); H25 added 2026-09-27
+from the KV-precision loop test ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md)).
+H23 and H24 are taken by the rocBLAS investigation's branch.
 
 Normative rules for adding to `docs/maxusai/vision-suite/`. The decision and its
 evidence are [ADR 0028](../adr/0028-one-runner-one-set-of-helpers.md); report
@@ -538,17 +540,17 @@ few percent is unreadable: it is either the result or the instrument.
 > by class, ROCm 10.0.0 regresses prefill on all five models; unsplit, it
 > appeared to regress on three and be flat on gemma4.
 
-
 **H23 — A knob with a prerequisite is measured in three arms, not two.** When
 turning a setting off requires changing a second setting, a two-arm A/B
-attributes both changes to the one being studied. Measure the prerequisite
-alone as its own arm and compare against *that*. Flash attention could not be
-disabled on this fork without also moving `OLLAMA_KV_CACHE_TYPE` from `q8_0` to
-`f16` — the runner refuses with `quantized V cache requires flash_attn to be
-enabled`. The three arms measured the cache change at 1.0% (noise) and flash
-attention at 51%; a two-arm test would have reported 52% for flash attention
-and been wrong by the whole of the difference. If the prerequisite cannot be
-isolated, the result names both changes or it names neither.
+attributes both changes to the one being studied. Measure the prerequisite alone
+as its own arm and compare against *that*. Flash attention could not be disabled
+on this fork, whose production ran `q8_0` in 2026-09, without also moving
+`OLLAMA_KV_CACHE_TYPE` from `q8_0` to `f16` — the runner refuses with `quantized
+V cache requires flash_attn to be enabled`. The three arms measured the cache
+change at 1.0% (noise) and flash attention at 51%; a two-arm test would have
+reported 52% for flash attention and been wrong by the whole of the difference.
+If the prerequisite cannot be isolated, the result names both changes or it
+names neither.
 
 **H24 — A percentage-of-peak says where the peak came from, and a value above
 100% means the denominator is wrong.** A ratio against a theoretical ceiling is
@@ -560,6 +562,32 @@ holding 2 CUs, so it reported 20 for gfx1151 against a true 40 and halved the
 ceiling. `gemm_ceiling_bench.cpp` printed "165% of peak" before this was
 caught; the impossible number is the only reason it was caught at all. Any
 efficiency figure over 100% is a bug in the denominator, never a fast kernel.
+
+**H25 — An arm the kernel cannot tell apart is not an arm.** Before measuring a
+KV-cache or attention-path arm, check whether the backend's kernel reads the
+setting at all. At b11081, CUDA's and HIP's flash attention convert an f32 K/V
+cache to f16 before their kernels run (`fattn.cu`). So f32 with flash attention
+on reproduces f16 with flash attention on, byte for byte, and measuring it spends
+a full capture to learn nothing. On a shared GPU that is up to an hour
+([ADR 0044](../adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md)).
+
+A KV matrix therefore runs:
+- f16 with flash attention on (production);
+- f16 with flash attention off;
+- f32 with flash attention off, when the question is precision.
+
+`q8_0` with flash attention off does not exist, because a quantized V cache
+needs flash attention.
+
+The runner's own flags prove the arm (`--cache-type-k`, `--cache-type-v`,
+`--flash-attn`), not the environment meant to set them. `OLLAMA_FLASH_ATTENTION`
+unset is `auto`, which turns flash attention on.
+
+> Measured 2026-09-26 and 27 in the KV-precision loop test (#387). On gfx1151,
+> qwen3.6 `bbox_contract_real_1img` with f32 and with f16, flash attention on,
+> gave 143,475 characters of thinking, byte-identical. On CUDA sm_120, gemma4:26b
+> gave byte-identical output in all six pairs: three cases on two builds.
+
 ## 4. Conformance
 
 | requirement | enforced by |
@@ -588,3 +616,6 @@ efficiency figure over 100% is a bug in the denominator, never a fast kernel.
 | H21 | `probes.mlx_build` and `probes.launched_runner_paths` both filter on each line's own slog timestamp and drop unparseable ones; `probes.parse_metal_tensor_discovery` anchors on the port under test; `test_verdicts.py::TestTensorProbeRoutes` asserts the stale-line, untimestamped and newest-wins cases, `::TestMetalTensorGate` the wrong-server anchor |
 | H22 | `summarize_tps.py` classifies every block and refuses to divide across classes; `test_summarizers.py::TestThroughputCacheClass` asserts the cache label, the excluded-and-named mismatch (`n/c`, never a 10x), the dropped `cold_start` block, that `gen_tps` still counts every warm block, and that two hosts render MIXED while two builds on one host do not. **The noise floor is not enforced** — it is a measurement the operator must re-take per host |
 | H7, H13 (clip fingerprint) | `summarize_clip_fingerprint.py` renders a 801 capture; `test_summarizers.py::TestClipFingerprint` asserts the POSITIONAL comparison (a repeated node name must be compared at every occurrence — keying by name kept only the last and reported 1206 nodes for a 1409-line capture), that a dtype change reads as structural rather than numerical, that `--tol` suppresses drift but never inf/nan, and that mismatched node counts warn before anything else is read |
+| H23 | **Nothing enforces this.** The worked example is the flash-attention measurement in `rocblas-on-gfx1151.md` ("What flash attention is worth: 51%"), which ran the KV-cache change as its own arm |
+| H24 | `gemm_ceiling_bench.cpp` prints both counts, WGPs and CUs (two per WGP on RDNA: 20 and 40 on gfx1151, as `rocminfo` reports), so a halved denominator shows in its own output. **Nothing checks another bench's ceiling** |
+| H25 | `kvloop.sh`'s default `ARMS` is `f16:1 f16:0 f32:0`, and every capture logs the runner's `--cache-type-k/v` and `--flash-attn` flags. **Nothing checks a new llama.cpp pin.** After a bump, re-take one `ARMS="f16:1 f32:1"` pair and compare it byte for byte (ADR 0044, decision 4) |

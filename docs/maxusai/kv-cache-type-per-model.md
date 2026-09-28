@@ -24,6 +24,12 @@ should not have to choose one KV type for every model on an instance.
   (f32, f16, bf16, q8_0, q4_0, q4_1, q5_0, q5_1, iq4_nl); an invalid value
   logs a warning and falls back to the env so a Modelfile typo cannot make a
   model unloadable.
+- `f32` is accepted, but it buys nothing under flash attention. At b11081,
+  llama.cpp's own graph casts an f32 K and V to f16 just before flash
+  attention (`build_attn_mha`), on every backend. So it gives f16's output
+  byte for byte at twice the memory, as measured on gfx1151 and CUDA
+  ([ADR 0044](adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md))
+  and on Metal (#387).
 - The launch still passes the two separate flags `--cache-type-k <t>
   --cache-type-v <t>` (there is no combined `--cache-type-kv` in llama.cpp).
 - Reload semantics come free: the field lives in `Runner`, and the scheduler's
@@ -72,16 +78,22 @@ quantization.
   block, ~0.5 TB of traffic across 27 blocks. So the cache type is nearly free
   to change and flash attention is not: if a diagnostic needs FA off, budget
   for half the prefill throughput, and do not attribute that cost to the cache
-  type (SPEC H23).
+  type (SPEC H23). Production has run f16 since 2026-09-26 (ADR 0043), so only
+  the flash-attention cost remains.
 - Case toggling between requests ("F16" vs "f16") triggers a spurious reload
   (DeepEqual compares the raw option string); harmless.
 - Go-only change — fits the overlay image recipe with the llama-server
   payload byte-equality proof intact.
 
-## Recommended deployment (gfx1151)
+## Recommended deployment
 
-Prod keeps `OLLAMA_KV_CACHE_TYPE=q8_0`; qwen3.6 reasoning models get
-`PARAMETER kv_cache_type f16`. KV cost at 32,768 ctx: ~3 GB → ~6 GB.
+**Superseded 2026-09-26 by [ADR 0043](adr/0043-production-runs-an-f16-kv-cache-on-every-platform.md):**
+production runs `OLLAMA_KV_CACHE_TYPE=f16` on every platform, set explicitly in every deploy source, and a
+quantized cache is opt-in per model or per request through this option. The recommendation below, from
+2026-08-02, is what gfx1151 drifted back to between 2026-08-08 and 2026-09-26.
+
+> Prod keeps `OLLAMA_KV_CACHE_TYPE=q8_0`; qwen3.6 reasoning models get
+> `PARAMETER kv_cache_type f16`. KV cost at 32,768 ctx: ~3 GB → ~6 GB.
 
 ## Attribution results (2026-08-02, run via this feature)
 

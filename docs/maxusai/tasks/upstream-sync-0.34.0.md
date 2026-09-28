@@ -350,7 +350,7 @@ dependencies in the graph", so an unevaluated graph rooted at a discarded state 
 
 **The next probe needs a GPU**, which is why it is not run here: log `mlx.ActiveMemory()` around each speculation
 round and around every exit path in `commitSpeculation` on qwen3.8, and see which exit leaves a unit behind. Until
-that names a fix, the upstream report stays held (Glenn, 2026-09-12).
+that names a fix, the upstream report stays held (the maintainer, 2026-09-12).
 
 **Rendered evidence.** These are generator tables from `preflight-runs/specab-render.md`, pasted verbatim. The
 render also holds every cold run's contract matrix and the T2 pivots.
@@ -484,7 +484,7 @@ backend, budget, image). On MLX they are not:
 
 `vision-lowtemp-thinkon-negative-result.md` already calls MLX temperature 0 non-reproducible across loads, but §4 was
 never amended. So a single-run MLX gate cannot tell a near-tie flip from a real change, and a cross-build difference
-needs repeats on both builds, three or more as here. Amending §4 is Glenn's call.
+needs repeats on both builds, three or more as here. Amending §4 is the maintainer's call.
 
 ## Gate 3: why the Go-only swap covers only the GGUF half
 
@@ -566,9 +566,9 @@ campaign of its own. Five models, no OOM, no error, nothing left unconverged:
 
 So the artifact that would ship behaves like the image the fold was measured on, and like main.
 
-The deploy stays held for Glenn. It also carries the decision below on drafting under a grammar.
+The deploy stays held for the maintainer. It also carries the decision below on drafting under a grammar.
 
-## Decision: drafting under a grammar stays on, ours is a knob (Glenn, 2026-09-12)
+## Decision: drafting under a grammar stays on, ours is a knob (the maintainer, 2026-09-12)
 
 Upstream `4986e923` lets a structured-output request draft; main's `speculation.open` refused to. Everything else in
 the fold matches main on these gates — nodraft, the fold with main's one line restored, matches main on outputs and
@@ -613,7 +613,7 @@ default while saying so. Every request answered 200.
 upstream's default and no way to turn it off; `-knob` is a binary swap for testing and for an operator who needs the
 switch now. The knob belongs in the next full build.
 
-## Decision: rebuild, with the MLX bump (Glenn, 2026-09-11 23:30)
+## Decision: rebuild, with the MLX bump (the maintainer, 2026-09-11 23:30)
 
 The image is being rebuilt from `fbedf506` on the `bigdisk` builder (`claude-scratch/build-034.sh`,
 tag `maxusai/ollama:sync-0.34.0`), with MLX pinned to `ce916dbb`: ml-explore/mlx#4452, which stops

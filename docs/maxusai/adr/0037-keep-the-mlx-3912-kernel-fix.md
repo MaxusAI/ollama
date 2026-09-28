@@ -1,6 +1,6 @@
 # ADR 0037: keep the MLX #3912 kernel fix — decided on correctness, with OCR accuracy measured neutral
 
-- **Status:** accepted 2026-09-19 (Glenn: "keep 0.34.x and promote to production").
+- **Status:** accepted 2026-09-19 (the maintainer: "keep 0.34.x and promote to production").
   Sits beside [ADR 0036](0036-gemma4-image-chunk-decodes-in-one-batch.md), which made the
   same trade on the GGUF path for the same cell.
 - **Date:** 2026-09-19
@@ -123,7 +123,7 @@ discordant 16   exact McNemar two-tailed p = 0.8036
   bound). It was added to the launchd environment and the service re-bootstrapped at 17:44:40; the running
   server's own environment shows it.
 - **Parked 2026-09-19:** the nvfp4 global-scale representation (raw `m` vs `× 2688 / 2688`), and with it
-  #287 (Glenn: "park #287 for now"). Independent of this decision — the round trip moves the encoder by
+  #287 (the maintainer: "park #287 for now"). Independent of this decision — the round trip moves the encoder by
   one f32 ulp on 17 of 31b's 191 vision scales and provably does not move the 9 px tier. A proposed ADR on
   exactly this question, "nvfp4 global scales are stored as the checkpoint multiplier", sits in #323 and is
   parked with it.

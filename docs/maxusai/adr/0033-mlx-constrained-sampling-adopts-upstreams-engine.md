@@ -5,7 +5,7 @@
   [ADR 0009](0009-mlx-pure-go-constrained-sampling.md) as the *implementation*;
   the guarantee ADR 0009 exists to protect is retained and re-tested.
 - **Date:** 2026-08-28
-- **Deciders:** Glenn; assessed in the v0.33.2 sync (task
+- **Deciders:** the maintainer; assessed in the v0.33.2 sync (task
   `upstream-sync-2026-08-28.md`)
 
 ## Context

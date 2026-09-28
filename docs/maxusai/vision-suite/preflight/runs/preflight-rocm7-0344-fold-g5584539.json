@@ -1,0 +1,494 @@
+{
+  "meta": {
+    "host": "http://127.0.0.1:11495",
+    "platform": "rocm7",
+    "image_tag": null,
+    "started_utc": "20260925T205627",
+    "expectations_file": "expectations.toml",
+    "schema_version": 1,
+    "version": "0.34.3-dynres-22-g5584539",
+    "profile": "rocm7-0-34-4-dynres",
+    "patchset": [
+      "001",
+      "002",
+      "004",
+      "005",
+      "801",
+      "802",
+      "903",
+      "908"
+    ],
+    "container": "ollama-preflight-0344",
+    "llama_cpp_build": "161755f29"
+  },
+  "results": [
+    {
+      "check": "version",
+      "arch": null,
+      "status": "PASS",
+      "summary": "0.34.3-dynres-22-g5584539 matches profile rocm7-0-34-4-dynres",
+      "expected": "^0\\.34\\.[34]-dynres-\\d+-g[0-9a-f]{7,40}$",
+      "actual": "0.34.3-dynres-22-g5584539"
+    },
+    {
+      "check": "payload_pin",
+      "arch": null,
+      "status": "PASS",
+      "summary": "llama.cpp build 161755f29 matches the measured payload (docker exec)",
+      "expected": "161755f29",
+      "actual": "161755f29"
+    },
+    {
+      "check": "toolchain_pin",
+      "arch": null,
+      "status": "PASS",
+      "summary": "GPU toolchain is rocm-7.2.4",
+      "expected": "rocm-7.2.4",
+      "actual": "rocm-7.2.4"
+    },
+    {
+      "check": "image_tag",
+      "arch": null,
+      "status": "PASS",
+      "summary": "ollama-preflight-0344 runs maxusai-ollama:0.34.3-dynres-22-g5584539-rocm7-gfx1151",
+      "expected": "0.34.3-dynres-5-g29ae523",
+      "actual": "maxusai-ollama:0.34.3-dynres-22-g5584539-rocm7-gfx1151"
+    },
+    {
+      "check": "go_patch_marker",
+      "arch": null,
+      "status": "PASS",
+      "summary": "--image-max-tokens present in binary (1)",
+      "expected": 1,
+      "actual": 1
+    },
+    {
+      "check": "metal_tensor_host",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "does not apply on rocm7"
+    },
+    {
+      "check": "metal_tensor_runtime",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "does not apply on rocm7"
+    },
+    {
+      "check": "poison_probe",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "no poison-probe expectation recorded for this profile"
+    },
+    {
+      "check": "text_baseline",
+      "arch": "nemotron_h_omni",
+      "status": "PASS",
+      "summary": "in-image text prefix = 19 (calibrated on 256x144+512x288); text-only = 20; text-only is +1 and MUST NOT be used (B8)",
+      "actual": 19
+    },
+    {
+      "check": "token_ladder",
+      "arch": "nemotron_h_omni",
+      "status": "PASS",
+      "summary": "5/5 geometries within +/-2",
+      "expected": {
+        "256x144": 266,
+        "512x288": 266,
+        "1024x576": 578,
+        "2048x1152": 2306,
+        "3072x1728": 3270
+      },
+      "actual": {
+        "256x144": 266,
+        "512x288": 266,
+        "1024x576": 578,
+        "2048x1152": 2306,
+        "3072x1728": 3270
+      },
+      "rows": [
+        {
+          "size": "256x144",
+          "expected": 266,
+          "actual": 266,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "512x288",
+          "expected": 266,
+          "actual": 266,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "1024x576",
+          "expected": 578,
+          "actual": 578,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "2048x1152",
+          "expected": 2306,
+          "actual": 2306,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "3072x1728",
+          "expected": 3270,
+          "actual": 3270,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        }
+      ],
+      "shape": "scaling",
+      "expected_shape": "dynamic"
+    },
+    {
+      "check": "payload_proof",
+      "arch": "nemotron_h_omni",
+      "status": "PASS",
+      "summary": "budget logged as custom on max/min (min 256*32^2=262144, max 3328*32^2=3407872)",
+      "expected": "min 256*32^2=262144, max 3328*32^2=3407872",
+      "actual": {
+        "min": "262144 (custom value)",
+        "max": "3407872 (custom value)"
+      }
+    },
+    {
+      "check": "aspect_ladder",
+      "arch": "nemotron_h_omni",
+      "status": "SKIP",
+      "summary": "no aspect-ladder expectation recorded"
+    },
+    {
+      "check": "think_format",
+      "arch": "nemotron_h_omni",
+      "status": "PASS",
+      "summary": "valid JSON after thinking (1401 tokens)",
+      "expected": "non-empty JSON response with think:true + format:json",
+      "actual": {
+        "response_chars": 219,
+        "thinking_chars": 4551,
+        "eval_count": 1401
+      }
+    },
+    {
+      "check": "extraction_quality",
+      "arch": "nemotron_h_omni",
+      "status": "SKIP",
+      "summary": "no quality thresholds recorded for this arch"
+    },
+    {
+      "check": "pinned_image_token_budget",
+      "arch": "nemotron_h_omni",
+      "status": "PASS",
+      "summary": "pinned 3328 -> 3270 (ceiling 3328, +2 markers)",
+      "expected": 3270,
+      "actual": 3270,
+      "arms": [
+        {
+          "arm": "pinned",
+          "pin": 3328,
+          "expected": 3270,
+          "actual": 3270,
+          "ok": true
+        },
+        {
+          "arm": "ceiling_invariant",
+          "expected": "grid <= 3328",
+          "actual": 3268,
+          "ok": true
+        },
+        {
+          "arm": "unpinned_control",
+          "expected": 2306,
+          "actual": 2306,
+          "ok": true
+        }
+      ]
+    },
+    {
+      "check": "text_baseline",
+      "arch": "gemma4",
+      "status": "PASS",
+      "summary": "in-image text prefix = 19 (calibrated on 256x144+512x288); text-only = 19",
+      "actual": 19
+    },
+    {
+      "check": "token_ladder",
+      "arch": "gemma4",
+      "status": "PASS",
+      "summary": "5/5 geometries within +/-2",
+      "expected": {
+        "256x144": 1102,
+        "512x288": 1102,
+        "1024x576": 1102,
+        "2048x1152": 1102,
+        "3072x1728": 1102
+      },
+      "actual": {
+        "256x144": 1102,
+        "512x288": 1102,
+        "1024x576": 1102,
+        "2048x1152": 1102,
+        "3072x1728": 1102
+      },
+      "rows": [
+        {
+          "size": "256x144",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "512x288",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "1024x576",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "2048x1152",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "3072x1728",
+          "expected": 1102,
+          "actual": 1102,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        }
+      ],
+      "shape": "flat",
+      "expected_shape": "flat"
+    },
+    {
+      "check": "payload_proof",
+      "arch": "gemma4",
+      "status": "PASS",
+      "summary": "budget logged as custom on max/min (min 70*48^2=161280, max 1120*48^2=2580480)",
+      "expected": "min 70*48^2=161280, max 1120*48^2=2580480",
+      "actual": {
+        "min": "161280 (custom value)",
+        "max": "2580480 (custom value)"
+      }
+    },
+    {
+      "check": "aspect_ladder",
+      "arch": "gemma4",
+      "status": "SKIP",
+      "summary": "no aspect-ladder expectation recorded"
+    },
+    {
+      "check": "think_format",
+      "arch": "gemma4",
+      "status": "PASS",
+      "summary": "valid JSON after thinking (127 tokens)",
+      "expected": "non-empty JSON response with think:true + format:json",
+      "actual": {
+        "response_chars": 168,
+        "thinking_chars": 368,
+        "eval_count": 127
+      }
+    },
+    {
+      "check": "extraction_quality",
+      "arch": "gemma4",
+      "status": "SKIP",
+      "summary": "no quality thresholds recorded for this arch"
+    },
+    {
+      "check": "pinned_image_token_budget",
+      "arch": "gemma4",
+      "status": "PASS",
+      "summary": "pinned 560 -> 529 (ceiling 1120, +2 markers)",
+      "expected": 529,
+      "actual": 529,
+      "arms": [
+        {
+          "arm": "pinned",
+          "pin": 560,
+          "expected": 529,
+          "actual": 529,
+          "ok": true
+        },
+        {
+          "arm": "ceiling_invariant",
+          "expected": "grid <= 1120",
+          "actual": 527,
+          "ok": true
+        },
+        {
+          "arm": "unpinned_control",
+          "expected": 1102,
+          "actual": 1102,
+          "ok": true
+        }
+      ]
+    },
+    {
+      "check": "text_baseline",
+      "arch": "qwen35",
+      "status": "PASS",
+      "summary": "in-image text prefix = 13 (calibrated on 256x144+512x288); text-only = 13",
+      "actual": 13
+    },
+    {
+      "check": "token_ladder",
+      "arch": "qwen35",
+      "status": "PASS",
+      "summary": "5/5 geometries within +/-2",
+      "expected": {
+        "256x144": 1034,
+        "512x288": 1034,
+        "1024x576": 1034,
+        "2048x1152": 2306,
+        "3072x1728": 4082
+      },
+      "actual": {
+        "256x144": 1034,
+        "512x288": 1034,
+        "1024x576": 1034,
+        "2048x1152": 2306,
+        "3072x1728": 4082
+      },
+      "rows": [
+        {
+          "size": "256x144",
+          "expected": 1034,
+          "actual": 1034,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "512x288",
+          "expected": 1034,
+          "actual": 1034,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "1024x576",
+          "expected": 1034,
+          "actual": 1034,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "2048x1152",
+          "expected": 2306,
+          "actual": 2306,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "3072x1728",
+          "expected": 4082,
+          "actual": 4082,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        }
+      ],
+      "shape": "scaling",
+      "expected_shape": "dynamic"
+    },
+    {
+      "check": "payload_proof",
+      "arch": "qwen35",
+      "status": "PASS",
+      "summary": "budget logged as custom on min (min 1024*32^2=1048576, max 4096*32^2=4194304)",
+      "expected": "min 1024*32^2=1048576, max 4096*32^2=4194304",
+      "actual": {
+        "min": "1048576 (custom value)",
+        "max": "4194304"
+      }
+    },
+    {
+      "check": "aspect_ladder",
+      "arch": "qwen35",
+      "status": "SKIP",
+      "summary": "no aspect-ladder expectation recorded"
+    },
+    {
+      "check": "think_format",
+      "arch": "qwen35",
+      "status": "PASS",
+      "summary": "valid JSON after thinking (273 tokens)",
+      "expected": "non-empty JSON response with think:true + format:json",
+      "actual": {
+        "response_chars": 334,
+        "thinking_chars": 779,
+        "eval_count": 273
+      }
+    },
+    {
+      "check": "extraction_quality",
+      "arch": "qwen35",
+      "status": "SKIP",
+      "summary": "no quality thresholds recorded for this arch"
+    },
+    {
+      "check": "pinned_image_token_budget",
+      "arch": "qwen35",
+      "status": "SKIP",
+      "summary": "pinned budget does not apply to this arch: image_min_tokens/image_max_tokens are arch-gated to gemma4 and nemotron_h_omni; qwen35's visionServerArgs branch ignores them."
+    },
+    {
+      "check": "metal_tensor_payload",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "does not apply on rocm7"
+    },
+    {
+      "check": "mlx_payload_pin",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "profile records no mlx_build to assert against",
+      "diagnosis": "Add mlx_build (the MLX_VERSION commit this profile was measured on) so an MLX bump fails loudly instead of inheriting stale expectations. Platforms with no MLX payload leave it unset and keep this skip."
+    },
+    {
+      "check": "endpoint_exclusive",
+      "arch": null,
+      "status": "PASS",
+      "summary": "no contention detected (worst queue wait 0.0s)",
+      "expected": "queue wait <= 10.0s",
+      "actual": "0.0s",
+      "models_loaded": [
+        "qwen3.8:27b-q4_K_M"
+      ]
+    }
+  ],
+  "summary": {
+    "PASS": 20,
+    "SKIP": 12
+  }
+}

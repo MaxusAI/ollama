@@ -3,7 +3,7 @@
 - **Status:** accepted (2026-09-05), code landed, **not yet GPU-verified**; amended 2026-09-12 (the headroom
   prices only memory the runner can see)
 - **Date:** 2026-09-05
-- **Deciders:** Glenn; work item
+- **Deciders:** the maintainer; work item
   [`tasks/mlx-admission-price-the-rung.md`](../tasks/mlx-admission-price-the-rung.md),
   diagnosis [`mlx-admission-prices-weights-only.md`](../mlx-admission-prices-weights-only.md)
 

@@ -2,7 +2,7 @@
 
 Upstream [v0.34.1](https://github.com/ollama/ollama/releases/tag/v0.34.1) (tag `38fdb5dd5`, 2026-09-14; 23 first-parent
 commits; 346 files, +17k/−57k) folded on top of `v0.34.0-dynres`. Branch `task/upstream-sync-0.34.1`, worktree
-`claude-scratch/wt-sync0341`. Glenn said go on 2026-09-17, with #300 merged first and #301's ADR renumbered to 0035.
+`claude-scratch/wt-sync0341`. The maintainer said go on 2026-09-17, with #300 merged first and #301's ADR renumbered to 0035.
 Dry-run conflict list: `claude-scratch/sync0341-dryrun-conflicts.txt`.
 
 ## Status (2026-09-17)
@@ -228,12 +228,12 @@ Three files of ours used it; everything else was upstream-owned and came rewritt
 - **D4 — the memory measurement moves to `held`.** `runnerlog.py` reads the new `memory` line as a request boundary;
   `summarize_retained_memory.py` prints `held` and its step between requests on such logs (two tests). The
   drafting-leak finding of the v0.34.0 fold was of the old model and is re-measured on this build, not carried.
-- **D6 — `x/structured` deleted (Glenn, 2026-09-17).** The parity gate found 0 regressions in 108 verdicts; the
+- **D6 — `x/structured` deleted (the maintainer, 2026-09-17).** The parity gate found 0 regressions in 108 verdicts; the
   package had no importers. Its findings are in ADR 0033's amendment and pinned by
   `mlxrunner/xgrammar/engine_behaviour_test.go`; the register moves it to retired.
 - **D5 — the knob stays.** Upstream still drafts under a grammar; ADR 0033 is unchanged.
 
-- **D7 — v0.34.2 is its own fold; `ec3cc2307` came forward on evidence (Glenn, 2026-09-18; probe below).**
+- **D7 — v0.34.2 is its own fold; `ec3cc2307` came forward on evidence (the maintainer, 2026-09-18; probe below).**
   Upstream v0.34.2 (15 commits, 365 files, +3.7k/−70k) moves the MLX engine out of `x/`, re-lays out the models
   and bumps llama.cpp to b10969 — every fork path under `mlxrunner` re-homes, a structural fold, not widened into
   this one. Its 5-line "Release freed KV buffers during speculative decode" (`ec3cc2307`, the pool release firing on
@@ -246,10 +246,10 @@ upstream v0.34.1 at llama.cpp b10864 — is the README's "What differs from upst
 fold. This section only sizes the divergence for the merge: `git diff v0.34.1 task/upstream-sync-0.34.1` is 425
 files, +91,641/−2,696; outside `docs/maxusai`, 123 files, +21,874/−2,696. The merge-base with `upstream/main` is the
 tag itself, so all of it is fork-authored. The largest non-docs areas are `mlxrunner` (23 files), `server` (11),
-`x/structured` (11, +3,829 — **no importers since ADR 0033; dead code, Glenn's call**), `mlxrunner/model/gemma4` (10, our
+`x/structured` (11, +3,829 — **no importers since ADR 0033; dead code, the maintainer's call**), `mlxrunner/model/gemma4` (10, our
 vision with upstream's tower excluded), `mlxrunner/kvsize` (9), `llama/compat` (6 patches), `llm` (4).
 
-## The gemma4 image-token limits (Glenn's question, 2026-09-17)
+## The gemma4 image-token limits (the maintainer's question, 2026-09-17)
 
 llama.cpp `163a40796` — "model, mtmd: fix gemma4 vision handling" (#28335, 2026-09-04, in b10864) — changed the
 gemma4 projector's default `set_limit_image_tokens(40, 280)` to `(70, 1120)` and dropped the comment above it. That
@@ -272,7 +272,7 @@ is the change that broke patch 004's context. The same commit also touched the t
 
 ## The drafting retention, reproduced and bounded (2026-09-18, after the deploy)
 
-Glenn asked for a deterministic reproduction before any upstream report. Method: one container at a time on GPU0 beside
+The maintainer asked for a deterministic reproduction before any upstream report. Method: one container at a time on GPU0 beside
 production, `OLLAMA_DEBUG=2`, N identical or fresh-prefix requests, the runner's own `memory … held=` line and the trie's
 trace line per request (`held − trie`, trie = active + paged-out), then instrumented Go-only swaps of the release image
 (`sync-0.34.1-instr` … `instr6`, never deployed) that add per-bucket accounting, a live-array registry and counters.
@@ -334,9 +334,9 @@ measured 0.147 GiB per request on this model family; ollama#17875 and #18131 rep
 under agent workloads (short, stop-terminated answers with long contexts) and were closed as trie behaviour. This
 investigation supplies the non-trie component those reports were missing, with its condition.
 
-## The gemma4 image resize algorithm (Glenn's question, 2026-09-18)
+## The gemma4 image resize algorithm (the maintainer's question, 2026-09-18)
 
-Glenn asked whether `hparams.image_resize_algo = RESIZE_ALGO_BILINEAR → RESIZE_ALGO_BICUBIC` in gemma4's projector case
+The maintainer asked whether `hparams.image_resize_algo = RESIZE_ALGO_BILINEAR → RESIZE_ALGO_BICUBIC` in gemma4's projector case
 came up as a regression candidate. It did not, and for this fold that was right: `clip.cpp` has `RESIZE_ALGO_BICUBIC`
 for `PROJECTOR_TYPE_GEMMA4V/GEMMA4UV` at **both** b10760 and b10864, so the switch is not in this fold's delta.
 Where it did enter the fork: llama.cpp `56db501e7` "mtmd: use pillow-accurate algo, correct resize_algo for all models
@@ -391,7 +391,7 @@ scored cells can see: IoU within 0.003, every contract identical. Decoding the c
 buys — prefill 1.5× on 31b and 1.9× on 26b-a4b, s/req −9 % and −18 % — and it moves one cell: 31b's 9 px fine-text
 tier, 4 with the split and 3 without, deterministic 2/2 on each side. That is the same shape as the Metal finding in
 #312 (the more correct encoder path scores one 9 px tier lower on 31b), and the same caveat applies: a single
-knife-edge tier is not a quality verdict. Glenn's decision, the same evening: raise it to the 1120 ceiling — ADR 0036, #320 (merged 2026-09-18): a gemma4
+knife-edge tier is not a quality verdict. The maintainer's decision, the same evening: raise it to the 1120 ceiling — ADR 0036, #320 (merged 2026-09-18): a gemma4
 vision runner starts from the smallest batch rung at or above its resolved image ceiling and steps down only when
 that does not fit; the register row reads "fixed in the fork".
 
@@ -404,30 +404,30 @@ is identical across the two hosts; the gfx1151 defect needs the HIP `integrated`
 The fork's `004` fill resizes through `hparams.image_resize_algo`, so it has followed bicubic since 0.33.1; the
 preflight's `token_ladder` (5/5 geometries) and `pinned_image_token_budget` (560 → 529, ceiling 1120) pass on it.
 
-## Retirement candidates (Glenn, 2026-09-17)
+## Retirement candidates (the maintainer, 2026-09-17)
 
 `x/structured` was tested against upstream's engine (108 verdicts, 0 regressions) and deleted in this fold on
-Glenn's word (`070580c5e`, `b1db10efc`). That gate, and every other item the fork carries with its retiring condition and gate, are in
+the maintainer's word (`070580c5e`, `b1db10efc`). That gate, and every other item the fork carries with its retiring condition and gate, are in
 [`docs/maxusai/retirement-register.md`](../retirement-register.md), reviewed at each fold. Two rows moved in this
 one: upstream 0.34.1 has its own transition-based `format` deferral with pass-one metrics (ours is now a superset,
 README row corrected), and `extendChunk` from ADR 0014 turns out to be upstream's already.
 
 ## Release and deploy (2026-09-18)
 
-PR #302 merged by Glenn (`8a7ba9498`, 11:56); tag `v0.34.1-dynres` on it; release published with the fold's matrix and
+PR #302 merged by the maintainer (`8a7ba9498`, 11:56); tag `v0.34.1-dynres` on it; release published with the fold's matrix and
 the memory table. Release image `maxusai/ollama:sync-0.34.1-main` (`e224595df7e0`, stamp `0.34.1-dynres-0-g8a7ba94`)
 built from a worktree at the tag on the `bigdisk` builder — every native stage cached from the candidate build, 2.5 min.
 
 - **Attempt 1 was stopped by the root-disk watchdog** at the image load: the daemon writes the whole image tar to
   root before it deduplicates layers, ~6 GB transient, which took root from 13 GB to 6.7 GB free, under the 8 GB
   floor that protects production. Nothing in the fork's own images frees enough (their layers are shared; each old
-  tag is ≤ 80 MB unique). Glenn removed the rotated `syslog.1` (5.2 GB); attempt 2 ran at 18 GB free. Rule for the
+  tag is ≤ 80 MB unique). The maintainer removed the rotated `syslog.1` (5.2 GB); attempt 2 ran at 18 GB free. Rule for the
   next fold: **≥ 16 GB free on root before a `--load`.**
 - **Deploy gate** (`gate-v0341-main.sh`, 13:31–13:37): all 57 native payload files hash-identical to the gated
   candidate `sync-0.34.1`; the Go binary differs as expected (`x/structured` gone, `ec3cc2307`, a comment).
   Preflight `cuda-dynres-903` from the main checkout on a canary of the release image: **PASS 21 / SKIP 7**
   (`preflight-runs/full-v0341-main.{log,json}`).
-- **Deployed 14:01:00** by `deploy-0341.sh` (mirrors production by `docker inspect`; Glenn's word 13:5x, with the
+- **Deployed 14:01:00** by `deploy-0341.sh` (mirrors production by `docker inspect`; the maintainer's word 13:5x, with the
   knob): container `ollama-0.34.1-dynres-0-g8a7ba94` on `0.0.0.0:11497`, image `sync-0.34.1-main`, env
   `OLLAMA_HOST` + **`OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`** (D5: the retention both builds share under drafting +
   grammar goes to flat; costs drafting speed on grammar requests only), 54 tags before and after, 10 s of no service.
@@ -438,7 +438,7 @@ built from a worktree at the tag on the `bigdisk` builder — every native stage
   SKIP 7**; version, both payload pins, budgets, think + format and the poison probe all green on production itself,
   and the run paid the cold kernel compile so the first real request does not. The README's matrix is regenerated from
   this run, stamped `0.34.1-dynres-0-g8a7ba94`.
-- **ADR 0036 deployed 22:30:18** (Glenn's word the same evening, after #320 merged) by `deploy-adr0036.sh`, the same
+- **ADR 0036 deployed 22:30:18** (the maintainer's word the same evening, after #320 merged) by `deploy-adr0036.sh`, the same
   mirror-by-`docker inspect` script: container `ollama-0.34.1-dynres-16-g16649e8`, image
   `maxusai/ollama:0.34.1-dynres-16-g16649e8` = the release image with a Go-only binary swap from `main` `16649e8`
   (`publish-go` on the `bigdisk` builder, seconds; `git diff 8a7ba949...16649e8` over every native input — `mlx`,
@@ -490,7 +490,7 @@ Two causes, one per backend:
   (`claude-scratch/wt-gsexact`), same 0.34.1 payload, reproduces `2b95b4a5`'s 31b line to every digit. Inside the
   test's bounds (norm_mean +0.06 %); not a regression. Whether to keep the raw multiplier on the wrapper-applied paths
   (`QuantizedMatmul`, `Dequantize`) and reserve `× 2688` for the paths that hand the scale to MLX (`GatherQMM`, `QQMM`)
-  is Glenn's call; the reference uses the raw `m`.
+  is the maintainer's call; the reference uses the raw `m`.
 
 The gap is the same class as the resize algorithm: the MLX pin was folded as an opaque range. **Rule for the next
 fold:** list the range's commits (`gh api repos/ml-explore/mlx/compare/<old>...<new>`, then each commit's files) and
@@ -508,8 +508,8 @@ rebuild, which is #307's point. 12b ≈ 130 s cold, 31b ≈ 25 s warm.
 
 ## Not in this fold
 
-- The Metal half: MLX and MLX-C moved, so the Metal payload changes too; held by Glenn.
+- The Metal half: MLX and MLX-C moved, so the Metal payload changes too; held by the maintainer.
 - `v0.34.2-rc1` (8 commits further) moves the MLX engine out of `x/` and re-lays out the models; every fork path
   under `mlxrunner` re-homes. That is a separate, structural fold.
-- PR #301 (Glenn's whitespace bound, renumbered to ADR 0035, green): merging it before this branch lands means a
+- PR #301 (the maintainer's whitespace bound, renumbered to ADR 0035, green): merging it before this branch lands means a
   small merge of `client.go` here; after, it rebases onto the resolved file. Either is fine.

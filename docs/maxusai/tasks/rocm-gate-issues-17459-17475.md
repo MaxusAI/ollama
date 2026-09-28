@@ -36,7 +36,7 @@ and, either way, to tell us whether the gate can ever lift.
 
 | | |
 |---|---|
-| Host | `10.8.0.4`, `glenn-NucBox-EVO-X2`, Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151** (RDNA 3.5) |
+| Host | `10.8.0.4`, `amd-server`, Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151** (RDNA 3.5) |
 | SSH | Reach this host **from the CUDA host**, via a host alias in that operator's `~/.ssh/config`; the key lives there, not on this host. The account, key filename and alias are deliberately not recorded in this public repo. An agent already running on the host needs none of this. |
 | ROCm | 7.2.1 · HIP 7.2.53211 |
 | Production container | `ollama-rocm`, image `maxusai-ollama:0.32.1-rocm-dynres-296eb020`, port 11434 — **leave alone** |
@@ -154,7 +154,7 @@ Write `rocm-gate-issues-result.md` next to this file, and:
 - **A clean run is not proof of absence** for #17475 — it is a concurrency race, and the
   reporter needed three protocols to surface it. Report protocol-by-protocol counts.
 - If either reproduces, the write-up is the deliverable. Whether to post it upstream is
-  Glenn's call: ggml-org and ollama both restrict AI-written posts, and #17475 touches PII.
+  the maintainer's call: ggml-org and ollama both restrict AI-written posts, and #17475 touches PII.
   See [`upstream-mmq-submission-material.md`](../upstream-mmq-submission-material.md) for how
   that was handled last time.
 

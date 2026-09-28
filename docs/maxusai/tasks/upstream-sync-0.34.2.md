@@ -179,7 +179,7 @@ Renders: `preflight-runs/{sync0342a_,sync0342b_,depl0342_,candrep0342_,deplrep03
 
 ## ADR 0039, implemented and verified on the GPU (2026-09-20)
 
-Glenn's word, "ADR 0039 first, then tag and deploy", so it lands inside this fold, where the
+The maintainer's word, "ADR 0039 first, then tag and deploy", so it lands inside this fold, where the
 files it touches had just moved.
 
 Global scales are stored as the checkpoint's own `m`; MLX's `m × Nvfp4MaxProduct` form is

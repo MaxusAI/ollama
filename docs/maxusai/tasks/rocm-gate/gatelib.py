@@ -25,10 +25,11 @@ GPU_GROUPS = " ".join(f"--group-add {g}" for g in
                       filter(None, os.environ.get("GATE_GPU_GROUPS", "").split(",")))
 OUT = os.path.dirname(os.path.abspath(__file__))
 
-# Production's own environment, from its compose .env.
+# Production's own environment. The KV cache is f16 since 2026-09-26 (amd-upgrade-gate.md, the 2026-09-26
+# decision); the 2026-09-18 results in rocm-gate-issues-result.md ran with q8_0, which production had then.
 PROD_ENV = {
     "OLLAMA_FLASH_ATTENTION": "1",
-    "OLLAMA_KV_CACHE_TYPE": "q8_0",
+    "OLLAMA_KV_CACHE_TYPE": "f16",
     "OLLAMA_NUM_PARALLEL": "2",
 }
 

@@ -170,9 +170,9 @@ Conclusions:
    after a poison request; 0.32.x (with them) stays poisoned until reload — the
    prefix cache appears to retain the NaN state. Worth splitting into its own fix.
 
-## Mechanism confirmed + runtime kill-switch (2026-08-26, Glenn's find)
+## Mechanism confirmed + runtime kill-switch (2026-08-26, the maintainer's find)
 
-Glenn asked whether `GGML_CUDA_CUBLAS_COMPUTE_TYPE` had been tried — it had not, and
+The maintainer asked whether `GGML_CUDA_CUBLAS_COMPUTE_TYPE` had been tried — it had not, and
 it exists in the pinned llama.cpp (`b10488` `ggml/src/ggml-cuda/ggml-cuda.cu`), a
 runtime override of the cuBLAS mul_mat compute type (`f32|bf16|f16|auto`; default for
 f16 weights on fast-fp16 hardware = `CUBLAS_COMPUTE_16F`, i.e. fp16 accumulate).

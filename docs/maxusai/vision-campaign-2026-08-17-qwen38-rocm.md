@@ -10,7 +10,7 @@ which measured the same model on Apple Silicon.
 | | |
 | --- | --- |
 | server | `0.32.1-dynres-5d5b7a72`, container `ollama-rocm` on `:11434` |
-| host | `glenn-NucBox-EVO-X2` (10.8.0.4), Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151** |
+| host | `amd-server` (10.8.0.4), Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151** |
 | payload | **b9888** — the gated lineage, no `--direct-io`; compat 001+002+004+005 |
 | model | `qwen3.8:27b-q4_K_M` (GGUF → llama-server), sideloaded |
 | store | `/opt/ollama/.ollama/models` (production) |

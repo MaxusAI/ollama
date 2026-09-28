@@ -80,6 +80,14 @@ ROCm 10 SONAMEs no longer encode the release (`librocblas.so.5.6` against 7.2.4'
 `librocblas.so.5.2.70204`), so the build writes a `ROCM_VERSION` stamp and the
 probe prefers it, falling back to SONAME decode.
 
+**The release is not the whole toolchain.** From 2026-09-24 the fork builds ROCm images on
+AMD's Ubuntu 24.04 images ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md)):
+the same 7.2.4 release, but its runtime from Ubuntu packages, linked against glibc 2.39 and
+GCC 13.3. `toolchain_build = "rocm-7.2.4"` passes for that build and for the AlmaLinux-built
+production image alike. When two arms both read `rocm-7.2.4` and still differ, read the
+`ROCM_IMAGE` stamp beside the payload (`/usr/lib/ollama/rocm_v7_2/ROCM_IMAGE`) before blaming
+the code: an image that has none predates `Dockerfile.rocm` and is AlmaLinux-built.
+
 ## What these instruments do NOT cover
 
 - **The language-model decode path is not metered.** Compat 801 covers the clip

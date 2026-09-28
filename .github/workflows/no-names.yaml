@@ -1,0 +1,73 @@
+name: no-names
+
+# Does the tree, or this change's own commits and text, name a person?
+#
+# The repo and every issue, pull request and comment on it are public, and every
+# host's agent posts as the same GitHub account. On 2026-09-25 the maintainer's
+# name had to be scrubbed from 24 tracked files (#380) and 32 issue, pull request
+# and comment texts: agents had written it as attribution ("X's call",
+# "Deciders: X"). The policy is in docs/maxusai/tools/check_no_names.py.
+#
+# The deny-list is the NAME_DENYLIST repository secret, never a file in the tree:
+# a guard that spells the name out publishes it. The check prints every match as
+# <name>, and --require-denylist makes a missing secret fail instead of passing
+# silently.
+#
+# WHOLE TREE, unlike source-paths: apart from two allowlisted fixtures the tree is
+# clean, so there is no backlog to scope around. A branch cut before #380 fails
+# until it merges main, which is the point.
+#
+# The title and body are read from the event file on the runner
+# ($GITHUB_EVENT_PATH). Not through ${{ }} inside `run:`, where a crafted
+# description could inject shell, and not through step `env:` either: Actions
+# prints env values in the public log, which outlives any later edit of the
+# description. `edited` is a trigger because a description can gain a name
+# without a new commit.
+#
+# Pull requests from forks get no secrets, so the job cannot run there; it is
+# skipped for them rather than failed. Unconditional otherwise, for the reason
+# source-paths.yaml gives: a path-filtered workflow never reports on a pull
+# request whose paths do not match.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches:
+      - main
+      - 'release/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  no-names:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: The guard's own tests
+        run: python3 docs/maxusai/tools/test_check_no_names.py
+
+      - name: Does the tree, or this change's commits, title and body, name a person?
+        env:
+          NAME_DENYLIST: ${{ secrets.NAME_DENYLIST }}
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+            python3 docs/maxusai/tools/check_no_names.py --require-denylist \
+              --commits "$BASE..$HEAD_SHA" --github-event "$GITHUB_EVENT_PATH" .
+          else
+            python3 docs/maxusai/tools/check_no_names.py --require-denylist .
+          fi

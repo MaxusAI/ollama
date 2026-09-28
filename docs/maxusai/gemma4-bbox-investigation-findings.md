@@ -232,7 +232,7 @@ between them — so the encoder does not partition the results, consistent with
 Two earlier framings of the driver — "patch rows", then "total patch count with a
 threshold in 530–880" — were each falsified by later cells. In particular a
 44×24 = 1056-patch arm scored 0.856 where the threshold story demanded degradation.
-That cell was the signal, not noise (credit: Glenn's read of the sweep).
+That cell was the signal, not noise (credit: the maintainer's read of the sweep).
 
 The model card says the **supported** token budgets are exactly 70/140/280/560/1120,
 and HF transformers' Gemma 4 processor (verified in source this session) always

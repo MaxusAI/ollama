@@ -1,6 +1,6 @@
 # ADR 0040: ROCm 10.0.0 is carried as experimental, not promoted
 
-- **Status:** accepted 2026-09-21 (Glenn: "Keep the ROCm 10 as in experimental state").
+- **Status:** accepted 2026-09-21 (the maintainer: "Keep the ROCm 10 as in experimental state").
   Sits on [ADR 0011](0011-preflight-expectations-are-versioned-code.md) for why it has no
   measured profile, and on the AMD upgrade gate
   ([amd-upgrade-gate.md](../amd-upgrade-gate.md), the 2026-09-21 decision) for the

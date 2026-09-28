@@ -549,7 +549,13 @@ if(OLLAMA_RUNNER_DIR)
             )
             install(RUNTIME_DEPENDENCY_SET rocm_deps
                 DIRECTORIES ${HIP_BIN_INSTALL_DIR} ${HIP_LIB_INSTALL_DIR}
-                PRE_INCLUDE_REGEXES hipblas rocblas amdhip64 rocsolver amd_comgr hsa-runtime64 rocsparse tinfo rocprofiler-register roctx64 rocroller drm drm_amdgpu numa elf
+                # ROCm 10.0 (TheRock) splits libraries that were self-contained in 7.2 --
+                # libamdhip64 needs librocm_kpack, libhipblaslt needs liborigami, libamd_comgr
+                # links libclang-cpp and libLLVM -- and vendors its system dependencies under
+                # a librocm_sysdeps_ prefix. Without them libggml-hip cannot load. On ROCm
+                # <= 7.2 none of these names exist and the extra regexes match nothing.
+                # (From the ROCm 10 investigation, #359.)
+                PRE_INCLUDE_REGEXES hipblas rocblas amdhip64 rocsolver amd_comgr hsa-runtime64 rocsparse tinfo rocprofiler-register roctx64 rocroller drm drm_amdgpu numa elf rocm_sysdeps rocm_kpack origami clang-cpp LLVM
                 PRE_EXCLUDE_REGEXES ".*"
                 POST_EXCLUDE_REGEXES "system32"
                 RUNTIME DESTINATION "${_base_dest}/${OLLAMA_RUNNER_DIR}" COMPONENT llama-server

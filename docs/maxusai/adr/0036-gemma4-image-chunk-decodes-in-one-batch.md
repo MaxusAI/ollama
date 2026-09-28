@@ -1,6 +1,6 @@
 # ADR 0036: a gemma4 vision runner decodes its image chunk in one batch
 
-- **Status:** accepted 2026-09-18 (Glenn: "raising it to the 1120 ceiling"). Sits on
+- **Status:** accepted 2026-09-18 (the maintainer: "raising it to the 1120 ceiling"). Sits on
   [ADR 0008](0008-gemma4-budget-fill-restores-1120.md), which put the 1120 ceiling
   there in the first place.
 - **Date:** 2026-09-18

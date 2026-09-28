@@ -188,6 +188,13 @@ first is image accounting and the second is generation length.
   the ladder rung each row reached.
 - `summarize_reps.py <tag…>` — repeated arms as mean and spread, with the
   context-ladder rung and `num_predict` as the first rows (ADR 0029, SPEC H4a).
+- `cmp_scored.py A.json B.json [tol]` — which quality fields moved between two
+  score files, test by test, and the side each move favours (`A+` or `B+`),
+  over the tests that finished in both. Capped and errored blocks are not
+  scores (SPEC H5). Lengths and budgets are left out, and labels such as the
+  declared type print without a side. Counting every scalar field says whether
+  two runs differ; this says where, and which way
+  ([tasks/kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md)).
 - `summarize_geometry.py <tag-prefix> <arm> […]` — **template T4** (ADR 0012):
   the geometry sweep, one row per geometry, one column group per model. The
   anchor frame/ratio and chk/anc/bf columns keep SPEC C17's two failure modes
@@ -452,6 +459,17 @@ Always check `prompt_eval_count` before attributing such a delta to a patch.
   single type or K/V pair like `q8_0/f16`.
 - Multi-image Q4 is scored dialect-aware like scene boxes (`q4_bbox_space`
   reports the matched space); models answer norm-1000 regardless of prompt.
+- Test servers run production's KV type, f16 (ADR 0043), unless the test is
+  about the KV type, and every run records the type it used. For a KV or
+  attention-path question, `thinkcap.py` captures one cell cold with its
+  thinking kept, `kvloop.sh` runs the KV type x flash-attention arms on a
+  docker host, `kvloop_read.py` reads out the loop profile and the score, and
+  `promptcap.py` captures a prompt variant or production's card sampling
+  (tasks/kv-precision-think-loops.md; the procedure is the `kv-loop-check`
+  skill).
+- Never run an f32 KV cache with flash attention on as an arm. On CUDA and
+  HIP it is f16, byte for byte, at twice the memory (ADR 0044, SPEC H25). f32
+  changes the attention's precision only with flash attention off.
 - Caveat: with `OLLAMA_KV_CACHE_TYPE=q8_0`, qwen3.6 think-on inflates
   prompt-dependently: document unaffected, scene ~19K thinking tokens (vs
   3.3K at f16), multi no convergence within 131K (vs 9.0K at f16). Use f16

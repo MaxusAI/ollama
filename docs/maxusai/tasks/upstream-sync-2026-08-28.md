@@ -80,7 +80,7 @@ Options:
 
 Recommendation: **(1)**, because our layer is measured inert and upstream is
 now maintaining this surface — but this retires a recorded decision and is
-Glenn's call, not the merger's.
+the maintainer's call, not the merger's.
 
 ## Acceptance criteria
 
@@ -108,4 +108,4 @@ Glenn's call, not the merger's.
    regenerated after each surface is preflighted, never hand-edited. Both are part of the fold, not follow-up: a
    stale pointer is worse than none, because it claims a fixed point that
    no longer matches what `main` builds.
-8. ☐ Metal half on the Apple host — deferred by Glenn, not a blocker here.
+8. ☐ Metal half on the Apple host — deferred by the maintainer, not a blocker here.
