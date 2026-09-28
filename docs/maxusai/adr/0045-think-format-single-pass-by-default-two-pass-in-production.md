@@ -126,8 +126,8 @@ This table records the budget semantics that open item 3 asked for.
 
 ## Consequences
 
-- **Production thinks at P0's speed.** It gets Metal's lower gemma4 loop counts, and the knob stays at 0 on every
-  host.
+- **Production thinks at P0's speed.** It gets Metal's lower gemma4 loop counts, and the knob stays at 0 on the two
+  hosts that serve MLX, CUDA and Metal.
 - **ADR 0004's machinery is now production's flow**, not a superset of upstream's.
   - The fold restored the lower-layer hooks that upstream deleted: `IncludeIntermediateMetrics`, llama-server's
     per-token timings and per-chunk metrics, and the MLX request fields. They stay inert unless the switch is on.
