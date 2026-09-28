@@ -146,7 +146,8 @@ Hashes are the first 16 hex digits of the SHA-256.
   std 2.4605, norm_mean 151.309, max sampled delta 0.0625; gemma4:31b-nvfp4-tower4bit −0.00621, 1.3243, 96.999,
   0.0898. The MLX move leaves the vision towers' numerics where they were.
 - `TestMulGatherQMMGlobalScale` is gated to Metal upstream. With the gate widened it passes on CUDA (128.8 s); the
-  widening is its own change (open items).
+  widening is its own change (open items). On Metal, where the gate lets it run, it passes on the release build
+  (#404).
 
 ### Gate 5: preflight
 
@@ -1171,11 +1172,12 @@ representation-sensitive test each, so the fold's attribution stays clean.
 3. **The think+format default on MLX: [ADR 0045](../adr/0045-think-format-single-pass-by-default-two-pass-in-production.md)** (2026-09-28). Metal's run separated the flow from the
    drafting: on MLX, drafting sets the loop rate (#375). ADR 0045 supersedes ADR 0004 as the statement of which flow
    runs. It records the two flows' budget semantics and proposes the switch's retirement condition.
-4. **`TestMulGatherQMMGlobalScale`** is gated to Metal upstream and passes on CUDA with the gate widened (128.8 s);
-   the widening is its own change. So are the three ADR 0039 misses above.
+4. **`TestMulGatherQMMGlobalScale`** is gated to Metal upstream. It passes on Metal on the release build (#404), and
+   on CUDA with the gate widened (128.8 s); the widening is its own change. So are the three ADR 0039 misses above.
 5. **Gates 4–6 are done on gfx1151 and on Metal.** gfx1151's gate 6 think-on ran under the aligned protocol on all
    five GGUF models and finished on 2026-09-27 ([Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25)). Metal's
-   gate 6 ran on 2026-09-27 (#375), and its gates 4 and 5 on the release build on 2026-09-28 (#402).
+   gate 6 ran on 2026-09-27 (#375), and its gates 4 and 5 on the release build on 2026-09-28 (#402; #404 adds
+   the per-model goldens and the `./mlx` tests).
 6. **The CUDA deploy sets `OLLAMA_KV_CACHE_TYPE=f16` explicitly** (the maintainer's decision, 2026-09-26, after #386
    and #387). Production does not set the variable today; it runs the default, and its log shows f16 in all 12 of its
    KV cache allocations, so it is not recreated for this alone. The v0.34.4 deploy mirrors production's container by
