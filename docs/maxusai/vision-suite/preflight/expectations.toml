@@ -1735,6 +1735,44 @@ min_json_valid = 1.0
 min_label_recall = 0.70
 min_qty_price_exact = 0.70
 
+# --- rocm7-0-34-4-dynres: output quality ---------------------------------
+# Measured 2026-09-28 on gfx1151 (amd-server), on the promoted image
+# 0.34.4-dynres-0-gb43ee8e in a bench container with production's environment:
+# f16 KV cache, flash attention on, OLLAMA_FORMAT_TWO_PASS=1, NUM_PARALLEL=2.
+# The measurement is the vision suite's think-off baseline
+# (r0344base_1_<model>_thinkfalse), at the settings check_quality runs: think
+# off, num_predict 2200, num_ctx 16384, greedy.
+#   arch             model                  scene_single       document_single
+#   nemotron_h_omni  nemotron3:33b-q4_K_M   JSON valid, 6/6    JSON valid, 5/5
+#   gemma4           gemma4:31b-it-q4_K_M   JSON valid, 6/6    JSON valid, 5/5
+#   qwen35           qwen3.8:27b-q4_K_M     JSON valid, 6/6    JSON valid, 5/5
+# The floors are cuda-dynres-005's. With 6 labels and 5 line items, 0.70
+# allows one miss per test and fails on the second. json_valid allows none.
+# The preflight run with these floors, on the same image and environment,
+# measured 1.00 on every measure for all three arches
+# (runs/preflight-rocm7-0344-base-quality-gb43ee8e.json).
+
+[quality.rocm7-0-34-4-dynres.nemotron_h_omni]
+status = "measured"
+tests = ["scene_single", "document_single"]
+min_json_valid = 1.0
+min_label_recall = 0.70
+min_qty_price_exact = 0.70
+
+[quality.rocm7-0-34-4-dynres.gemma4]
+status = "measured"
+tests = ["scene_single", "document_single"]
+min_json_valid = 1.0
+min_label_recall = 0.70
+min_qty_price_exact = 0.70
+
+[quality.rocm7-0-34-4-dynres.qwen35]
+status = "measured"
+tests = ["scene_single", "document_single"]
+min_json_valid = 1.0
+min_label_recall = 0.70
+min_qty_price_exact = 0.70
+
 # --- apple-silicon-mlx-0-32-14 -------------------------------------------
 # Measured 2026-08-17 on the native macOS MLX serve (:11436), server
 # 0.32.14-maxusai-9594f81e, via probes.Ollama.image_prefix + visual_tokens (the
@@ -2861,3 +2899,22 @@ model = "qwen2.5vl:3b-q4_K_M"
 # the fault itself, so overflow that happens not to garble the text is caught
 # only by this. The meter is off by default and its absence is never a
 # failure — it can turn a PASS into a FAIL, never the reverse.
+
+[poison.rocm7-0-34-4-dynres]
+model = "qwen2.5vl:3b-q4_K_M"
+# Measured 2026-09-28 on gfx1151 (amd-server), the canary's first run on HIP,
+# on the promoted image 0.34.4-dynres-0-gb43ee8e (payload 161755f29, b11081)
+# in a bench container with production's environment, and with
+# OLLAMA_CLIP_NODE_STATS=ffn_down:
+#   - The fork's gate (the runner logged GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32):
+#     PASS. The trigger decodes as "The image is a black and white checkerboard
+#     pattern.", the follow-up is clean, and all 33 metered nodes are finite.
+#     ffn_down-31 peaks at 75,478, 1.15x fp16's 65,504, held in f32.
+#   - GGML_CUDA_CUBLAS_COMPUTE_TYPE=f16 on the container (the runner logged
+#     f16): FAIL, '?' until num_predict (done_reason 'length'). ffn_down-31
+#     holds 6 inf values, and the next metered node, the unindexed ffn_down,
+#     holds 12,288 NaN.
+# So on gfx1151 the check tells the gate apart, as on CUDA. The same entry then
+# passed in the preflight run
+# runs/preflight-rocm7-0344-base-quality-gb43ee8e.json (meter off there). The
+# two canary results are in amd-upgrade-gate.md, 2026-09-28's baseline.

@@ -61,10 +61,15 @@
      runs/ is gitignored; a run meant for this table is committed with `git add -f`.
 
      For v0.34.4 all three production runs are committed, and the table below is the
-     verbatim output of `release_matrix.py --version 0.34.4-dynres runs/*.json`:
-       runs/preflight-cuda-0344-prod-gb43ee8e.json   the CUDA container, after the deploy
-       runs/preflight-mlx-metal-0344-prod-gb43ee8e.json  the Apple Silicon launchd agent, after the deploy
-       runs/preflight-rocm7-0344-prod-gb43ee8e.json  the gfx1151 container (#391) -->
+     verbatim output of `release_matrix.py --version 0.34.4-dynres runs/*.json`. The newest
+     run per surface is:
+       runs/preflight-cuda-0344-prod-gb43ee8e.json            the CUDA container, after the deploy
+       runs/preflight-mlx-metal-0344-prod-gb43ee8e.json       the Apple Silicon launchd agent, after the deploy
+       runs/preflight-rocm7-0344-base-quality-gb43ee8e.json   the promoted gfx1151 image in a bench
+         container with production's environment, with --quality and the rocm7 quality floors
+         and fp16 canary (amd-upgrade-gate.md, 2026-09-28's baseline). It supersedes
+         runs/preflight-rocm7-0344-prod-gb43ee8e.json, the gfx1151 container itself (#391),
+         which had no rocm7 floors or canary to run. -->
 
 | surface | Build identity | M5 tensor path | Image size ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|---|
@@ -72,7 +77,7 @@
 | **mlx-cuda** | not run | not run | not run | not run | not run | not run | not run | not run | — |
 | **mlx-metal** | skipped | green | green | skipped | green | not run | skipped | green | `0.34.4-dynres-0-gb43ee8e` |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | not run | — |
-| **rocm7** | green | n/a | green | green | green | skipped | skipped | green | `0.34.4-dynres-0-gb43ee8e` |
+| **rocm7** | green | n/a | green | green | green | green | green | green | `0.34.4-dynres-0-gb43ee8e` |
 | **rocm10** | not run | not run | not run | not run | not run | not run | not run | not run | — |
 | **cpu** | not run | not run | not run | not run | not run | not run | not run | not run | — |
 

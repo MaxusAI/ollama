@@ -394,12 +394,14 @@ tagged in production's naming as `0.34.4-rocm724-main-b43ee8e3`. It carries that
 Those gate campaigns ran with production's KV type at the time, `q8_0`, and the promoted container runs f16. The KV
 type alone moves greedy think-on cells in both directions (MaxusAI/ollama#387), so the think-on cells are not
 expected to reproduce exactly under f16.
+[2026-09-28's baseline](#2026-09-28s-baseline-productions-configuration-measured) measures f16 directly.
 
 **Preflight (gate 5), on the release image and on the promoted container.** Profile `rocm7-0-34-4-dynres`, with
 `--quality`: **PASS=20 SKIP=12** both times, the same 32 checks as the 908 image's run. On the promoted container,
 all seven model loads show `--cache-type-k f16 --cache-type-v f16 --flash-attn on` (ADR 0043, decision 4). The run
 records are `vision-suite/preflight/runs/preflight-rocm7-0344-release-gb43ee8e.json` and
-`preflight-rocm7-0344-prod-gb43ee8e.json`.
+`preflight-rocm7-0344-prod-gb43ee8e.json`. The baseline below adds rocm7's quality floors and fp16 canary, and the
+same image then reads PASS=24 SKIP=8.
 
 **One known loop, which production already had.** Under f16 and greedy think-on, gemma4:26b loops on
 `multi_3img_anchored`, a prompt that asks for "the size YOU used" (MaxusAI/ollama#387). 0.34.3's image has the same
@@ -434,6 +436,105 @@ All 108 blocks, 27 for each model in each arm, finished with valid JSON on `0.34
 
 **How the host was confirmed idle.** As for 0.34.3: no model was loaded, and there was no working request in the two
 minutes before the swap. `deploy-0344.sh` refuses to swap otherwise.
+
+### 2026-09-28's baseline: production's configuration, measured
+
+The gate campaigns above ran under `q8_0`, and production runs f16. So, at the maintainer's word, this measures what
+production runs. The image is the promoted one, with f16, flash attention on, two-pass and two slots, as in production.
+It ran in a bench container on `:11497` (`base-canary.sh`, in the run directory), and production was not touched.
+
+**The settings, read from the server logs.** All five model loads show `K (f16), V (f16)`, flash attention enabled
+and `OLLAMA_FORMAT_TWO_PASS:true`. Each model ran on a cold server at its automatic batch: 2048 for both gemma4 models
+(their image-chunk floor), and 1024 for the other three. None logged "images decode in pieces".
+
+**Think off, five models** (`r0344base_1_<model>_thinkfalse`). All 135 blocks finished with valid JSON. None was
+capped, and none errored.
+- Against the gate's `q8_0` cells, the KV type moves 37 to 72 cells per model.
+- More of the scored moves favour f16 than `q8_0` on four models. On qwen3.8 they are close to even: 8 favour f16
+  and 9 favour `q8_0`.
+- These moves are the KV type's. The gate cells ran on the fold image, without 908. But 908 changed no think-off cell
+  on this host (the gate), and the promoted payload is byte-identical to the 908 image's.
+
+```
+##### cmp_scores.py, q8_0 gate cells (r0344fold_, 0.34.3-dynres-5-g29ae523) against the f16 baseline (r0344base_, 0.34.4-dynres-0-gb43ee8e)
+37 of 978 cells differ (scores_r0344fold_1_qwen3_6_35b-a3b-q4_k_m_thinkfalse.json vs scores_r0344base_1_qwen3_6_35b-a3b-q4_k_m_thinkfalse.json)
+45 of 976 cells differ (scores_r0344fold_1_qwen3_8_27b-q4_K_M_thinkfalse.json vs scores_r0344base_1_qwen3_8_27b-q4_K_M_thinkfalse.json)
+39 of 986 cells differ (scores_r0344fold_1_gemma4_31b-it-q4_K_M_thinkfalse.json vs scores_r0344base_1_gemma4_31b-it-q4_K_M_thinkfalse.json)
+51 of 980 cells differ (scores_r0344fold_1_gemma4_26b-a4b-it-q4_K_M_thinkfalse.json vs scores_r0344base_1_gemma4_26b-a4b-it-q4_K_M_thinkfalse.json)
+72 of 983 cells differ (scores_r0344fold_1_nemotron3_33b-q4_K_M_thinkfalse.json vs scores_r0344base_1_nemotron3_33b-q4_K_M_thinkfalse.json)
+##### cmp_scored.py, the same pairs (A = q8_0 gate, B = f16 baseline)
+quality moves: 8 favour B, 2 favour A, 0 neutral/changed-label (scores_r0344fold_1_qwen3_6_35b-a3b-q4_k_m_thinkfalse.json = A, scores_r0344base_1_qwen3_6_35b-a3b-q4_k_m_thinkfalse.json = B)
+quality moves: 8 favour B, 9 favour A, 8 neutral/changed-label (scores_r0344fold_1_qwen3_8_27b-q4_K_M_thinkfalse.json = A, scores_r0344base_1_qwen3_8_27b-q4_K_M_thinkfalse.json = B)
+quality moves: 5 favour B, 2 favour A, 1 neutral/changed-label (scores_r0344fold_1_gemma4_31b-it-q4_K_M_thinkfalse.json = A, scores_r0344base_1_gemma4_31b-it-q4_K_M_thinkfalse.json = B)
+quality moves: 9 favour B, 2 favour A, 3 neutral/changed-label (scores_r0344fold_1_gemma4_26b-a4b-it-q4_K_M_thinkfalse.json = A, scores_r0344base_1_gemma4_26b-a4b-it-q4_K_M_thinkfalse.json = B)
+quality moves: 26 favour B, 14 favour A, 14 neutral/changed-label (scores_r0344fold_1_nemotron3_33b-q4_K_M_thinkfalse.json = A, scores_r0344base_1_nemotron3_33b-q4_K_M_thinkfalse.json = B)
+```
+
+**OCRBench**, gemma4:31b-it-q4_K_M, rows 0–200, think off, one slot (`r0344base_ocr_q4`). **f16 scores 172/200, as
+`q8_0` did, on the same items.** 199 of the 200 answers are the same text. The one that differs, item 79, is a
+refusal, and it is wrong under both. The MIXED banner is by design: the two arms differ in build and KV type.
+
+```
+| model | scored | errors | empty | correct | accuracy | think | endpoint |
+|---|---|---|---|---|---|---|---|
+| `gemma4:31b-it-q4_K_M` | 200 | 0 | 0 | 172 | **0.86** | false | generate |
+| `gemma4:31b-it-q4_K_M` | 200 | 0 | 0 | 172 | **0.86** | false | generate |
+
+ocrbench — `echo840/OCRBench` [test], rows 0..200.
+
+⚠ **MIXED — rows are not one campaign** (hosts: ['http://127.0.0.1:11497']; builds: ['0.34.3-dynres-5-g29ae523', '0.34.4-dynres-0-gb43ee8e'])
+
+| pair | both ✓ | both ✗ | A only | B only | McNemar exact p |
+|---|---|---|---|---|---|
+| r0344fold_ocr_q4 vs r0344base_ocr_q4 | 172 | 28 | 0 | 0 | 1.000 |
+```
+
+**The preflight's output-quality floors** (`[quality.rocm7-0-34-4-dynres.*]` in `expectations.toml`). In the
+think-off run, the three arches' models scored 6/6 labels on `scene_single` and 5/5 items on `document_single`, with
+valid JSON. The floors are cuda-dynres-005's: JSON 1.0, label recall 0.70 and qty/price 0.70. They allow one miss per
+test and fail on the second.
+
+**The fp16 overflow canary on HIP** (`[poison.rocm7-0-34-4-dynres]`), its first run there. `canary_probe.py` ran the
+preflight's own `check_poison_probe` twice, with the node meter on (`OLLAMA_CLIP_NODE_STATS=ffn_down`). The first run
+had production's environment, so the fork's f32 gate applied. The second set `GGML_CUDA_CUBLAS_COMPUTE_TYPE=f16` on the
+container, which the gate leaves alone (an operator's value always wins).
+
+```
+##### canary_probe.py canary-default.json (checks.check_poison_probe; container label: default)
+ status: PASS
+ summary: 1.06x-ceiling trigger decodes healthily (52 chars, done_reason='stop'); slot clean after; node meter clean over 33 node(s)
+ actual: The image is a black and white checkerboard pattern.
+##### server-canary-default.log
+GGML_CUDA_CUBLAS_COMPUTE_TYPE=f32
+CLIP_NODE_STATS name=ffn_down-31 op=MUL_MAT type=f32 n=15728640 max_abs=75478.2 hr=1.1523 n_gt32k=550 n_gt49k=58 n_gt60k=16 n_inf=0 n_nan=0
+CLIP_NODE_STATS name=ffn_down op=MUL_MAT type=f32 n=6291456 max_abs=50.6 hr=0.0008 n_gt32k=0 n_gt49k=0 n_gt60k=0 n_inf=0 n_nan=0
+##### canary_probe.py canary-f16.json (checks.check_poison_probe; container label: f16-override)
+ status: FAIL
+ summary: degenerate decode on the trigger request
+ actual: done_reason='length' head='????????????????????????????????????????'
+##### server-canary-f16.log
+GGML_CUDA_CUBLAS_COMPUTE_TYPE=f16
+CLIP_NODE_STATS name=ffn_down-31 op=MUL_MAT type=f32 n=15728640 max_abs=64384.0 hr=0.9829 n_gt32k=541 n_gt49k=48 n_gt60k=10 n_inf=6 n_nan=0
+CLIP_NODE_STATS name=ffn_down op=MUL_MAT type=f32 n=6291456 max_abs=51.4 hr=0.0008 n_gt32k=0 n_gt49k=0 n_gt60k=0 n_inf=0 n_nan=12288
+```
+
+- **The check tells the gate apart on gfx1151, as on CUDA.** Under the gate, block 31's `ffn_down` peaks at 75,478,
+  1.15× fp16's 65,504, and stays finite in f32. Under f16 it holds 6 infinities, and the next metered node holds
+  12,288 NaNs. The decode is question marks until `num_predict`.
+- The "1.06x-ceiling" in the summary is the check's fixed wording, from CUDA's measurement (#214).
+
+**Preflight with both entries, on the same image in a bench container** (profile `rocm7-0-34-4-dynres`, `--quality`):
+**VERDICT PASS, PASS=24 SKIP=8**, against 20 and 12 before. The four checks that skipped for want of an expectation now
+pass: output quality on all three arches (1.00 on every measure) and the canary. The eight that still skip are the
+four Metal and MLX checks, which do not apply here; the aspect ladder on three arches, which no profile records; and
+qwen35's pinned budget, which its arch does not take. The run record is
+`vision-suite/preflight/runs/preflight-rocm7-0344-base-quality-gb43ee8e.json`, and the README's matrix now takes
+gfx1151's row from it.
+
+**Think on** runs overnight, as `baseline-c.sh` in the run directory. It covers gemma4:31b and gemma4:26b greedy, with
+the batch pinned at 2048, and qwen3.8 and nemotron3 twice each at their packaged sampling. qwen3.6 already has
+this configuration: `fold2p` under f16 in [kv-precision-think-loops.md](tasks/kv-precision-think-loops.md), on the fold
+image, whose payload differs from the promoted one only by 908, which changes no gfx1151 kernel.
 
 ## Decision 2026-09-21 — 0.34.2 promoted, ROCm 10.0.0 declined on measurement
 

@@ -187,6 +187,14 @@ class TestThinkFormat(unittest.TestCase):
 # exercise the scoring path -- so they, and only they, need the sibling module.
 # Skip rather than fail: the harness is fine standalone, the test simply has
 # nothing to assert about a scorer that cannot run.
+#
+# The module sits in SUITE_DIR, one level above this file. check_quality puts
+# SUITE_DIR on sys.path before importing it (quality_eligible); this file must
+# too. CI runs it from preflight/, where "." does not reach SUITE_DIR, so on
+# the full tree this class skipped as if the suite were absent. Appended, not
+# prepended, so no suite module can shadow a preflight one.
+if checks.SUITE_DIR not in sys.path:
+    sys.path.append(checks.SUITE_DIR)
 try:
     import summarize_engine_compare as _sec  # noqa: F401
     _HAVE_SUITE = True
