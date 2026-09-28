@@ -27,7 +27,7 @@ The measurements agree, byte for byte:
 |---|---|---|
 | gfx1151 (HIP, `amd-server`) | qwen3.6 `bbox_contract_real_1img`, cold, 65536 | thinking byte-identical, 143,475 characters; both loop to the 57,344-token cap |
 | CUDA (sm_120, `ai-server`) | gemma4:26b, three cases, on the fold and the 908 build | byte-identical in all six pairs, thinking and answer |
-| Metal (llama.cpp's Metal backend, `mlx-metal`) | qwen3.6 and gemma4:26b, four cases, at a pinned batch | byte-identical in all four pairs |
+| Metal (llama.cpp's Metal backend, `mlx-metal`) | qwen3.6 and gemma4:26b, two cases each; gemma4's at a pinned batch | byte-identical in all four pairs |
 
 So f32 with flash attention on costs twice the KV memory and bandwidth for identical output. Each such capture
 took up to an hour of shared GPU time.

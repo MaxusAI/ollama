@@ -18,13 +18,14 @@ flow, and in production's environment with only two knobs changed:
 | f16 | production (ADR 0043) | the flash-attention kernels against `mul_mat`, at the same storage |
 | f32 | **equals f16, byte for byte**, on CUDA, HIP and Metal; not run ([ADR 0044](../adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md)) | the most precise attention the build has |
 
-- **Why f32 needs flash attention off.** At b11081, CUDA's and HIP's flash attention convert an f32 K/V cache to
-  f16 before their kernels run (`ggml/src/ggml-cuda/fattn.cu`: `need_f16_K = K->type == GGML_TYPE_F32 …`; the
-  tile and MMA kernels always take f16).
-  - **Measured on both hosts: with flash attention on, f32 reproduces f16 byte for byte.** On gfx1151 that is
-    qwen3.6 `real_1img`, 143,475 characters of thinking. On CUDA it is gemma4:26b, all six pairs.
+- **Why f32 needs flash attention off.** At b11081, llama.cpp's graph casts an f32 K and V to f16 just before flash
+  attention, on every backend (`build_attn_mha`, `src/llama-graph.cpp`; the Metal host on #387). So an f32 cache
+  never reaches a flash-attention kernel, and the f32-to-f16 conversion in CUDA and HIP's `fattn.cu` never runs.
+  - **Measured on three hosts: with flash attention on, f32 reproduces f16 byte for byte.** On gfx1151 that is
+    qwen3.6 `real_1img`, 143,475 characters of thinking. On CUDA it is gemma4:26b, all six pairs. On Metal it is
+    qwen3.6 and gemma4:26b, two cases each.
   - So it is not run ([ADR 0044](../adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md), SPEC H25).
-  - Only with flash attention off does the attention itself run in f32. Metal's llama.cpp backend is unmeasured.
+  - Only with flash attention off does the attention itself run in f32.
 - **Budget.** `num_ctx` is 65536, so the capture has 57344 tokens (`thinkcap.py` sets `num_predict = num_ctx -
   8192`). ADR 0005 found qwen3.6's trajectories token-identical across `num_ctx`, so budgets compare as token
   counts.

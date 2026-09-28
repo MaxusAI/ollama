@@ -543,10 +543,11 @@ few percent is unreadable: it is either the result or the instrument.
 **H25 — An arm the kernel cannot tell apart is not an arm.** Before measuring a
 KV-cache or attention-path arm, check whether the backend's kernel reads the
 setting at all. At b11081, llama.cpp's graph casts an f32 K/V cache to f16 just
-before flash attention, on every backend (`build_attn_mha`; CUDA and HIP's
-`fattn.cu` converts it again). So f32 with flash attention on reproduces f16 with
-flash attention on, byte for byte, on CUDA, HIP and Metal, and measuring it spends
-a full capture to learn nothing. On a shared GPU that is up to an hour
+before flash attention, on every backend (`build_attn_mha`); CUDA and HIP's own
+f32-to-f16 conversion in `fattn.cu` never runs. So f32 with flash attention on
+reproduces f16 with flash attention on, byte for byte, on CUDA, HIP and Metal,
+and measuring it spends a full capture to learn nothing. On a shared GPU that is
+up to an hour
 ([ADR 0044](../adr/0044-an-f32-kv-cache-equals-f16-under-flash-attention.md)).
 
 A KV matrix therefore runs:
