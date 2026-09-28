@@ -89,6 +89,16 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
 - `802-lm-node-stats-meter.patch` - **the language-model twin of 801**, same
   band, same fields, so one differ reads both captures. Gated on
   `OLLAMA_LM_NODE_STATS=<name substring>` (or `*`) and **inert unless set**.
+- `805-fattn-force-tile.patch` - **diagnostic, env-gated.** With
+  `GGML_CUDA_FATTN_FORCE_TILE=1` the MMA_F16 flash-attention kernel is
+  overridden to TILE so the two can be A/B'd on a single build; inert when
+  unset, and announces once when it fires. Written because the AMD WMMA branch
+  in `ggml_cuda_get_best_fattn_kernel` excludes head dims 40 and 72 and caps at
+  256, which puts **both gemma4 models entirely on TILE** — the tower at 72,
+  the LM at 512. Measured on gfx1151: not resolvable, the negative control
+  moved further than the treatment (ADR 0041). Announcing matters here: the
+  deltas were smaller than drift, so "gate broken" and "gate works and changes
+  nothing" are otherwise indistinguishable.
 
   It exists because of the gap this very README names below, under "Diagnostics
   are only useful on both sides of a comparison": localising a change to the
