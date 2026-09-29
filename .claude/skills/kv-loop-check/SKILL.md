@@ -32,12 +32,12 @@ This skill owns the **procedure**. The evidence lives in
     - Under the card's sampling, 0 of 10 f16 draws loop (below about 26% at 95%).
 
   Both prompts are built on `_BBOX_PLACEMENT_HEAD`, whose "the others are distractors and must be ignored" is false
-  when one image is sent. Dropping it alone (`promptcap.py`'s `nodistract`) lets gfx1151's case finish under greedy
-  f16 in 2,535 tokens with 6/6 boxes, so it is the likely trap. It is not proven: any change tips a greedy
-  trajectory this sensitive, as `q8_0` and flash attention off did. The cold repeat, the KV sensitivity and the
-  sampled finishes also fit the trap cases, so they do not tell a trap from a non-trap. Only the prompt text does,
-  and `promptcap.py` tests it. Before calling a greedy loop a regression, measure it with the card's sampling and
-  report a rate, k of n.
+  when one image is sent. On gfx1151's case, dropping it (`promptcap.py`'s `nodistract`) finishes under greedy f16,
+  but so do a true rewording of it (`truedistract`) and a neutral edit elsewhere (`neutral`). So it is not singled
+  out: every change tried tips that greedy trajectory, as `q8_0` and flash attention off did. The cold repeat, the
+  KV sensitivity and the sampled finishes also fit the trap cases, so they do not tell a trap from a non-trap.
+  Only the prompt text does, and only against a neutral-edit control. Before calling a greedy loop a regression,
+  measure it with the card's sampling and report a rate, k of n.
 - **The suite's think-on is greedy, which is the worst case** (`sampling.py`, `THINK_TEMPERATURE=0`). Production
   sends the model card's sampling. On the pixel-coordinate case, all 6 card-sampled runs finish (2026-09-27).
 - **The KV type moves greedy think-on scores more than a fold's code change, in both directions.** In the v0.34.4
@@ -67,8 +67,10 @@ This skill owns the **procedure**. The evidence lives in
    replaces: `bbox_contract_real_1img`, and `multi_3img_anchored`'s calibration box. `multi_3img` is the same prompt
    without that paragraph, so it is the control. `nodistract` drops `_BBOX_PLACEMENT_HEAD`'s "the others are
    distractors and must be ignored", which is false on the single-image arms built on it (`anchored_1img`,
-   `box2d_1img`, `positional_1img`). Setting `THINK_TEMPERATURE=1` gives the card's sampling. Sampled runs are draws,
-   so report a rate over three or more runs, never one cell.
+   `box2d_1img`, `positional_1img`). `truedistract` rewords that sentence truthfully and `neutral` drops a different,
+   true sentence: run them as controls, because a greedy trajectory can tip on any edit, and a sentence is singled
+   out only if the neutral edit does not also finish. Setting `THINK_TEMPERATURE=1` gives the card's sampling.
+   Sampled runs are draws, so report a rate over three or more runs, never one cell.
 5. **Write the result into the task doc's section for your host, or comment on the PR.** Give the arms, the
    runner's flags, the onsets and the byte-identities.
 

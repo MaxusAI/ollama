@@ -67,9 +67,10 @@ What `q8_0` saves is memory: about 3 GB against 6 GB per model at 32K context (A
     attention off, finishes it, and so did 10 of 10 card-sampled f16 draws.
 
   Both prompts are built on `_BBOX_PLACEMENT_HEAD`, which tells a one-image request that "the others are distractors
-  and must be ignored". Dropping that sentence alone lets gfx1151's case finish under greedy f16, in 2,535
-  tokens with 6/6 boxes, so the sentence is the likely trap. One greedy capture does not prove it, since any change
-  tips a trajectory this sensitive. The decisions stand: f16 everywhere, and nothing recommends `q8_0`
+  and must be ignored". Dropping that sentence lets gfx1151's case finish under greedy f16, but so do a true
+  rewording of it and a neutral edit elsewhere in the head. So the sentence is not singled out: every change tried,
+  like `q8_0` and flash attention off, tips this one greedy trajectory. The decisions stand: f16 everywhere, and
+  nothing recommends `q8_0`
   ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md)).
 - **Deploy sources (decision 1), 2026-09-28.** gfx1151's and CUDA's v0.34.4 deploys set `OLLAMA_KV_CACHE_TYPE=f16`
   explicitly and check it in the new server's startup config; gfx1151's compose file carries it too. Metal's launchd

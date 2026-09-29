@@ -21,6 +21,14 @@ bbox_contract_adv_real asks for pixels without the sentence; on those the varian
           (bbox_contract_anchored_1img, bbox_contract_box2d_1img, bbox_contract_positional_1img) send one image, so
           the sentence is false there. vision_suite.py keeps the FRAME arm off the head for that reason. The CUDA
           host's review of MaxusAI/ollama#420 named it as a candidate trap (2026-09-29).
+  truedistract  the control that keeps the position: replaces that sentence with a true one, "The FIRST image is
+          the only image attached; it contains the shapes to report."
+  neutral  the control that edits elsewhere: drops a different, true sentence from the same head, "The coordinate
+          space is 1000x1000 whatever the image's shape is.", which restates the norm-1000 definition before it
+          (the CUDA host's review of MaxusAI/ollama#421). If a greedy trajectory also finishes under a neutral edit,
+          a nodistract finish does not single out the sentence.
+All three refuse unless the test sends exactly one image. The three-image arms on the head (bbox_contract_anchored,
+_pinned, _perobject, _multi, _adv_real, _adv_norm1) do send distractors, so the sentence is true there.
 Sampling is sampling.py's: greedy for think-on by default (the suite's policy), or the model card's with
 THINK_TEMPERATURE=1, which is what production sends. Cold, like thinkcap.py: every model is evicted first. The output
 adds a capture block naming the variant and the sampling actually applied."""
@@ -45,13 +53,18 @@ RESIZE = re.compile(r"If\s+you\s+resized\s+(?P<img>the\s+image|image\s+1)\s+inte
                     r"|use\s+the\s+size\s+YOU\s+used)\.")
 DISTRACT = re.compile(r"Only\s+the\s+FIRST\s+image\s+contains\s+the\s+shapes\s+to\s+report;\s+the\s+others\s+are\s+"
                       r"distractors\s+and\s+must\s+be\s+ignored\.\s*")
+TRUE_ONE = "The FIRST image is the only image attached; it contains the shapes to report.\n\n"
+NEUTRAL = re.compile(r"\s+The\s+coordinate\s+space\s+is\s+1000x1000\s+whatever\s+the\s+image's\s+shape\s+is\.")
+SINGLE_IMAGE_VARIANTS = ("nodistract", "truedistract", "neutral")
 
 
 def transform(prompt, variant, first_image="scene_hd.png"):
     if variant == "orig":
         return prompt
-    if variant == "nodistract":
-        new, n = DISTRACT.subn("", prompt, 1)
+    if variant in SINGLE_IMAGE_VARIANTS:
+        pattern, repl = {"nodistract": (DISTRACT, ""), "truedistract": (DISTRACT, TRUE_ONE),
+                         "neutral": (NEUTRAL, "")}[variant]
+        new, n = pattern.subn(repl, prompt, 1)
         if n != 1:
             sys.exit(f"variant {variant!r} did not apply to {test}'s prompt")
         return new
@@ -81,6 +94,8 @@ def transform(prompt, variant, first_image="scene_hd.png"):
 if __name__ == "__main__":
     vs.HOST, vs.MODEL = host, model
     entry = next(t for t in vs.tests if t[0] == test)
+    if variant in SINGLE_IMAGE_VARIANTS and len(entry[2]) != 1:
+        sys.exit(f"variant {variant!r} applies only to single-image tests; {test} sends {len(entry[2])} images")
     prompt = transform(entry[1]() if callable(entry[1]) else entry[1], variant, entry[2][0])
     if os.environ.get("DRY"):
         print(prompt)
