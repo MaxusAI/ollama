@@ -531,6 +531,18 @@ qwen35's pinned budget, which its arch does not take. The run record is
 `vision-suite/preflight/runs/preflight-rocm7-0344-base-quality-gb43ee8e.json`, and the README's matrix now takes
 gfx1151's row from it.
 
+**The aspect ladder, 2026-09-29.** Next, the three arches' aspect ladders were measured on the same image and
+environment (4:3, 4:1 and 1:1, the axis the 16:9 ladder cannot move), by the probe calls `check_aspect_ladder`
+makes. A second preflight with them passed: **VERDICT PASS, PASS=27 SKIP=5**, with the aspect ladder 3/3 on every
+arch, and quality and the canary as before.
+- The five that still skip are the four Metal and MLX checks and qwen35's pinned budget. None of them applies on
+  gfx1151, so every check that can run here now does.
+- gemma4's row equals the Metal profiles' (1066, 1058, 1091).
+- nemotron3 keeps each image's native grid (770, 902, 578).
+- qwen3.8 raises every ratio to its 1024-token minimum (1038, 1026, 1026).
+- The run record is `preflight-rocm7-0344-aspect-gb43ee8e.json`, and the README's matrix, whose columns are
+  unchanged by it, now takes gfx1151's row from it.
+
 **Think on, two-pass, f16** (`baseline-c.sh` in the run directory, 2026-09-28 15:26 to 2026-09-29 03:22). Four models
 ran, each on a cold server, over the full ladder from 16384 to 131072. That is how the gate's `fold2p` arm ran under
 `q8_0`, which is the comparison here.

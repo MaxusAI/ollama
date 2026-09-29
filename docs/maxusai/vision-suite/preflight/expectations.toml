@@ -288,6 +288,12 @@ think_format passes on all three arches through the fold's single pass: valid JS
 after thinking in 1401, 127 and 273 tokens. The skips all predate this profile: no
 rocm7 profile has recorded a poison-probe, aspect or extraction-quality expectation.
 The run record is runs/preflight-rocm7-0344-fold-g29ae523.json.
+
+SINCE THEN, on the promoted image 0.34.4-dynres-0-gb43ee8e in production's environment: the quality
+floors and fp16 canary (2026-09-28, PASS=24 SKIP=8,
+runs/preflight-rocm7-0344-base-quality-gb43ee8e.json), then the aspect ladders (2026-09-29, PASS=27
+SKIP=5, runs/preflight-rocm7-0344-aspect-gb43ee8e.json). The five skips left are the four Metal and MLX
+checks and qwen35's pinned budget; none of them applies on gfx1151.
 """
 
 [profiles.cpu]
@@ -1227,6 +1233,13 @@ budget_max_tokens = 3328
 image_min_pixels = 262144
 image_max_pixels = 3407872
 scaling = "dynamic"
+# Aspect axis (4:3, 4:1, 1:1), which the 16:9 ladder_sizes cannot move. Measured 2026-09-29
+# on 0.34.4-dynres-0-gb43ee8e (gfx1151, production's environment) by the probe calls
+# check_aspect_ladder makes (image_prefix, then visual_tokens); the line is the output of
+# aspect_measure.py in the run directory, pasted whole.
+# nemotron keeps each image's native grid at its 32-px stride, plus the two markers:
+# 1024x768 -> 32x24, 1920x480 -> 60x15, 768x768 -> 24x24.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
 ladder_tolerance = 2
 # prefix == 19, text_only == 20; measured with image_prefix (B8), not text_baseline
 ladder = [266, 266, 578, 2306, 3270]
@@ -1256,6 +1269,13 @@ budget_max_tokens = 1120
 image_min_pixels = 161280
 image_max_pixels = 2580480
 scaling = "flat"   # verified: 004 fills every image to the budget, so the ladder is flat
+# Aspect axis (4:3, 4:1, 1:1), which the 16:9 ladder_sizes cannot move. Measured 2026-09-29
+# on 0.34.4-dynres-0-gb43ee8e (gfx1151, production's environment) by the probe calls
+# check_aspect_ladder makes (image_prefix, then visual_tokens); the line is the output of
+# aspect_measure.py in the run directory, pasted whole.
+# gemma4 fills its 1120-token budget at each ratio, at stride 48, plus the two markers:
+# 1024x768 -> 38x28, 1920x480 -> 66x16, 768x768 -> 33x33. It equals mlx-metal's gemma4 row.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
 ladder_tolerance = 2
 # prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
 ladder = [1102, 1102, 1102, 1102, 1102]
@@ -1288,6 +1308,13 @@ image_min_pixels = 1048576
 image_max_pixels = 4194304
 custom_bounds = ["min"]   # only these are set by our flags
 scaling = "dynamic"
+# Aspect axis (4:3, 4:1, 1:1), which the 16:9 ladder_sizes cannot move. Measured 2026-09-29
+# on 0.34.4-dynres-0-gb43ee8e (gfx1151, production's environment) by the probe calls
+# check_aspect_ladder makes (image_prefix, then visual_tokens); the line is the output of
+# aspect_measure.py in the run directory, pasted whole.
+# qwen35 raises every ratio to the fork's 1024-token minimum, at stride 32, plus the two
+# markers: 1024x768 -> 37x28, 1920x480 -> 64x16, 768x768 -> 32x32.
+aspect_ladder = { "1024x768" = 1038, "1920x480" = 1026, "768x768" = 1026 }
 ladder_tolerance = 2
 # prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
 ladder = [1034, 1034, 1034, 2306, 4082]
