@@ -312,7 +312,7 @@ On this host a greedy qwen3.6 run reproduces cell for cell: the v0.34.3 fold's c
   hosts, moves more cells than the change under test. The `q8_0` pair stands as a pair. The f16 pair is compared
   within itself when its `fold` arm finishes.
 
-## A greedy loop and a false distractor sentence: gemma4:26b `bbox_contract_anchored_1img` (gfx1151, 2026-09-29)
+## A greedy loop that any edit tips: gemma4:26b `bbox_contract_anchored_1img` (gfx1151, 2026-09-29)
 
 The gate's f16 baseline found a new loop. gemma4:26b loops on `bbox_contract_anchored_1img` to the 131072 cap from
 about token 3,359 (`r0344base_1_`,
@@ -320,32 +320,36 @@ about token 3,359 (`r0344base_1_`,
 `q8_0` protocol runs finished it at 16384 in about 2,120 tokens.
 
 Its prompt pins norm-1000 and asks for an `__IMAGE__` anchor box. It has no "size YOU used" sentence, the known trap.
-But it is built on `_BBOX_PLACEMENT_HEAD`, which says "Only the FIRST image contains the shapes to report; the others
-are distractors and must be ignored." That is false when one image is sent. `vision_suite.py` keeps the FRAME arm
-off the head for that reason, and the CUDA host's review of MaxusAI/ollama#420 named the sentence as a candidate
-trap.
+It is built on `_BBOX_PLACEMENT_HEAD`, which says "Only the FIRST image contains the shapes to report; the others are
+distractors and must be ignored." That is false when one image is sent, and `vision_suite.py` keeps the FRAME arm off
+the head for that reason. The CUDA host's review of MaxusAI/ollama#420 named the sentence as a candidate trap.
 
 It is not the first loop on this head. On CUDA, the 908 build with flash attention on and f16 loops
-`bbox_contract_box2d_1img`, the same scene in norm-1000 on the same head, from about token 4,247 (the CUDA table
-below).
+`bbox_contract_box2d_1img`, the same scene in norm-1000, from about token 4,247 (the CUDA table below).
 
 The check followed this task's procedure (`kv-loop-check`), on the promoted image `0.34.4-dynres-0-gb43ee8e`. It used
 `kvloop.sh` and `promptcap.py` at 65536, with one cold container per capture. Every arm ran at production's flow and
 batch: two-pass, with `-b/-ub 2048` pinned. None decoded images in pieces. The arms differ only in the KV type, the
 attention path, the prompt or the sampling:
-- **Greedy:** four arms.
-  - f16 with flash attention on, production's path.
+- **Greedy, numerical arms:**
+  - f16 with flash attention on, production's numerical path.
   - `q8_0` with flash attention on, the gate's KV type.
-  - f16 with flash attention off, the procedure's second perturbation, added after the review of MaxusAI/ollama#418.
-  - f16 with flash attention on and `promptcap.py`'s `nodistract` prompt, which drops the distractor sentence and
-    changes nothing else. It was added after the review of MaxusAI/ollama#420.
+  - f16 with flash attention off, added after the review of MaxusAI/ollama#418.
+- **Greedy, prompt arms,** all f16 with flash attention on, and each changing one sentence of the head:
+  - `nodistract` drops the false sentence (after the review of MaxusAI/ollama#420).
+  - `truedistract` replaces it, at the same position, with a true one: "The FIRST image is the only image attached;
+    it contains the shapes to report."
+  - `neutral` is the control that edits elsewhere. It drops a different, true sentence, "The coordinate space is
+    1000x1000 whatever the image's shape is.", which restates the norm-1000 definition before it.
+
+  `truedistract` and `neutral` were added after the review of MaxusAI/ollama#421.
 - **Card-sampled:** ten draws under f16 with flash attention on and the suite's prompt. `THINK_TEMPERATURE=1` gives
   the card's 1.0, 0.95 and 64.
 
 The findings:
 - **It is the case's own trajectory, not the run's history.** The cold f16 capture's 115,488 characters of thinking
   are a byte-identical prefix of the baseline suite's 249,415.
-- **Every perturbation removes it under greedy decoding: the KV type, the attention path and the prompt.**
+- **Every change tried removes it under greedy decoding: two numerical and three in the prompt.**
   - f16 and `q8_0` think byte-identically for 662 characters. At offset 662 they word the corner of the shape
     labelled ANCHOR differently. After the shared `` `ANCHOR` (Red rectangle):\n    - ``, f16 writes
     `Top-left: around x=72, y=148`, and `q8_0` writes `x1: ~72, y1: ~149, x2: ~217, y2: ~336`.
@@ -354,23 +358,26 @@ The findings:
   - f16 then loops from about token 3,386, and repeats `ANCHOR: [72, 148, 216, 336]` 213 times. `q8_0` finishes in
     2,121 tokens, as the protocol did, with 6/6 boxes at IoU 0.974.
   - f16 with flash attention off finishes in 2,807 tokens, with 6/6 boxes at IoU 0.975.
-  - **Without the distractor sentence, f16 with flash attention on finishes**, in 2,535 tokens with 6/6 boxes at IoU
-    0.972. That is production's numerical path, with only the false sentence removed.
+  - On f16 with flash attention on, every prompt arm finishes with 6/6 boxes at IoU 0.972:
+    - `nodistract` in 2,535 tokens;
+    - `truedistract` in 1,691;
+    - `neutral` in 2,088.
+- **The false sentence is not singled out.** The neutral edit, which leaves that sentence in place, finishes as
+  readily as the two edits that remove or correct it.
 - **Under the card's sampling, 0 of 10 f16 draws loop.**
   - They finish in 1,624 to 5,339 tokens, each with 6/6 boxes at IoU 0.968–0.974.
   - 0 of 10 bounds the loop rate below about 26% (one-sided, 95%).
-  - No draw repeats a thinking line more than twice, against 213 times in the greedy loop. Five repeat one line
-    twice. In draws 2, 5, 6 and 10 it is an ANCHOR box line, and in draw 9 the bare `` `ANCHOR`: `` heading. The block
-    below gives each draw's most repeated line.
+  - No draw repeats any thinking line more than twice, against 213 times in the greedy loop. For each capture, the
+    block below gives the distinct and total line counts, and one line with the highest repeat count (the first
+    where several tie).
 
-**The reading.** This is a greedy loop, sensitive to the numerical path and to the prompt. The false distractor
-sentence is the likely trigger: removing it alone lets production's own path finish.
-- One greedy capture does not prove it. A trajectory this sensitive tips on any change, as `q8_0` and flash attention
-  off did.
-- CUDA's `box2d_1img` loop is on the same head and would test it on a second case: `promptcap.py` with `nodistract`
-  on the 908 build.
-- If it holds, the fix belongs in the prompt: single-image arms should not be built on a head that declares
-  distractors. A client sending one image should not say "the others".
+**The reading.** This is one greedy trajectory of this exact prompt on this exact numerical path, and every change
+tried tips it into a correct finish: the KV type, the attention path, and any of three one-sentence prompt edits.
+- The false distractor sentence is not shown to cause it, since a neutral edit finishes too. The sentence is still
+  false on the single-image arms. Whether to take them off the head is a question about the suite, separate from
+  this loop.
+- CUDA's `box2d_1img` loop is on the same head, and would need the same three prompt arms before any sentence is
+  named there.
 - At the card's sampling, which production sends, the suite's prompt looped in none of ten draws. So the baseline's
   greedy count overstates what production does on this case.
 - It is no reason to change the KV type
@@ -402,6 +409,18 @@ f16-faoff_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536
 f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536
   arm=f16-faon  done=stop  tokens=2535  thinking=4326 chars  answer=726 chars
   thinking: 85/91 lines distinct, second half 41/46, most repeated x2: '`ANCHOR`: x1=72, y1=148, x2=216, y2=336'
+  onset: no loop found
+  score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.972 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
+## prompt-truedistract
+f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536
+  arm=f16-faon  done=stop  tokens=1691  thinking=2990 chars  answer=726 chars
+  thinking: 51/51 lines distinct, second half 26/26, most repeated x1: 'The user wants me to identify all distinct colored shapes in'
+  onset: no loop found
+  score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.972 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
+## prompt-neutral
+f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536
+  arm=f16-faon  done=stop  tokens=2088  thinking=3215 chars  answer=678 chars
+  thinking: 75/81 lines distinct, second half 35/41, most repeated x2: 'ANCHOR: x1=72, y1=148, x2=216, y2=336'
   onset: no loop found
   score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.972 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
 ## card-r1
@@ -466,8 +485,8 @@ f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536
   score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.971 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
 ```
 
-The captures and server logs are in the gfx1151 run directory (`g26anc/`, from `g26anc.sh`, `g26anc2.sh` and
-`g26anc3.sh`).
+The captures and server logs are in the gfx1151 run directory (`g26anc/`, from `g26anc.sh`, `g26anc2.sh`,
+`g26anc3.sh` and `g26anc4.sh`).
 
 ## CUDA (`ai-server/mlx-cuda`)
 
