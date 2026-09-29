@@ -565,7 +565,12 @@ against one under `q8_0`:
 - `multi_3img_anchored` loops under f16 only. It is item 8's prompt trap ("the size YOU used"), which MaxusAI/ollama#387
   found looping under f16.
 - `bbox_contract_anchored_1img` loops under f16 only, and this is new. All three `q8_0` runs finished it at 16384,
-  in about 2,120 tokens.
+  in about 2,120 tokens. The loop check (2026-09-29) found a greedy knife edge, not a prompt trap:
+  - A cold capture repeats the suite's thinking byte for byte, so the loop is the case's own trajectory.
+  - f16 and `q8_0` part at one rounding of the anchor's corner (y=148 against y=149), 662 characters in.
+  - Three card-sampled f16 draws of three finish, with 6/6 boxes.
+
+  See [kv-precision-think-loops.md](tasks/kv-precision-think-loops.md#a-loop-with-no-prompt-trap-gemma426b-bbox_contract_anchored_1img-gfx1151-2026-09-29).
 
 The cases both finish are 24. Under f16, three of them score worse, one scores marginally better, and the rest score
 the same:
