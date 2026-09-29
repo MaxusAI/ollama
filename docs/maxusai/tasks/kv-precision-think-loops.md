@@ -312,69 +312,127 @@ On this host a greedy qwen3.6 run reproduces cell for cell: the v0.34.3 fold's c
   hosts, moves more cells than the change under test. The `q8_0` pair stands as a pair. The f16 pair is compared
   within itself when its `fold` arm finishes.
 
-## A loop with no prompt trap: gemma4:26b `bbox_contract_anchored_1img` (gfx1151, 2026-09-29)
+## A loop with no trap sentence: gemma4:26b `bbox_contract_anchored_1img` (gfx1151, 2026-09-29)
 
 The gate's f16 baseline found a new loop. gemma4:26b loops on `bbox_contract_anchored_1img` to the 131072 cap from
-about token 3,359 (`r0344base_1_`, [amd-upgrade-gate.md](../amd-upgrade-gate.md#2026-09-28s-baseline-productions-configuration-measured)).
-All three `q8_0` protocol runs finished it at 16384 in about 2,120 tokens. Its prompt pins norm-1000 and asks for an
-`__IMAGE__` anchor box. It has no "size YOU used" sentence, so it does not carry the known trap, and `promptcap.py`
-has nothing to replace.
+about token 3,359 (`r0344base_1_`,
+[amd-upgrade-gate.md](../amd-upgrade-gate.md#2026-09-28s-baseline-productions-configuration-measured)). All three
+`q8_0` protocol runs finished it at 16384 in about 2,120 tokens. Its prompt pins norm-1000 and asks for an
+`__IMAGE__` anchor box. It has no "size YOU used" sentence, so `promptcap.py` has nothing to replace. It is not the
+first loop of this kind. On CUDA, the 908 build with flash attention on and f16 loops `bbox_contract_box2d_1img`, the
+same scene in norm-1000, from about token 4,247 (the CUDA table below).
 
-The check followed this task's procedure (`kv-loop-check`), on the promoted image `0.34.4-dynres-0-gb43ee8e`, with
-`kvloop.sh` at 65536. Every arm ran at production's settings, two-pass, and at the pinned batch 2048 (`-b/-ub 2048`),
-and none decoded images in pieces:
-- **Greedy, cold:** f16 with flash attention on (production), and `q8_0` with flash attention on (the gate's KV
-  type).
-- **Card-sampled:** three draws under f16 (`THINK_TEMPERATURE=1`), each on a cold container.
+The check followed this task's procedure (`kv-loop-check`), on the promoted image `0.34.4-dynres-0-gb43ee8e`. It used
+`kvloop.sh` at 65536, with one cold container per capture. Every arm ran at production's flow and batch: two-pass,
+with `-b/-ub 2048` pinned. None decoded images in pieces. The arms differ only in the KV type, the attention path or
+the sampling:
+- **Greedy:** three arms.
+  - f16 with flash attention on, production's path.
+  - `q8_0` with flash attention on, the gate's KV type.
+  - f16 with flash attention off, the procedure's second perturbation. It was added after the CUDA host's review
+    (MaxusAI/ollama#418).
+- **Card-sampled:** ten draws under f16 with flash attention on. `THINK_TEMPERATURE=1` gives the card's 1.0, 0.95
+  and 64.
 
 The findings:
 - **It is the case's own trajectory, not the run's history.** The cold f16 capture's 115,488 characters of thinking
   are a byte-identical prefix of the baseline suite's 249,415.
-- **The KV type decides it, at one rounding.** The greedy f16 and `q8_0` captures think byte-identically for 662
-  characters. Then they read the anchor's corner one unit apart:
-  - f16 writes "Top-left: around x=72, y=148". It loops from about token 3,386, and 213 lines of its thinking are
-    `ANCHOR: [72, 148, 216, 336]`.
-  - `q8_0` writes "x1: ~72, y1: ~149". It finishes in 2,121 tokens, as the protocol did, with 6/6 boxes at IoU 0.974.
-- **Production's sampling does not loop.** All three card-sampled f16 draws finish, in 1,624, 5,339 and 1,838 tokens,
-  each with 6/6 boxes at IoU 0.972–0.973.
+- **Each perturbation removes it under greedy decoding.**
+  - f16 and `q8_0` think byte-identically for 662 characters. At offset 662 they word the corner of the shape
+    labelled ANCHOR differently. After the shared `` `ANCHOR` (Red rectangle):\n    - ``, f16 writes
+    `Top-left: around x=72, y=148`, and `q8_0` writes `x1: ~72, y1: ~149, x2: ~217, y2: ~336`.
+  - The shape's true box is [72.9, 148.1, 218.8, 333.3] in norm-1000. So both readings are within about a unit, and
+    f16's y=148 is the closer.
+  - f16 then loops from about token 3,386, and repeats `ANCHOR: [72, 148, 216, 336]` 213 times. `q8_0` finishes in
+    2,121 tokens, as the protocol did, with 6/6 boxes at IoU 0.974.
+  - f16 with flash attention off finishes in 2,807 tokens, with 6/6 boxes at IoU 0.975.
+- **Under the card's sampling, 0 of 10 f16 draws loop.**
+  - They finish in 1,624 to 5,339 tokens, each with 6/6 boxes at IoU 0.968–0.974.
+  - 0 of 10 bounds the loop rate below about 26% (one-sided, 95%).
+  - No draw repeats a thinking line more than twice, against 213 times in the greedy loop. Four repeat one ANCHOR box
+    line twice: draws 2, 5, 6 and 10.
 
-**The reading.** This is a greedy knife edge, not a prompt trap. Greedy decoding follows one fixed trajectory, and
-f16's attention numerics tip that trajectory into a loop that `q8_0`'s do not. Sampling leaves the edge in three draws
-of three, as it did on the pixel-coordinate case (2026-09-27). So the baseline's greedy count overstates what
-production, which sends the card's sampling, does on this case. It is no reason to change the KV type
-([ADR 0043](../adr/0043-production-runs-an-f16-kv-cache-on-every-platform.md)).
+**The reading.** This is a greedy loop with no trap sentence, and it is sensitive to the numerical path. Production's
+f16 with flash attention on loops; `q8_0` finishes, and so does f16 with flash attention off.
+- That does not separate it from the trap cases. They also repeat cold, move with the KV type and finish when
+  sampled. Only the prompt text tells them apart.
+- At the card's sampling, which production sends, it looped in none of ten draws. So the baseline's greedy count
+  overstates what production does on this case.
+- It is no reason to change the KV type
+  ([ADR 0043](../adr/0043-production-runs-an-f16-kv-cache-on-every-platform.md)).
 
-`kvloop_read.py`, verbatim. The captures are in this order: greedy f16, greedy `q8_0`, then card-sampled draws 1 to 3.
+`kvloop_read.py`, verbatim, run once per capture. The `##` line naming each capture's directory is added by the loop
+that ran it:
 
 ```
-f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536
+## greedy/f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
   arm=f16-faon  done=length  tokens=57344  thinking=115488 chars  answer=0 chars
   thinking: 121/3940 lines distinct, second half 19/1970, most repeated x213: 'ANCHOR: [72, 148, 216, 336]'
   onset: loop from line 180 of 3,940, about token 3,386
   score (bbox_contract_anchored_1img): json_valid=False labels_found=0 hits_declared=0 iou_declared=0.0 hits_anchor=0 hits_bestfit=0 bestfit_dialect=None contract_followed=False
-q8_0-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536
+## greedy/q8_0-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
   arm=q8_0-faon  done=stop  tokens=2121  thinking=2769 chars  answer=678 chars
   thinking: 80/80 lines distinct, second half 40/40, most repeated x1: 'The user wants me to identify all distinct colored shapes in'
   onset: no loop found
   score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.974 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
-f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536
+## greedy-faoff/f16-faoff_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
+  arm=f16-faoff  done=stop  tokens=2807  thinking=4271 chars  answer=678 chars
+  thinking: 117/117 lines distinct, second half 59/59, most repeated x1: 'The user wants me to identify all distinct colored shapes in'
+  onset: no loop found
+  score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.975 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
+## card-r1/f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
   arm=f16-faon  done=stop  tokens=1624  thinking=2597 chars  answer=678 chars
   thinking: 67/67 lines distinct, second half 34/34, most repeated x1: 'The user wants me to identify and locate all distinct colore'
   onset: no loop found
   score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.972 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
-f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536
+## card-r2/f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
   arm=f16-faon  done=stop  tokens=5339  thinking=10732 chars  answer=678 chars
   thinking: 251/258 lines distinct, second half 128/129, most repeated x2: '`ANCHOR`: [72, 148, 216, 336]'
   onset: no loop found
   score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.973 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
-f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536
+## card-r3/f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
   arm=f16-faon  done=stop  tokens=1838  thinking=2965 chars  answer=972 chars
   thinking: 76/76 lines distinct, second half 38/38, most repeated x1: 'The user wants me to identify all the distinct colored shape'
   onset: no loop found
   score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.973 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
+## card-r4/f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
+  arm=f16-faon  done=stop  tokens=2277  thinking=3079 chars  answer=972 chars
+  thinking: 66/66 lines distinct, second half 33/33, most repeated x1: 'The user wants me to identify all distinct colored shapes in'
+  onset: no loop found
+  score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.973 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
+## card-r5/f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
+  arm=f16-faon  done=stop  tokens=2178  thinking=3397 chars  answer=678 chars
+  thinking: 65/77 lines distinct, second half 33/39, most repeated x2: '- ANCHOR: [72, 148, 217, 336]'
+  onset: no loop found
+  score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.974 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
+## card-r6/f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
+  arm=f16-faon  done=stop  tokens=2242  thinking=3810 chars  answer=726 chars
+  thinking: 70/76 lines distinct, second half 32/38, most repeated x2: '`ANCHOR`: x1=71, y1=148, x2=216, y2=336'
+  onset: no loop found
+  score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.968 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
+## card-r7/f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
+  arm=f16-faon  done=stop  tokens=2219  thinking=3687 chars  answer=726 chars
+  thinking: 91/91 lines distinct, second half 46/46, most repeated x1: 'The user wants me to identify and locate all distinct colore'
+  onset: no loop found
+  score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.97 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
+## card-r8/f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
+  arm=f16-faon  done=stop  tokens=2197  thinking=3751 chars  answer=832 chars
+  thinking: 76/76 lines distinct, second half 38/38, most repeated x1: 'The user wants me to identify all distinct colored shapes in'
+  onset: no loop found
+  score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.972 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
+## card-r9/f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
+  arm=f16-faon  done=stop  tokens=3550  thinking=6444 chars  answer=921 chars
+  thinking: 224/236 lines distinct, second half 112/118, most repeated x2: '`ANCHOR`:'
+  onset: no loop found
+  score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.97 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
+## card-r10/f16-faon_gemma4_26b-a4b-it-q4_K_M_bbox_contract_anchored_1img_65536.json
+  arm=f16-faon  done=stop  tokens=4974  thinking=9872 chars  answer=678 chars
+  thinking: 257/258 lines distinct, second half 128/129, most repeated x2: 'ANCHOR: x1=72, y1=148, x2=216, y2=336.'
+  onset: no loop found
+  score (bbox_contract_anchored_1img): json_valid=True labels_found=6 hits_declared=6 iou_declared=0.971 hits_anchor=6 hits_bestfit=6 bestfit_dialect=norm1000/xyxy contract_followed=True
 ```
 
-The captures and server logs are in the gfx1151 run directory (`g26anc/`, from `g26anc.sh`).
+The captures and server logs are in the gfx1151 run directory (`g26anc/`, from `g26anc.sh` and `g26anc2.sh`).
 
 ## CUDA (`ai-server/mlx-cuda`)
 

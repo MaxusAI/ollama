@@ -565,12 +565,14 @@ against one under `q8_0`:
 - `multi_3img_anchored` loops under f16 only. It is item 8's prompt trap ("the size YOU used"), which MaxusAI/ollama#387
   found looping under f16.
 - `bbox_contract_anchored_1img` loops under f16 only, and this is new. All three `q8_0` runs finished it at 16384,
-  in about 2,120 tokens. The loop check (2026-09-29) found a greedy knife edge, not a prompt trap:
+  in about 2,120 tokens. The loop check (2026-09-29) found a greedy loop with no trap sentence, sensitive to the
+  numerical path:
   - A cold capture repeats the suite's thinking byte for byte, so the loop is the case's own trajectory.
-  - f16 and `q8_0` part at one rounding of the anchor's corner (y=148 against y=149), 662 characters in.
-  - Three card-sampled f16 draws of three finish, with 6/6 boxes.
+  - f16 and `q8_0` part 662 characters in, where they word the corner of the shape labelled ANCHOR differently.
+  - f16 with flash attention off, greedy and cold, finishes in 2,807 tokens with 6/6 boxes.
+  - Under the card's sampling, 0 of 10 f16 draws loop (a rate below about 26%, at 95%), each with 6/6 boxes.
 
-  See [kv-precision-think-loops.md](tasks/kv-precision-think-loops.md#a-loop-with-no-prompt-trap-gemma426b-bbox_contract_anchored_1img-gfx1151-2026-09-29).
+  See [kv-precision-think-loops.md](tasks/kv-precision-think-loops.md#a-loop-with-no-trap-sentence-gemma426b-bbox_contract_anchored_1img-gfx1151-2026-09-29).
 
 The cases both finish are 24. Under f16, three of them score worse, one scores marginally better, and the rest score
 the same:
@@ -582,7 +584,9 @@ the same:
 The KV type is the only difference that matters in this comparison. Both arms are two-pass. Both run gemma4 at 2048,
 here pinned and in the gate automatic. And 908 changes no gfx1151 kernel. MaxusAI/ollama#387 found that the KV type
 moves greedy think-on cells both ways. On gemma4:26b here it moves them mostly one way. Production keeps f16
-(ADR 0043; no `q8_0` fallback since MaxusAI/ollama#398), so these cells are what production now does.
+(ADR 0043; no `q8_0` fallback since MaxusAI/ollama#398), so these cells are what production's KV type does under
+greedy decoding. Production sends the model card's sampling, not greedy decoding. For `bbox_contract_anchored_1img` the
+loop check measured that sampling directly: 0 of 10 f16 draws loop, each with 6/6 boxes.
 
 **The batches.** Every launch ran at the batch its context calls for. No launch logged "images decode in pieces", so
 the batch played no part in these comparisons:

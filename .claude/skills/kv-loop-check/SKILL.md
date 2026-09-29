@@ -18,16 +18,20 @@ This skill owns the **procedure**. The evidence lives in
 - **No KV type or attention path reliably turns the known loops into finishes.** Where a loop starts moves with
   the numerical path, in both directions (both hosts, 2026-09-26 and 27). It can go against f16 too: on gfx1151,
   gemma4:26b's `multi_3img_anchored` finishes under `q8_0` and loops under f16.
-- **The known loops are prompt-driven.** They come from asking for absolute pixel coordinates without giving the
+- **Most known loops are prompt-driven.** They come from asking for absolute pixel coordinates without giving the
   image's size (`bbox_contract_real_1img`, `bbox_contract_adv_real`). The same scene in normalized coordinates
-  finishes.
-- **But not every loop is a prompt trap.** gemma4:26b's `bbox_contract_anchored_1img` pins norm-1000 and has no
-  trap sentence. Under greedy f16 it still loops (gfx1151, 2026-09-29):
-  - A cold capture repeats the suite's thinking byte for byte.
-  - f16 and `q8_0` part at one rounding of the anchor's corner, 662 characters in.
-  - `q8_0` and all three card-sampled f16 draws finish.
+  usually finishes, but not always (next bullet).
+- **Some loops have no trap sentence.** The same scene in norm-1000 has looped twice with no trap in the prompt:
+  - On CUDA, the 908 build with flash attention on and f16 loops `bbox_contract_box2d_1img` from about token 4,247
+    (the CUDA table in `docs/maxusai/tasks/kv-precision-think-loops.md`).
+  - On gfx1151, `bbox_contract_anchored_1img` loops under greedy f16 (2026-09-29). A cold capture repeats the suite's
+    thinking byte for byte, and f16 and `q8_0` part 662 characters in, where they word the corner of the shape
+    labelled ANCHOR differently. `q8_0` finishes, and so does f16 with flash attention off (2,807 tokens). Under the
+    card's sampling, 0 of 10 f16 draws loop (below about 26% at 95%).
 
-  That is a greedy knife edge. Test it with the card's sampling before calling it a regression.
+  The cold repeat, the KV sensitivity and the sampled finishes also fit the trap cases, so they do not tell a trap
+  from a non-trap; only the prompt text does. Before calling a greedy loop a regression, measure it with the card's
+  sampling and report a rate, k of n.
 - **The suite's think-on is greedy, which is the worst case** (`sampling.py`, `THINK_TEMPERATURE=0`). Production
   sends the model card's sampling. On the pixel-coordinate case, all 6 card-sampled runs finish (2026-09-27).
 - **The KV type moves greedy think-on scores more than a fold's code change, in both directions.** In the v0.34.4
