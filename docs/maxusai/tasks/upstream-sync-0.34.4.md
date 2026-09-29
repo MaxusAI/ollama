@@ -1025,8 +1025,8 @@ all cells: 189/189 answers byte-identical
   135 of 135 in gate 6.
 - **So the fold's think-off results hold for the deployed build,** with their attribution against the 0.34.0 control
   ([#375](https://github.com/MaxusAI/ollama/pull/375#issuecomment-5856289579)). That attribution names the MLX move and
-  XGrammar. ADR 0039 (below) is a third candidate for the nvfp4 checkpoints that carry global scales, and none of the
-  three is separated.
+  XGrammar. ADR 0039 (below) is a third candidate wherever the round trip it removed missed a global scale, as it did
+  for 17 of 31b's 191 vision scales. None of the three is separated.
 - **GGUF gemma4:31b ran at `-b/-ub 2048`,** without pieced image decoding (#387).
 
 ### OCRBench: all 1000 items, the same score as 0.34.0
@@ -1072,7 +1072,7 @@ ocrbench — `echo840/OCRBench` [test], rows 0..1000.
 and on this host drafted thinking parted from itself at character 594 across a window change, and at character 58 after
 a different preceding request, where the undrafted single pass stayed byte-identical
 ([#375](https://github.com/MaxusAI/ollama/pull/375#issuecomment-5824799988)). Short drafted answers can repeat exactly,
-as 199 of OCRBench's rows 0–199 did. The undrafted path above is byte-identical, and the pins and the
+as OCRBench's rows 1–199, all drafted, did. The undrafted path above is byte-identical, and the pins and the
 `server/`, `llm/` and `mlxrunner/` code are the same at the tag.
 
 Runs: `rel-0344.log`, `proto-rel-thinkoff.log` and `proto-rel-ocrbench.log` in the fold worktree's `.campaign/`, with
