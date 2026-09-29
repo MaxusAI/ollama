@@ -21,6 +21,13 @@ This skill owns the **procedure**. The evidence lives in
 - **The known loops are prompt-driven.** They come from asking for absolute pixel coordinates without giving the
   image's size (`bbox_contract_real_1img`, `bbox_contract_adv_real`). The same scene in normalized coordinates
   finishes.
+- **But not every loop is a prompt trap.** gemma4:26b's `bbox_contract_anchored_1img` pins norm-1000 and has no
+  trap sentence. Under greedy f16 it still loops (gfx1151, 2026-09-29):
+  - A cold capture repeats the suite's thinking byte for byte.
+  - f16 and `q8_0` part at one rounding of the anchor's corner, 662 characters in.
+  - `q8_0` and all three card-sampled f16 draws finish.
+
+  That is a greedy knife edge. Test it with the card's sampling before calling it a regression.
 - **The suite's think-on is greedy, which is the worst case** (`sampling.py`, `THINK_TEMPERATURE=0`). Production
   sends the model card's sampling. On the pixel-coordinate case, all 6 card-sampled runs finish (2026-09-27).
 - **The KV type moves greedy think-on scores more than a fold's code change, in both directions.** In the v0.34.4
