@@ -34,11 +34,15 @@ This skill owns the **procedure**. The evidence lives in
   Both prompts are built on `_BBOX_PLACEMENT_HEAD`, whose "the others are distractors and must be ignored" is false
   when one image is sent. On gfx1151's case, dropping it (`promptcap.py`'s `nodistract`) finishes under greedy f16,
   but so do a true rewording of it (`truedistract`) and a neutral edit elsewhere (`neutral`), and CUDA's
-  `box2d_1img` does the same under the same three edits. So it is not singled out on either host: every change
-  tried tips those greedy trajectories, as `q8_0` and flash attention off did. The cold repeat, the
-  KV sensitivity and the sampled finishes also fit the trap cases, so they do not tell a trap from a non-trap.
-  Only the prompt text does, and only against a neutral-edit control. Before calling a greedy loop a regression,
-  measure it with the card's sampling and report a rate, k of n.
+  `box2d_1img` does the same under the same three edits. So it is not singled out on either host: every prompt
+  edit tips both greedy trajectories.
+  - On gfx1151, `q8_0` and flash attention off tip it too.
+  - On CUDA, the fold's FA tiling tips it too. f32 with flash attention on, the flow and the slot count leave the
+    loop byte-identical.
+
+  gfx1151's cold repeat, KV sensitivity and sampled finishes also fit the trap cases, so they do not tell a trap
+  from a non-trap. Only the prompt text does, and only against a neutral-edit control. Before calling a greedy loop
+  a regression, measure it with the card's sampling and report a rate, k of n.
 - **The suite's think-on is greedy, which is the worst case** (`sampling.py`, `THINK_TEMPERATURE=0`). Production
   sends the model card's sampling. On the pixel-coordinate case, all 6 card-sampled runs finish (2026-09-27).
 - **The KV type moves greedy think-on scores more than a fold's code change, in both directions.** In the v0.34.4

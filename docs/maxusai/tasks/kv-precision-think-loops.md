@@ -376,16 +376,36 @@ tried tips it into a correct finish: the KV type, the attention path, and any of
 - The false distractor sentence is not shown to cause it, since a neutral edit finishes too. The sentence is still
   false on the single-image arms. Whether to take them off the head is a question about the suite, separate from
   this loop.
-- **CUDA's `box2d_1img` loop behaves the same under the same three edits** (the CUDA host on MaxusAI/ollama#422,
-  2026-09-29). The prompts were byte-identical across the hosts, with sha256 prefixes `16be5974`, `7eb753a7`,
-  `04c44670` and `65c7fcdc`. The runs used the deployed `sync-0.34.4-main` image with f16, flash attention on,
-  two-pass and `-np 1`, greedy at 65536, with `-b 2048` and no images in pieces.
+- **CUDA's `box2d_1img` loop behaves the same under the same three edits** (the CUDA host on MaxusAI/ollama#422
+  and #423, 2026-09-29).
+  - **The hosts ran the same three edits on two different prompts.** gfx1151's `anchored_1img` asks for named
+    `"x1"`…`"y2"` fields, and CUDA's `box2d_1img` for a `"box_2d"` array. The two differ only in how the
+    coordinates are written.
+    - CUDA's four prompts are byte-identical to what `promptcap.py` builds for `box2d_1img`.
+    - The sha256 of the `DRY=1` output, which ends in a newline, starts `16be5974`, `7eb753a7`, `04c44670` and
+      `65c7fcdc`. The captures' own `_prompt_sha` start `72f3c0c2`, `5ed774a8`, `d4231beb` and `20adde16`.
+  - **The runs** used the deployed `sync-0.34.4-main` image with f16, flash attention on, two-pass and `-np 1`,
+    greedy at 65536, with `-b 2048` and no images in pieces. Each prompt is one cold capture. CUDA's greedy GGUF
+    output is deterministic, so one capture fixes each outcome for this build and these settings.
   - The suite's prompt loops from about token 4,247 to the cap, and repeats `ANCHOR: [72, 148, 216, 336]` 345
     times. That is the same line gfx1151's loop repeats.
   - All three edits finish with 6/6 boxes at IoU 0.973–0.974: `nodistract` in 2,252 tokens, `truedistract` in
     4,616 and `neutral` in 5,711.
-  - CUDA's control is byte-identical to its #387 capture of 2026-09-26. That capture ran single pass, two slots,
-    flash attention forced on and the `-908` image. So on CUDA the loop depends on none of those, nor on the day.
+  - **The suite's prompt is byte-identical to its #387 capture of 2026-09-26.**
+    - That capture ran single pass, at two slots, on the `-908` image (`0.34.3-dynres-22-g5584539`).
+    - Both runs had flash attention on: forced then, and `auto` now, which the log reports as enabled.
+    - Both images carry 908's revert of the FA tiling.
+
+    So on CUDA the loop depends on none of the flow, the slot count, the Go build or the day.
+  - **It does depend on FA's tiling.** The fold's tiling, which 908 reverts, finishes it in 2,377 tokens with IoU
+    0.973 (the CUDA table below). The other numerical arms say less:
+    - f32 with flash attention on repeats f16 byte for byte, so it loops too.
+    - Flash attention off finishes, but at `-b/-ub 512` with images in pieces. So that finish cannot be put on the
+      attention path alone.
+    - CUDA has no `q8_0` capture of this prompt.
+
+    So on CUDA the three prompt edits and the fold's FA tiling tip this trajectory. "Every change tried" holds on
+    gfx1151 only.
   - So no sentence is singled out on either host.
 - At the card's sampling, which production sends, the suite's prompt looped in none of ten draws. So the baseline's
   greedy count overstates what production does on this case.
