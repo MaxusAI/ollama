@@ -1026,7 +1026,7 @@ all cells: 189/189 answers byte-identical
 - **So the fold's think-off results hold for the deployed build,** with their attribution against the 0.34.0 control.
 - **GGUF gemma4:31b ran at `-b/-ub 2048`,** without pieced image decoding (#387).
 
-### OCRBench: all 1000 items, equal to 0.34.0
+### OCRBench: all 1000 items, the same score as 0.34.0
 
 gemma4:31b-nvfp4 (manifest `637cc0ff1570`, the checkpoint 0.34.0's 835/1000 record scored), on generate, with think off,
 `num_ctx` 16384 and temperature 0. It ran in five chunks of 200, merged by row index (`summarize_extbench.py --paired`,
@@ -1045,19 +1045,36 @@ ocrbench — `echo840/OCRBench` [test], rows 0..1000.
 |---|---|---|---|---|---|
 | ocrk0340all vs ocrk0344relall | 829 | 159 | 6 | 6 | 1.000 |
 
-- **The deployed build scores 835 of 1000, as 0.34.0 did.** 6 items flip each way, with McNemar exact p = 1.000.
+- **The deployed build scores 835 of 1000, as 0.34.0 did.** 6 items flip each way, with McNemar exact p = 1.000, so the
+  score does not move.
 - **The items are the same:** all 1000 questions and golds equal 0.34.0's, row by row. 975 of the 1000 predictions are
   identical.
-- **The 12 flips are not attributable to the build.** OCRBench has no grammar, so gemma4 drafts, and every drafted
-  request is its own sample path.
-- **Against the fold, rows 0–199 are identical:** all 200 predictions equal the fold's 200-item run (174 correct,
-  against 0.34.0's 175).
+- **Against the fold, rows 0–199 are identical:** all 200 predictions equal the fold's 200-item run, item 0's flip
+  included (174/200 correct, against 0.34.0's 175/200).
+- **The flips' cause is not isolated.** 0.34.0 ran once. The one repeat of this build's code, the fold's run of rows
+  0–199, reproduced every prediction, although OCRBench drafts: 999 of the deployed run's 1000 requests drafted. That
+  points at the build rather than drafting (5881649818). gemma4's MLX model code, its sampler and its drafting code
+  differ from 0.34.0's only in their package paths, but two other changes can move 31b-nvfp4's numerics on Metal, and
+  nothing here separates them:
+  - the MLX pin move, `d9add9d1 → 59d600b5`;
+  - ADR 0039. At 0.34.0, every dense nvfp4 linear applied its global scale through a float32 round trip that misses
+    17 of 31b's 191 vision scales by one ulp (#312). ADR 0039 removed it.
 - **The `MIXED` banner** is only 0.34.0's missing provenance: its chunks predate H11.
 - **The record, item by item:**
   [`bench-runs/ocrbench-v1-1000-gemma4-31b-nvfp4-0344-vs-0340.json`](../vision-suite/bench-runs/ocrbench-v1-1000-gemma4-31b-nvfp4-0344-vs-0340.json).
 
-**Not measured on the deployed build: think-on.** Drafting makes think-on uncheckable byte for byte. The undrafted path
-above is byte-identical, and the pins and the `server/`, `llm/` and `mlxrunner/` code are the same at the tag.
+**Not measured on the deployed build: think-on.** A byte comparison may not hold for it. Two-pass drafts the thinking,
+and on this host drafted thinking parted from itself at character 594 across a window change, and at character 58 after
+a different preceding request, where the undrafted single pass stayed byte-identical (5824799988). Short drafted answers
+can repeat exactly, as OCRBench's rows 0–199 did. The undrafted path above is byte-identical, and the pins and the
+`server/`, `llm/` and `mlxrunner/` code are the same at the tag.
+
+Runs: `rel-0344.log`, `proto-rel-thinkoff.log` and `proto-rel-ocrbench.log` in the fold worktree's `.campaign/`, with
+the driver `rel-0344.sh`, the comparer `drv/eq_check.py`, and `drv/merge_ext.py` and `drv/build_ocr_record.py`, which
+merged the chunks and wrote the record, in the same directory. The server log there, `serve-11436.log`, carries the
+OCRBench run's `speculative decode stats`, one line per request. The answers compared are `resp_r0344rel_1_*` against
+`resp_f0344p2_1_*`. The OCRBench runs are `ext_ocrk0344relall_ocrbench.json` and `ext_ocrk0340all_ocrbench.json`, and
+the fold's 200-item run is `ext_ocr0344p2_ocrbench.json`, all in the fold worktree's suite directory.
 
 ## Gates 4–6 on gfx1151 (2026-09-25)
 
