@@ -17,7 +17,7 @@ at 07:37, gfx1151 at 07:39 and the Apple Silicon host at 14:07. The status table
 | 4, image | **done on CUDA** — `e8f7a2a1968c`, a full build. MLX tests on its payload 889 passed, 0 failed; the vision goldens identical to 0.34.2's; **done on gfx1151**: `0.34.3-dynres-5-g29ae523-rocm7-gfx1151`, with a b11081 payload whose structure is unchanged against 0.34.3's; rebuilt with 908 as `0.34.3-dynres-22-g5584539`, and **908 changes no gfx1151 kernel**; **done on Metal**: `0.34.4-dynres-0-gb43ee8e`, both halves built at the tag. `go test ./mlxrunner/... -p 1 -count=1` with `OLLAMA_VISION_E2E=1`: 459 tests and 347 subtests passed, 0 failed, 1 skipped (`TestGlobalScaleSurvivesStorageBitExactly`), in the 18 of 24 packages that have tests (#402); vision golden parity per model, each named by its manifest digest in the Apple Silicon host's store (ADR 0038): 31b-nvfp4 `637cc0ff1570` and 26b-nvfp4 `c8656f50f0a6`, both the 4-bit-tower artifacts, and 12b-nvfp4 `117d0d84cf2a`, at max sampled element delta 0.0898 / 0.0508 / 0.0625, and 26b-mlx-bf16 `fa29b1495bbb` at 0.0625. `go test ./mlx/... -p 1 -count=1`: 59 tests and 38 subtests passed, 0 failed, 1 skipped (`TestControlsDoNotStopWorker/replay_skip`), with `TestMulGatherQMMGlobalScale` passing on Metal (open item 4) |
 | 5, preflight | **PASS on CUDA**: run 2 PASS=21 SKIP=8, with the pins moved in `c79e50d98` after run 1 (FAIL=2 on the two pins, by design); run 3, on the image with 908, the same. **gfx1151: PASS=20 SKIP=12** with the new `rocm7-0-34-4-dynres` (#378), and the same on the 908 image. **Metal: PASS=23 SKIP=12** with `mlx-metal-0-34-4` (#384), on a `:11437` stage of the release and again on production after the deploy (#402) |
 | 6, campaigns | **done on CUDA** (2026-09-27). GGUF think-off: 210 of 6,909 cells move, in the head-dimension-256 models only, and reverting `ce8caa6e6` restores production on both probes: its device half on gemma4:31b, its host half on qwen3.6. On the image with 908, gemma4:31b, 26b and e4b and nemotron3 equal production; e2b and the qwen models keep the host half's movement. MLX think-off: no consistent difference, inside or across MLX-CUDA's run-to-run spread. OCRBench: production's scores, but for one reproducible item on GGUF q4, which is `ce8caa6e6`'s device half. Think-on: `ce8caa6e6`'s device half leaves 6 of 27 gemma4:26b cases in loops that never end, against 1 without it; 31b is unaffected. MLX think-on: the single pass loops no more than two-pass, with or without a fixed history. gemma4:26b `multi_3img_anchored` never converges in any of 8 runs. Item 8: its trap sentence alone loops it on GGUF on the fold image, not on the image that ships; on MLX it finishes about one cold draw in five, with the sentence or without it. Drafting: under production's knob the single pass never drafts, so it thinks 1.5–1.7× slower, and the deploy runs two-pass (open item 7). See [Gates 4–6 on CUDA](#gates-46-on-cuda-2026-09-25). **gfx1151:** think-off and OCRBench equal production in every scored cell. Think-on under the aligned protocol is done (2026-09-27): on all five GGUF models the single pass leaves the same cases unfinished as two-pass, and those loops come from the prompt (#387). See [Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-25). **Metal:** done (2026-09-27, [#375](https://github.com/MaxusAI/ollama/pull/375#issuecomment-5856289579)). The aligned think-on protocol ran on MLX to 131072 in three arms, with OCRBench, a 0.34.0 think-off control and GGUF in both think modes. On MLX, drafting sets the loop rate, not the flow (ADR 0045) |
-| tag and deploy | **done on all three hosts.** **Tagged** `v0.34.4-dynres` on `b43ee8e37`, the #375 merge (2026-09-27; ADR 0032), so a release build stamps `0.34.4-dynres-0-gb43ee8e`, which `cuda-dynres-903`'s `version_pattern` already accepts. The tag push started `release.yaml`, which stopped at its first step as designed: this fork has no self-hosted runners. **The CUDA release image is built and gated** (2026-09-28), like 0.34.2's: `maxusai/ollama:sync-0.34.4-main` (`bf59c2eab9b8`) is the gated `sync-0.34.4-908` with a Go-only swap to the `0.34.4-dynres-0-gb43ee8e` binary. Since `5584539` nothing a native stage copies has changed but `llama/compat/README.md`, and all 2,696 payload files under `/usr/lib/ollama` are hash-identical to `-908`'s. Preflight on a canary, from the tag's own harness: VERDICT PASS, PASS=21 SKIP=8, every check's status equal to run 3's on `-908`. **Deployed on CUDA at 07:37:54 on 2026-09-28**, on the maintainer's word. `:11497` runs `ollama-0.34.4-dynres-0-gb43ee8e` from `sync-0.34.4-main`, with 13 s without service and 55 models either side. The container mirrors the 0.34.2 one and adds `OLLAMA_KV_CACHE_TYPE=f16` and `OLLAMA_FORMAT_TWO_PASS=1` (open items 6 and 7). Its startup config reads `OLLAMA_FORMAT_TWO_PASS:true`, and all 9 KV allocations in the post-deploy preflight are f16. That preflight ran on production itself: VERDICT PASS, PASS=21 SKIP=8, with every check's status equal to the canary's (`preflight/runs/preflight-cuda-0344-prod-gb43ee8e.json`). The 0.34.2 container is stopped and kept; the rollback is `docker rm -f ollama-0.34.4-dynres-0-gb43ee8e && docker start ollama-0.34.2-dynres-0-g5bffaac`. gfx1151 promoted the same build at 07:39 (#391). **Deployed on the Apple Silicon host at 14:07 on 2026-09-28**, on the maintainer's word: both halves built at the tag in a detached worktree (`0.34.4-dynres-0-gb43ee8e`, MLX `59d600b5`). Before the swap, a `:11437` stage in production's environment passed preflight (`mlx-metal-0-34-4`, VERDICT PASS, PASS=23 SKIP=12), the `mlxrunner` tests with vision golden parity, and a two-pass smoke. The launchd plist adds `OLLAMA_FORMAT_TWO_PASS=1` and `OLLAMA_KV_CACHE_TYPE=f16` beside `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`, and its startup config reads both. Production's first GGUF load after the deploy shows `--cache-type-k f16 --cache-type-v f16` in the runner's flags and an f16 KV allocation. The post-deploy preflight on production itself: VERDICT PASS, PASS=23 SKIP=12 (`preflight/runs/preflight-mlx-metal-0344-prod-gb43ee8e.json`). A think+format request on production drafts in pass one only. The 0.34.0 binary and payload are archived; the rollback swaps them back in with the new plist kept. **CUDA's deployed build, verified on the build itself** (2026-09-29): in canaries with production's environment, the release image equals the 908 image in all 6,908 GGUF cells, stays inside its own MLX spread, and equals 0.34.2 on every OCRBench arm, item for item ([Deployed, and verified on the build itself: CUDA](#deployed-and-verified-on-the-build-itself-cuda-2026-09-29)). |
+| tag and deploy | **done on all three hosts.** **Tagged** `v0.34.4-dynres` on `b43ee8e37`, the #375 merge (2026-09-27; ADR 0032), so a release build stamps `0.34.4-dynres-0-gb43ee8e`, which `cuda-dynres-903`'s `version_pattern` already accepts. The tag push started `release.yaml`, which stopped at its first step as designed: this fork has no self-hosted runners. **The CUDA release image is built and gated** (2026-09-28), like 0.34.2's: `maxusai/ollama:sync-0.34.4-main` (`bf59c2eab9b8`) is the gated `sync-0.34.4-908` with a Go-only swap to the `0.34.4-dynres-0-gb43ee8e` binary. Since `5584539` nothing a native stage copies has changed but `llama/compat/README.md`, and all 2,696 payload files under `/usr/lib/ollama` are hash-identical to `-908`'s. Preflight on a canary, from the tag's own harness: VERDICT PASS, PASS=21 SKIP=8, every check's status equal to run 3's on `-908`. **Deployed on CUDA at 07:37:54 on 2026-09-28**, on the maintainer's word. `:11497` runs `ollama-0.34.4-dynres-0-gb43ee8e` from `sync-0.34.4-main`, with 13 s without service and 55 models either side. The container mirrors the 0.34.2 one and adds `OLLAMA_KV_CACHE_TYPE=f16` and `OLLAMA_FORMAT_TWO_PASS=1` (open items 6 and 7). Its startup config reads `OLLAMA_FORMAT_TWO_PASS:true`, and all 9 KV allocations in the post-deploy preflight are f16. That preflight ran on production itself: VERDICT PASS, PASS=21 SKIP=8, with every check's status equal to the canary's (`preflight/runs/preflight-cuda-0344-prod-gb43ee8e.json`). The 0.34.2 container is stopped and kept; the rollback is `docker rm -f ollama-0.34.4-dynres-0-gb43ee8e && docker start ollama-0.34.2-dynres-0-g5bffaac`. gfx1151 promoted the same build at 07:39 (#391). **Deployed on the Apple Silicon host at 14:07 on 2026-09-28**, on the maintainer's word: both halves built at the tag in a detached worktree (`0.34.4-dynres-0-gb43ee8e`, MLX `59d600b5`). Before the swap, a `:11437` stage in production's environment passed preflight (`mlx-metal-0-34-4`, VERDICT PASS, PASS=23 SKIP=12), the `mlxrunner` tests with vision golden parity, and a two-pass smoke. The launchd plist adds `OLLAMA_FORMAT_TWO_PASS=1` and `OLLAMA_KV_CACHE_TYPE=f16` beside `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`, and its startup config reads both. Production's first GGUF load after the deploy shows `--cache-type-k f16 --cache-type-v f16` in the runner's flags and an f16 KV allocation. The post-deploy preflight on production itself: VERDICT PASS, PASS=23 SKIP=12 (`preflight/runs/preflight-mlx-metal-0344-prod-gb43ee8e.json`). A think+format request on production drafts in pass one only. The 0.34.0 binary and payload are archived; the rollback swaps them back in with the new plist kept. **CUDA's deployed build, verified on the build itself** (2026-09-29): in canaries with production's environment, the release image equals the 908 image in all 6,908 GGUF cells, stays inside its own MLX spread, and equals 0.34.2 on every OCRBench arm, item for item ([Deployed, and verified on the build itself: CUDA](#deployed-and-verified-on-the-build-itself-cuda-2026-09-29)). **Metal's deployed build, verified on the build itself** (2026-09-29): on a scratch server with production's environment, it gives the fold's think-off answers byte for byte, 189 of 189, and scores 835/1000 on OCRBench, as 0.34.0 did ([Deployed, and verified on the build itself: Metal](#deployed-and-verified-on-the-build-itself-metal-2026-09-29)). |
 
 **Three hosts converged on this merge.** The ROCm and Metal hosts had each started the same fold before #375
 existed, stopped, and cross-checked instead; see [#375](https://github.com/MaxusAI/ollama/pull/375).
@@ -989,6 +989,75 @@ Read through a canary's `/api/tags` at the start of the run (`preflight-runs/pos
 Runs: `preflight-runs/{prod0344a_,prod0344b_,prod0344b2_}thinkfalse.log` and `preflight-runs/ocr0344-p0344ocr_*.log`,
 with the driver `postverify-0344.sh` and the renderer `postverify-render-0344.py` in the run directory.
 
+
+## Deployed, and verified on the build itself: Metal (2026-09-29)
+
+Gate 6 on Metal ran on the fold's build, `29ae52351` (`0.34.3-dynres-5-g29ae523`). The tag changes nothing that build
+compiles for Metal, so its numbers held for production by argument (#402). This section measures what production
+serves. It ran production's own `0.34.4-dynres-0-gb43ee8e`, from the archived binary and payload that are
+byte-identical to what `:11435` executes, on a scratch server (`:11436`) and never on production.
+
+- **Environment: production's.** `OLLAMA_FORMAT_TWO_PASS=1`, `OLLAMA_KV_CACHE_TYPE=f16` and
+  `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`, checked in the startup config at every restart. The runner's engine-init line reads
+  MLX `0.32.2-65-g59d600b`, loaded from the install's own payload.
+- **Production's gate** held every request until production had been idle 15 minutes. Production stayed idle from 00:07
+  to 03:24, with no hold and no cancellation.
+
+### Think-off: every answer equals the fold's, byte for byte
+
+These are the seven think-off cells gate 6 ran on the fold, with the same driver, case order, cold start per cell,
+`num_ctx` 16384 and `num_predict` 2200 (`eq_check.py`, verbatim):
+
+```
+think off, 27 cases per model: deployed = r0344rel_1 (0.34.4-dynres-0-gb43ee8e), fold = f0344p2_1 (29ae52351)
+model                         answers identical  eval_count equal  differing cases
+gemma4_12b-nvfp4                       27/27             27/27     -
+gemma4_26b-nvfp4                       27/27             27/27     -
+gemma4_31b-nvfp4                       27/27             27/27     -
+qwen3_6_35b-a3b-nvfp4                  27/27             27/27     -
+qwen3_8_27b-nvfp4                      27/27             27/27     -
+gemma4_31b-it-q4_K_M                   27/27             27/27     -
+qwen3_6_35b-a3b-q4_K_M                 27/27             27/27     -
+all cells: 189/189 answers byte-identical
+```
+
+- **This is a build comparison.** Think-off requests carry a grammar and do not draft, and the fold reproduced itself
+  135 of 135 in gate 6.
+- **So the fold's think-off results hold for the deployed build,** with their attribution against the 0.34.0 control.
+- **GGUF gemma4:31b ran at `-b/-ub 2048`,** without pieced image decoding (#387).
+
+### OCRBench: all 1000 items, equal to 0.34.0
+
+gemma4:31b-nvfp4 (manifest `637cc0ff1570`, the checkpoint 0.34.0's 835/1000 record scored), on generate, with think off,
+`num_ctx` 16384 and temperature 0. It ran in five chunks of 200, merged by row index (`summarize_extbench.py --paired`,
+verbatim):
+
+| model | scored | errors | empty | correct | accuracy | think | endpoint |
+|---|---|---|---|---|---|---|---|
+| `gemma4:31b-nvfp4` | 1000 | 0 | 0 | 835 | **0.835** | false | generate |
+| `gemma4:31b-nvfp4` | 1000 | 0 | 0 | 835 | **0.835** | false | generate |
+
+ocrbench — `echo840/OCRBench` [test], rows 0..1000.
+
+⚠ **MIXED — rows are not one campaign** (hosts: ['http://127.0.0.1:11436', 'pre-H11 run (not recorded)']; builds: ['0.34.4-dynres-0-gb43ee8e', 'pre-H11 run (not recorded)'])
+
+| pair | both ✓ | both ✗ | A only | B only | McNemar exact p |
+|---|---|---|---|---|---|
+| ocrk0340all vs ocrk0344relall | 829 | 159 | 6 | 6 | 1.000 |
+
+- **The deployed build scores 835 of 1000, as 0.34.0 did.** 6 items flip each way, with McNemar exact p = 1.000.
+- **The items are the same:** all 1000 questions and golds equal 0.34.0's, row by row. 975 of the 1000 predictions are
+  identical.
+- **The 12 flips are not attributable to the build.** OCRBench has no grammar, so gemma4 drafts, and every drafted
+  request is its own sample path.
+- **Against the fold, rows 0–199 are identical:** all 200 predictions equal the fold's 200-item run (174 correct,
+  against 0.34.0's 175).
+- **The `MIXED` banner** is only 0.34.0's missing provenance: its chunks predate H11.
+- **The record, item by item:**
+  [`bench-runs/ocrbench-v1-1000-gemma4-31b-nvfp4-0344-vs-0340.json`](../vision-suite/bench-runs/ocrbench-v1-1000-gemma4-31b-nvfp4-0344-vs-0340.json).
+
+**Not measured on the deployed build: think-on.** Drafting makes think-on uncheckable byte for byte. The undrafted path
+above is byte-identical, and the pins and the `server/`, `llm/` and `mlxrunner/` code are the same at the tag.
 
 ## Gates 4–6 on gfx1151 (2026-09-25)
 
