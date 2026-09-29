@@ -3,7 +3,8 @@
 - **Status:** accepted 2026-09-20 (the maintainer: "ADR 0039 first, then tag and deploy"); implemented in the
   v0.34.2 fold, where the files it touches had just moved. Arises from
   [#312](https://github.com/MaxusAI/ollama/issues/312) and gates part of
-  [#287](https://github.com/MaxusAI/ollama/pull/287).
+  [#287](https://github.com/MaxusAI/ollama/pull/287). Amended 2026-09-29: the change reaches Metal too, through
+  `QuantizedMatmul` (Consequences).
 - **Date:** 2026-09-19
 - **Deciders:** MaxusAI fork maintainers
 
@@ -101,6 +102,18 @@ MLX, and nowhere else.**
 - Metal is unaffected in behaviour: its `GatherQMM` still receives `m × 2688`. Its 26b and
   31b encoder numbers move for the unrelated reason in #312 (mlx#3912), and this change
   does not interact with that.
+  - **Amended 2026-09-29: the dense path reaches Metal.**
+    - **Only `GatherQMM` branches on Metal** among the three wrappers in the table above.
+      `QuantizedMatmul` applies the scale itself on every platform, since `mlx_quantized_matmul`
+      has no global-scale argument.
+    - **So Metal's dense nvfp4 linears took the round trip,** and this change removes it
+      there too.
+    - **[ADR 0037](0037-keep-the-mlx-3912-kernel-fix.md) measured the effect on Metal's 31b
+      encoder.** mlx#3912 took its max sampled delta from `0.1406` to `0.1094`. Removing the round
+      trip then took it to `0.0898`, which is MLX-CUDA's value exactly.
+    - Metal's goldens on the v0.34.4 release read `0.0898`
+      ([#404](https://github.com/MaxusAI/ollama/pull/404)).
+    - The Metal host found the discrepancy ([#414](https://github.com/MaxusAI/ollama/pull/414)).
 - One risk, and it is the reason for the test: a call site that hands the scale to MLX and
   is missed would silently apply a scale 2688× too small. The failure is loud in output
   quality, not in a crash.
