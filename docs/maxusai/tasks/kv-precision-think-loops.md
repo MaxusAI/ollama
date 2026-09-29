@@ -312,7 +312,7 @@ On this host a greedy qwen3.6 run reproduces cell for cell: the v0.34.3 fold's c
   hosts, moves more cells than the change under test. The `q8_0` pair stands as a pair. The f16 pair is compared
   within itself when its `fold` arm finishes.
 
-## A greedy loop that any edit tips: gemma4:26b `bbox_contract_anchored_1img` (gfx1151, 2026-09-29)
+## A greedy loop that every change tried tips: gemma4:26b `bbox_contract_anchored_1img` (gfx1151, 2026-09-29)
 
 The gate's f16 baseline found a new loop. gemma4:26b loops on `bbox_contract_anchored_1img` to the 131072 cap from
 about token 3,359 (`r0344base_1_`,
@@ -376,8 +376,17 @@ tried tips it into a correct finish: the KV type, the attention path, and any of
 - The false distractor sentence is not shown to cause it, since a neutral edit finishes too. The sentence is still
   false on the single-image arms. Whether to take them off the head is a question about the suite, separate from
   this loop.
-- CUDA's `box2d_1img` loop is on the same head, and would need the same three prompt arms before any sentence is
-  named there.
+- **CUDA's `box2d_1img` loop behaves the same under the same three edits** (the CUDA host on MaxusAI/ollama#422,
+  2026-09-29). The prompts were byte-identical across the hosts, with sha256 prefixes `16be5974`, `7eb753a7`,
+  `04c44670` and `65c7fcdc`. The runs used the deployed `sync-0.34.4-main` image with f16, flash attention on,
+  two-pass and `-np 1`, greedy at 65536, with `-b 2048` and no images in pieces.
+  - The suite's prompt loops from about token 4,247 to the cap, and repeats `ANCHOR: [72, 148, 216, 336]` 345
+    times. That is the same line gfx1151's loop repeats.
+  - All three edits finish with 6/6 boxes at IoU 0.973–0.974: `nodistract` in 2,252 tokens, `truedistract` in
+    4,616 and `neutral` in 5,711.
+  - CUDA's control is byte-identical to its #387 capture of 2026-09-26. That capture ran single pass, two slots,
+    flash attention forced on and the `-908` image. So on CUDA the loop depends on none of those, nor on the day.
+  - So no sentence is singled out on either host.
 - At the card's sampling, which production sends, the suite's prompt looped in none of ten draws. So the baseline's
   greedy count overstates what production does on this case.
 - It is no reason to change the KV type

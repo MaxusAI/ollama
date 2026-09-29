@@ -575,7 +575,7 @@ against one under `q8_0`:
     not singled out.
   - Under the card's sampling, 0 of 10 f16 draws loop (a rate below about 26%, at 95%), each with 6/6 boxes.
 
-  See [kv-precision-think-loops.md](tasks/kv-precision-think-loops.md#a-greedy-loop-that-any-edit-tips-gemma426b-bbox_contract_anchored_1img-gfx1151-2026-09-29).
+  See [kv-precision-think-loops.md](tasks/kv-precision-think-loops.md#a-greedy-loop-that-every-change-tried-tips-gemma426b-bbox_contract_anchored_1img-gfx1151-2026-09-29).
 
 The cases both finish are 24. Under f16, three of them score worse, one scores marginally better, and the rest score
 the same:

@@ -27,8 +27,12 @@ bbox_contract_adv_real asks for pixels without the sentence; on those the varian
           space is 1000x1000 whatever the image's shape is.", which restates the norm-1000 definition before it
           (the CUDA host's review of MaxusAI/ollama#421). If a greedy trajectory also finishes under a neutral edit,
           a nodistract finish does not single out the sentence.
-All three refuse unless the test sends exactly one image. The three-image arms on the head (bbox_contract_anchored,
-_pinned, _perobject, _multi, _adv_real, _adv_norm1) do send distractors, so the sentence is true there.
+All three refuse unless the test sends exactly one image, and unless its prompt carries the distractor sentence, so
+they run only on the single-image arms built on the head. The three-image arms that carry the sentence do send
+distractors, so it is true there: bbox_contract_anchored, _pinned and _perobject are built on the head, and
+bbox_contract_multi, _adv_real and _adv_norm1 carry their own copy. The four single-image bboxm_pin_* prompts carry
+the coordinate-space sentence (through _PIN_PARA) but not the distractor sentence, so `neutral` would control nothing
+there, and it refuses them too (the CUDA host's review of MaxusAI/ollama#422).
 Sampling is sampling.py's: greedy for think-on by default (the suite's policy), or the model card's with
 THINK_TEMPERATURE=1, which is what production sends. Cold, like thinkcap.py: every model is evicted first. The output
 adds a capture block naming the variant and the sampling actually applied."""
@@ -62,6 +66,9 @@ def transform(prompt, variant, first_image="scene_hd.png"):
     if variant == "orig":
         return prompt
     if variant in SINGLE_IMAGE_VARIANTS:
+        # All three are controls for the distractor sentence, so a prompt without it has nothing to control.
+        if not DISTRACT.search(prompt):
+            sys.exit(f"variant {variant!r} applies only to prompts carrying the distractor sentence; {test}'s does not")
         pattern, repl = {"nodistract": (DISTRACT, ""), "truedistract": (DISTRACT, TRUE_ONE),
                          "neutral": (NEUTRAL, "")}[variant]
         new, n = pattern.subn(repl, prompt, 1)
