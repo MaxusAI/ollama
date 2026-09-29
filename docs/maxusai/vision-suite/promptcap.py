@@ -18,7 +18,9 @@ YOU used."). multi_3img is the same prompt without that calibration paragraph, a
 pixels without the sentence; on those the variants refuse. Three more prompts ask for the size YOU used in other
 words, and the variants refuse them as well: bbox_contract and bbox_contract_multi ("If you resized the image
 internally, give the size YOU used, not the original."), and bbox_contract_reasoning ("... give the size YOU used.")
-(the gfx1151 host's review of MaxusAI/ollama#425). The size stated is image 1's.
+(the gfx1151 host's review of MaxusAI/ollama#425). RESIZE leaves them out on purpose: covering them would add arms
+that nobody has run, and _multi and _reasoning send three images but say "the image", where size's wording is
+written for a single image. The size stated is image 1's.
   nodistract  drops _BBOX_PLACEMENT_HEAD's "Only the FIRST image contains the shapes to report; the others are
           distractors and must be ignored.", and changes nothing else. The single-image arms built on that head
           (bbox_contract_anchored_1img, bbox_contract_box2d_1img, bbox_contract_positional_1img) send one image, so
@@ -80,20 +82,21 @@ def transform(prompt, variant, first_image="scene_hd.png"):
         return new
     if variant not in ("size", "commit"):
         sys.exit(f"unknown variant {variant!r}")
-    # Refuse before the size lookup: a prompt without the sentence has nothing to replace, whatever its image
-    # (finetext's has no ground truth). Both prompts with the sentence send scene_hd.png, which has one; a new prompt
-    # whose image has none is refused too, rather than raising.
+    # A prompt without the sentence has nothing to replace, whatever its image (finetext's has no ground truth).
     if not RESIZE.search(prompt):
         sys.exit(f"variant {variant!r} did not apply to {test}'s prompt")
-    gt = vs.GT.get(os.path.splitext(first_image)[0])
-    if gt is None:
-        sys.exit(f"variant {variant!r} needs the pixel size of {first_image}, which has no ground truth")
-    w, h = gt["size"]
 
     def single(m):  # the single-image contract prompts' wording, or multi_3img_anchored's image 1
         return m.group("img").startswith("the")
 
     if variant == "size":
+        # Only size states the size, so only size needs the ground truth. Both prompts with the sentence send
+        # scene_hd.png, which has one; a new prompt whose image has none is refused, rather than raising.
+        gt = vs.GT.get(os.path.splitext(first_image)[0])
+        if gt is None:
+            sys.exit(f"variant 'size' needs the pixel size of {first_image}, which has no ground truth")
+        w, h = gt["size"]
+
         def repl(m):
             return f"{'The image' if single(m) else 'Image 1'} is {w}x{h} pixels (width x height); give pixel " \
                    f"coordinates in that frame."
