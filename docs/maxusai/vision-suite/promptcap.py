@@ -16,6 +16,11 @@ it: bbox_contract_real_1img, and multi_3img_anchored's calibration box, which is
 image 1 internally, use the size YOU used."). multi_3img is the same prompt without that calibration paragraph, and
 bbox_contract_adv_real asks for pixels without the sentence; on those the variants refuse. The size stated is image
 1's.
+  nodistract  drops _BBOX_PLACEMENT_HEAD's "Only the FIRST image contains the shapes to report; the others are
+          distractors and must be ignored.", and changes nothing else. The single-image arms built on that head
+          (bbox_contract_anchored_1img, bbox_contract_box2d_1img, bbox_contract_positional_1img) send one image, so
+          the sentence is false there. vision_suite.py keeps the FRAME arm off the head for that reason. The CUDA
+          host's review of MaxusAI/ollama#420 named it as a candidate trap (2026-09-29).
 Sampling is sampling.py's: greedy for think-on by default (the suite's policy), or the model card's with
 THINK_TEMPERATURE=1, which is what production sends. Cold, like thinkcap.py: every model is evicted first. The output
 adds a capture block naming the variant and the sampling actually applied."""
@@ -38,11 +43,18 @@ import vision_suite as vs  # noqa: E402
 RESIZE = re.compile(r"If\s+you\s+resized\s+(?P<img>the\s+image|image\s+1)\s+internally,\s+"
                     r"(?:give\s+the\s+size\s+YOU\s+used,\s+not\s+the\s+size\s+you\s+were\s+sent"
                     r"|use\s+the\s+size\s+YOU\s+used)\.")
+DISTRACT = re.compile(r"Only\s+the\s+FIRST\s+image\s+contains\s+the\s+shapes\s+to\s+report;\s+the\s+others\s+are\s+"
+                      r"distractors\s+and\s+must\s+be\s+ignored\.\s*")
 
 
 def transform(prompt, variant, first_image="scene_hd.png"):
     if variant == "orig":
         return prompt
+    if variant == "nodistract":
+        new, n = DISTRACT.subn("", prompt, 1)
+        if n != 1:
+            sys.exit(f"variant {variant!r} did not apply to {test}'s prompt")
+        return new
     w, h = vs.GT[os.path.splitext(first_image)[0]]["size"]
 
     def single(m):  # the single-image contract prompts' wording, or multi_3img_anchored's image 1
