@@ -59,8 +59,10 @@ What `q8_0` saves is memory: about 3 GB against 6 GB per model at 32K context (A
   moved 4 ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md), 2026-09-27).
 - Each host measured whether KV precision and the attention path decide the loops that remain
   ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md)). On gfx1151 and CUDA, no KV type or attention
-  path reliably removes them; where a loop starts moves in both directions. The loops come from the prompt. MLX has
-  no KV-type or attention knob.
+  path reliably removes them; where a loop starts moves in both directions. The known loops come from the prompt,
+  with one exception found since. gemma4:26b's `bbox_contract_anchored_1img` on gfx1151 has no trap sentence and
+  loops under greedy f16. `q8_0`, or f16 with flash attention off, finishes it, and so did 10 of 10 card-sampled
+  f16 draws (2026-09-29). MLX has no KV-type or attention knob.
 - **Deploy sources (decision 1), 2026-09-28.** gfx1151's and CUDA's v0.34.4 deploys set `OLLAMA_KV_CACHE_TYPE=f16`
   explicitly and check it in the new server's startup config; gfx1151's compose file carries it too. Metal's launchd
   agent sets none. Its GGUF models get llama-server's f16 default; setting the variable there is the maintainer's
