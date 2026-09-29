@@ -59,10 +59,18 @@ What `q8_0` saves is memory: about 3 GB against 6 GB per model at 32K context (A
   moved 4 ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md), 2026-09-27).
 - Each host measured whether KV precision and the attention path decide the loops that remain
   ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md)). On gfx1151 and CUDA, no KV type or attention
-  path reliably removes them; where a loop starts moves in both directions. The known loops come from the prompt,
-  with one exception found since. gemma4:26b's `bbox_contract_anchored_1img` on gfx1151 has no trap sentence and
-  loops under greedy f16. `q8_0`, or f16 with flash attention off, finishes it, and so did 10 of 10 card-sampled
-  f16 draws (2026-09-29). MLX has no KV-type or attention knob.
+  path reliably removes them; where a loop starts moves in both directions. The loops come from the prompt. MLX has
+  no KV-type or attention knob.
+  **Amended 2026-09-29: two loops carried no known trap sentence when they were found.**
+  - CUDA's `bbox_contract_box2d_1img` loops on the 908 build with flash attention on and f16 (2026-09-26).
+  - gfx1151's gemma4:26b `bbox_contract_anchored_1img` loops under greedy f16 (2026-09-29). `q8_0`, or f16 with flash
+    attention off, finishes it, and so did 10 of 10 card-sampled f16 draws.
+
+  Both prompts are built on `_BBOX_PLACEMENT_HEAD`, which tells a one-image request that "the others are distractors
+  and must be ignored". Dropping that sentence alone lets gfx1151's case finish under greedy f16, in 2,535
+  tokens with 6/6 boxes, so the sentence is the likely trap. One greedy capture does not prove it, since any change
+  tips a trajectory this sensitive. The decisions stand: f16 everywhere, and nothing recommends `q8_0`
+  ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md)).
 - **Deploy sources (decision 1), 2026-09-28.** gfx1151's and CUDA's v0.34.4 deploys set `OLLAMA_KV_CACHE_TYPE=f16`
   explicitly and check it in the new server's startup config; gfx1151's compose file carries it too. Metal's launchd
   agent sets none. Its GGUF models get llama-server's f16 default; setting the variable there is the maintainer's

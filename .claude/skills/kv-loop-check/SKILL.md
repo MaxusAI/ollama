@@ -21,17 +21,23 @@ This skill owns the **procedure**. The evidence lives in
 - **Most known loops are prompt-driven.** They come from asking for absolute pixel coordinates without giving the
   image's size (`bbox_contract_real_1img`, `bbox_contract_adv_real`). The same scene in normalized coordinates
   usually finishes, but not always (next bullet).
-- **Some loops have no trap sentence.** The same scene in norm-1000 has looped twice with no trap in the prompt:
+- **Some loops had no known trap sentence.** gemma4:26b has looped twice on the same scene in norm-1000, with no
+  known trap in the prompt:
   - On CUDA, the 908 build with flash attention on and f16 loops `bbox_contract_box2d_1img` from about token 4,247
     (the CUDA table in `docs/maxusai/tasks/kv-precision-think-loops.md`).
-  - On gfx1151, `bbox_contract_anchored_1img` loops under greedy f16 (2026-09-29). A cold capture repeats the suite's
-    thinking byte for byte, and f16 and `q8_0` part 662 characters in, where they word the corner of the shape
-    labelled ANCHOR differently. `q8_0` finishes, and so does f16 with flash attention off (2,807 tokens). Under the
-    card's sampling, 0 of 10 f16 draws loop (below about 26% at 95%).
+  - On gfx1151, `bbox_contract_anchored_1img` loops under greedy f16 (2026-09-29).
+    - A cold capture repeats the suite's thinking byte for byte.
+    - f16 and `q8_0` part 662 characters in, where they word the corner of the shape labelled ANCHOR differently.
+    - `q8_0` finishes, and so does f16 with flash attention off (2,807 tokens).
+    - Under the card's sampling, 0 of 10 f16 draws loop (below about 26% at 95%).
 
-  The cold repeat, the KV sensitivity and the sampled finishes also fit the trap cases, so they do not tell a trap
-  from a non-trap; only the prompt text does. Before calling a greedy loop a regression, measure it with the card's
-  sampling and report a rate, k of n.
+  Both prompts are built on `_BBOX_PLACEMENT_HEAD`, whose "the others are distractors and must be ignored" is false
+  when one image is sent. Dropping it alone (`promptcap.py`'s `nodistract`) lets gfx1151's case finish under greedy
+  f16 in 2,535 tokens with 6/6 boxes, so it is the likely trap. It is not proven: any change tips a greedy
+  trajectory this sensitive, as `q8_0` and flash attention off did. The cold repeat, the KV sensitivity and the
+  sampled finishes also fit the trap cases, so they do not tell a trap from a non-trap. Only the prompt text does,
+  and `promptcap.py` tests it. Before calling a greedy loop a regression, measure it with the card's sampling and
+  report a rate, k of n.
 - **The suite's think-on is greedy, which is the worst case** (`sampling.py`, `THINK_TEMPERATURE=0`). Production
   sends the model card's sampling. On the pixel-coordinate case, all 6 card-sampled runs finish (2026-09-27).
 - **The KV type moves greedy think-on scores more than a fold's code change, in both directions.** In the v0.34.4
@@ -59,8 +65,10 @@ This skill owns the **procedure**. The evidence lives in
 4. **Test the prompt and production's sampling.** Use `vision-suite/promptcap.py`: `size` states the image size,
    and `commit` asks the model to commit to one size estimate. Two cases carry the unanswerable sentence it
    replaces: `bbox_contract_real_1img`, and `multi_3img_anchored`'s calibration box. `multi_3img` is the same prompt
-   without that paragraph, so it is the control. Setting `THINK_TEMPERATURE=1` gives the card's
-   sampling. Sampled runs are draws, so report a rate over three or more runs, never one cell.
+   without that paragraph, so it is the control. `nodistract` drops `_BBOX_PLACEMENT_HEAD`'s "the others are
+   distractors and must be ignored", which is false on the single-image arms built on it (`anchored_1img`,
+   `box2d_1img`, `positional_1img`). Setting `THINK_TEMPERATURE=1` gives the card's sampling. Sampled runs are draws,
+   so report a rate over three or more runs, never one cell.
 5. **Write the result into the task doc's section for your host, or comment on the PR.** Give the arms, the
    runner's flags, the onsets and the byte-identities.
 
