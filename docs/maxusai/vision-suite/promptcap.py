@@ -75,6 +75,12 @@ def transform(prompt, variant, first_image="scene_hd.png"):
         if n != 1:
             sys.exit(f"variant {variant!r} did not apply to {test}'s prompt")
         return new
+    if variant not in ("size", "commit"):
+        sys.exit(f"unknown variant {variant!r}")
+    # Refuse before the size lookup: a prompt without the sentence has nothing to replace, and its image may have no
+    # ground truth (finetext's has none).
+    if not RESIZE.search(prompt):
+        sys.exit(f"variant {variant!r} did not apply to {test}'s prompt")
     w, h = vs.GT[os.path.splitext(first_image)[0]]["size"]
 
     def single(m):  # the single-image contract prompts' wording, or multi_3img_anchored's image 1
@@ -84,18 +90,13 @@ def transform(prompt, variant, first_image="scene_hd.png"):
         def repl(m):
             return f"{'The image' if single(m) else 'Image 1'} is {w}x{h} pixels (width x height); give pixel " \
                    f"coordinates in that frame."
-    elif variant == "commit":
+    else:
         def repl(m):
             if single(m):
                 return ("If you do not know the image's pixel size, choose your best estimate once, give it as "
                         "ref_size, and do not revisit it.")
             return "If you do not know image 1's pixel size, choose your best estimate once and do not revisit it."
-    else:
-        sys.exit(f"unknown variant {variant!r}")
-    new, n = RESIZE.subn(repl, prompt, 1)
-    if n != 1:
-        sys.exit(f"variant {variant!r} did not apply to {test}'s prompt")
-    return new
+    return RESIZE.sub(repl, prompt, 1)
 
 
 if __name__ == "__main__":
