@@ -69,8 +69,13 @@ What `q8_0` saves is memory: about 3 GB against 6 GB per model at 32K context (A
   Both prompts are built on `_BBOX_PLACEMENT_HEAD`, which tells a one-image request that "the others are distractors
   and must be ignored". Dropping that sentence lets gfx1151's case finish under greedy f16, but so do a true
   rewording of it and a neutral edit elsewhere in the head. CUDA's `box2d_1img` does the same under the same three
-  edits. So the sentence is not singled out on either host: every change tried, like `q8_0` and flash attention
-  off, tips each greedy trajectory. The decisions stand: f16 everywhere, and nothing recommends `q8_0`
+  edits. So the sentence is not singled out on either host.
+  - On gfx1151, every change tried to the KV type, the attention path or the prompt tips the greedy trajectory,
+    `q8_0` and flash attention off among them.
+  - On CUDA, the prompt edits and the fold's FA tiling tip it. f32 with flash attention on, the flow and the slot
+    count leave it byte-identical. `q8_0` was not tried there.
+
+  The decisions stand: f16 everywhere, and nothing recommends `q8_0`
   ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md)).
 - **Deploy sources (decision 1), 2026-09-28.** gfx1151's and CUDA's v0.34.4 deploys set `OLLAMA_KV_CACHE_TYPE=f16`
   explicitly and check it in the new server's startup config; gfx1151's compose file carries it too. Metal's launchd
