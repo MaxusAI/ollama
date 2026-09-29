@@ -1023,7 +1023,10 @@ all cells: 189/189 answers byte-identical
 
 - **This is a build comparison.** Think-off requests carry a grammar and do not draft, and the fold reproduced itself
   135 of 135 in gate 6.
-- **So the fold's think-off results hold for the deployed build,** with their attribution against the 0.34.0 control.
+- **So the fold's think-off results hold for the deployed build,** with their attribution against the 0.34.0 control
+  ([#375](https://github.com/MaxusAI/ollama/pull/375#issuecomment-5856289579)). That attribution names the MLX move and
+  XGrammar. ADR 0039 (below) is a third candidate for the nvfp4 checkpoints that carry global scales, and none of the
+  three is separated.
 - **GGUF gemma4:31b ran at `-b/-ub 2048`,** without pieced image decoding (#387).
 
 ### OCRBench: all 1000 items, the same score as 0.34.0
@@ -1052,10 +1055,12 @@ ocrbench — `echo840/OCRBench` [test], rows 0..1000.
 - **Against the fold, rows 0–199 are identical:** all 200 predictions equal the fold's 200-item run, item 0's flip
   included (174/200 correct, against 0.34.0's 175/200).
 - **The flips' cause is not isolated.** 0.34.0 ran once. The one repeat of this build's code, the fold's run of rows
-  0–199, reproduced every prediction, although OCRBench drafts: 999 of the deployed run's 1000 requests drafted. That
-  points at the build rather than drafting (5881649818). gemma4's MLX model code, its sampler and its drafting code
-  differ from 0.34.0's only in their package paths, but two other changes can move 31b-nvfp4's numerics on Metal, and
-  nothing here separates them:
+  0–199, reproduced every prediction, although OCRBench, which carries no grammar, drafts: 999 of the deployed run's
+  1000 requests drafted. The one that did not was item 0, the first request after the cold start, so for drafting the
+  repeat rests on the other 199. That points at the build rather than drafting
+  ([#412](https://github.com/MaxusAI/ollama/pull/412#issuecomment-5881649818)). gemma4's MLX model code, its sampler and
+  its drafting code differ from 0.34.0's only in their package paths, but two other changes can move 31b-nvfp4's
+  numerics on Metal, and nothing here separates them:
   - the MLX pin move, `d9add9d1 → 59d600b5`;
   - ADR 0039. At 0.34.0, every dense nvfp4 linear applied its global scale through a float32 round trip that misses
     17 of 31b's 191 vision scales by one ulp (#312). ADR 0039 removed it.
@@ -1065,8 +1070,9 @@ ocrbench — `echo840/OCRBench` [test], rows 0..1000.
 
 **Not measured on the deployed build: think-on.** A byte comparison may not hold for it. Two-pass drafts the thinking,
 and on this host drafted thinking parted from itself at character 594 across a window change, and at character 58 after
-a different preceding request, where the undrafted single pass stayed byte-identical (5824799988). Short drafted answers
-can repeat exactly, as OCRBench's rows 0–199 did. The undrafted path above is byte-identical, and the pins and the
+a different preceding request, where the undrafted single pass stayed byte-identical
+([#375](https://github.com/MaxusAI/ollama/pull/375#issuecomment-5824799988)). Short drafted answers can repeat exactly,
+as 199 of OCRBench's rows 0–199 did. The undrafted path above is byte-identical, and the pins and the
 `server/`, `llm/` and `mlxrunner/` code are the same at the tag.
 
 Runs: `rel-0344.log`, `proto-rel-thinkoff.log` and `proto-rel-ocrbench.log` in the fold worktree's `.campaign/`, with
