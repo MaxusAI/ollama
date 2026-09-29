@@ -531,10 +531,103 @@ qwen35's pinned budget, which its arch does not take. The run record is
 `vision-suite/preflight/runs/preflight-rocm7-0344-base-quality-gb43ee8e.json`, and the README's matrix now takes
 gfx1151's row from it.
 
-**Think on** runs overnight, as `baseline-c.sh` in the run directory. It covers gemma4:31b and gemma4:26b greedy, with
-the batch pinned at 2048, and qwen3.8 and nemotron3 twice each at their packaged sampling. qwen3.6 already has
-this configuration: `fold2p` under f16 in [kv-precision-think-loops.md](tasks/kv-precision-think-loops.md), on the fold
-image, whose payload differs from the promoted one only by 908, which changes no gfx1151 kernel.
+**Think on, two-pass, f16** (`baseline-c.sh` in the run directory, 2026-09-28 15:26 to 2026-09-29 03:22). Four models
+ran, each on a cold server, over the full ladder from 16384 to 131072. That is how the gate's `fold2p` arm ran under
+`q8_0`, which is the comparison here.
+- gemma4:31b and gemma4:26b ran greedy, with the batch pinned at 2048, the value their automatic batch takes here.
+- qwen3.8 and nemotron3 ran twice each at their packaged sampling, so their counts are draws.
+- qwen3.6 already has this configuration: `fold2p` under f16 in
+  [kv-precision-think-loops.md](tasks/kv-precision-think-loops.md). That ran on the fold image, whose payload differs
+  from the promoted one only by 908, and 908 changes no gfx1151 kernel.
+
+**gemma4:31b and qwen3.8 finish every case, as under `q8_0`,** all at 16384. gemma4:31b is greedy, and 64 of its 984
+cells differ from `q8_0`'s. One of them is a scored move: `scene_single_anchored`'s IoU falls from 0.965 to 0.724.
+
+**nemotron3 finishes every case but one draw.** In run 2, `finetext` loops to the 131072 cap. Run 1's `finetext`
+finishes, and so do all 54 cells of the gate's two `q8_0` draws. One loop in 54 cells against none in 54 cannot tell
+the KV types apart with two draws.
+
+**gemma4:26b is where f16 costs.** It is greedy, so each cell is one fixed trajectory. Three cases never finish,
+against one under `q8_0`:
+- `bbox_contract_real_1img` loops under both, as the gate found.
+- `multi_3img_anchored` loops under f16 only. It is item 8's prompt trap ("the size YOU used"), which MaxusAI/ollama#387
+  found looping under f16.
+- `bbox_contract_anchored_1img` loops under f16 only, and this is new. All three `q8_0` runs finished it at 16384,
+  in about 2,120 tokens.
+
+The cases both finish are 24. Under f16, three of them score worse, one scores marginally better, and the rest score
+the same:
+- `bbox_contract_adv_real` changes its coordinate convention and hits 1 of 6 boxes, against 6.
+- `scene_single_pinned` hits 1 of 6 boxes, against 6.
+- `scene_single_anchored`'s IoU falls from 0.948 to 0.756.
+- `bbox_contract_positional_1img`'s IoU rises from 0.970 to 0.975.
+
+The KV type is the only difference that matters in this comparison. Both arms are two-pass. Both run gemma4 at 2048,
+here pinned and in the gate automatic. And 908 changes no gfx1151 kernel. MaxusAI/ollama#387 found that the KV type
+moves greedy think-on cells both ways. On gemma4:26b here it moves them mostly one way. Production keeps f16
+(ADR 0043; no `q8_0` fallback since MaxusAI/ollama#398), so these cells are what production now does.
+
+**The batches.** Every launch ran at the batch its context calls for. No launch logged "images decode in pieces", so
+the batch played no part in these comparisons:
+- gemma4 ran at 2048, pinned, with two slots.
+- qwen3.8 and nemotron3 ran at 1024 up to 32768 and at 2048 above, with one slot each. The scheduler logs "model
+  architecture does not currently support parallel requests" for `qwen35` and `nemotron_h_omni`, and upstream's
+  `sched.go` then forces one slot.
+
+`step2_read.py`, `cmp_scored.py` on gemma4:26b, and `batch_check.py` (all in the run directory), verbatim:
+
+```
+== gemma4:31b
+  f16 baseline       r0344base_1_           27 blocks, finished by rung {16384: 27}, valid JSON 27; never converged none
+  q8_0 gate, fold2p  r0344p_fold2p_1_       27 blocks, finished by rung {16384: 27}, valid JSON 27; never converged none
+  cmp_scores.py: 64 of 984 cells differ (scores_r0344p_fold2p_1_gemma4_31b-it-q4_K_M_thinkon.json vs scores_r0344base_1_gemma4_31b-it-q4_K_M_thinkon.json)
+  cmp_scored.py: quality moves: 0 favour B, 1 favour A, 0 neutral/changed-label (scores_r0344p_fold2p_1_gemma4_31b-it-q4_K_M_thinkon.json = A, scores_r0344base_1_gemma4_31b-it-q4_K_M_thinkon.json = B)
+== gemma4:26b
+  f16 baseline       r0344base_1_           27 blocks, finished by rung {16384: 23, 32768: 1}, valid JSON 24; never converged ['bbox_contract_anchored_1img', 'bbox_contract_real_1img', 'multi_3img_anchored']
+  q8_0 gate, fold2p  r0344p_fold2p_1_       27 blocks, finished by rung {16384: 23, 32768: 3}, valid JSON 26; never converged ['bbox_contract_real_1img']
+  cmp_scores.py: 149 of 986 cells differ (scores_r0344p_fold2p_1_gemma4_26b-a4b-it-q4_K_M_thinkon.json vs scores_r0344base_1_gemma4_26b-a4b-it-q4_K_M_thinkon.json)
+  cmp_scored.py: quality moves: 2 favour B, 9 favour A, 2 neutral/changed-label (scores_r0344p_fold2p_1_gemma4_26b-a4b-it-q4_K_M_thinkon.json = A, scores_r0344base_1_gemma4_26b-a4b-it-q4_K_M_thinkon.json = B)
+== qwen3.8
+  f16 baseline       r0344base_r1_1_        27 blocks, finished by rung {16384: 27}, valid JSON 27; never converged none
+  f16 baseline       r0344base_r2_1_        27 blocks, finished by rung {16384: 27}, valid JSON 27; never converged none
+  q8_0 gate, fold2p  r0344p_fold2p_r1_1_    27 blocks, finished by rung {16384: 27}, valid JSON 27; never converged none
+  q8_0 gate, fold2p  r0344p_fold2p_r2_1_    27 blocks, finished by rung {16384: 27}, valid JSON 27; never converged none
+== nemotron3
+  f16 baseline       r0344base_r1_1_        27 blocks, finished by rung {16384: 19, 32768: 8}, valid JSON 27; never converged none
+  f16 baseline       r0344base_r2_1_        27 blocks, finished by rung {16384: 20, 32768: 5, 65536: 1}, valid JSON 26; never converged ['finetext']
+  q8_0 gate, fold2p  r0344p_fold2p_r1_1_    27 blocks, finished by rung {16384: 20, 32768: 6, 65536: 1}, valid JSON 27; never converged none
+  q8_0 gate, fold2p  r0344p_fold2p_r2_1_    27 blocks, finished by rung {16384: 20, 32768: 7}, valid JSON 27; never converged none
+```
+
+```
+bbox_contract_adv_real: anchor_implied_type 'norm1000'->'real'; contract_followed True->False A+; declaration_matches_boxes True->False A+; hits_anchor 6->1 A+; hits_declared 6->1 A+; iou_anchor 0.973->0.05 A+; iou_declared 0.973->0.05 A+; self_check True->False
+bbox_contract_positional_1img: iou_anchor 0.97->0.975 B+; iou_declared 0.97->0.975 B+
+scene_single_anchored: bbox_mean_iou 0.948->0.756 A+
+scene_single_pinned: bbox_hits 6->1 A+; bbox_mean_iou 0.971->0.043 A+
+bbox_contract_anchored_1img: finished only in A
+multi_3img_anchored: finished only in A
+quality moves: 2 favour B, 9 favour A, 2 neutral/changed-label (scores_r0344p_fold2p_1_gemma4_26b-a4b-it-q4_K_M_thinkon.json = A, scores_r0344base_1_gemma4_26b-a4b-it-q4_K_M_thinkon.json = B)
+```
+
+```
+20260928T170259-base.log           n/a                          num_ctx/slot=16384 -c=32768 -np=2 -b=2048 -ub=2048
+20260928T175719-base.log           Qwen3.8 27B 0814             num_ctx/slot=16384 -c=16384 -np=1 -b=1024 -ub=1024
+20260928T185025-base.log           Qwen3.8 27B 0814             num_ctx/slot=16384 -c=16384 -np=1 -b=1024 -ub=1024
+20260928T194100-base.log           n/a                          num_ctx/slot=16384 -c=16384 -np=1 -b=1024 -ub=1024
+20260928T200851-base.log           n/a                          num_ctx/slot=32768 -c=32768 -np=1 -b=1024 -ub=1024
+20260928T205256-base.log           n/a                          num_ctx/slot=16384 -c=16384 -np=1 -b=1024 -ub=1024
+20260928T211944-base.log           n/a                          num_ctx/slot=32768 -c=32768 -np=1 -b=1024 -ub=1024
+20260928T213940-base.log           n/a                          num_ctx/slot=65536 -c=65536 -np=1 -b=2048 -ub=2048
+20260928T221516-base.log           n/a                          num_ctx/slot=131072 -c=131072 -np=1 -b=2048 -ub=2048
+20260928T225725-base.log           n/a                          num_ctx/slot=16384 -c=32768 -np=2 -b=2048 -ub=2048
+20260928T232659-base.log           n/a                          num_ctx/slot=32768 -c=65536 -np=2 -b=2048 -ub=2048
+20260929T003557-base.log           n/a                          num_ctx/slot=65536 -c=131072 -np=2 -b=2048 -ub=2048
+20260929T032139-base-c-final.log   n/a                          num_ctx/slot=131072 -c=262144 -np=2 -b=2048 -ub=2048
+```
+
+Each server log is saved when the next launch replaces its container, so each line is the run before its timestamp.
+In order, they are gemma4:31b; qwen3.8's two runs; nemotron3's run 1 at 16384 and 32768; nemotron3's run 2 at each rung
+up to 131072; and gemma4:26b at each rung. The "n/a" rows are the models whose GGUF records `general.name` as "n/a".
 
 ## Decision 2026-09-21 — 0.34.2 promoted, ROCm 10.0.0 declined on measurement
 

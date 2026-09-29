@@ -1098,6 +1098,10 @@ on qwen3.6 two cases under a `q8_0` KV cache and one under f16. Those loops come
 **Every run here used this host's production KV cache at the time, `q8_0`** (#386), except qwen3.6's second pair,
 which used f16. The flow comparisons stand, because both arms of each pair share one KV type. The counts carry the
 `q8_0` caveat (#387): under f16, gemma4:26b's `multi_3img_anchored` loops as well (item 8's GGUF leg, below).
+The f16 counts on the promoted image are in the gfx1151 gate's 2026-09-28 baseline
+([amd-upgrade-gate.md](../amd-upgrade-gate.md#2026-09-28s-baseline-productions-configuration-measured)). gemma4:26b
+leaves three cases unfinished there: `bbox_contract_real_1img`, `multi_3img_anchored`, and `bbox_contract_anchored_1img`,
+which is new. gemma4:31b and qwen3.8 finish every case, and nemotron3 loops on one sampled cell in 54.
 
 The arms are `fold` and `fold2p` on this image, in production's environment, over the full ladder, interleaved.
 llama-server drafts in neither arm: every server log reads `no implementations specified for speculative decoding`.
