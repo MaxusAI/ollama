@@ -404,8 +404,10 @@ tried tips it into a correct finish: the KV type, the attention path, and any of
       attention path alone.
     - CUDA has no `q8_0` capture of this prompt.
 
-    So on CUDA the three prompt edits and the fold's FA tiling tip this trajectory. "Every change tried" holds on
-    gfx1151 only.
+    So on CUDA the three prompt edits and the fold's FA tiling tip this trajectory. On gfx1151, every change tried
+    to the KV type, the attention path or the prompt tips it. On both hosts, a change that leaves those alone
+    repeats it byte for byte: on gfx1151 the context size and the run's history, on CUDA the flow, the slot count
+    and the Go build.
   - So no sentence is singled out on either host.
 - At the card's sampling, which production sends, the suite's prompt looped in none of ten draws. So the baseline's
   greedy count overstates what production does on this case.

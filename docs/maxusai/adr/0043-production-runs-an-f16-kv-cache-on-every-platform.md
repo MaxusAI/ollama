@@ -70,7 +70,8 @@ What `q8_0` saves is memory: about 3 GB against 6 GB per model at 32K context (A
   and must be ignored". Dropping that sentence lets gfx1151's case finish under greedy f16, but so do a true
   rewording of it and a neutral edit elsewhere in the head. CUDA's `box2d_1img` does the same under the same three
   edits. So the sentence is not singled out on either host.
-  - On gfx1151, every change tried tips the greedy trajectory, `q8_0` and flash attention off among them.
+  - On gfx1151, every change tried to the KV type, the attention path or the prompt tips the greedy trajectory,
+    `q8_0` and flash attention off among them.
   - On CUDA, the prompt edits and the fold's FA tiling tip it. f32 with flash attention on, the flow and the slot
     count leave it byte-identical. `q8_0` was not tried there.
 
