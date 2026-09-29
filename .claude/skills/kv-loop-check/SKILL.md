@@ -68,14 +68,16 @@ This skill owns the **procedure**. The evidence lives in
    because a quantized V cache needs flash attention. Read the runner's logged `--cache-type-k/v` and
    `--flash-attn` flags. Unset `OLLAMA_FLASH_ATTENTION` means `auto`, which turns flash attention on.
 4. **Test the prompt and production's sampling.** Use `vision-suite/promptcap.py`: `size` states the image size,
-   and `commit` asks the model to commit to one size estimate. Two cases carry the unanswerable sentence it
-   replaces: `bbox_contract_real_1img`, and `multi_3img_anchored`'s calibration box. `multi_3img` is the same prompt
-   without that paragraph, so it is the control. `nodistract` drops `_BBOX_PLACEMENT_HEAD`'s "the others are
-   distractors and must be ignored", which is false on the single-image arms built on it (`anchored_1img`,
-   `box2d_1img`, `positional_1img`). `truedistract` rewords that sentence truthfully and `neutral` drops a different,
-   true sentence: run them as controls, because a greedy trajectory can tip on any edit, and a sentence is singled
-   out only if the neutral edit does not also finish. Setting `THINK_TEMPERATURE=1` gives the card's sampling.
-   Sampled runs are draws, so report a rate over three or more runs, never one cell.
+   and `commit` asks the model to commit to one size estimate. Both rewrite the unanswerable sentence in the two
+   cases that were studied: `bbox_contract_real_1img`, and `multi_3img_anchored`'s calibration box. `multi_3img` is
+   the same prompt without that paragraph, so it is the control. `bbox_contract`, `bbox_contract_multi` and
+   `bbox_contract_reasoning` ask for the size in other words, and both variants refuse them. `nodistract` drops
+   `_BBOX_PLACEMENT_HEAD`'s "the others are distractors and must be ignored", which is false on the single-image
+   arms built on it (`anchored_1img`, `box2d_1img`, `positional_1img`). `truedistract` rewords that sentence
+   truthfully and `neutral` drops a different, true sentence: run them as controls, because a greedy trajectory can
+   tip on any edit, and a sentence is singled out only if the neutral edit does not also finish. Setting
+   `THINK_TEMPERATURE=1` gives the card's sampling. Sampled runs are draws, so report a rate over three or more
+   runs, never one cell.
 5. **Write the result into the task doc's section for your host, or comment on the PR.** Give the arms, the
    runner's flags, the onsets and the byte-identities.
 

@@ -11,11 +11,14 @@ VARIANT
           size YOU used ..."; the resize is invisible to it) with the image's real pixel size, as a client that
           holds the image can state it
   commit  replaces the same instruction with one to commit to a single size estimate and not revisit it
-Both variants drop the same sentence, so they differ only in whether the model is given the size. Two prompts carry
-it: bbox_contract_real_1img, and multi_3img_anchored's calibration box, which is about image 1 ("If you resized
-image 1 internally, use the size YOU used."). multi_3img is the same prompt without that calibration paragraph, and
-bbox_contract_adv_real asks for pixels without the sentence; on those the variants refuse. The size stated is image
-1's.
+Both variants drop the same sentence, so they differ only in whether the model is given the size. They rewrite the
+two prompts that were studied: bbox_contract_real_1img ("... give the size YOU used, not the size you were sent."),
+and multi_3img_anchored's calibration box, which is about image 1 ("If you resized image 1 internally, use the size
+YOU used."). multi_3img is the same prompt without that calibration paragraph, and bbox_contract_adv_real asks for
+pixels without the sentence; on those the variants refuse. Three more prompts ask for the size YOU used in other
+words, and the variants refuse them as well: bbox_contract and bbox_contract_multi ("If you resized the image
+internally, give the size YOU used, not the original."), and bbox_contract_reasoning ("... give the size YOU used.")
+(the gfx1151 host's review of MaxusAI/ollama#425). The size stated is image 1's.
   nodistract  drops _BBOX_PLACEMENT_HEAD's "Only the FIRST image contains the shapes to report; the others are
           distractors and must be ignored.", and changes nothing else. The single-image arms built on that head
           (bbox_contract_anchored_1img, bbox_contract_box2d_1img, bbox_contract_positional_1img) send one image, so
@@ -77,11 +80,15 @@ def transform(prompt, variant, first_image="scene_hd.png"):
         return new
     if variant not in ("size", "commit"):
         sys.exit(f"unknown variant {variant!r}")
-    # Refuse before the size lookup: a prompt without the sentence has nothing to replace, and its image may have no
-    # ground truth (finetext's has none).
+    # Refuse before the size lookup: a prompt without the sentence has nothing to replace, whatever its image
+    # (finetext's has no ground truth). Both prompts with the sentence send scene_hd.png, which has one; a new prompt
+    # whose image has none is refused too, rather than raising.
     if not RESIZE.search(prompt):
         sys.exit(f"variant {variant!r} did not apply to {test}'s prompt")
-    w, h = vs.GT[os.path.splitext(first_image)[0]]["size"]
+    gt = vs.GT.get(os.path.splitext(first_image)[0])
+    if gt is None:
+        sys.exit(f"variant {variant!r} needs the pixel size of {first_image}, which has no ground truth")
+    w, h = gt["size"]
 
     def single(m):  # the single-image contract prompts' wording, or multi_3img_anchored's image 1
         return m.group("img").startswith("the")
@@ -101,7 +108,9 @@ def transform(prompt, variant, first_image="scene_hd.png"):
 
 if __name__ == "__main__":
     vs.HOST, vs.MODEL = host, model
-    entry = next(t for t in vs.tests if t[0] == test)
+    entry = next((t for t in vs.tests if t[0] == test), None)
+    if entry is None:
+        sys.exit(f"unknown test {test!r}")
     if variant in SINGLE_IMAGE_VARIANTS and len(entry[2]) != 1:
         sys.exit(f"variant {variant!r} applies only to single-image tests; {test} sends {len(entry[2])} images")
     prompt = transform(entry[1]() if callable(entry[1]) else entry[1], variant, entry[2][0])
