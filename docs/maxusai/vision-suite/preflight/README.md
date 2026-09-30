@@ -163,6 +163,25 @@ These are encoded in the harness, not left to the operator to remember:
   Naming the wrong one costs nothing loudly; the check just SKIPs for want of a
   line.
 
+  On a Linux host where ollama runs as a systemd service, read the journal, and
+  run as root (or as the service's user): `payload_pin` and the MLX fallback
+  below find the payload through the server's `/proc/<pid>/exe`. As root the
+  harness runs that `llama-server --version` only when root owns it and its
+  directory and neither is writable by group or others, as in a system
+  install, since whatever holds the port chooses it.
+
+  ```sh
+  sudo python3 preflight.py --host http://127.0.0.1:11434 --platform cuda \
+      --log-cmd "journalctl -u ollama -b --no-pager -o cat"
+  ```
+
+  A cuda or rocm run loads llama.cpp models only, so no engine-init line
+  appears in its window. `mlx_payload_pin` then reads the version out of the
+  `mlx_*/libmlx.so` the listening executable loads (under `../lib/ollama` on
+  Linux), as it does through `docker exec` in a container, and says that this
+  source cannot see binary/payload skew. An `mlx-*` profile gets no such
+  fallback: its run loads MLX, so the engine-init line must be in the window.
+
   `{container}` and `{since}` are substituted if present. **A template that omits
   `{since}` — `cat` of a file cannot use it — returns the whole log, so the
   window is not applied by the command.** That is safe now because the pin check

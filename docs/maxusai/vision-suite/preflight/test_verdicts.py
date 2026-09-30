@@ -2368,6 +2368,289 @@ class TestTensorProbeRoutes(unittest.TestCase):
                              + "/llama-server")
 
 
+class TestNativeLinuxRoutes(unittest.TestCase):
+    """The native routes on a Linux host, where the server is a systemd service
+    rather than a container. Measured 2026-09-30 against a service running
+    /usr/local/bin/ollama, as root: payload_pin skipped with "no llama-server
+    resolved beside the executable listening on :11434", because on Linux
+    `ps -o comm=` prints the 15-character comm ("ollama") rather than a path;
+    and mlx_payload_pin failed on cuda-dynres-903 with "no MLX engine-init line
+    in the log window, and no MLX payload to read", because the shipped-library
+    fallback only ran through docker exec.
+    """
+
+    @contextlib.contextmanager
+    def linux_listener(self, link, running=None):
+        """Linux, one listener on the port, and /proc/<pid>/exe reading `link`
+        (a path, or an exception to raise) for a process whose binary is the
+        file `running` names (default: `link` itself). Everything outside /proc
+        reaches the real os functions, which realpath and exists need."""
+        real_readlink, real_stat, real_run = os.readlink, os.stat, subprocess.run
+
+        def readlink(path, *args, **kwargs):
+            if not str(path).startswith("/proc/"):
+                return real_readlink(path, *args, **kwargs)
+            if isinstance(link, BaseException):
+                raise link
+            return link
+
+        def stat(path, *args, **kwargs):
+            if str(path).startswith("/proc/"):
+                return real_stat(running or link)
+            return real_stat(path, *args, **kwargs)
+
+        def run(argv, **kw):
+            if argv[0] == "lsof":
+                return subprocess.CompletedProcess(argv, 0, stdout="4242\n", stderr="")
+            if argv[0] == "ps":   # what Linux's comm holds
+                return subprocess.CompletedProcess(argv, 0, stdout="ollama\n", stderr="")
+            return real_run(argv, **kw)
+
+        with mock.patch.object(probes.sys, "platform", "linux"), \
+             mock.patch.object(probes.subprocess, "run", run), \
+             mock.patch.object(probes.os, "readlink", readlink), \
+             mock.patch.object(probes.os, "stat", stat):
+            yield
+
+    @staticmethod
+    def touch(*parts, content=""):
+        path = os.path.join(*parts)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(content)
+        return path
+
+    # ---- local_listener_exe: /proc/<pid>/exe, since comm is not a path ----
+
+    def test_linux_reads_the_executable_from_proc(self):
+        with tempfile.TemporaryDirectory() as d:
+            exe = self.touch(d, "bin", "ollama")
+            with self.linux_listener(exe):
+                self.assertEqual(probes.local_listener_exe(11434), exe)
+
+    def test_a_binary_replaced_under_the_server_is_cannot_tell(self):
+        """A deploy that swaps the binary under a running server leaves
+        /proc/<pid>/exe reading "<path> (deleted)". The file at <path> is then
+        not the one serving, and neither is the payload beside it."""
+        with tempfile.TemporaryDirectory() as d:
+            exe = self.touch(d, "bin", "ollama")
+            with self.linux_listener(exe + " (deleted)", running=exe):
+                self.assertIsNone(probes.local_listener_exe(11434))
+
+    def test_a_path_that_names_another_file_is_cannot_tell(self):
+        """A server in another mount namespace (a container on the host's
+        network) reports a path that names a different file here."""
+        with tempfile.TemporaryDirectory() as d:
+            exe = self.touch(d, "bin", "ollama")
+            other = self.touch(d, "elsewhere", "ollama")
+            with self.linux_listener(exe, running=other):
+                self.assertIsNone(probes.local_listener_exe(11434))
+
+    def test_an_unreadable_proc_entry_is_cannot_tell(self):
+        """/proc/<pid>/exe needs root or the server's own user."""
+        with self.linux_listener(PermissionError(13, "Permission denied")):
+            self.assertIsNone(probes.local_listener_exe(11434))
+
+    # ---- lib_ollama_dir: path.go's linux order is not darwin's ----
+
+    def test_linux_tries_the_sibling_lib_before_its_own(self):
+        """ml/path.go on linux tries exeDir/../lib/ollama before
+        exeDir/lib/ollama, the reverse of darwin. With both present the two
+        orders name different payloads, and only one is what ollama loads."""
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "bin", "lib", "ollama"))
+            os.makedirs(os.path.join(d, "lib", "ollama"))
+            exe = self.touch(d, "bin", "ollama")
+            with mock.patch.object(probes.sys, "platform", "linux"):
+                self.assertEqual(probes.lib_ollama_dir(exe),
+                                 os.path.realpath(os.path.join(d, "lib", "ollama")))
+            with mock.patch.object(probes.sys, "platform", "darwin"):
+                self.assertEqual(probes.lib_ollama_dir(exe),
+                                 os.path.realpath(os.path.join(d, "bin", "lib", "ollama")))
+
+    def test_linux_with_no_candidate_is_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            exe = self.touch(d, "a", "b", "ollama")
+            with mock.patch.object(probes.sys, "platform", "linux"):
+                self.assertIsNone(probes.lib_ollama_dir(exe))
+
+    # ---- payload_pin on a Linux service ----
+
+    def service(self, d, exe_name="ollama", sha="161755f29"):
+        """A service layout: <d>/bin/<exe_name> and a <d>/lib/ollama/llama-server
+        that prints `sha` the way b11081 does."""
+        exe = self.touch(d, "bin", exe_name)
+        server = self.touch(d, "lib", "ollama", "llama-server",
+                            content=f"#!/bin/sh\necho 'version: 0.1.0-dev (build 1, commit {sha})'\n")
+        os.chmod(server, 0o755)
+        return exe
+
+    def test_payload_pin_reads_a_linux_services_llama_server(self):
+        """The reported case end to end: the executable from /proc, lib/ollama
+        by path.go's linux order, and the sha from that llama-server itself."""
+        with tempfile.TemporaryDirectory() as d:
+            exe = self.service(d)
+            with self.linux_listener(exe):
+                r = checks.check_payload_pin({"llama_cpp_build": "161755f29"}, None,
+                                             host="http://127.0.0.1:11434")
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertIn(":11434", r["summary"])
+
+    def test_payload_pin_skips_a_listener_that_is_not_ollama(self):
+        """An ssh -L forward answers on 127.0.0.1; the lib/ollama beside ssh
+        (on linux, /usr/lib/ollama beside /usr/bin/ssh) is not the server's."""
+        with tempfile.TemporaryDirectory() as d:
+            exe = self.service(d, exe_name="ssh")
+            with self.linux_listener(exe):
+                r = checks.check_payload_pin({"llama_cpp_build": "161755f29"}, None,
+                                             host="http://127.0.0.1:11434")
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("not ollama", r["summary"])
+
+    def test_payload_pin_says_when_the_executable_cannot_be_resolved(self):
+        with self.linux_listener(PermissionError(13, "Permission denied")):
+            r = checks.check_payload_pin({"llama_cpp_build": "161755f29"}, None,
+                                         host="http://127.0.0.1:11434")
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("could not be resolved", r["summary"])
+
+    def test_root_does_not_run_a_llama_server_it_does_not_own(self):
+        """As root, whatever holds the port chooses the binary that runs. A
+        payload another user owns is not run; this test's files are the test
+        user's, so as "root" they must be refused."""
+        with tempfile.TemporaryDirectory() as d:
+            exe = self.service(d)
+            with self.linux_listener(exe), mock.patch.object(probes.os, "geteuid", lambda: 0, create=True):
+                r = checks.check_payload_pin({"llama_cpp_build": "161755f29"}, None,
+                                             host="http://127.0.0.1:11434")
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("as root", r["summary"])
+
+    # ---- native_mlx_build: the library the executable loads, read in place ----
+
+    @staticmethod
+    def fake_mlx_payload(lib, version, variant="mlx_cuda_v13", name="libmlx.so"):
+        """A libmlx whose only version-shaped string is `version`, between NULs
+        the way the real one stores it."""
+        os.makedirs(os.path.join(lib, variant), exist_ok=True)
+        with open(os.path.join(lib, variant, name), "wb") as f:
+            f.write(b"\x7fELF" + b"\x00" * 60 + version.encode() + b"\x00" * 60)
+
+    def test_native_reads_the_version_from_the_library_itself(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.fake_mlx_payload(d, "0.32.2-65-g59d600b")
+            self.assertEqual(probes.mlx_version_in(os.path.join(d, "mlx_cuda_v13", "libmlx.so")),
+                             "0.32.2-65-g59d600b")
+
+    def test_a_library_without_a_version_is_none_not_a_guess(self):
+        with tempfile.TemporaryDirectory() as d:
+            lib = self.touch(d, "libmlx.so", content="\x7fELF no version here")
+            self.assertIsNone(probes.mlx_version_in(lib))
+            self.assertIsNone(probes.mlx_version_in(os.path.join(d, "missing.so")))
+
+    def test_linux_reads_mlx_only_where_mlx_loads_it(self):
+        """mlx/dynamic.go's only root beside the executable on linux is
+        exeDir/../lib/ollama. A libmlx.so in exeDir/lib/ollama is one the
+        runner never loads."""
+        with tempfile.TemporaryDirectory() as d:
+            exe = self.touch(d, "bin", "ollama")
+            self.fake_mlx_payload(os.path.join(d, "bin", "lib", "ollama"), "0.32.0-12-g27fec90")
+            with mock.patch.object(probes.sys, "platform", "linux"):
+                self.assertEqual(probes.native_mlx_build(exe), (None, None))
+                self.fake_mlx_payload(os.path.join(d, "lib", "ollama"), "0.32.2-65-g59d600b")
+                version, lib = probes.native_mlx_build(exe)
+        self.assertEqual(version, "0.32.2-65-g59d600b")
+        self.assertTrue(lib.endswith(os.path.join("lib", "ollama", "mlx_cuda_v13", "libmlx.so")), lib)
+
+    # ---- check_mlx_payload_pin: the fallback a native host was missing ----
+
+    PIN = "59d600b5e64c238427d0f8d897ab7c682ef4d3d2"
+    JOURNAL = "journalctl -u ollama -b --no-pager -o cat"
+    MLX_LINE = ('time=%s level=INFO source=server.go:46 msg="MLX engine initialized" '
+                '"MLX version"=%s device=gpu\n')
+
+    def native_mlx_pin(self, log, version, host="http://127.0.0.1:11434", since=None,
+                       platform="linux", profile_platform="cuda", exe_name="ollama"):
+        """check_mlx_payload_pin as a native run calls it: no container, the
+        journal as --log-cmd, and a payload `version` (None: no MLX payload)
+        where mlx/dynamic.go looks beside the listening executable."""
+        name = "libmlx.dylib" if platform == "darwin" else "libmlx.so"
+        with tempfile.TemporaryDirectory() as d:
+            exe = self.touch(d, "bin", exe_name)
+            lib = os.path.join(d, "lib", "ollama")
+            os.makedirs(lib)
+            if version:
+                self.fake_mlx_payload(lib, version, name=name)
+            with mock.patch.object(probes, "container_logs", return_value=log), \
+                 mock.patch.object(checks, "local_listener_exe", return_value=exe) as listener, \
+                 mock.patch.object(probes.sys, "platform", platform):
+                r = checks.check_mlx_payload_pin(
+                    {"mlx_build": self.PIN, "platform": profile_platform}, None,
+                    time.time() - 5 if since is None else since, log_cmd=self.JOURNAL, host=host)
+            return r, listener
+
+    def test_a_native_run_that_never_touched_mlx_reads_the_library_it_loads(self):
+        r, _ = self.native_mlx_pin("no mlx here\n", "0.32.2-65-g59d600b")
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertIn("libmlx.so", r["summary"])
+        self.assertIn(":11434", r["summary"])
+        self.assertIn("skew", r["summary"],
+                      "a library read cannot see binary/payload skew, and the summary must say which source answered")
+
+    def test_engine_init_lines_from_before_the_run_do_not_stop_the_library_read(self):
+        """journalctl -b returns the whole boot, so an MLX model served earlier
+        leaves engine-init lines that predate the window. They say nothing
+        about this run, and the library the executable loads still answers."""
+        early = self.MLX_LINE % ("2026-09-30T12:46:23.634Z", "0.32.2-65-g59d600b")
+        r, _ = self.native_mlx_pin(early + early, "0.32.2-65-g59d600b")
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertIn("2 engine-init line(s)", r["summary"])
+
+    def test_the_native_library_still_catches_a_different_build(self):
+        r, _ = self.native_mlx_pin("no mlx here\n", "0.32.0-12-g27fec90")
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("27fec90", r.get("actual", ""))
+
+    def test_no_native_library_still_fails_and_says_why(self):
+        r, _ = self.native_mlx_pin("no mlx here\n", None)
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("loads no MLX library", r.get("diagnosis", ""))
+
+    def test_a_remote_server_reads_no_library_on_this_machine(self):
+        """The library would belong to whatever runs HERE, not the server."""
+        r, listener = self.native_mlx_pin("no mlx here\n", "0.32.2-65-g59d600b",
+                                          host="http://10.0.0.5:11434")
+        self.assertEqual(r["status"], FAIL)
+        listener.assert_not_called()
+
+    def test_a_listener_that_is_not_ollama_supplies_no_library(self):
+        r, _ = self.native_mlx_pin("no mlx here\n", "0.32.2-65-g59d600b", exe_name="ssh")
+        self.assertEqual(r["status"], FAIL)
+        self.assertIn("not ollama", r.get("diagnosis", ""))
+
+    def test_an_mlx_platform_gets_no_library_fallback(self):
+        """An mlx-* run loads MLX inside its window, so the engine-init line is
+        the evidence and only it can see binary/payload skew: without it the
+        check fails, on linux and on macOS alike."""
+        for platform, profile_platform in (("linux", "mlx-cuda"), ("darwin", "mlx-metal")):
+            with self.subTest(profile_platform):
+                r, _ = self.native_mlx_pin("no mlx here\n", "0.32.2-65-g59d600b",
+                                           platform=platform, profile_platform=profile_platform)
+                self.assertEqual(r["status"], FAIL)
+
+    def test_macos_reads_libmlx_dylib_for_a_llama_cpp_profile(self):
+        r, _ = self.native_mlx_pin("no mlx here\n", "0.32.2-65-g59d600b",
+                                   platform="darwin", profile_platform="metal")
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertIn("libmlx.dylib", r["summary"])
+
+    def test_a_live_line_still_wins_over_the_native_library(self):
+        live = self.MLX_LINE % ("2026-09-30T14:40:00.000Z", "0.32.2-65-g59d600b")
+        r, _ = self.native_mlx_pin(live, "0.32.0-12-g27fec90", since=0)
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertIn("engine-init", r["summary"])
+
+
 class TestMetalTensorDiscoveryParse(unittest.TestCase):
     """The log shapes the runtime check stands on, pinned separately so a
     format drift names itself instead of surfacing as a mysterious skip."""

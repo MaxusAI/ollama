@@ -54,7 +54,7 @@ from checks import (CONTENTION, ERROR, FAIL, NEEDS_BASELINE, PASS,  # noqa: E402
                     SKIP)
 from probes import (Ollama, ProbeError, find_container,  # noqa: E402
                     lib_ollama_llama_server, llama_cpp_build,
-                    local_listener_exe)
+                    refuse_as_root)
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 RUNS = os.path.join(DIR, "runs")
@@ -398,11 +398,13 @@ def main():
         if container:
             meta["llama_cpp_build"] = llama_cpp_build(container, exec_cmd=args.exec_cmd)
         else:
-            port = checks.local_port(args.host)
-            native = (lib_ollama_llama_server(local_listener_exe(port))
-                      if port else None)
+            # The same guards as payload_pin: only a native ollama's payload,
+            # and never a binary that root must not run.
+            _, exe, _ = checks.native_ollama_exe(args.host)
+            native = lib_ollama_llama_server(exe)
             meta["llama_cpp_build"] = (llama_cpp_build(None, path=native)
                                        if native and os.path.exists(native)
+                                       and not refuse_as_root(native)
                                        else None)
     except Exception:
         meta["llama_cpp_build"] = None
@@ -466,7 +468,7 @@ def main():
     flush()
 
     mlx_pin = checks.check_mlx_payload_pin(
-        profile, container, run_start, args.log_cmd)
+        profile, container, run_start, args.log_cmd, host=args.host)
     if mlx_pin.get("actual"):
         meta["mlx_build"] = mlx_pin["actual"]
     results.append(mlx_pin)
