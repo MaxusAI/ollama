@@ -1566,6 +1566,54 @@ class TestMetalStampFollowsADR0032(unittest.TestCase):
         self.assertEqual(got.stdout.strip(), want)
         self.assertNotIn("-maxusai-", got.stdout)
 
+class TestRocm7ProfileAdmitsTheV0350Fold(unittest.TestCase):
+    """ADR 0032 on gfx1151. The v0.35.0 fold (#427) moves no native input, so its builds share
+    rocm7-0-34-4-dynres and the pattern widens to 0.35.0. The fold's gfx1151 preflight repeated the promoted
+    image's run in 30 of 32 rows, every measured value included; the other two name the image.
+
+    The profile must keep admitting production's build and admit the fold's builds, interim and tagged. It must
+    keep refusing 0.35.1, whose rc0 moves llama.cpp to b11232: that payload needs its own profile.
+    """
+
+    PROFILE = "rocm7-0-34-4-dynres"
+    ADMIT = (
+        "0.34.4-dynres-0-gb43ee8e",    # production's build, the promoted image
+        "0.34.4-dynres-41-gfedbe05",   # the v0.35.0 fold's interim build, gated on gfx1151
+        "0.35.0-dynres-0-gabcdef0",    # the fold's tag stamp
+        "0.35.0-dynres-3-gabcdef0",    # a build after that tag
+    )
+    REJECT = (
+        "0.35.1-dynres-0-gabcdef0",        # the next fold moves llama.cpp: a new profile
+        "0.34.2-dynres-0-gf67b1ae",        # a previous payload
+        "0.35.0-dynres-0-gabcdef0-dirty",  # a dirty tree describes nothing
+        "0.35.0-dynres.1-0-gabcdef0",      # a point tag is a new deploy: widen deliberately
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_profile_admits_production_and_the_v0350_fold(self):
+        pat = re.compile(self.exp["profiles"][self.PROFILE]["version_pattern"])
+        for stamp in self.ADMIT:
+            self.assertRegex(stamp, pat, f"{self.PROFILE} must admit {stamp}")
+
+    def test_profile_refuses_the_next_fold_and_other_payloads(self):
+        pat = re.compile(self.exp["profiles"][self.PROFILE]["version_pattern"])
+        for stamp in self.REJECT:
+            self.assertNotRegex(stamp, pat, f"{self.PROFILE} must reject {stamp}")
+
+    def test_the_fold_tag_stamp_resolves_to_this_profile_through_preflight(self):
+        """Through the resolver the gate uses, so no other rocm7 profile claims the stamp first."""
+        import preflight
+        pid, _ = preflight.resolve_profile(self.exp, "rocm7", "0.35.0-dynres-0-gabcdef0")
+        self.assertEqual(pid, self.PROFILE)
+
+    def test_the_patchset_lists_805(self):
+        """Every build since #371 carries 805, and the ROCm build applies it."""
+        self.assertIn("805", self.exp["profiles"][self.PROFILE]["patchset"])
+
 class TestReleaseMatrixTensorColumn(unittest.TestCase):
     """A gate nothing renders is a gate nobody reads. release_matrix.py is the
     fold's headline artifact, and a check absent from GROUPS is simply not in
