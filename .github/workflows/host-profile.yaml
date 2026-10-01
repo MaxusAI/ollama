@@ -1,0 +1,34 @@
+name: host-profile
+
+# host_profile.py records the machine a benchmark ran on, for committing beside the result.
+# Its tests run on output captured from real hosts (a GCP H100 VM, an Apple Silicon Mac, and a
+# fake sysfs tree for an AMD APU), then profile this runner: on a host it has never seen, a
+# probe with nothing to report must leave a field null, not fail the profile. The policy is in
+# docs/maxusai/tools/host_profile.py.
+#
+# Unconditional, for the reason source-paths.yaml gives: a path-filtered workflow never reports
+# on a pull request whose paths do not match.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'release/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  host-profile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: The tool's own tests
+        run: python3 docs/maxusai/tools/test_host_profile.py
+      - name: Profile this runner
+        run: python3 docs/maxusai/tools/host_profile.py --label ci/github-runner --fs root=/
