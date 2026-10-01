@@ -29,8 +29,22 @@ SURFACES = ["cuda", "mlx-cuda", "mlx-metal", "apple-silicon-mlx", "rocm7", "rocm
 
 # check name -> the column an operator thinks in
 GROUPS = [
+    # profile_lookup and arch_lookup are ERROR-only: a run that cannot resolve
+    # its profile or arch stops there (exit 2). Mapping them here means such a
+    # run shows **ERROR**, instead of a green column built from the version
+    # check it passed before stopping.
     ("Build identity", {"version", "image_tag", "payload_pin", "go_patch_marker",
-                        "payload_proof"}),
+                        "payload_proof", "profile_lookup", "arch_lookup"}),
+    # The MLX library and the GPU math toolchain each get a column of their own.
+    # Until 2026-10-01 no column watched them at all, so a pin that FAILed read
+    # as nothing: the H100's cuda run on 2026-09-30 failed only mlx_payload_pin
+    # and its matrix showed no FAIL anywhere. They are not folded into Build
+    # identity because a profile that records no pin SKIPs ("profile records no
+    # ... to assert against"), and a column reads at its weakest check: rocm7
+    # carries no MLX payload and metal no GPU toolchain, and either skip would
+    # have turned a green build identity "skipped".
+    ("MLX build pin", {"mlx_payload_pin"}),
+    ("Toolchain pin", {"toolchain_pin"}),
     # The M5 Neural Accelerators, worth 2.14x prefill on the GGUF path. Three
     # checks because there are three independent ways to lose them -- host,
     # payload, and this server process's own discovery -- and the column is
@@ -39,7 +53,17 @@ GROUPS = [
     # which effective() maps to the neutral N/A.
     ("M5 tensor path", {"metal_tensor_host", "metal_tensor_payload",
                         "metal_tensor_runtime"}),
-    ("Image size ladder", {"token_ladder"}),
+    # An arch that stops before its ladder shows here, where the ladder it never
+    # ran would have reported. It stops when no expectation is recorded, when
+    # the baseline is unmeasured (NEEDS_BASELINE, preflight exits 4) or when its
+    # model is not on the server. Before 2026-10-01 such an arch dropped out of
+    # the matrix, and the surface read green from its other arches.
+    ("Image size ladder", {"token_ladder", "expectation_lookup", "model_present"}),
+    # The aspect axis: three non-16:9 geometries the token ladder cannot reach
+    # (check_aspect_ladder). Its own column for the same reason as the pins:
+    # most profiles record no aspect expectation yet, and that skip would turn
+    # a green ladder "skipped".
+    ("Aspect ladder", {"aspect_ladder"}),
     # Both names: runs recorded before the rename carry "pinned_budget", and a
     # matrix that silently stopped seeing this check would read as green.
     ("Pinned image budget", {"pinned_image_token_budget", "pinned_budget"}),
