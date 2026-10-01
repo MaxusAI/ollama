@@ -90,7 +90,7 @@ payload and behaves as measured.
 | `metal_tensor_host` | `nax_probe.m` replicates ggml's own `has_tensor` decision — Metal 4 family, `GGML_METAL_TENSOR_DISABLE`, the M5/M6/A19/A20 name allowlist, a runtime compile of its dummy `matmul2d` — in ~100 ms with no model load, **under the serving process's own environment** (`ps -wwE`), never the operator's — where that cannot be read, both variables are cleared and the summary says so | FAIL when the host's answer is not the one the profile was measured on; SKIP for a remote server (the probe measures the harness's GPU) or a missing compiler |
 | `metal_tensor_payload` | the `llama-server` this server actually runs carries `GGML_METAL_HAS_TENSOR` | FAIL at 0 — a llama.cpp older than b10864, or one built without the Metal 4 source; SKIP when the payload is not on the harness's own host |
 | `metal_tensor_runtime` | this server process did **not** retry GPU discovery with `GGML_METAL_TENSOR_DISABLE=1`, which would pin the slow path on every runner it spawns | FAIL on the WARN line, bounded by the last `Listening on`; SKIP without that anchor |
-| `payload_proof` | `load_hparams: image_{min,max}_pixels: N (custom value)` where `N == tokens * S²`, on the bounds `custom_bounds` declares | FAIL, with the derivation printed |
+| `payload_proof` | `load_hparams: image_{min,max}_pixels: N (custom value)` where `N == tokens * S²`, on the bounds `custom_bounds` declares | FAIL, with the derivation printed; SKIP when the block sets `budgets_observed = false`, because the MLX runner prints no such line |
 | `toolchain_pin` | the GPU math toolchain the payload was built against, decoded from the shipped SONAMEs (`librocblas.so.5.2.70204` → `rocm-7.2.4`, `libcudart.so.13.0.48` → `cuda-13.0`), matches the profile's `toolchain_build` | FAIL means ROCm/CUDA moved under an **unchanged** payload: `llama_cpp_build` and the ollama version string both stay put while rocBLAS/hipBLASLt reshuffle Tensile kernel selection, so every ladder and scored cell was measured against different kernels. SKIP when the profile sets no `toolchain_build` — correct for `metal` and `cpu`, which have no such toolchain; the MLX library is pinned separately by `mlx_build` |
 | `token_ladder` | same image at five 16:9 geometries vs a text-only baseline | FAIL, **per-arch** verdict |
 | `pinned_image_token_budget` | pinning the **image** token budget (`image_min_tokens == image_max_tokens`) never delivers more than the ceiling — pre-005 nemotron pinned to 3328 delivered 3390. Input-side sizing; unrelated to `was_capped`, which is about generation stopping at `num_predict` | FAIL, the 005 defect class |
@@ -290,6 +290,20 @@ docker logs ollama-dynres-canary 2>&1 | grep -E 'image_(min|max)_pixels'
 values the log printed and record the derivation inputs (`patch_stride`,
 `budget_{min,max}_tokens`) next to them, so the next person can check
 `N == max_tokens × S²` without rediscovering that `S = patch_size × n_merge`.
+
+On an MLX platform there is no line to read. The MLX runner prints no
+`load_hparams` line on either backend: on an H100 on 2026-09-30, every pixel line
+in the journal followed a llama-server launch, and none followed an MLX runner
+launch. So for an arch the MLX runner serves:
+- take the four values from the Go sizing constants the ladder exercises, such
+  as `visionMinPixels` and `visionMaxPixels` in
+  `mlxrunner/model/qwen3_5/process_image.go`;
+- set `budgets_observed = false`, so `payload_proof` reports them as not
+  observable instead of failing on a missing line.
+
+The mlx-metal and `mlx-cuda` qwen blocks are the worked examples.
+`test_verdicts.py` allows the flag only on MLX platforms and on profiles with no
+container.
 
 **4. Set `scaling` correctly.** `"dynamic"` if cost should track resolution,
 `"flat"` if the payload budget-fills (gemma4 post-004) or is structurally capped

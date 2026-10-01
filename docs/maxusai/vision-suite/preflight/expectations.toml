@@ -740,10 +740,14 @@ is 0.962 vs 0.964, inside ADR 0012's +/-0.01 noise floor: the runtime behaves
 the same on both backends.
 
 That is a QUALITY result and it is deliberately not written into the arch
-blocks below, which assert TOKEN LADDERS. Those still need the B8 prefix
-measurement on this host, and ADR 0011 rule 4 forbids copying the mlx-metal
-ladder across on the strength of quality parity. Every arch below therefore
-stays status = "unmeasured" and preflight still exits 4.
+blocks below, which assert TOKEN LADDERS. ADR 0011 rule 4 forbids copying the
+mlx-metal ladder across on the strength of quality parity, so each arch below
+was measured on this backend before it was marked measured:
+- gemma4 on 2026-08-17, in the container;
+- qwen35moe on 2026-09-30, on a native build on an H100 (sm_90).
+
+qwen35 is not yet: its 2026-08-17 ladder has no budgets. qwen35moe's budgets
+cannot be observed on this backend, and its block says why.
 
 KNOWN DEFECT, think-on only. Under THINK=on the twelfth consecutive cell
 aborted the runner:
@@ -2271,8 +2275,31 @@ ladder_tolerance = 2
 ladder = [1102, 1102, 1102, 1102, 1102]
 
 [expect.mlx-cuda.qwen35moe]
-status = "unmeasured"
-reason = "ATTEMPTED 2026-08-17 and it does not complete. qwen3.6:35b-a3b-nvfp4 measured 68 / 146 / 578 / 2306 on the first four geometries and then aborted the runner on the fifth (3072x1728): 'mlx: cudaMallocAsync(&data, size, stream) failed: out of memory'. Not a shortage of card: 85 GiB was free. MLX retains a buffer CACHE -- measured 13.16 GiB of cache against 18.29 GiB of live tensors on gemma4 at that same geometry -- and OLLAMA_MLX_MEMORY_LIMIT was ~82 GiB because client.go derives it from all free VRAM, so the pool had room to grow before the vision tower asked for a large block. Re-measure with the limit pinned well below free VRAM before concluding anything about the arch itself; the first four rungs match qwen35 exactly, so nothing suggests the ladder differs."
+status = "measured"
+measured_on = "2026-09-30"
+model = "qwen3.6:35b-a3b-nvfp4"
+# Emitted by measure_ladder.py on the H100 (sm_90) host, gcp-a3-highgpu-1g/cuda: a native
+# build, server 0.34.4-dynres-0-gb43ee8e, MLX 0.32.2-65-g59d600b, the mlx_cuda_v13 payload.
+# OLLAMA_MLX_MEMORY_LIMIT was pinned at 48 GiB (derived: 78.3 GiB), as the 2026-08-17
+# attempt's reason asked. With the pin, all five geometries complete, including the 3072x1728
+# rung that ran out of memory then. The ladder equals mlx-metal's and qwen35's on this
+# profile, and it was measured here, not carried (ADR 0011 rule 4).
+patch_stride = 32
+# THE BUDGETS CANNOT BE OBSERVED HERE, SO THEY ARE FLAGGED RATHER THAN READ. payload_proof
+# reads llama.cpp's `load_hparams: image_*_pixels` line, and the MLX runner never writes one,
+# on either backend: in the H100's journal for 2026-09-30, all 72 such lines followed a
+# llama-server launch and none followed any of the 20 MLX runner launches. The four values
+# are the Go sizing constants the ladder below exercises, visionMinPixels and visionMaxPixels
+# in mlxrunner/model/qwen3_5/process_image.go, the same four the mlx-metal blocks carry.
+budgets_observed = false
+budget_min_tokens = 64          # visionMinPixels / 32^2
+budget_max_tokens = 16384       # visionMaxPixels / 32^2
+image_min_pixels = 65536        # visionMinPixels
+image_max_pixels = 16777216     # visionMaxPixels
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
 
 [expect.mlx-cuda.qwen35]
 status = "unmeasured"
