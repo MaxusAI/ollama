@@ -744,10 +744,12 @@ blocks below, which assert TOKEN LADDERS. ADR 0011 rule 4 forbids copying the
 mlx-metal ladder across on the strength of quality parity, so each arch below
 was measured on this backend before it was marked measured:
 - gemma4 on 2026-08-17, in the container;
-- qwen35moe on 2026-09-30, on a native build on an H100 (sm_90).
+- qwen35moe on 2026-09-30 and qwen35 on 2026-10-01, on a native build on an
+  H100 (sm_90).
 
-qwen35 is not yet: its 2026-08-17 ladder has no budgets. qwen35moe's budgets
-cannot be observed on this backend, and its block says why.
+On 2026-10-01, preflight on that host passed both qwen blocks: prefix 13 and
+the ladder 5/5 for each, with payload_proof skipped as not observable. The qwen
+budgets cannot be observed on this backend; their blocks say why.
 
 KNOWN DEFECT, think-on only. Under THINK=on the twelfth consecutive cell
 aborted the runner:
@@ -2302,8 +2304,28 @@ ladder_tolerance = 2
 ladder = [68, 146, 578, 2306, 5186]
 
 [expect.mlx-cuda.qwen35]
-status = "unmeasured"
-reason = "LADDER MEASURED, BUDGETS NOT. qwen3.8:27b-nvfp4 gives [68, 146, 578, 2306, 5186] with prefix == text_only == 13, identical to the mlx-metal row for the same model, measured 2026-08-17 via image_prefix (B8). The budget fields are what is missing: that run read pixel lines belonging to gemma4, because a preflight run was probing gemma4 on the same server inside the log window, and dividing gemma4's 161280/2580480 by qwen's stride 32 produced a plausible-looking 157/2520 that does not round-trip (157*32^2 = 160768, not 161280). measure_ladder.py now refuses that case. Re-run against an idle server with nothing else probing it, and this row can be completed from the ladder above plus a clean budget read."
+status = "measured"
+measured_on = "2026-10-01"
+model = "qwen3.8:27b-nvfp4"
+# Emitted by measure_ladder.py on the same host, build and pinned limit as qwen35moe above,
+# against an idle server. The 2026-08-17 row had the same ladder but no budgets, because that
+# run read gemma4's pixel lines; there is no qwen line to read on this backend (below).
+patch_stride = 32
+# THE BUDGETS CANNOT BE OBSERVED HERE, SO THEY ARE FLAGGED RATHER THAN READ. payload_proof
+# reads llama.cpp's `load_hparams: image_*_pixels` line, and the MLX runner never writes one,
+# on either backend: in the H100's journal for 2026-09-30, all 72 such lines followed a
+# llama-server launch and none followed any of the 20 MLX runner launches. The four values
+# are the Go sizing constants the ladder below exercises, visionMinPixels and visionMaxPixels
+# in mlxrunner/model/qwen3_5/process_image.go, the same four the mlx-metal blocks carry.
+budgets_observed = false
+budget_min_tokens = 64          # visionMinPixels / 32^2
+budget_max_tokens = 16384       # visionMaxPixels / 32^2
+image_min_pixels = 65536        # visionMinPixels
+image_max_pixels = 16777216     # visionMaxPixels
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
 
 # ------------------------------------------------------- metal / 0.32.14 --
 # Measured 2026-08-17, native macOS serve (:11436), server
