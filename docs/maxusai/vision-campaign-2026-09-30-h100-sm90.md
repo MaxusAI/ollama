@@ -142,20 +142,18 @@ with every box, label and colour found every time.
 
 ## Reproducing
 
-The tables render from the bundle alone, identically:
+The tables render from the bundle alone, identically, with `summarize_engine_compare.py --bundle`
+(#432). The loop renders each scene rerun; their IoUs are §3's.
 
 ```bash
 cd docs/maxusai/vision-suite
-mkdir -p /tmp/h100 && python3 - <<'EOF'
-import json
-b = json.load(open("bench-runs/vision-campaign-2026-09-30-h100-sm90.json"))
-for c in b["cells"]:
-    json.dump(c["scores"], open(f"/tmp/h100/scores_{c['tag']}.json", "w"))
-    if c["finetext_probe"]:
-        json.dump(c["finetext_probe"], open(f"/tmp/h100/ft_{c['tag']}.json", "w"))
-EOF
-python3 summarize_engine_compare.py --dir /tmp/h100 --think false gemma4:12b-nvfp4 gemma4:26b-nvfp4 \
+B=bench-runs/vision-campaign-2026-09-30-h100-sm90.json
+python3 summarize_engine_compare.py --bundle $B --think false gemma4:12b-nvfp4 gemma4:26b-nvfp4 \
   gemma4:31b-nvfp4 qwen3.8:27b-nvfp4 qwen3.6:35b-a3b-nvfp4 gemma4:31b-it-q4_K_M qwen3.8:27b-q4_K_M \
   nemotron3:33b-q8
-python3 summarize_engine_compare.py --dir /tmp/h100 --think on gemma4:31b-nvfp4 qwen3.8:27b-nvfp4
+python3 summarize_engine_compare.py --bundle $B --think on gemma4:31b-nvfp4 qwen3.8:27b-nvfp4
+for n in 1 2 3; do
+  python3 summarize_engine_compare.py --bundle $B --think false --prefix rerun_${n}_ \
+    --expect scene_single gemma4:12b-nvfp4
+done
 ```
