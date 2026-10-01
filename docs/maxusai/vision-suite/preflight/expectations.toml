@@ -748,8 +748,9 @@ was measured on this backend before it was marked measured:
   H100 (sm_90).
 
 On 2026-10-01, preflight on that host passed both qwen blocks: prefix 13 and
-the ladder 5/5 for each, with payload_proof skipped as not observable. The qwen
-budgets cannot be observed on this backend; their blocks say why.
+the ladder 5/5 for each, with payload_proof skipped as not observable. No arch's
+budgets can be observed on this backend, because the MLX runner logs no
+load_hparams line; each block says how its budgets were established.
 
 KNOWN DEFECT, think-on only. Under THINK=on the twelfth consecutive cell
 aborted the runner:
@@ -2241,6 +2242,17 @@ model = "gemma4:31b-nvfp4"
 # Emitted by measure_ladder.py against :11495 (container mlx-release, server
 # 0.32.14-rc0-dynres-20-geb0ad43) and pasted whole, per ADR 0012 rule 8.
 patch_stride = 48                # BudgetFillSize(w, h, 48, maxTok) — llm/llama_server.go
+# THE BUDGETS CANNOT BE OBSERVED HERE, SO THEY ARE FLAGGED RATHER THAN READ
+# (corrected 2026-10-01). The MLX runner writes no load_hparams line on CUDA, as
+# on Metal. A fresh gemma4:31b-nvfp4 load in an mlx-cuda canary of
+# 0.34.4-dynres-0-gb43ee8e logged its one MLX runner launch and no pixel line at
+# all, with nothing else loading. Reading that container's log, payload_proof
+# returned FAIL, "no load_hparams pixel budget in the fresh log", while the
+# ladder passed 5/5. The values are the Go sizing defaults the ladder
+# exercises: 70/1120 are the ADR 0008 gemma4 budgets (gemma4Ladder in
+# llm/llama_server.go), and 48 is llm.Gemma4ImageAlign, the align the MLX
+# runner passes to BudgetFillSize (mlxrunner/model/gemma4/vision.go).
+budgets_observed = false
 budget_min_tokens = 70           # ADR 0008 floor
 budget_max_tokens = 1120         # vendor maximum
 image_min_pixels = 161280        # 70 * 48^2
@@ -2254,24 +2266,17 @@ image_max_pixels = 2580480       # 1120 * 48^2
 # ladder". So it was measured: image_prefix (B8), five geometries, flat 1102
 # throughout, prefix == text_only == 19.
 #
-# The budget fields have TWO independent sources that agree, which is why they
-# are stated rather than left TODO:
-#
-#   1. The container's own load_hparams block, read by measure_ladder.py and
-#      re-read by preflight's payload_proof, which passes on this profile:
-#      "budget logged as custom on max/min (min 70*48^2=161280,
-#      max 1120*48^2=2580480)". A check that reads those lines cannot pass
-#      without them, so the MLX runner demonstrably emits them.
-#   2. The fork's own source: 70/1120 are the ADR 0008 gemma4 defaults
-#      (llm/llama_server_test.go:1575, :1738) and 48 is the align argument
-#      BudgetFillSize is called with (llm/llama_server.go:1511).
-#
-# Recorded because the first measurement run produced TODO for every budget
-# field and that was misdiagnosed, in an earlier revision of this comment, as
-# "the MLX runner does not emit these lines". It does. The empty read was a race
-# between forcing the reload and reading the log, and re-running produced the
-# values above. A tool returning nothing is not evidence that nothing exists —
-# the same mistake as reading an absent `readelf` as "no RPATH present".
+# WHAT THE 2026-08-17 COMMENT GOT WRONG. It said the budgets had two
+# independent sources that agreed:
+#   1. the container's load_hparams block, read by measure_ladder.py and re-read
+#      by payload_proof;
+#   2. the fork's own source.
+# Only the second holds. The first measurement run read no budget line, which was
+# right; it was diagnosed as a race and re-run. The re-run's "budget logged as
+# custom on max/min (min 70*48^2=161280, max 1120*48^2=2580480)" most likely read
+# a llama-server line in the same log window, from a GGUF gemma4, which logs
+# exactly these budgets. A tool returning nothing is not evidence that nothing
+# exists. A tool returning something is not evidence of where it came from.
 scaling = "flat"
 ladder_tolerance = 2
 ladder = [1102, 1102, 1102, 1102, 1102]

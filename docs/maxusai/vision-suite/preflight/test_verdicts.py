@@ -1251,9 +1251,16 @@ class TestBudgetProvenance(unittest.TestCase):
             cls.exp = tomllib.load(fh)
 
     def test_unobservable_budgets_say_so(self):
+        """Every MLX platform, not only mlx-metal. The MLX runner writes no
+        load_hparams line on CUDA either: a fresh gemma4:31b-nvfp4 load in an
+        mlx-cuda canary, with nothing else loading, logged its one MLX runner
+        launch and no pixel line at all (2026-10-01). The mlx-cuda gemma4 block
+        had said otherwise since 2026-08-17. That read most likely came from a
+        llama-server line in the same log window, from a GGUF gemma4, which logs
+        the same budgets."""
         for pid, arches in self.exp["expect"].items():
             prof = self.exp["profiles"].get(pid, {})
-            if prof.get("platform") != "mlx-metal":
+            if not str(prof.get("platform", "")).startswith("mlx"):
                 continue
             for arch, e in arches.items():
                 if not isinstance(e, dict) or "budget_max_tokens" not in e:

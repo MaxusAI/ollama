@@ -301,7 +301,7 @@ launch. So for an arch the MLX runner serves:
 - set `budgets_observed = false`, so `payload_proof` reports them as not
   observable instead of failing on a missing line.
 
-The mlx-metal and `mlx-cuda` qwen blocks are the worked examples.
+The mlx-metal blocks and the `mlx-cuda` gemma4 and qwen blocks are the worked examples.
 `test_verdicts.py` allows the flag only on MLX platforms and on profiles with no
 container.
 
