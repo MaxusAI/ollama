@@ -245,7 +245,21 @@ first is image accounting and the second is generation length.
   `summarize_engine_compare.py <model…>`
   renders the two comparison tables from the per-tag `scores_*/ft_*` files —
   the format of [vision-campaign-2026-08-08-mlx.md](../vision-campaign-2026-08-08-mlx.md);
-  keep it stable so runs diff cleanly.
+  keep it stable so runs diff cleanly. `--bundle FILE` reads the same cells from a
+  committed campaign bundle instead of a run directory, through the same code, so a
+  campaign document's tables re-render from the repo alone.
+- `bundle_campaign.py --out bench-runs/vision-campaign-<date>-<label>.json --set MODELS=…
+  [THINK_MODES=…] [TAG_PREFIX=…] [REPEATS=…] [--set …]` — packs a campaign's
+  `scores_<tag>.json` and `ft_<tag>.json` into the one bundle that is committed:
+  `{meta, cells: [{tag, scores, finetext_probe}]}`, with every cell unchanged.
+  - **Each `--set` is one runner invocation's knobs.** Tags come from the summarizer's
+    own `arm_prefix` and `resolve_tag` (SPEC H5, H6), so a bundle cannot name a cell
+    differently from the tables that read it.
+  - **The meta** comes from `--meta-file`, then `--meta KEY=VALUE`.
+  - **It refuses** a missing or unreadable scores file, a meta `host` or
+    `server_version` that the cells contradict, and a `host_profile` that is not
+    beside the bundle (SPEC H26).
+  - **The procedure** is the `vision-campaign` skill.
 - `run_compare.sh <tag-prefix>` — **stock vs fork, with a budget-matched control arm.**
   Use this rather than eyeballing two separate runs: a bare stock-vs-fork comparison
   moves two variables at once. See "Comparing against stock" below.

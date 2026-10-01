@@ -61,14 +61,28 @@ H100 campaign (#431) follows this procedure end to end.
 
    This writes the tags `rerun_1_…` to `rerun_3_…`. Render each one with
    `summarize_engine_compare.py --think false --prefix rerun_1_ --expect scene_single gemma4:12b-nvfp4`.
-7. **Bundle the score files without changing them** into
-   `vision-suite/bench-runs/vision-campaign-<date>-<label>.json`.
+7. **Bundle the score files without changing them** with `bundle_campaign.py`, into
+   `vision-suite/bench-runs/vision-campaign-<date>-<label>.json`:
+
+   ```sh
+   python3 bundle_campaign.py --out bench-runs/vision-campaign-<date>-<label>.json --meta-file meta.json \
+     --set MODELS="gemma4:12b-nvfp4 gemma4:31b-nvfp4 qwen3.8:27b-nvfp4" THINK_MODES=false \
+     --set MODELS="gemma4:31b-nvfp4 qwen3.8:27b-nvfp4" THINK_MODES=on \
+     --set MODELS=gemma4:12b-nvfp4 THINK_MODES=false TAG_PREFIX=rerun_ REPEATS=3
+   ```
+
+   - **Give one `--set` per runner invocation, with the knobs you ran it with.** Tags come from the
+     summarizer's own helpers, so the bundle cannot name a cell differently from the tables. Leave
+     out `ONLY_TESTS`, `RESTART_CMD` and the other knobs that do not change a tag; the bundler
+     refuses them. `--dir` defaults to `vision-suite/`, where the runner writes.
    - **Its shape is `{meta, cells: [{tag, scores, finetext_probe}]}`.** Each cell is that tag's
-     `scores_<tag>.json` and `ft_<tag>.json`, copied as they are.
+     `scores_<tag>.json` and `ft_<tag>.json`, copied as they are. A missing scores file stops the
+     bundle; a descoped cell is skipped and named.
    - **`meta` names the run:** the build, the MLX and llama.cpp pins, the host, `host_profile`, the
-     power mode, the wall clock, the scope and `rendered_tables` (the doc).
-   - **No bundling tool exists yet,** so build it with a script and never edit a cell.
-   - **Commit the host profile beside the bundle** as `<bundle stem>.host-profile.json` (H26).
+     power mode, the wall clock, the scope and `rendered_tables` (the doc). The bundler refuses a
+     `host` or `server_version` that the cells contradict.
+   - **Commit the host profile beside the bundle** as `<bundle stem>.host-profile.json` (H26). The
+     bundler refuses a `host_profile` that is not there.
 8. **Render the tables; never type them** (H7, ADR 0012 rule 8). Use
    `summarize_engine_compare.py --dir <dir> --think false <models…>`, then `--think on`.
    - **Put the output into the doc with a script:** write the prose around placeholders, and replace
@@ -80,8 +94,9 @@ H100 campaign (#431) follows this procedure end to end.
    - the checkpoint table by manifest digest (H17);
    - the tables, what they show, and the limits;
    - a Reproducing section that re-renders from the bundle alone.
-10. **Prove the doc re-renders from the bundle.** Unpack the bundle into a temporary directory and
-    run the renderer on it. The doc must contain that output byte for byte.
+10. **Prove the doc re-renders from the bundle:**
+    `summarize_engine_compare.py --bundle <bundle> [--prefix <p>] --think <mode> <models…>`. The doc
+    must contain that output byte for byte.
 11. **Check before pushing, with checks that stop the push.** A grep whose match scrolls past is not a
     check.
     - `python3 docs/maxusai/tools/check_no_names.py --denylist-file ~/.config/collab/denylist`

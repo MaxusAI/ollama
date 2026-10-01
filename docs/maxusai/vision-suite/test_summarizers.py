@@ -685,6 +685,132 @@ class TestT1CampaignPrefix(unittest.TestCase):
         self.assertNotIn("0.900", self.row(render(d, self.MODEL, "false")))
 
 
+class TestBundleSource(unittest.TestCase):
+    """--bundle renders a committed campaign bundle exactly as its run directory.
+
+    A bundle exists so that a document's tables re-render from the repo alone.
+    That holds only while the two sources share one code path. So these compare
+    the two renders byte for byte rather than spot-checking cells."""
+
+    MODELS = ("gemma4:12b-it-q4_K_M", "qwen3.8:27b-nvfp4")
+    PREFIX = "cmp1_"
+
+    def save_bundle(self, cells):
+        path = os.path.join(tempfile.mkdtemp(), "bundle.json")
+        with open(path, "w") as fh:
+            json.dump({"meta": {}, "cells": cells}, fh)
+        return path
+
+    def campaign(self):
+        rundir, cells = tempfile.mkdtemp(), []
+        for model in self.MODELS:
+            for think, data in (("false", THINKOFF), ("on", THINKON)):
+                tag = self.PREFIX + sec.tag_for(model, think)
+                with open(os.path.join(rundir, f"scores_{tag}.json"), "w") as fh:
+                    json.dump(data, fh)
+                cells.append({"tag": tag, "scores": data, "finetext_probe": None})
+        return rundir, self.save_bundle(cells)
+
+    def render(self, *argv):
+        out = io.StringIO()
+        with mock_argv(["summarize_engine_compare.py", *argv]), contextlib.redirect_stdout(out):
+            sec.main()
+        return out.getvalue()
+
+    def test_a_bundle_renders_what_its_run_directory_renders(self):
+        rundir, bundle = self.campaign()
+        for think in ("false", "on"):
+            from_dir = self.render("--dir", rundir, "--prefix", self.PREFIX, "--think", think,
+                                   *self.MODELS)
+            self.assertIn("0.900", from_dir)          # rows with data, not two empty renders
+            self.assertEqual(self.render("--bundle", bundle, "--prefix", self.PREFIX,
+                                         "--think", think, *self.MODELS), from_dir)
+
+    def test_the_probe_file_travels_as_finetext_probe(self):
+        """A pre-fold cell's fine-text tiers come from ft_<tag>.json. In a bundle
+        that file is the cell's finetext_probe."""
+        model, tag = self.MODELS[0], sec.tag_for(self.MODELS[0], "false")
+        scores = json.loads(json.dumps(THINKOFF))
+        probe = scores.pop("finetext")
+        rundir = tempfile.mkdtemp()
+        for kind, data in (("scores", scores), ("ft", probe)):
+            with open(os.path.join(rundir, f"{kind}_{tag}.json"), "w") as fh:
+                json.dump(data, fh)
+        from_dir = self.render("--dir", rundir, model)
+        self.assertIn("| 4 | 4 | 4 | 1 | 0 |", from_dir)
+        bundle = self.save_bundle([{"tag": tag, "scores": scores, "finetext_probe": probe}])
+        self.assertEqual(self.render("--bundle", bundle, model), from_dir)
+
+    def test_a_think_off_tag_from_before_the_mode_suffix_resolves_too(self):
+        model = self.MODELS[0]
+        bundle = self.save_bundle([{"tag": sec.tag_for(model), "scores": THINKOFF,
+                                    "finetext_probe": None}])
+        self.assertIn("0.900", self.render("--bundle", bundle, model))
+
+    def test_dir_and_bundle_together_are_refused(self):
+        rundir, bundle = self.campaign()
+        with self.assertRaises(SystemExit) as cm:
+            self.render("--dir", rundir, "--bundle", bundle, self.MODELS[0])
+        self.assertIn("give one", str(cm.exception.code))
+
+    def test_a_file_that_is_not_a_bundle_is_refused(self):
+        path = os.path.join(tempfile.mkdtemp(), "scores.json")
+        with open(path, "w") as fh:
+            json.dump(THINKOFF, fh)
+        with self.assertRaises(SystemExit) as cm:
+            self.render("--bundle", path, self.MODELS[0])
+        self.assertIn("not a campaign bundle", str(cm.exception.code))
+
+    def test_two_cells_with_one_tag_are_refused(self):
+        """Which cell a table showed would depend on the order they were read in."""
+        cell = {"tag": sec.tag_for(self.MODELS[0], "false"), "scores": THINKOFF,
+                "finetext_probe": None}
+        with self.assertRaises(SystemExit) as cm:
+            self.render("--bundle", self.save_bundle([cell, cell]), self.MODELS[0])
+        self.assertIn("two cells", str(cm.exception.code))
+
+    def test_the_cli_renders_a_committed_bundle_as_its_cells_unpacked(self):
+        """The 2026-09-18 campaign, through the command line both ways."""
+        here = os.path.dirname(os.path.abspath(__file__))
+        committed = os.path.join(here, "bench-runs", "vision-campaign-2026-09-18-mlx8a7ba949.json")
+        with open(committed) as fh:
+            cells = json.load(fh)["cells"]
+        rundir = tempfile.mkdtemp()
+        for c in cells:
+            for kind, data in (("scores", c["scores"]), ("ft", c["finetext_probe"])):
+                if data is not None:
+                    with open(os.path.join(rundir, f"{kind}_{c['tag']}.json"), "w") as fh:
+                        json.dump(data, fh)
+        models = ("gemma4:12b-nvfp4", "gemma4:26b-nvfp4", "gemma4:31b-nvfp4",
+                  "qwen3.8:27b-nvfp4", "qwen3.6:35b-a3b-nvfp4")
+
+        def cli(*source):
+            return subprocess.run(
+                [sys.executable, "summarize_engine_compare.py", *source,
+                 "--prefix", "mlx8a7ba9v2nv1_", "--think", "false", *models],
+                cwd=here, capture_output=True, text=True, check=True).stdout
+
+        from_dir = cli("--dir", rundir)
+        self.assertIn("| gemma4:31b-nvfp4 |", from_dir)
+        self.assertEqual(cli("--bundle", committed), from_dir)
+
+
+class TestSaveEnd(unittest.TestCase):
+    """save() gained `end` for bundles. A scores file is written exactly as before."""
+
+    def test_a_scores_file_ends_without_a_newline_as_before(self):
+        path = os.path.join(tempfile.mkdtemp(), "scores_x.json")
+        sec.save(path, {"a": 1})
+        with open(path) as fh:
+            self.assertEqual(fh.read(), json.dumps({"a": 1}, indent=1))
+
+    def test_a_bundle_ends_with_one(self):
+        path = os.path.join(tempfile.mkdtemp(), "bundle.json")
+        sec.save(path, {"a": 1}, end="\n")
+        with open(path) as fh:
+            self.assertEqual(fh.read(), json.dumps({"a": 1}, indent=1) + "\n")
+
+
 class TestT1CappedQualityCells(unittest.TestCase):
     """T1 quality cells render "capped", never a score (ADR 0012 conv 9).
 

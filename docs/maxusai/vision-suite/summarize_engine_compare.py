@@ -2,8 +2,13 @@
 """Render the engine-comparison tables from scores_<tag>.json + ft_<tag>.json.
 
 Usage:
-    python3 summarize_engine_compare.py [--dir RUNDIR] [--think false|on] \
+    python3 summarize_engine_compare.py [--dir RUNDIR | --bundle FILE] [--think false|on] \
         [--prefix TAG_PREFIX] [--expect ARM,ARM] <model> [model ...]
+
+--bundle renders from a committed campaign bundle (bundle_campaign.py) instead
+of a run directory. Its cells are looked up by tag and go through the same code
+a run directory's files do, so a campaign document's tables re-render from the
+repo alone. It replaces --dir; give one or the other.
 
 A cell missing arms renders as ⚠ INCOMPLETE (ADR 0012 rule 8), because since
 the suite began persisting after every arm, a scores file on disk is routinely
@@ -97,7 +102,25 @@ def tag_for(model, think=None):
     return base if think is None else f"{base}_think{think}"
 
 
-def resolve_tag(rundir, model, think, prefix=""):
+def arm_prefix(tag_prefix="", rep=1, repeats=1):
+    """The literal prefix run_engine_compare.sh writes before a cell's tag.
+
+    The runner numbers an arm's runs whenever there is an arm at all, meaning
+    REPEATS above 1 or any TAG_PREFIX. So TAG_PREFIX=rerun_ REPEATS=3 writes
+    rerun_1_ to rerun_3_, and TAG_PREFIX=lt on its own still writes lt1_. A
+    plain campaign has no prefix (H4). The result is the full literal that
+    --prefix takes.
+
+    The rule is the runner's, written in shell. test_bundle_campaign.py runs the
+    runner's own lines against this function, so the two cannot drift apart
+    unnoticed.
+    """
+    if int(repeats) > 1 or tag_prefix:
+        return f"{tag_prefix}{rep}_"
+    return ""
+
+
+def resolve_tag(rundir, model, think, prefix="", exists=None):
     """Prefer the think-suffixed tag; fall back to the legacy bare tag.
 
     The fallback applies ONLY to think=false. Pre-2026-08-09 runs wrote the
@@ -110,15 +133,22 @@ def resolve_tag(rundir, model, think, prefix=""):
     interpolated rep and separator). Without it T1 could not render a
     prefixed campaign at all: the 2026-08-20 five-model cudafull1 baseline
     had only the T2 pivot until this landed. Empty by default (H4).
+
+    `exists(tag)` says whether a cell is recorded under a tag. It defaults to
+    a scores file in `rundir`; a bundle passes its own lookup, so both
+    sources resolve tags by this one rule.
     """
+    if exists is None:
+        def exists(tag):
+            return os.path.exists(os.path.join(rundir, f"scores_{tag}.json"))
     suffixed = prefix + tag_for(model, think)
-    if os.path.exists(os.path.join(rundir, f"scores_{suffixed}.json")):
+    if exists(suffixed):
         return suffixed
     if think == "false":
         legacy = prefix + tag_for(model)
-        if os.path.exists(os.path.join(rundir, f"scores_{legacy}.json")):
+        if exists(legacy):
             return legacy
-    return suffixed  # nothing on disk; report against the expected name
+    return suffixed  # nothing recorded; report against the expected name
 
 
 def was_capped(sec):
@@ -155,10 +185,14 @@ def was_capped(sec):
     return bool(cap and ev and ev >= cap)
 
 
-def save(path, data):
+def save(path, data, end=""):
     """Atomic JSON write: tmp + os.replace, the probes.py idiom. The scores
     file is the campaign's most expensive artifact; a truncate-then-dump
-    writer that dies mid-dump destroys it."""
+    writer that dies mid-dump destroys it.
+
+    `end` is written after the JSON. A scores file has none. A committed
+    campaign bundle ends in a newline, like every tracked text file
+    (bundle_campaign.py)."""
     # PID-UNIQUE, not a shared "<path>.tmp". Two writers on the same tag — two
     # drivers, or an operator running vision_suite.py by hand against a tag a
     # driver is working — opened the SAME temp inode, and the loser's json.dump
@@ -171,6 +205,7 @@ def save(path, data):
     tmp = f"{path}.{os.getpid()}.tmp"
     with open(tmp, "w") as fh:
         json.dump(data, fh, indent=1)
+        fh.write(end)
     os.replace(tmp, path)
 
 
@@ -326,6 +361,27 @@ def load(path):
         return None
 
 
+def bundle_cells(path):
+    """A campaign bundle's cells, by tag. bundle_campaign.py writes the file.
+
+    Raises ValueError for a file that is not a bundle, and for a bundle that
+    names one tag twice: which of the two cells a table showed would depend on
+    the order they were read in. A missing file raises OSError.
+    """
+    with open(path) as fh:
+        bundle = json.load(fh)
+    if not isinstance(bundle, dict) or not isinstance(bundle.get("cells"), list):
+        raise ValueError(f"{path}: not a campaign bundle (no cells list)")
+    cells = {}
+    for i, cell in enumerate(bundle["cells"]):
+        if not isinstance(cell, dict) or "tag" not in cell or "scores" not in cell:
+            raise ValueError(f"{path}: cell {i} has no tag or no scores")
+        if cell["tag"] in cells:
+            raise ValueError(f"{path}: two cells are tagged {cell['tag']!r}")
+        cells[cell["tag"]] = cell
+    return cells
+
+
 def fmt_bool(v):
     return "✅" if v else "❌"
 
@@ -388,6 +444,9 @@ def main():
     # the campaign's ONLY_TESTS value here when it ran scoped; unset, every
     # column the table has is expected to be filled.
     expect = list(RENDERED_ARMS)
+    # A committed bundle replaces the run directory as the source of cells.
+    # Giving both is refused rather than letting one silently win.
+    bundle_path, dir_given = None, False
     # Options come before the models, in any order. They used to be read in
     # one fixed sequence, so `--prefix X --think false` left `--think` and
     # `false` in the model list and the table rendered them as two GGUF rows
@@ -400,6 +459,9 @@ def main():
             sys.exit(f"{flag} needs a value")
         if flag == "--dir":
             rundir = args.pop(0)
+            dir_given = True
+        elif flag == "--bundle":
+            bundle_path = args.pop(0)
         elif flag == "--think":
             think = args.pop(0)
         elif flag == "--prefix":
@@ -407,12 +469,31 @@ def main():
         elif flag == "--expect":
             expect = [a for a in args.pop(0).split(",") if a]
         else:
-            sys.exit(f"unknown option {flag!r}; options are --dir, --think, --prefix, --expect")
+            sys.exit(f"unknown option {flag!r}; options are --dir, --bundle, --think, --prefix, --expect")
     for a in args:
         if a.startswith("--"):
             sys.exit(f"option {a!r} after the model list; options come first, then models")
     if not args:
         sys.exit(__doc__)
+    bundle = None
+    if bundle_path is not None:
+        if dir_given:
+            sys.exit("--dir and --bundle are two sources for the same cells; give one")
+        try:
+            bundle = bundle_cells(bundle_path)
+        except (OSError, ValueError) as exc:
+            sys.exit(str(exc))
+
+    def read(kind, tag):
+        """A cell's scores ("scores") or its probe ("ft"), from either source.
+
+        One lookup for both, so a bundle renders through exactly the code a run
+        directory does. A bundle carries ft_<tag>.json as finetext_probe.
+        """
+        if bundle is None:
+            return load(os.path.join(rundir, f"{kind}_{tag}.json"))
+        cell = bundle.get(tag) or {}
+        return cell.get("scores") if kind == "scores" else cell.get("finetext_probe")
     engine_map = {}
     for pair in os.environ.get("ENGINE_MAP", "").split(","):
         if "=" in pair:
@@ -446,13 +527,14 @@ def main():
             # The note below says which it is.
             descoped.append(model)
             continue
-        tag = resolve_tag(rundir, model, think, prefix)
+        tag = resolve_tag(rundir, model, think, prefix,
+                          exists=None if bundle is None else bundle.__contains__)
         eng = engine_for(model, engine_map)
         eng_cell = f"**{eng}**" if eng == "MLX" else eng
-        scores = load(os.path.join(rundir, f"scores_{tag}.json")) or {}
+        scores = read("scores", tag) or {}
         # Suite-produced finetext first; ft_<tag>.json only as the pre-fold
         # (1db8ec9c) fallback. See summarize_head_to_head.py for why.
-        ft = scores.get("finetext") or load(os.path.join(rundir, f"ft_{tag}.json")) or {}
+        ft = scores.get("finetext") or read("ft", tag) or {}
         sc = scores.get("scene_single", {})
         dc = scores.get("document_single", {})
         mu = scores.get("multi_3img", {})
