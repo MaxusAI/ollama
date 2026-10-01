@@ -1251,9 +1251,16 @@ class TestBudgetProvenance(unittest.TestCase):
             cls.exp = tomllib.load(fh)
 
     def test_unobservable_budgets_say_so(self):
+        """Every MLX platform, not only mlx-metal. The MLX runner writes no
+        load_hparams line on CUDA either: a fresh gemma4:31b-nvfp4 load in an
+        mlx-cuda canary, with nothing else loading, logged its one MLX runner
+        launch and no pixel line at all (2026-10-01). The mlx-cuda gemma4 block
+        had said otherwise since 2026-08-17. That read most likely came from a
+        llama-server line in the same log window, from a GGUF gemma4, which logs
+        the same budgets."""
         for pid, arches in self.exp["expect"].items():
             prof = self.exp["profiles"].get(pid, {})
-            if prof.get("platform") != "mlx-metal":
+            if not str(prof.get("platform", "")).startswith("mlx"):
                 continue
             for arch, e in arches.items():
                 if not isinstance(e, dict) or "budget_max_tokens" not in e:
@@ -1264,13 +1271,23 @@ class TestBudgetProvenance(unittest.TestCase):
 
     def test_the_flag_cannot_dodge_a_check_that_could_have_run(self):
         """The abuse guard. `budgets_observed = false` is a statement about the
-        PLATFORM, not a way to excuse a block on one that has a load log."""
+        PLATFORM, not a way to excuse a block on one that has a load log.
+
+        A load log is not the same as the line, though. payload_proof reads
+        llama.cpp's `load_hparams: image_*_pixels` line, so only a platform that
+        serves through llama-server can show it. The MLX runner writes none on
+        either backend: on an H100 on 2026-09-30, all 72 such lines followed a
+        llama-server launch and none followed any of the 20 MLX runner launches.
+        So an MLX platform may carry the flag even where its profile has a
+        container. Any other platform may carry it only with no container."""
         for pid, arches in self.exp["expect"].items():
+            prof = self.exp["profiles"].get(pid, {})
+            if str(prof.get("platform", "")).startswith("mlx"):
+                continue
             for arch, e in arches.items():
                 if not isinstance(e, dict) or e.get("budgets_observed") is not False:
                     continue
-                ref = self.exp["profiles"].get(pid, {}).get("reference_image", "")
-                self.assertIn("no container", ref,
+                self.assertIn("no container", prof.get("reference_image", ""),
                               f"{pid}/{arch} claims budgets are unobservable, but "
                               f"its profile has a container and payload_proof "
                               f"could read them")
@@ -1280,6 +1297,17 @@ class TestBudgetProvenance(unittest.TestCase):
             {"budgets_observed": False, "image_min_pixels": 1, "patch_stride": 1,
              "budget_min_tokens": 1, "image_max_pixels": 1,
              "budget_max_tokens": 1}, "arch", None, 0)
+        self.assertEqual(r["status"], SKIP)
+        self.assertIn("not observable", r["summary"])
+
+    def test_a_container_does_not_turn_unobservable_budgets_into_a_failure(self):
+        """mlx-cuda's profile has a container image, and its MLX runner writes no
+        load_hparams line either. Reading that log could only FAIL on a line
+        nothing emits, so the flag decides before the container does."""
+        r = checks.check_payload_proof(
+            {"budgets_observed": False, "image_min_pixels": 1, "patch_stride": 1,
+             "budget_min_tokens": 1, "image_max_pixels": 1,
+             "budget_max_tokens": 1}, "arch", "a-container", 0)
         self.assertEqual(r["status"], SKIP)
         self.assertIn("not observable", r["summary"])
 

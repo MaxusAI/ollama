@@ -840,22 +840,28 @@ def check_payload_proof(expect, arch, container, since, log_cmd=None):
     occurrence-count delta was suggestive but never proof.
     """
     name = "payload_proof"
+    # Two different skips wore the same message. "No container resolved" is a
+    # fact about THIS run — bring one and the check runs. On a platform whose
+    # runner emits no load_hparams line at all, no run will ever read these
+    # budgets, and reporting that as a missing container invites the next
+    # operator to go looking for one. The block says which it is.
+    #
+    # The second is decided first, container or not. The MLX runner writes no
+    # load_hparams line on either backend, so on mlx-cuda, whose profile has a
+    # container image, reading the log could only FAIL on a line nothing emits.
+    # Measured 2026-09-30 on an H100: all 72 pixel lines in the journal followed
+    # a llama-server launch, and none followed any of the 20 MLX runner launches.
+    if expect.get("budgets_observed") is False:
+        return result(
+            name, SKIP,
+            "budget/pixel values are not observable on this platform",
+            arch=arch,
+            diagnosis="This block's budgets were established without a load "
+                      "log (the MLX runner emits none, on either backend) and "
+                      "are recorded as budgets_observed = false. Nothing here is "
+                      "waiting on a container; the block says how the values "
+                      "were established.")
     if not container:
-        # Two different skips wore the same message. "No container resolved" is
-        # a fact about THIS run — bring one and the check runs. On a platform
-        # whose runner emits no load_hparams line at all, no run will ever read
-        # these budgets, and reporting that as a missing container invites the
-        # next operator to go looking for one. The block says which it is.
-        if expect.get("budgets_observed") is False:
-            return result(
-                name, SKIP,
-                "budget/pixel values are not observable on this platform",
-                arch=arch,
-                diagnosis="This block's budgets were established without a load "
-                          "log (the native MLX path emits none) and are recorded "
-                          "as budgets_observed = false. Nothing here is waiting "
-                          "on a container; see the profile notes for how the "
-                          "values were established.")
         return result(name, SKIP, "no container resolved; cannot read the load log",
                       arch=arch)
 
