@@ -23,7 +23,7 @@ Upstream [v0.35.0](https://github.com/ollama/ollama/releases/tag/v0.35.0) (tag `
 | 4, image | **CUDA: not built**. The fold moves no native input, so the release image is a Go-only swap onto a deployed payload ("Gate 4" below). **gfx1151: built in full** (2026-09-30), `maxusai-ollama:0.34.4-dynres-41-gfedbe05-rocm7-gfx1151`. Its GPU code is production's, byte for byte, and 805 adds 64 bytes of host code ([Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-30)). **Apple Silicon: Go-only** (2026-10-01), `0.35.0-dynres-0-g043f441` at the tag, on production's payload byte for byte ([Gates 4–6 on Apple Silicon](#gates-46-on-apple-silicon-2026-10-01)) |
 | 5, preflight | **CUDA: not run**. Interim builds resolve on every surface; a `v0.35.0-dynres` tag resolves on none until each host widens its profile ("Preflight profiles" below). **gfx1151: PASS=27 SKIP=5** on the fold image, equal to production's own run in every measured value. `rocm7-0-34-4-dynres` now admits `0.35.0`. **Apple Silicon: PASS=23 SKIP=16** on the release build, equal to the deployed build's run in every measured value except two drafted `think_format` rows, which vary between production's own runs. `mlx-metal-0-34-4` now admits `0.35.0` |
 | 6, campaigns | **CUDA: not run.** GPU0 is reserved, and the gate-4 argument covers the native side. The Go side is upstream's new code plus the fork's delta, carried line for line. **gfx1151: done** (2026-10-01). Think off, all 4,902 scored cells, all 140 answers and all 200 OCRBench answers equal production's, byte for byte. Think on, no model loses a finish, and qwen3.6 and gemma4:26b are byte-identical. The other differences are sampling draws or the two-pass flow's slot race, which production's own image shows. **Apple Silicon: done** (2026-10-01). Think off, all 196 answers and all 200 OCRBench answers equal the deployed build's, byte for byte. Think on did not run: on Metal, gemma4's long drafted thinking does not repeat byte for byte |
-| tag and deploy | **tagged** `v0.35.0-dynres` on `043f441a7` (2026-10-01). gfx1151 deployed it the same day ([#427](https://github.com/MaxusAI/ollama/pull/427#issuecomment-5930629034)). Apple Silicon: validated, not deployed |
+| tag and deploy | **tagged** `v0.35.0-dynres` on `043f441a7` (2026-10-01). gfx1151 deployed it the same day ([#427](https://github.com/MaxusAI/ollama/pull/427#issuecomment-5930629034)). Apple Silicon deployed it at 23:45 AEST ([The deploy on Apple Silicon](#the-deploy-on-apple-silicon)) |
 
 ## What v0.35.0 changes for the fork
 
@@ -664,3 +664,29 @@ run.
   tag stamps, and refuses 0.35.1, an earlier payload, a dirty tree, a point tag and the retired native stamp. Through
   the resolver, the tag stamp maps to this profile. The old pattern fails the admit test. `test_verdicts.py` passes
   211 tests.
+
+### The deploy on Apple Silicon
+
+On the maintainer's word, production on `:11435` has served `0.35.0-dynres-0-g043f441` since 23:45:55 AEST on
+2026-10-01.
+- **Only the binary changed.** With production idle, the job was stopped (`launchctl bootout`), the release build
+  replaced `0.34.4-dynres-0-gb43ee8e` at the checkout root, and the job was started again (`launchctl bootstrap`).
+  The payload (`build/lib/ollama`) and the launchd plist did not change. The binary is archived as
+  `ollama-0.35.0-dynres-0-g043f441` ([BINARIES.md](../vision-suite/BINARIES.md)).
+- **Verified:** `/api/version`; the process environment and the startup config, which carry the plist's three
+  variables; a live MLX load reporting `"MLX version"=0.32.2-65-g59d600b`, with XGrammar loading from production's
+  `build/lib/ollama`; and a two-pass think+format request whose pass one drafted and whose answer parses as JSON.
+- **Preflight on production itself passes,** PASS=23 SKIP=16. `pf_cmp.py` compares it with the stage's release run.
+  Verbatim:
+
+  ```
+  A: 0.35.0-dynres-0-g043f441 profile mlx-metal-0-34-4 mlx 0.32.2-65-g5 llama.cpp 161755f29 {'PASS': 23, 'SKIP': 16}
+  B: 0.35.0-dynres-0-g043f441 profile mlx-metal-0-34-4 mlx 0.32.2-65-g5 llama.cpp 161755f29 {'PASS': 23, 'SKIP': 16}
+  39 rows: 37 identical, measured values included; 2 differ:
+    think_format gemma4_unified: actual: {"response_chars": 273, "thinking_chars": 803, "eval_count": 243} -> {"response_chars": 289, "thinking_chars": 816, "eval_count": 260}
+    think_format qwen35: actual: {"response_chars": 310, "thinking_chars": 779, "eval_count": 267} -> {"response_chars": 310, "thinking_chars": 779, "eval_count": 269}
+  ```
+
+  The two rows that differ are the drafted `think_format` rows again. The run record is
+  `runs/preflight-mlx-metal-0350-prod-g043f441.json`, beside a host profile captured just after it.
+- **Rollback:** stop the job, copy the archived 0.34.4 binary back, and start it. The payload is the same.
