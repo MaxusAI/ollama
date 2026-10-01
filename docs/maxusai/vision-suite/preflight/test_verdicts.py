@@ -1709,6 +1709,55 @@ class TestRocm7ProfileAdmitsTheV0350Fold(unittest.TestCase):
         """Every build since #371 carries 805, and the ROCm build applies it."""
         self.assertIn("805", self.exp["profiles"][self.PROFILE]["patchset"])
 
+class TestMlxMetalProfileAdmitsTheV0350Fold(unittest.TestCase):
+    """ADR 0032 on Apple Silicon. The v0.35.0 fold (#427) moves no native input: MLX stays 59d600b5 and
+    llama.cpp b11081. So its builds share mlx-metal-0-34-4, and the pattern widens to 0.35.0, as
+    rocm7-0-34-4-dynres's did. The Metal release build is a Go-only build at the tag, served on production's payload.
+
+    The profile must keep admitting production's build and admit the fold's builds, interim and tagged. It must
+    keep refusing 0.35.1, whose rc0 moves MLX to 64ea011c and llama.cpp to b11232: that payload needs its own profile.
+    """
+
+    PROFILE = "mlx-metal-0-34-4"
+    ADMIT = (
+        "0.34.4-dynres-0-gb43ee8e",    # production's build
+        "0.34.4-dynres-41-gfedbe05",   # the v0.35.0 fold's interim build
+        "0.35.0-dynres-0-g043f441",    # the fold's tag stamp: the Metal release build
+        "0.35.0-dynres-3-gabcdef0",    # a build after that tag
+    )
+    REJECT = (
+        "0.35.1-dynres-0-gabcdef0",        # the next fold moves MLX and llama.cpp: a new profile
+        "0.34.2-dynres-0-gf67b1ae",        # a previous payload
+        "0.35.0-dynres-0-g043f441-dirty",  # a dirty tree describes nothing
+        "0.35.0-dynres.1-0-g043f441",      # a point tag is a new deploy: widen deliberately
+        "0.35.0-maxusai-043f441a",         # the native stamp ADR 0032 retired
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_profile_admits_production_and_the_v0350_fold(self):
+        pat = re.compile(self.exp["profiles"][self.PROFILE]["version_pattern"])
+        for stamp in self.ADMIT:
+            self.assertRegex(stamp, pat, f"{self.PROFILE} must admit {stamp}")
+
+    def test_profile_refuses_the_next_fold_and_other_payloads(self):
+        pat = re.compile(self.exp["profiles"][self.PROFILE]["version_pattern"])
+        for stamp in self.REJECT:
+            self.assertNotRegex(stamp, pat, f"{self.PROFILE} must reject {stamp}")
+
+    def test_the_fold_tag_stamp_resolves_to_this_profile_through_preflight(self):
+        """Through the resolver the gate uses, so no other mlx-metal profile claims the stamp first."""
+        import preflight
+        pid, _ = preflight.resolve_profile(self.exp, "mlx-metal", "0.35.0-dynres-0-g043f441")
+        self.assertEqual(pid, self.PROFILE)
+
+    def test_the_patchset_stays_empty(self):
+        """llama.cpp's compat patches, 805 included, do not apply to MLX."""
+        self.assertEqual(self.exp["profiles"][self.PROFILE]["patchset"], [])
+
 class TestReleaseMatrixTensorColumn(unittest.TestCase):
     """A gate nothing renders is a gate nobody reads. release_matrix.py is the
     fold's headline artifact, and a check absent from GROUPS is simply not in
