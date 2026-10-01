@@ -23,7 +23,9 @@ scores_*.json.corrupt
 ext_*.json
 # ...except the arms a published table cites. Those are committed, so the table
 # re-renders from the repo alone:
-#     ocrbench_table.py --dir bench-runs/ocrbench "label=<tag>"
+#     summarize_extbench.py --dir bench-runs/ocrbench ocrbench <tag…>
+# The host profile those arms ran on sits beside them as host-profile_<run>.json
+# (SPEC H26); it is not run output, so nothing here ignores it.
 # Score files elsewhere stay run output. Dataset ROWS are deliberately not
 # committed — `--categories` reads extbench's local row cache, so it needs a
 # fetch on the host rendering it, and this repo does not redistribute the
