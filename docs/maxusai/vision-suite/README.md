@@ -120,6 +120,19 @@ first is image accounting and the second is generation length.
   `refcoco` mode reports the winning coordinate dialect and JSON key per item, so it doubles
   as a dialect probe. See [../vision-benchmark-survey.md](../vision-benchmark-survey.md) for
   why the external harnesses' own grounding scorers cannot be trusted with our models.
+  **A long arm survives its image links expiring.**
+  - **The problem.** The datasets-server signs every image link for one hour, counted from
+    when the rows were fetched, and the row cache outlives the links. On 2026-09-30, both
+    arms of a 1000-item OCRBench slice stopped on a 403 at item 682 and wrote nothing.
+  - **Every image is fetched before the first request,** into `extimgs/<bench>/`.
+  - **An expired link is refreshed** from the slice's `/rows` page. The refresh refuses
+    (`SliceMoved`) if that page now holds different items, because scoring them would put a
+    new item under an old index. `REFRESH_ROWS=1` re-fetches the whole slice instead.
+  - **An image that still cannot be fetched is one error record.** It no longer ends the
+    arm.
+  - **A running arm checkpoints** to `ext_<tag>_<bench>.partial.json` every 50 items, and
+    again when it is stopped (Ctrl-C, SIGTERM). Finishing removes the checkpoint.
+    `test_extbench.py` covers each case.
 - `summarize_extbench.py [--dir D] [--paired] <bench> <tag…>` — renders `ext_*.json` as one
   markdown table with an H13 provenance footer. **Tables from external benchmarks are pasted
   from this, never retyped** (SPEC H7). `--paired` adds the per-pair discordant counts and an

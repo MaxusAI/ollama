@@ -78,12 +78,13 @@ jobs:
       # claim their numbers are — the failure that put `eval_count` under an "Answer
       # tok" header into a merged campaign record. Together ~0.2s; there is no
       # reason for them to be manual.
-      - name: Verify the summarizers and the rescore regression
+      - name: Verify the summarizers, the rescore regression and extbench
         if: steps.scope.outputs.run == 'true'
         working-directory: docs/maxusai/vision-suite
         run: |
           python3 test_summarizers.py
           python3 test_rescore.py
+          python3 test_extbench.py
 
       # The harness is cherry-picked to lineages that carry preflight/ without the
       # rest of the vision suite. On release/0.32.1-dynres that is not a
