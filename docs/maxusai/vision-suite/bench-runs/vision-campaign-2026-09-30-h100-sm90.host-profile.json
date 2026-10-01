@@ -1,0 +1,120 @@
+{
+  "schema": "host-profile/1",
+  "collected_at": "2026-09-30T22:43:14Z",
+  "label": "gcp-a3-highgpu-1g/cuda",
+  "label_host": "gcp-a3-highgpu-1g",
+  "label_surface": "cuda",
+  "machine": {
+    "vendor": "Google",
+    "model": "Google Compute Engine",
+    "model_id": null,
+    "virtualized": true,
+    "hypervisor": "KVM"
+  },
+  "cloud": {
+    "provider": "gcp",
+    "zone": "australia-southeast2-b",
+    "region": "australia-southeast2",
+    "machine_type": "a3-highgpu-1g",
+    "cpu_platform": "Intel Sapphire Rapids",
+    "image": "debian-13-trixie-v20260921",
+    "on_host_maintenance": "TERMINATE",
+    "automatic_restart": true,
+    "preemptible": false
+  },
+  "os": {
+    "family": "linux",
+    "name": "Debian GNU/Linux",
+    "version": "13",
+    "pretty_name": "Debian GNU/Linux 13 (trixie)",
+    "kernel": "6.12.111+deb13-cloud-amd64",
+    "arch": "x86_64"
+  },
+  "cpu": {
+    "vendor": "intel",
+    "model": "Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz",
+    "logical_cpus": 26,
+    "sockets": 1,
+    "cores": 13,
+    "threads_per_core": 2,
+    "performance_cores": null,
+    "efficiency_cores": null,
+    "numa_nodes": 1,
+    "l3_cache_mib": 105.0,
+    "max_mhz": null,
+    "flags": {
+      "avx2": true,
+      "avx512f": true,
+      "avx512_vnni": true,
+      "avx512_bf16": true,
+      "avx512_fp16": true,
+      "amx_tile": true,
+      "amx_bf16": true,
+      "amx_int8": true
+    }
+  },
+  "memory_total_gib": 230.0,
+  "gpu_count": 1,
+  "gpus": [
+    {
+      "vendor": "nvidia",
+      "name": "NVIDIA H100 80GB HBM3",
+      "pci_name": "GH100 [H100 SXM5 80GB]",
+      "pci_bus_id": "0000:04:00.0",
+      "pci_vendor_id": "0x10de",
+      "pci_device_id": "0x2330",
+      "driver": "nvidia",
+      "memory_total_mib": 81559,
+      "memory_gtt_mib": null,
+      "unified_memory": null,
+      "compute_capability": "9.0",
+      "gfx_target": null,
+      "gpu_cores": null,
+      "metal_family": null,
+      "vbios": "96.00.DB.00.02",
+      "power_limit_w": 700.0,
+      "power_max_limit_w": 700.0,
+      "max_core_clock_mhz": 1980,
+      "max_memory_clock_mhz": 2619,
+      "ecc_enabled": true,
+      "mig_enabled": false,
+      "persistence_enabled": true,
+      "pcie_link_gen": 4,
+      "pcie_link_width": 16,
+      "pcie_device_max_gen": 5,
+      "pcie_device_max_width": 16,
+      "pcie_upstream_max_gen": 4,
+      "pcie_upstream_max_width": 16,
+      "pcie_gen_now": 4,
+      "pcie_width_now": 16,
+      "numa_node": 0,
+      "local_cpus": "0-25",
+      "index": 0
+    }
+  ],
+  "filesystems": [
+    {
+      "role": "models",
+      "fstype": "ext4",
+      "size_gib": 736.9,
+      "raid_level": "raid0",
+      "raid_devices": 2
+    }
+  ],
+  "software": {
+    "nvidia_driver_version": "615.71.09",
+    "nvidia_kernel_module": "open",
+    "cuda_driver_version": "13.4",
+    "cuda_toolkit_version": "13.4.92",
+    "cudnn_version": "9.27.0.42",
+    "nccl_version": "2.32.3",
+    "rocm_version": null,
+    "amdgpu_driver_version": null,
+    "docker_version": "29.8.1",
+    "nvidia_container_toolkit_version": "1.20.1",
+    "dcgm_version": "4.7.0",
+    "ollama_version": "0.34.4-dynres-0-gb43ee8e",
+    "go_version": "1.26.0",
+    "python_version": "3.13.5"
+  }
+}
