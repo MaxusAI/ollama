@@ -249,14 +249,23 @@ platform = "rocm7"
 # The fold's gate images stamp 0.34.3-dynres-N-g<sha> until v0.34.4-dynres is cut
 # (ADR 0032), and 0.34.4-dynres-N-g<sha> after. A 0.34.3 build on b10969 also
 # matches, and then fails payload_pin, which is the right answer for it.
-version_pattern = '^0\.34\.[34]-dynres-\d+-g[0-9a-f]{7,40}$'
+# Widened 2026-09-30 to 0.35.0 for the v0.35.0 fold (#427), as ADR 0032 says: that fold moves no native input
+# (llama.cpp stays b11081), so its builds share this payload and this profile. Its gfx1151 preflight repeated the
+# promoted image's run in 30 of 32 rows, every measured value included; the other two name the image. 0.35.1 stays
+# refused: its rc0 moves llama.cpp to b11232.
+version_pattern = '^0\.3(4\.[34]|5\.0)-dynres-\d+-g[0-9a-f]{7,40}$'
 # 908 added 2026-09-26 in the v0.34.4 fold (#375): the device half of ce8caa6e6 reverted. The ROCm build applies it,
 # in both stages, so the patch set lists it. On gfx1151 it changes no GPU code. The image built from 558453953 differs
 # from reference_image in one payload file of 1863, libggml-hip.so. In its gfx1151 code objects, the 78 FA MMA kernels
 # compiled for gfx1151 are byte-identical, and the 184 other flash_attn_ext_f16 entries are NO_DEVICE_CODE stubs whose
 # one changed byte is a __LINE__ literal. The library's host code changes only in __LINE__ literals and in the Ampere
 # config rows, which an AMD device never reads: gfx1151 takes the RDNA table, and 908 leaves that table unchanged.
-patchset = ["001", "002", "004", "005", "801", "802", "903", "908"]
+# 805 entered main with #371 (2026-09-29, ADR 0041), after the promoted build; every later build carries it, the
+# v0.35.0 fold's included. It is a switch on GGML_CUDA_FATTN_FORCE_TILE and does nothing while that is unset. The ROCm
+# build applies it, and on gfx1151 it changes no GPU code: the fold image's libggml-hip.so has a byte-identical
+# .hip_fatbin (60,336,816 bytes), and its host .text is 64 bytes longer, the switch. Production's
+# 0.34.4-dynres-0-gb43ee8e predates it.
+patchset = ["001", "002", "004", "005", "801", "802", "805", "903", "908"]
 reference_image = "0.34.3-dynres-5-g29ae523"
 llama_cpp_build = "161755f29"   # b11081, v0.34.4 fold 2026-09-25; read through the container route (#376)
 # The GPU toolchain, read from the shipped rocBLAS SONAME (librocblas.so.5.2.70204).
