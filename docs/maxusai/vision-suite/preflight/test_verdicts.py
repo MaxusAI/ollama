@@ -1509,6 +1509,73 @@ class TestReleaseMatrixColumns(unittest.TestCase):
                               f"which neither checks.py/preflight.py emits nor "
                               f"any recorded run carries")
 
+    # Checks the harness emits that deliberately have no column, and why.
+    NOT_A_VERDICT = {
+        "text_baseline": "prefix calibration, PASS for every arch past the probe "
+                         "(test_the_prefix_calibration_cannot_carry_a_column)",
+    }
+
+    def test_every_emitted_check_has_a_column(self):
+        """The reverse of the test above. mlx_payload_pin, toolchain_pin and
+        aspect_ladder could FAIL, and no column watched them, so the matrix read
+        through their failures: the H100's cuda run on 2026-09-30 failed only
+        mlx_payload_pin, and its matrix showed no FAIL anywhere. Every name the
+        harness emits now has a column, or an entry in NOT_A_VERDICT saying why
+        it has none."""
+        src = "\n".join((self.HERE / f).read_text()
+                        for f in ("checks.py", "preflight.py"))
+        emitted = set(re.findall(r'result\(\s*"([a-z0-9_]+)"', src))
+        emitted |= set(re.findall(r'^\s*name = "([a-z0-9_]+)"', src, re.M))
+        self.assertIn("mlx_payload_pin", emitted,
+                      "the scan no longer finds a check this test relies on")
+        mapped = set().union(*(names for _, names in release_matrix.GROUPS))
+        for name in sorted(emitted - mapped):
+            self.assertIn(name, self.NOT_A_VERDICT,
+                          f'preflight emits "{name}", but no release-matrix '
+                          f"column watches it, so its FAIL would never show")
+
+    def test_a_failed_pin_shows_in_its_own_column(self):
+        for check, column in (("mlx_payload_pin", "MLX build pin"),
+                              ("toolchain_pin", "Toolchain pin")):
+            with self.subTest(check=check):
+                row = self.render(self.with_baseline(
+                    self.rec(check, FAIL, arch=None, summary="pin moved")))
+                self.assertEqual(row[column], "**FAIL**")
+                self.assertEqual(row["Build identity"], "green")
+
+    def test_a_pin_the_profile_does_not_record_leaves_build_identity_green(self):
+        """The reason the pins have their own columns: rocm7 records no MLX
+        build, and folded into Build identity that skip would grey it."""
+        row = self.render(self.with_baseline(self.rec(
+            "mlx_payload_pin", SKIP, arch=None,
+            summary="profile records no mlx_build to assert against")))
+        self.assertEqual(row["Build identity"], "green")
+        self.assertEqual(row["MLX build pin"], "skipped")
+
+    def test_a_failed_aspect_ladder_shows_beside_a_green_token_ladder(self):
+        row = self.render(self.with_baseline(
+            self.rec("aspect_ladder", FAIL, summary="1024x768: 770 -> 812")))
+        self.assertEqual(row["Aspect ladder"], "**FAIL**")
+        self.assertEqual(row["Image size ladder"], "green")
+
+    def test_an_arch_that_stops_before_its_ladder_is_not_green(self):
+        """preflight exits 4 on an unmeasured baseline, and the other arches'
+        green ladders used to stand for the surface."""
+        for check, status, mark in (("expectation_lookup", "NEEDS_BASELINE", "no baseline"),
+                                    ("model_present", FAIL, "**FAIL**")):
+            with self.subTest(check=check):
+                row = self.render(self.with_baseline(
+                    self.rec(check, status, arch="qwen35")))
+                self.assertEqual(row["Image size ladder"], mark)
+
+    def test_a_run_that_could_not_resolve_its_profile_is_not_green(self):
+        """It passed the version check, then stopped (exit 2). Before this, that
+        version PASS alone read as a green build identity."""
+        row = self.render([self.rec("version", PASS, arch=None),
+                           self.rec("profile_lookup", checks.ERROR, arch=None,
+                                    summary="no profile for this version")])
+        self.assertEqual(row["Build identity"], "**ERROR**")
+
 
 
 class TestMetalStampFollowsADR0032(unittest.TestCase):
