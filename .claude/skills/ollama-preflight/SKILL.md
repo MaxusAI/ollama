@@ -201,6 +201,13 @@ on a different payload -- it serves `main` like the others -- but the batch
 ladder still resolves differently on an integrated GPU, the toolchain is pinned
 per platform, and a merged pass/fail hides which surface actually failed.
 
+The `meta` block names the endpoint, not the machine. Capture the machine on the
+serving host, during the run, and keep it beside the run's JSON:
+`python3 docs/maxusai/tools/host_profile.py --out DIR --label <collab label>`. It
+records the GPU and its PCIe link, the memory, the driver and the toolkit, and no
+identifiers (ADR 0046, SPEC H26). Compare two hosts' profiles before you read
+their verdicts side by side.
+
 ## Storage layout (10.8.0.6)
 
 Two arrays, two jobs — checking only one has already produced a wrong

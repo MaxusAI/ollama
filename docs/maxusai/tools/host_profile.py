@@ -10,8 +10,10 @@
 Records what a benchmark result needs beside it to be compared with one from another host: the
 host's collab label, the cloud machine when there is one (provider, zone, region, machine type,
 CPU platform), the OS, CPU, memory, each GPU with its PCIe link, the filesystems named with --fs,
-and the driver, toolkit and Ollama versions. Commit it beside the run it describes, e.g.
-vision-suite/bench-runs/<run>/host-profile.json. Two profiles compare field by field:
+and the driver, toolkit and Ollama versions. Capture it on the serving machine during the run,
+and commit it beside the results it describes, named for them: <bundle>.host-profile.json beside a
+campaign bundle, host-profile_<run>.json among OCRBench arms (SPEC H26, ADR 0046). Two profiles
+compare field by field:
 
     diff <(jq -S . A/host-profile.json) <(jq -S . B/host-profile.json)
 

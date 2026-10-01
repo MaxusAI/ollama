@@ -9,7 +9,9 @@ H15–H18 added 2026-09-19 from the 0.34 fold's kernel investigation
 ([m5-neural-accelerators.md](../m5-neural-accelerators.md)); H22 added 2026-09-20
 from the ROCm 10.0.0 throughput comparison on gfx1151
 ([rocm-10-throughput-2026-09-20.md](../rocm-10-throughput-2026-09-20.md)); H25 added 2026-09-27
-from the KV-precision loop test ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md)).
+from the KV-precision loop test ([kv-precision-think-loops.md](../tasks/kv-precision-think-loops.md));
+H26 added 2026-10-01 from the first cloud host
+([ADR 0046](../adr/0046-a-published-result-carries-a-profile-of-its-machine.md)).
 H23 and H24 are taken by the rocBLAS investigation's branch.
 
 Normative rules for adding to `docs/maxusai/vision-suite/`. The decision and its
@@ -590,6 +592,28 @@ unset is `auto`, which turns flash attention on.
 > gave 143,475 characters of thinking, byte-identical. On CUDA sm_120, gemma4:26b
 > gave byte-identical output in all six pairs: three cases on two builds.
 
+**H26 — A published result names the machine it ran on, with a profile captured
+there.** H11 records which server answered and which build it ran. It does not
+record the machine, and the machine moves numbers that neither field explains
+([ADR 0046](../adr/0046-a-published-result-carries-a-profile-of-its-machine.md)).
+- **Capture it on the serving machine, during the run:**
+  `docs/maxusai/tools/host_profile.py --out DIR --label <collab label> --fs models=<models dir>`.
+  Never capture it on the client that drives the run: with a remote server, the
+  client's GPU is not the one measured.
+- **Commit the JSON beside the results it describes, named for them.** Beside a
+  campaign bundle it is `<bundle stem>.host-profile.json`. In a directory of arms,
+  such as `bench-runs/ocrbench/`, it is `host-profile_<run>.json`.
+- **Point to it from the results.** A bundle names it in `meta.host_profile`, and
+  the results document links it.
+- **Capture it again for the next run.** A cloud machine type, a collab label and
+  a hostname can each come back on different hardware.
+
+> Measured 2026-09-30 on the first cloud host, a GCP `a3-highgpu-1g` VM. Its H100
+> SXM5 supports PCIe Gen5 x16, but the link trains at Gen4 x16 because the port
+> above it, as the VM sees it, tops out at Gen4. That is half the host bandwidth
+> behind every model load, and neither the machine type nor the GPU's name says
+> so. Two captures 8.6 hours apart differed only in `collected_at`.
+
 ## 4. Conformance
 
 | requirement | enforced by |
@@ -621,3 +645,4 @@ unset is `auto`, which turns flash attention on.
 | H23 | **Nothing enforces this.** The worked example is the flash-attention measurement in `rocblas-on-gfx1151.md` ("What flash attention is worth: 51%"), which ran the KV-cache change as its own arm |
 | H24 | `gemm_ceiling_bench.cpp` prints both counts, WGPs and CUs (two per WGP on RDNA: 20 and 40 on gfx1151, as `rocminfo` reports), so a halved denominator shows in its own output. **Nothing checks another bench's ceiling** |
 | H25 | `kvloop.sh`'s default `ARMS` is `f16:1 f16:0 f32:0`, and every capture logs the runner's `--cache-type-k/v` and `--flash-attn` flags. **Nothing checks a new llama.cpp pin.** After a bump, re-take one `ARMS="f16:1 f32:1"` pair and compare it byte for byte (ADR 0044, decision 4) |
+| H26 | `host_profile.py` reads and writes no identifier, and a probe with nothing to report leaves its field null. `test_host_profile.py` asserts both on output captured from a GCP H100 VM and an Apple Silicon Mac, and on a fake sysfs tree for an AMD APU, and `.github/workflows/host-profile.yaml` profiles its own runner. **Nothing checks that a published run carries a profile.** A bundle without `meta.host_profile` either predates 2026-09-30 or is the defect |

@@ -309,6 +309,12 @@ is a no-op there; the MLX runner did not enforce format until x/structured
 - **Cold server per model run** when payloads under test have cross-request leakage
   (upstream #17475 reproduced on b10091): restart the serving container/process
   between runs — `run_grid.sh` does this via `RESTART_CMD`.
+- **Profile the serving machine during the run** with
+  [`../tools/host_profile.py`](../tools/host_profile.py), and commit the profile beside the
+  results (SPEC H26, [ADR 0046](../adr/0046-a-published-result-carries-a-profile-of-its-machine.md)).
+  A score's `host` and `server_version` name the endpoint and the build. They do not say that
+  the H100 behind one endpoint runs on a Gen4 link. The procedure from profile to PR is the
+  `vision-campaign` skill.
 - **Always run both think modes.** `think:true` + `format:"json"` yields an *empty*
   `response` for nemotron3 and qwen3.6 **on stock builds** (thinking ends without a
   JSON body, well under the token budget); gemma4 handles both. Report empty cells as

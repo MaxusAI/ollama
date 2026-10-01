@@ -745,3 +745,40 @@ off.
 - **Cost** — none. The control pairs already existed from the direct-I/O
   question; they had simply never been read as an instrument.
 
+## 2026-09-30 — the first cloud host
+
+### 2026-09-30 — A GPU's name and the machine type do not say how the GPU is attached
+The PCIe link is set by the slowest end of it, and on a VM that end is not
+visible in anything the provider names.
+
+- **Evidence** — a GCP `a3-highgpu-1g` VM. Its H100 SXM5 supports PCIe Gen5
+  x16, but the port above it, as the VM sees it, tops out at Gen4. The link
+  trains at Gen4 x16, half the host bandwidth behind every model load. Two
+  profiles of the machine, 8.6 hours apart, agree in every field but
+  `collected_at`.
+- **Enforced by** — `host_profile.py` records the generation and width of the
+  device, of the port above it and of the trained link. SPEC H26 puts a profile
+  beside every published run
+  ([ADR 0046](adr/0046-a-published-result-carries-a-profile-of-its-machine.md)).
+- **Cost** — none yet. It was found on the first cloud host, before any
+  load-time number from it was compared with another host's.
+
+### 2026-09-30 — An external benchmark's image links expire inside one long arm
+OCRBench's rows come from the datasets-server with signed image links, valid
+for one hour from the row fetch. The row cache keeps the rows, and with them
+the expired links.
+
+- **Evidence** — both arms of a 1000-item OCRBench slice on the H100
+  (`gemma4:31b` `it-q4_K_M` and `nvfp4`) stopped on a 403 at item 682 and wrote
+  nothing.
+- **Enforced by** — `extbench.py` (#429):
+  - it fetches every image before the first request;
+  - it refreshes an expired link from the page that holds it, and refuses a
+    page whose items have moved;
+  - it records an image it cannot fetch as one error;
+  - it checkpoints a running arm every 50 items.
+
+  `test_extbench.py` asserts each of these.
+- **Cost** — the H100's first OCRBench pass, both arms: about an hour of a
+  rented GPU, and every result in it.
+
