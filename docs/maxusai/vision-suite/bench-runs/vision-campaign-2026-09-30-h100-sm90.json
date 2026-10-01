@@ -13,7 +13,8 @@
   "scope": "think-off: gemma4 12b/26b/31b-nvfp4, qwen3.8:27b-nvfp4, qwen3.6:35b-a3b-nvfp4 (MLX); gemma4:31b-it-q4_K_M, qwen3.8:27b-q4_K_M, nemotron3:33b-q8 (GGUF). think-on: gemma4:31b-nvfp4, qwen3.8:27b-nvfp4",
   "two_finetext_arms": "each campaign cell carries two independent finetext generations: scores.finetext (vision_suite.py) and finetext_probe (finetext_probe.py)",
   "reruns": "rerun_1_ to rerun_3_: scene_single only, gemma4:12b-nvfp4 think-off, each after a cold restart, 2026-10-01",
-  "assembled_from": "the run's scores_<tag>.json and ft_<tag>.json, unchanged"
+  "assembled_from": "the run's scores_<tag>.json and ft_<tag>.json, unchanged",
+  "rendered_tables": "docs/maxusai/vision-campaign-2026-09-30-h100-sm90.md"
  },
  "cells": [
   {

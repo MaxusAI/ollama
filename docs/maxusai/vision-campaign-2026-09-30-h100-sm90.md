@@ -41,7 +41,14 @@ Committed data, assembled from the run captures by script (ADR 0012 rule 8):
 | `nemotron3:33b-q8` | `74d89c84a4432530` | `655f279147f2` | 34.0 GiB |
 
 Of the five nvfp4 tags, only `qwen3.8:27b-nvfp4` is the artifact the 2026-09-18 campaign measured
-(`5642e97495e1a088`); the other four have been re-published under the same tags since.
+(`5642e97495e1a088`). The other four are different artifacts under the same tags:
+- **That campaign's store was already behind the registry** for the three gemma4 tags on the day it
+  ran (the store audit in [ocrbench-quantisation-ladder.md](ocrbench-quantisation-ladder.md),
+  2026-09-18).
+- **`gemma4:12b-nvfp4` and `gemma4:31b-nvfp4` here** are the artifacts the registry served that day.
+- **`gemma4:26b-nvfp4` has been re-published again since:** the registry served `f0fc7e0ae494` that
+  day.
+- **`qwen3.6:35b-a3b-nvfp4` differs too,** and this document does not say why.
 
 **Scope.** Think-off runs all eight tags. Think-on runs only `gemma4:31b-nvfp4` and
 `qwen3.8:27b-nvfp4`, the 2026-09-18 campaign's narrowing, so the two stay comparable.
