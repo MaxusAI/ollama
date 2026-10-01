@@ -27,6 +27,17 @@ The row slice is cached under `extimgs/ocrbench/rows_<offset>_<limit>.json` and 
 images beside it, so a re-run answers the same questions and a transient DNS failure
 cannot end a twenty-minute arm. `REFRESH_ROWS=1` re-fetches.
 
+**A 1000-item arm outlives its image links.**
+- **Why it matters.** The links are signed for an hour, counted from when the rows were
+  fetched. On 2026-09-30, both arms of a 1000-item slice stopped at item 682 on a 403 and
+  wrote nothing.
+- **Images come first.** `extbench.py` fetches every image before its first request.
+- **An expired link is refreshed** from the page that holds it. The refresh is refused if
+  that page's items have moved.
+- **An image that still cannot be fetched** is one error record.
+- **A running arm checkpoints** to `ext_<tag>_ocrbench.partial.json` every 50 items and
+  when it is stopped.
+
 ## The format
 
 One renderer, `vision-suite/summarize_extbench.py`, pasted verbatim (SPEC
