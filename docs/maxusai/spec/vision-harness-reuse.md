@@ -144,8 +144,8 @@ which is exactly what the fallback handles.
 ## 2. Reporting
 
 **H5 — Shared helpers are imported, never redefined.** `engine_for`,
-`was_capped`, `ctx_for`, `tag_for`, `resolve_tag`, `load`, `save`, `fmt_bool`,
-and the ladder decisions `capped_arms` / `ceiling_standing` /
+`was_capped`, `ctx_for`, `tag_for`, `arm_prefix`, `resolve_tag`, `load`, `save`,
+`bundle_cells`, `fmt_bool`, and the ladder decisions `capped_arms` / `ceiling_standing` /
 `mark_not_converged` live in `summarize_engine_compare.py`. A summarizer —
 or the driver, via its argv subcommands — needing any of them imports or
 invokes it.
@@ -156,7 +156,10 @@ invokes it.
 
 **H6 — Tag strings are produced and inverted by `tag_for`.** Tags mangle both
 `:` and `.` to `_`, so they cannot be un-mangled by splitting. Never parse a tag
-by hand.
+by hand. An arm's prefix, meaning the `TAG_PREFIX` and run number that
+`run_engine_compare.sh` writes before the tag, comes from `arm_prefix`. That
+function restates the runner's shell rule, and a test runs the runner's own lines
+against it.
 
 **H7 — Tables are emitted by a generator and pasted verbatim**, including into
 documents, chat replies and PR descriptions. Reformatting is what dropped the
@@ -622,8 +625,8 @@ record the machine, and the machine moves numbers that neither field explains
 | H3, H4 | `REPEATS` / `TAG_PREFIX` / `ONLY_TESTS` are inert when unset — verified with `sh -x` on both paths |
 | H4a | `run_engine_compare.sh` exits 2 when `CTX_MAX` leaves no CONTEXT-ladder rung above the think-on start; think-off is unaffected and `ALLOW_NO_LADDER=1` overrides |
 | H4b | `arm_done` in `vision_suite.py` importing `was_capped` (H5); `test_summarizers.py::TestResumeNeverSkipsCapped` asserts capped, error, and missing blocks all re-run; `::TestWasCappedPrefersDoneReason` asserts the `done_reason` verdict outranks the arithmetic and absence falls back to it |
-| H5, H6 | `summarize_reps.py`, `summarize_geometry.py`, `summarize_matrix.py` and `preflight/checks.py` all import `was_capped` (`test_summarizers.py::TestCappedDiscipline`, `test_verdicts.py::TestQualityCappedExcluded`); the ladder decisions are `capped_arms` / `ceiling_standing` / `mark_not_converged` in the same module, driven by `run_engine_compare.sh` via argv subcommands (`::TestCappedArms`, `::TestLadderCeilingMarker`) |
-| H7 | ADR 0012 rules 1 and 8; request examples via `emit_request.py` (payload captured from `client.py`, never re-derived) |
+| H5, H6 | `summarize_reps.py`, `summarize_geometry.py`, `summarize_matrix.py` and `preflight/checks.py` all import `was_capped` (`test_summarizers.py::TestCappedDiscipline`, `test_verdicts.py::TestQualityCappedExcluded`); the ladder decisions are `capped_arms` / `ceiling_standing` / `mark_not_converged` in the same module, driven by `run_engine_compare.sh` via argv subcommands (`::TestCappedArms`, `::TestLadderCeilingMarker`). `bundle_campaign.py` imports `arm_prefix`, `resolve_tag`, `is_descoped`, `load` and `save` (`test_bundle_campaign.py::TestSharedHelpers`), and `::TestArmPrefixIsTheRunners` runs the runner's own tag lines against `arm_prefix` |
+| H7 | ADR 0012 rules 1 and 8; request examples via `emit_request.py` (payload captured from `client.py`, never re-derived). A campaign's tables re-render from its committed bundle with `summarize_engine_compare.py --bundle`, through the code a run directory goes through (`test_summarizers.py::TestBundleSource`) |
 | H7, H11, H13 (external benchmarks) | `extbench.py` runs render through `summarize_extbench.py`, never by hand; `extbench.py` persists the `host` / `server_version` that `client.generate()` already stamps on every response, collected as SETS so a mid-run container restart cannot let one build vouch for another's rows; `test_summarizers.py::TestExtbenchSummary` asserts the unrecorded-file, mixed-campaign and clean-footer cases, and that the paired test stays EXACT (at 3-vs-1 discordant the uncorrected chi-square reads p≈0.317 against the true 0.625) |
 | H13 (footers) | `test_summarizers.py::TestProvenanceFooter` — clean / all-pre-H11 / mixed-recording / two-host cases against the rendered footer |
 | H13 (capped rendering) | `cap_or` in `summarize_head_to_head.py` importing `was_capped` (H5); `test_summarizers.py::TestT2CappedCells` asserts a capped scene hides score and latency but keeps tok/s; `q()`/`multi_cell` in `summarize_engine_compare.py` guard every T1 quality cell — `::TestT1CappedQualityCells` |
@@ -645,4 +648,4 @@ record the machine, and the machine moves numbers that neither field explains
 | H23 | **Nothing enforces this.** The worked example is the flash-attention measurement in `rocblas-on-gfx1151.md` ("What flash attention is worth: 51%"), which ran the KV-cache change as its own arm |
 | H24 | `gemm_ceiling_bench.cpp` prints both counts, WGPs and CUs (two per WGP on RDNA: 20 and 40 on gfx1151, as `rocminfo` reports), so a halved denominator shows in its own output. **Nothing checks another bench's ceiling** |
 | H25 | `kvloop.sh`'s default `ARMS` is `f16:1 f16:0 f32:0`, and every capture logs the runner's `--cache-type-k/v` and `--flash-attn` flags. **Nothing checks a new llama.cpp pin.** After a bump, re-take one `ARMS="f16:1 f32:1"` pair and compare it byte for byte (ADR 0044, decision 4) |
-| H26 | `host_profile.py` reads and writes no identifier, and a probe with nothing to report leaves its field null. `test_host_profile.py` asserts both on output captured from a GCP H100 VM and an Apple Silicon Mac, and on a fake sysfs tree for an AMD APU, and `.github/workflows/host-profile.yaml` profiles its own runner. **Nothing checks that a published run carries a profile.** A bundle without `meta.host_profile` either predates 2026-09-30 or is the defect |
+| H26 | `host_profile.py` reads and writes no identifier, and a probe with nothing to report leaves its field null. `test_host_profile.py` asserts both on output captured from a GCP H100 VM and an Apple Silicon Mac, and on a fake sysfs tree for an AMD APU, and `.github/workflows/host-profile.yaml` profiles its own runner. `bundle_campaign.py` warns when a campaign bundle's meta names no `host_profile`, and refuses one that is not beside the bundle (`test_bundle_campaign.py`). It warns rather than refuses because campaigns from before 2026-09-30 have no profile. **Nothing checks an OCRBench run,** which has no bundle |
