@@ -20,10 +20,10 @@ Upstream [v0.35.0](https://github.com/ollama/ollama/releases/tag/v0.35.0) (tag `
 | 2, docs and paths | **nothing to re-point**: the `transfer/` move is upstream's own, and no fork file names `x/transfer`. `check_source_paths.py` is clean |
 | 3, the patch series | **not applicable**: llama.cpp `b11081`, MLX `59d600b5` and MLX-C are all identical to `main` |
 | no-GPU harness gates | **green**: `test_verdicts.py` 196 OK, `test_summarizers.py`, `test_rescore.py` (1 skipped, the optional corpus test, as in CI), `test_mlx_test_gate.py` |
-| 4, image | **CUDA: not built**. The fold moves no native input, so the release image is a Go-only swap onto a deployed payload ("Gate 4" below). **gfx1151: built in full** (2026-09-30), `maxusai-ollama:0.34.4-dynres-41-gfedbe05-rocm7-gfx1151`. Its GPU code is production's, byte for byte, and 805 adds 64 bytes of host code ([Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-30)) |
-| 5, preflight | **CUDA: not run**. Interim builds resolve on every surface; a `v0.35.0-dynres` tag resolves on none until each host widens its profile ("Preflight profiles" below). **gfx1151: PASS=27 SKIP=5** on the fold image, equal to production's own run in every measured value. `rocm7-0-34-4-dynres` now admits `0.35.0` |
-| 6, campaigns | **CUDA: not run.** GPU0 is reserved, and the gate-4 argument covers the native side. The Go side is upstream's new code plus the fork's delta, carried line for line. **gfx1151: done** (2026-10-01). Think off, all 4,902 scored cells, all 140 answers and all 200 OCRBench answers equal production's, byte for byte. Think on, no model loses a finish, and qwen3.6 and gemma4:26b are byte-identical. The other differences are sampling draws or the two-pass flow's slot race, which production's own image shows. Apple Silicon: that host's call |
-| tag and deploy | **not cut, not deployed** |
+| 4, image | **CUDA: not built**. The fold moves no native input, so the release image is a Go-only swap onto a deployed payload ("Gate 4" below). **gfx1151: built in full** (2026-09-30), `maxusai-ollama:0.34.4-dynres-41-gfedbe05-rocm7-gfx1151`. Its GPU code is production's, byte for byte, and 805 adds 64 bytes of host code ([Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-30)). **Apple Silicon: Go-only** (2026-10-01), `0.35.0-dynres-0-g043f441` at the tag, on production's payload byte for byte ([Gates 4–6 on Apple Silicon](#gates-46-on-apple-silicon-2026-10-01)) |
+| 5, preflight | **CUDA: not run**. Interim builds resolve on every surface; a `v0.35.0-dynres` tag resolves on none until each host widens its profile ("Preflight profiles" below). **gfx1151: PASS=27 SKIP=5** on the fold image, equal to production's own run in every measured value. `rocm7-0-34-4-dynres` now admits `0.35.0`. **Apple Silicon: PASS=23 SKIP=16** on the release build, equal to the deployed build's run in every measured value except two drafted `think_format` rows, which vary between production's own runs. `mlx-metal-0-34-4` now admits `0.35.0` |
+| 6, campaigns | **CUDA: not run.** GPU0 is reserved, and the gate-4 argument covers the native side. The Go side is upstream's new code plus the fork's delta, carried line for line. **gfx1151: done** (2026-10-01). Think off, all 4,902 scored cells, all 140 answers and all 200 OCRBench answers equal production's, byte for byte. Think on, no model loses a finish, and qwen3.6 and gemma4:26b are byte-identical. The other differences are sampling draws or the two-pass flow's slot race, which production's own image shows. **Apple Silicon: done** (2026-10-01). Think off, all 196 answers and all 200 OCRBench answers equal the deployed build's, byte for byte. Think on did not run: on Metal, gemma4's long drafted thinking does not repeat byte for byte |
+| tag and deploy | **tagged** `v0.35.0-dynres` on `043f441a7` (2026-10-01). gfx1151 deployed it the same day ([#427](https://github.com/MaxusAI/ollama/pull/427#issuecomment-5930629034)). Apple Silicon deployed it at 23:45 AEST ([The deploy on Apple Silicon](#the-deploy-on-apple-silicon)) |
 
 ## What v0.35.0 changes for the fork
 
@@ -111,11 +111,12 @@ These are resolved with the harness's own `resolve_profile`:
 | cuda | `cuda-dynres-903` | **none**: the pattern admits `0.3[234]` |
 | mlx-cuda | `mlx-cuda` | **none**: the same pattern |
 | rocm7 | `rocm7-0-34-4-dynres` | `rocm7-0-34-4-dynres`, widened by gfx1151 after its run (2026-09-30) |
-| mlx-metal | `mlx-metal-0-34-4` | **none**: the same |
+| mlx-metal | `mlx-metal-0-34-4` | `mlx-metal-0-34-4`, widened by the Metal host for its run (2026-10-01) |
 
 The payload does not move, so ADR 0032 says to widen each profile rather than cut a new one, as the 0.33.0 and 0.34.0
 folds did for CUDA. The fold's own commits edit no profile. Each host widens its own after its own run:
 - gfx1151 widened `rocm7-0-34-4-dynres` on 2026-09-30 ([The rocm7 profile, widened](#the-rocm7-profile-widened)).
+- The Metal host widened `mlx-metal-0-34-4` on 2026-10-01 ([The mlx-metal profile, widened](#the-mlx-metal-profile-widened)).
 - On CUDA that waits until GPU0 is free.
 
 ## The one failing test
@@ -490,3 +491,202 @@ fold:
 - `patchset` lists 805. Every build since #371 carries it, as the builds before it came to carry 908.
 - `TestRocm7ProfileAdmitsTheV0350Fold` pins both changes. It admits production's stamp and the fold's interim and tag
   stamps. It refuses 0.35.1, an earlier payload, a dirty tree and a point tag. `test_verdicts.py` passes 200 tests.
+
+## Gates 4–6 on Apple Silicon (2026-10-01)
+
+**Host.** The Metal host, `macbook-pro-m5-max-128GB/mlx-metal`: an Apple M5 Max with 40 GPU cores (Metal 4) and
+128 GiB of unified memory, on macOS 26.6.2.
+- **Its profile** ([ADR 0046](../adr/0046-a-published-result-carries-a-profile-of-its-machine.md)), captured during
+  the preflight run, is
+  [`preflight-mlx-metal-0350-release-g043f441.host-profile.json`](../vision-suite/preflight/runs/preflight-mlx-metal-0350-release-g043f441.host-profile.json).
+  The capture taken during gate 6 differs from it only in `collected_at` and in the models filesystem that `--fs`
+  names.
+- The maintainer started this leg on 2026-10-01. It ran from 21:40 AEST to 23:34.
+- Every gate ran on a scratch server in production's environment: the launchd plist's three variables
+  (`OLLAMA_FORMAT_TWO_PASS=1`, `OLLAMA_KV_CACHE_TYPE=f16`, `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`) and its MLX store,
+  with one model loaded at a time. Preflight and the smoke checks used `127.0.0.1:11437`, and gate 6 used `:11436`.
+- Production on `:11435` kept serving 0.34.4. Every GPU step waited until production had been idle 15 minutes, in
+  High Power mode, and would have stopped and re-run had it woken. It never woke: the contention ledgers
+  have no lines, and its log shows no model request from 21:38 to 23:35.
+- **The reference is production's own build,** `0.34.4-dynres-0-gb43ee8e`: its preflight run of 2026-09-28, and its
+  think-off and OCRBench measurements of 2026-09-29, `r0344rel_`
+  ([upstream-sync-0.34.4.md](upstream-sync-0.34.4.md#deployed-and-verified-on-the-build-itself-metal-2026-09-29)).
+  Gate 6 ran the same suite tree, driver logic, order and settings, on the same model files: every manifest it reads
+  predates that baseline.
+- The scripts and tools named below are in the Metal host's run directory. `leg-0350.sh` ran the gates in order.
+
+**On Apple Silicon the fold changes no result that these gates measure.**
+- Its payload is production's, byte for byte. The binary is the only new file.
+- Its preflight repeats the deployed build's run in 32 of the 35 rows both runs have, every measured value included.
+  The version row names the build, and two drafted `think_format` rows vary as production's own two runs of 0.34.4 do.
+- With thinking off, all 196 answers on seven models equal the deployed build's, byte for byte, and so do their
+  token counts. So do all 200 OCRBench answers.
+- The MLX tests pass as on the 0.34.4 deploy. System One and per-request `typical_p` work as upstream describes, and
+  `typical_p` reaches llama-server's sampler.
+
+### Gate 4: a Go-only build on production's payload
+
+- **The build:** `go build` at `v0.35.0-dynres` (`043f441a7`), with `build-macos.sh`'s flags and stamp. It stamps
+  `0.35.0-dynres-0-g043f441`, and its build info reads `vcs.modified=false`.
+- **The payload is production's.** The stage's `lib/ollama` is a copy of the archived 0.34.4 pairing, which is
+  byte-identical to the `build/lib/ollama` that production serves: 19 files, 231 MB.
+- So "Gate 4" above holds on Metal as measured. Since `b43ee8e37`, the only native change is 805, a switch in the
+  CUDA flash-attention code, which the Metal payload does not build. MLX (`59d600b5`), MLX-C and llama.cpp (`b11081`)
+  are unchanged.
+- In the server log, the engine reports `"MLX version"=0.32.2-65-g59d600b`, and XGrammar v0.2.7 loads from the
+  stage's own `lib/ollama/mlx_metal_v4/`.
+
+### Gate 5: preflight
+
+`preflight.py --quality` ran on the release build. Its tag stamp resolves only through this record's widening of
+`mlx-metal-0-34-4` ([below](#the-mlx-metal-profile-widened)). The log, verbatim:
+
+```
+profile: mlx-metal-0-34-4  payload=
+  PASS=23  SKIP=16
+VERDICT: PASS
+```
+
+The run record is `runs/preflight-mlx-metal-0350-release-g043f441.json`. `pf_cmp.py` compares it row by row, without
+timings, with the release run of production's build (2026-09-28). Verbatim:
+
+```
+A: 0.34.4-dynres-0-gb43ee8e profile mlx-metal-0-34-4 mlx 0.32.2-65-g5 llama.cpp 161755f29 {'PASS': 23, 'SKIP': 12}
+B: 0.35.0-dynres-0-g043f441 profile mlx-metal-0-34-4 mlx 0.32.2-65-g5 llama.cpp 161755f29 {'PASS': 23, 'SKIP': 16}
+39 rows: 32 identical, measured values included; 7 differ:
+  version : expected: "^0\\.34\\.[34]-dynres-\\d+-g[0-9a-f]{7,40}$" -> "^0\\.3(4\\.[34]|5\\.0)-dynres-\\d+-g[0-9a-f]{7,40}$"; actual: "0.34.4-dynres-0-gb43ee8e" -> "0.35.0-dynres-0-g043f441"
+  think_format gemma4_unified: actual: {"response_chars": 225, "thinking_chars": 1658, "eval_count": 472} -> {"response_chars": 273, "thinking_chars": 803, "eval_count": 243}
+  think_format qwen35: actual: {"response_chars": 310, "thinking_chars": 779, "eval_count": 269} -> {"response_chars": 310, "thinking_chars": 779, "eval_count": 267}
+  extraction_quality gemma4: only in B
+  extraction_quality gemma4_unified: only in B
+  extraction_quality qwen35moe: only in B
+  extraction_quality qwen35: only in B
+```
+
+- **The version row** names the build and the widened pattern.
+- **The two `think_format` rows are drafted requests.** Under the two-pass flow, pass one drafts, and how deep it
+  drafts follows wall-clock time. Production's own two runs of 0.34.4, release and post-deploy, differ in the same two
+  rows.
+- **The four `extraction_quality` rows come from `--quality`,** which the 2026-09-28 runs did not pass. They skip,
+  because the profile records no quality thresholds.
+- The identical rows include every token and aspect ladder, `payload_pin` (`161755f29`, b11081), `mlx_payload_pin`
+  (`0.32.2-65-g59d600b`), the M5 tensor checks, and `think_format` on gemma4 and qwen35moe.
+
+### The native gate
+
+`go test ./mlxrunner/... -p 1` with `OLLAMA_VISION_E2E=1` ran in this tree on production's payload: 806 passed,
+0 failed and 1 skipped, as on the 0.34.4 deploy. `TestVisionEndToEnd` and `TestVisionGoldenParity` pass on real
+weights. The skip is `TestGlobalScaleSurvivesStorageBitExactly`: its fixture's float32 round trip happens to be exact,
+so it cannot witness the rule.
+
+### The new surface
+
+`step-smoke.sh` sent one think+format request to gemma4:26b-nvfp4, two System One requests and one `/api/generate`
+request with `"options":{"typical_p":0.9,"num_predict":8,"temperature":0}`. Its log, verbatim, in selected lines (the
+`typical_p` answer is cut at `…`):
+
+```
+content parses as JSON
+speculative decode stats lines: before=0 after=1
+time=2026-10-01T21:43:14.550+10:00 level=INFO source=speculate_stats.go:62 msg="speculative decode stats" iterations=64 drafted=126 accepted=107 acceptance=0.85 avg_draft=1.97 max_draft=4 avg_accepted=1.67 depth_over_time="0.5/1 1.2/2 2.0/2 2.1/3 2.4/3 2.4/3 3.2/4 1.9/3"
+{"model":"qwen3.6:35b-a3b-q4_K_M","answers":{"refund":{"type":"noul","noul":0.9514042656271932}},"usage":{"input_tokens":66,"output_tokens":1}} [HTTP 200]
+{"error":"model \"qwen3.8:27b-q4_K_M\" is not supported by System One; use a local Nimble or Tev GGUF model"} [HTTP 400]
+{"model":"qwen3.6:35b-a3b-q4_K_M","created_at":"2026-10-01T11:43:20.322638Z","response":"Hello! How can I help you today","done":true,"done_reason":"length",… [HTTP 200]
+time=2026-10-01T21:43:20.176+10:00 level=WARN source=routes.go:185 msg="deprecated option provided" option=typical_p
+	top_k = 20, top_p = 0.950, min_p = 0.000, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 0.900, top_n_sigma = -1.000, temp = 0.000
+```
+
+- **The two-pass flow works as deployed.** Pass one drafted, pass two under the grammar did not, and the answer
+  parses as JSON.
+- **System One answers on qwen3.6,** production's one model on the `qwen3.5` renderer. It refuses qwen3.8 with
+  upstream's message, as on gfx1151.
+- **The fold applies `typical_p`.** The server logs the deprecation warning, and llama-server's sampler takes the
+  value (`typical_p = 0.900`).
+
+### Gate 6: think off and OCRBench
+
+All seven think-off cells ran on the release build as the deployed build's did on 2026-09-29: a cold start per cell,
+`num_ctx` 16384 and `num_predict` 2200. Think-off requests carry a grammar and do not draft, so their answers repeat
+byte for byte. `eq_check_0350.py` compares the stored answers (`resp_*.json`: the 27 cases and the fine-text probe) and
+their `eval_count`. Verbatim:
+
+```
+think off, per model: A = r0344rel_1, B = r0350fold_1
+model                         answers identical  eval_count equal  differing cases
+gemma4_12b-nvfp4                       28/28             28/28     -
+gemma4_26b-nvfp4                       28/28             28/28     -
+gemma4_31b-nvfp4                       28/28             28/28     -
+qwen3_6_35b-a3b-nvfp4                  28/28             28/28     -
+qwen3_8_27b-nvfp4                      28/28             28/28     -
+gemma4_31b-it-q4_K_M                   28/28             28/28     -
+qwen3_6_35b-a3b-q4_K_M                 28/28             28/28     -
+all cells: 196/196 answers byte-identical
+```
+
+- The five MLX models and the two GGUF ones are all byte-identical.
+- Both builds launched llama-server for gemma4:31b-it-q4_K_M with `-b 2048 -ub 2048`. So the automatic batch, which
+  follows free memory and can move gemma4's GGUF answers, did not move here.
+
+OCRBench ran on rows 0–199 with gemma4:31b-nvfp4 (manifest `637cc0ff1570`): generate, thinking off, `num_ctx` 16384,
+temperature 0. OCRBench carries no grammar, so gemma4 drafts. `ocr_cmp.py` pairs the records with the deployed build's
+chunk of 2026-09-29. Verbatim:
+
+```
+A: ocrk0344rel_c0 gemma4:31b-nvfp4 server ['0.34.4-dynres-0-gb43ee8e'] host ['http://127.0.0.1:11436'] rows 0..199: 174/200 correct, errors 0, empty 0
+B: ocrk0350fold_c0 gemma4:31b-nvfp4 server ['0.35.0-dynres-0-g043f441'] host ['http://127.0.0.1:11436'] rows 0..199: 174/200 correct, errors 0, empty 0
+paired rows: 200 (rows in one arm only: 0)
+both correct 174, both wrong 26, A only 0, B only 0, McNemar exact p = 1.000
+questions and golds equal: 200/200
+predictions byte-identical: 200/200; prompt and answer token counts identical: 200/200
+no record differs
+```
+
+- The drafted short answers repeat, as they did between the 0.34.4 fold and its deployed build: 200 of 200.
+
+### Think on: not run
+
+Think on did not run on this host. On Metal, gemma4 drafts while it thinks, and a long drafted answer does not repeat
+byte for byte even on one build ([#375](https://github.com/MaxusAI/ollama/pull/375#issuecomment-5824799988)). So
+think on could be compared only by finishes and rates, as on gfx1151, where that comparison found sampling draws and
+the two-pass flow's slot race and nothing else. The fold puts nothing new on that path. Its server changes are the
+System One route and `typical_p`'s acceptance, and the fork's own code, the two-pass flow included, carries over line
+for line ([The conflict and its resolution](#the-conflict-and-its-resolution)). The maintainer can still ask for the
+run.
+
+### The mlx-metal profile, widened
+
+`expectations.toml`'s `mlx-metal-0-34-4` now admits this fold's builds:
+- `version_pattern` is `^0\.3(4\.[34]|5\.0)-dynres-\d+-g[0-9a-f]{7,40}$`, the shape `rocm7-0-34-4-dynres` took. ADR
+  0032 widens a profile for a fold that moves no native input, and this fold moves none. 0.35.1 stays refused, because
+  its rc0 moves MLX to `64ea011c` and llama.cpp to b11232.
+- `patchset` stays empty. llama.cpp's compat patches, 805 included, do not apply to MLX.
+- `TestMlxMetalProfileAdmitsTheV0350Fold` pins the widening. It admits production's stamp and the fold's interim and
+  tag stamps, and refuses 0.35.1, an earlier payload, a dirty tree, a point tag and the retired native stamp. Through
+  the resolver, the tag stamp maps to this profile. The old pattern fails the admit test. `test_verdicts.py` passes
+  211 tests.
+
+### The deploy on Apple Silicon
+
+On the maintainer's word, production on `:11435` has served `0.35.0-dynres-0-g043f441` since 23:45:55 AEST on
+2026-10-01.
+- **Only the binary changed.** With production idle, the job was stopped (`launchctl bootout`), the release build
+  replaced `0.34.4-dynres-0-gb43ee8e` at the checkout root, and the job was started again (`launchctl bootstrap`).
+  The payload (`build/lib/ollama`) and the launchd plist did not change. The binary is archived as
+  `ollama-0.35.0-dynres-0-g043f441` ([BINARIES.md](../vision-suite/BINARIES.md)).
+- **Verified:** `/api/version`; the process environment and the startup config, which carry the plist's three
+  variables; a live MLX load reporting `"MLX version"=0.32.2-65-g59d600b`, with XGrammar loading from production's
+  `build/lib/ollama`; and a two-pass think+format request whose pass one drafted and whose answer parses as JSON.
+- **Preflight on production itself passes,** PASS=23 SKIP=16. `pf_cmp.py` compares it with the stage's release run.
+  Verbatim:
+
+  ```
+  A: 0.35.0-dynres-0-g043f441 profile mlx-metal-0-34-4 mlx 0.32.2-65-g5 llama.cpp 161755f29 {'PASS': 23, 'SKIP': 16}
+  B: 0.35.0-dynres-0-g043f441 profile mlx-metal-0-34-4 mlx 0.32.2-65-g5 llama.cpp 161755f29 {'PASS': 23, 'SKIP': 16}
+  39 rows: 37 identical, measured values included; 2 differ:
+    think_format gemma4_unified: actual: {"response_chars": 273, "thinking_chars": 803, "eval_count": 243} -> {"response_chars": 289, "thinking_chars": 816, "eval_count": 260}
+    think_format qwen35: actual: {"response_chars": 310, "thinking_chars": 779, "eval_count": 267} -> {"response_chars": 310, "thinking_chars": 779, "eval_count": 269}
+  ```
+
+  The two rows that differ are the drafted `think_format` rows again. The run record is
+  `runs/preflight-mlx-metal-0350-prod-g043f441.json`, beside a host profile captured just after it.
+- **Rollback:** stop the job, copy the archived 0.34.4 binary back, and start it. The payload is the same.

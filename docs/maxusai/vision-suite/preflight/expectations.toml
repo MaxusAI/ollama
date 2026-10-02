@@ -627,7 +627,13 @@ platform = "mlx-metal"
 # (161755f29), with XGrammar 0.2.5 -> 0.2.7 alongside. A new profile by the ADR
 # 0011 rule that created every predecessor: a payload move gets its own profile
 # even when the numbers turn out identical, because "identical" is a measurement.
-version_pattern = '^0\.34\.[34]-dynres-\d+-g[0-9a-f]{7,40}$'
+# Widened 2026-10-01 to 0.35.0 for the v0.35.0 fold (#427), as ADR 0032 says: that fold moves no native input
+# (MLX stays 59d600b5, llama.cpp b11081), so its builds share this payload and this profile. The Metal release
+# build, 0.35.0-dynres-0-g043f441, is Go-only, at the tag, on production's payload. Its preflight repeated the
+# deployed build's run in 32 of the 35 rows both runs have, every measured value included; the version row names
+# the build, and two drafted think_format rows vary as production's own two runs of 0.34.4 do. 0.35.1 stays
+# refused: its rc0 moves MLX to 64ea011c and llama.cpp to b11232.
+version_pattern = '^0\.3(4\.[34]|5\.0)-dynres-\d+-g[0-9a-f]{7,40}$'
 # The shape rocm7-0-34-4-dynres admits: the fold's interim builds stamp the 0.34.3
 # tag until v0.34.4-dynres is cut (the candidate is 0.34.3-dynres-5-g29ae523). Not
 # -dirty, not a .N point tag, not the legacy 0.34.x-maxusai-<sha> shape. The two
