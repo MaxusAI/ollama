@@ -2,7 +2,8 @@
 
 Three sessions ran OCRBench against gemma4:31b on 2026-09-18/19 — mlx-metal, ROCm/GGUF
 and CUDA (both engines) — and each wrote its own harness notes. A fourth ran the full
-1000-item set on an H100 (sm_90), on both engines, on 2026-09-30. This is the shared
+1000-item set on an H100 (sm_90), on both engines, on 2026-09-30, then on 2026-10-01 against
+the rest of the vision fleet and gemma4:31b's GGUF ladder. This is the shared
 entry point: what the test is, how a run is produced, how a result is reported, and where
 every number lives. The per-host detail stays in its own document.
 
@@ -11,7 +12,7 @@ every number lives. The per-host detail stays in its own document.
 | mlx-metal | does the mlx#3912 kernel fix change quality? (full 1000-item set) | [vision-campaign-2026-09-18-mlx8a7ba949-nvfp4.md](vision-campaign-2026-09-18-mlx8a7ba949-nvfp4.md), [ADR 0037](adr/0037-keep-the-mlx-3912-kernel-fix.md) |
 | ROCm / GGUF | does q4→q8→bf16 cost quality, with bf16 as the unquantised control? | [ocrbench-gemma4-quant-ladder.md](ocrbench-gemma4-quant-ladder.md) |
 | CUDA sm_120 / mlx-cuda + GGUF | the same ladder on both engines, plus the vision-tower precision axis | [ocrbench-quantisation-ladder.md](ocrbench-quantisation-ladder.md) |
-| CUDA H100 (sm_90) / mlx-cuda + GGUF | do the engines differ over the full 1000-item set, on a second CUDA architecture? | [ocrbench-h100.md](ocrbench-h100.md) |
+| CUDA H100 (sm_90) / mlx-cuda + GGUF | do the engines differ over the full 1000-item set, on a second CUDA architecture? Where do the vision fleet and the GGUF ladder land on it? | [ocrbench-h100.md](ocrbench-h100.md) |
 
 ## The test
 
@@ -84,6 +85,14 @@ comparable within a slice, never across.
 | 1000, all categories | mlx-metal | `gemma4:31b-nvfp4`, 0.33.2 defective kernel | 833 / 1000 | 0.833 |
 | 1000, all categories | mlx-cuda, H100 | `gemma4:31b-nvfp4`, bf16 tower (library) | 832 / 1000 | 0.832 |
 | 1000, all categories | CUDA GGUF, H100 | `gemma4:31b-it-q4_K_M` | 825 / 1000 | 0.825 |
+| 1000, all categories | CUDA GGUF, H100 | `gemma4:31b-it-q8_0` | 829 / 1000 | 0.829 |
+| 1000, all categories | CUDA GGUF, H100 | `gemma4:31b-it-bf16`, images decoded in pieces | 833 / 1000 | 0.833 |
+| 1000, all categories | mlx-cuda, H100 | `gemma4:26b-nvfp4` | 818 / 1000 | 0.818 |
+| 1000, all categories | mlx-cuda, H100 | `gemma4:12b-nvfp4` | 706 / 1000 | 0.706 |
+| 1000, all categories | mlx-cuda, H100 | `qwen3.8:27b-nvfp4` | 867 / 1000 | 0.867 |
+| 1000, all categories | CUDA GGUF, H100 | `qwen3.8:27b-q4_K_M` | 857 / 1000 | 0.857 |
+| 1000, all categories | mlx-cuda, H100 | `qwen3.6:35b-a3b-nvfp4` | 878 / 1000 | 0.878 |
+| 1000, all categories | CUDA GGUF, H100 | `nemotron3:33b-q8` | 879 / 1000 | 0.879 |
 | 200, rows 0–200 | mlx-cuda, sm_120 | `gemma4:31b-nvfp4`, 4-bit tower | 172 / 200 | 0.860 |
 | 200, rows 0–200 | mlx-cuda, sm_120 | `gemma4:31b-nvfp4`, bf16 tower (library) | 170 / 200 | 0.850 |
 | 200, rows 0–200 | mlx-cuda, H100 | `gemma4:31b-nvfp4`, bf16 tower (library); rows 0–200 of the 1000-item run | 170 / 200 | 0.850 |
@@ -91,13 +100,15 @@ comparable within a slice, never across.
 | 200, rows 0–200 | CUDA GGUF, sm_120 | `gemma4:31b-it-q4_K_M` | 171 / 200 | 0.855 |
 | 200, rows 0–200 | CUDA GGUF, H100 | `gemma4:31b-it-q4_K_M`, another manifest; rows 0–200 of the 1000-item run | 170 / 200 | 0.850 |
 | 200, rows 0–200 | CUDA GGUF, sm_120 | `gemma4:31b-it-q8_0` | 170 / 200 | 0.850 |
+| 200, rows 0–200 | CUDA GGUF, H100 | `gemma4:31b-it-q8_0`, the same manifest; rows 0–200 of the 1000-item run | 170 / 200 | 0.850 |
 | 200, rows 0–200 | CUDA GGUF, sm_120 | `gemma4:31b-it-bf16` | 171 / 200 | 0.855 |
+| 200, rows 0–200 | CUDA GGUF, H100 | `gemma4:31b-it-bf16`, the same manifest; rows 0–200 of the 1000-item run | 170 / 200 | 0.850 |
 | 200, rows 0–200 | ROCm GGUF | `gemma4:31b-it-q4_K_M` | 171 / 200 | 0.855 |
 | 200, rows 0–200 | ROCm GGUF | `gemma4:31b-it-q8_0` | 169 / 200 | 0.845 |
 | 200, rows 0–200 | ROCm GGUF | `gemma4:31b-it-bf16` | 169 / 200 | 0.845 |
 
 Seconds per item are not comparable across those rows either: CUDA sm_120 runs the GGUF
-arms at about 5.0 s, the H100 at 2.3 s, and ROCm/gfx1151 at 7.7–8.3 s, on different silicon
+arms at about 5.0 s, the H100 at 2.0–2.4 s, and ROCm/gfx1151 at 7.7–8.3 s, on different silicon
 with a different batch.
 **ADR 0036's batch floor is a per-host fact, not a property of the build**: the same commit
 asks for 2048 on both, gets it on CUDA and is refused it on gfx1151, so read the logged
@@ -127,9 +138,9 @@ from the scored side.
 
 **No quantisation difference resolves.** Every paired test run on every host — 4-bit
 against 8-bit against bf16, on GGUF and on MLX, the fixed kernel against the defective
-one on 1000 items, and on the H100 GGUF `q4_K_M` against mlx-cuda `nvfp4` on 1000 items —
-returns p between 0.210 and 1.000. The arms differ by
-single items in both directions. Two engines also reproduced their arms item for item
+one on 1000 items, and on the H100 GGUF `q4_K_M` against mlx-cuda `nvfp4` and the GGUF
+ladder, each on 1000 items — returns p between 0.096 and 1.000. The arms differ by a few
+items in both directions. Two engines also reproduced their arms item for item
 across repeats, so this is not noise swamping a signal; on this benchmark there is no
 quality signal to find between these builds.
 
