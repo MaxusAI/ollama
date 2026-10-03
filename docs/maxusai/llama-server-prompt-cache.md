@@ -284,8 +284,11 @@ tool that measures through it runs with the cache off: `vision_suite.py`, `finet
 - **A build without the option** (before #440) drops it with a warning in its log and keeps the
   cache on. The record says what was asked, and `server_version` says which build answered.
 
-Checked on the H100 on 2026-10-03, against production's commit plus the option, served beside
-production on its own port:
+Checked on the H100 on 2026-10-03
+([host profile](vision-suite/bench-runs/prompt-cache/host-profile_h100-sm90-2026-10-03.json)),
+against `0.34.4-dynres-0-gb43ee8e-pcache3`: production's commit, `b43ee8e3`, plus the Go diff of
+#440 and #441 (`git diff 4a4ce558e 02da2ebe7 -- api llm server`), built with production's flags
+and served beside production on its own port:
 1. **extbench,** RefCOCO rows 4000–4049 on `gemma4:31b-it-q4_K_M`, with the A/B's settings. By
    default llama-server launched with `--cache-ram 0` and logged "prompt cache is disabled".
    With `PROMPT_CACHE_RAM=server` it launched with no `--cache-ram`, and the cache updated 50
@@ -307,8 +310,10 @@ extbench records each request to 0.1 s, so a difference under about 0.05 s per r
 
 ## Reproducing
 
-The data is committed under `vision-suite/bench-runs/prompt-cache/`, with the host profile the
-runs share (SPEC H26). Every table above renders from it alone:
+The data is committed under `vision-suite/bench-runs/prompt-cache/`, with a host profile for
+each day's runs (SPEC H26): `host-profile_h100-sm90-2026-10-02.json` for the A/B and the probe,
+`host-profile_h100-sm90-2026-10-03.json` for the harness check. Every table above renders from it
+alone:
 
 ```bash
 cd docs/maxusai

@@ -114,6 +114,7 @@ decision and its measurements live (`docs/maxusai/`). The
 | **drafting under a grammar (MLX)** | always on | on by default to match upstream; `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` restores the gate, and production sets it | ADR 0033 |
 | **stop sequences (MLX)** | not honoured by the MLX runner | honoured, with a possible stop prefix held back until it matches or the stream ends | `mlxrunner/stopper.go` |
 | **KV cache type** | one global `OLLAMA_KV_CACHE_TYPE` | per model, with K/V pair syntax; production runs f16 on every platform, and a quantized cache is per model or per request | ADR 0005, ADR 0043 |
+| **llama-server's prompt cache** | no `--cache-ram`, so llama.cpp's 8192 MiB host-RAM cache is on for every GGUF model | the same by default. `prompt_cache_ram`, per model or per request, sets `--cache-ram`, and `0` turns it off: up to a fifth less time per image request on `gemma4:31b`, with the same answers. The vision harness sends `0` | ADR 0047 |
 
 **What production's choices cost, against stock v0.34.4**
 
