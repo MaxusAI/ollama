@@ -146,8 +146,8 @@ first is image accounting and the second is generation length.
   two conversations growing turn by turn, or two images. Every request goes through
   `client.generate()`, and each records the prefill llama-server ran, ollama's total and the
   wall clock. `compare` prints one row per run.
-  - **Run it twice on one build,** with `OLLAMA_LLAMA_SERVER_CACHE_RAM` unset and then `0`, to
-    measure what the cache buys. `../tools/prompt_cache_stats.py` reads what it costs from the
+  - **Run it twice on one build,** without `--prompt-cache-ram` and then with
+    `--prompt-cache-ram 0`, to measure what the cache buys. `../tools/prompt_cache_stats.py` reads what it costs from the
     journal.
   - **Measured 2026-10-03 on an H100** ([../llama-server-prompt-cache.md](../llama-server-prompt-cache.md)):
     the cache saved `qwen3.8:27b-q4_K_M` and `nemotron3:33b-q8` a quarter to a third of each

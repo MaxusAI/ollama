@@ -50,7 +50,7 @@ class Run(unittest.TestCase):
 
     def args(self, **kw):
         base = dict(host=self.host, model="m:1", label="cache on", image=[], conversations=2, turns=3,
-                    doc_words=200, num_ctx=8192, num_predict=48, timeout=30)
+                    doc_words=200, num_ctx=8192, num_predict=48, timeout=30, prompt_cache_ram=None)
         return SimpleNamespace(**dict(base, **kw))
 
     def test_conversations_take_turns_and_grow_a_shared_prefix(self):
@@ -69,6 +69,11 @@ class Run(unittest.TestCase):
         self.assertEqual(body["options"], {"num_predict": 48, "num_ctx": 8192, "temperature": 0})
         self.assertIs(body["think"], False)
         self.assertNotIn("format", body)
+
+    def test_prompt_cache_ram_goes_on_every_request_when_set(self):
+        d = probe.run(self.args(turns=2, prompt_cache_ram=0))
+        self.assertEqual({b["options"].get("prompt_cache_ram") for _, b in FakeOllama.seen}, {0})
+        self.assertEqual(d["settings"]["prompt_cache_ram"], 0)
 
     def test_a_record_carries_the_server_timings_and_build(self):
         d = probe.run(self.args(turns=1))

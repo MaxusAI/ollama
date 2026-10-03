@@ -2,12 +2,13 @@
 """Requests that take turns between contexts: the case llama-server's prompt cache is for.
 
 Usage:
-    prompt_cache_probe.py run --host URL --model M --label L [--image A --image B ...] > run.json
+    prompt_cache_probe.py run --host URL --model M --label L [--prompt-cache-ram N]
+                              [--image A --image B ...] > run.json
     prompt_cache_probe.py compare run.json [run.json ...]
 
 llama.cpp's server keeps a prompt cache in host RAM: 8192 MiB unless `--cache-ram` says
-otherwise, and ollama passes nothing unless the `prompt_cache_ram` option or
-OLLAMA_LLAMA_SERVER_CACHE_RAM sets it. With one slot, a request that cannot reuse the slot's prompt first saves the slot's state into that
+otherwise, and ollama passes nothing unless a model or request sets `prompt_cache_ram`. With
+one slot, a request that cannot reuse the slot's prompt first saves the slot's state into that
 cache, and a later request can restore it instead of evaluating its prompt again. This probe
 sends requests that could each resume a state saved two requests earlier:
 
@@ -20,8 +21,8 @@ sends requests that could each resume a state saved two requests earlier:
 Every request goes through `client.generate()` (SPEC H9): greedy, think off, `/api/generate`,
 no ambient Runner options. Each records ollama's `prompt_eval_duration` (the prefill
 llama-server actually ran), `total_duration` and the client's wall clock. `compare` prints one
-row per run. Run it once with the cache and once with OLLAMA_LLAMA_SERVER_CACHE_RAM=0, on the
-same build, and read the cache's own record of the runs with
+row per run. Run it once as is and once with `--prompt-cache-ram 0`, which sends the option on
+every request, on the same build, and read the cache's own record of the runs with
 `docs/maxusai/tools/prompt_cache_stats.py`.
 """
 import argparse
@@ -53,10 +54,19 @@ def document(seed, words):
     return " ".join(out), n
 
 
+def request_options(args):
+    """Greedy, plus prompt_cache_ram when the run sets it. The option relaunches the runner when
+    it changes, so a run sends one value on every request."""
+    opts = {"temperature": 0}
+    if args.prompt_cache_ram is not None:
+        opts["prompt_cache_ram"] = args.prompt_cache_ram
+    return opts
+
+
 def ask(args, prompt, images):
     t0 = time.time()
     r = client.generate(args.host, args.model, prompt, images, num_predict=args.num_predict,
-                        num_ctx=args.num_ctx, fmt=None, extra_opts={"temperature": 0},
+                        num_ctx=args.num_ctx, fmt=None, extra_opts=request_options(args),
                         endpoint_override="generate", think=False, apply_sampling=False,
                         timeout=args.timeout, use_env_opts=False)
     return r, (time.time() - t0) * 1000
@@ -96,6 +106,7 @@ def run(args):
             "server_version": sorted(b for b in builds if b) or None,
             "workload": "images" if args.image else "conversations",
             "settings": {"num_ctx": args.num_ctx, "num_predict": args.num_predict, "turns": args.turns,
+                         "prompt_cache_ram": args.prompt_cache_ram,
                          "contexts": len(args.image) if args.image else args.conversations,
                          "doc_words": None if args.image else args.doc_words},
             "records": records}
@@ -141,6 +152,8 @@ def main():
     r.add_argument("--host", required=True)
     r.add_argument("--model", required=True)
     r.add_argument("--label", required=True, help="names the run in compare's table, e.g. 'cache on'")
+    r.add_argument("--prompt-cache-ram", type=int, help="sent as options.prompt_cache_ram on every request: "
+                                                          "0 turns llama-server's prompt cache off")
     r.add_argument("--image", action="append", default=[], help="two or more: the images take turns")
     r.add_argument("--conversations", type=int, default=2)
     r.add_argument("--turns", type=int, default=6)

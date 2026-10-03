@@ -1,6 +1,7 @@
-# ADR 0047: llama-server's prompt cache is sized per model, per request or per host
+# ADR 0047: llama-server's prompt cache is sized per model or per request
 
-Date: 2026-10-03 · Status: accepted (shipped with the `prompt_cache_ram` option)
+Date: 2026-10-03 · Status: accepted (shipped with the `prompt_cache_ram` option). Decision 2, a
+host-wide variable, was withdrawn the same day: see the addendum.
 
 ## Context
 
@@ -26,12 +27,13 @@ that.
 1. **`prompt_cache_ram` is a runner option**, in MiB: `0` turns the cache off and `-1` removes the
    limit. It is set by a Modelfile `PARAMETER` or the request's `options`, like `num_ctx` and
    `kv_cache_type` ([ADR 0005](0005-per-model-kv-cache-type.md)). The request wins over the model.
-2. **`OLLAMA_LLAMA_SERVER_CACHE_RAM` is the host's default** for a load that names none.
-3. **With neither, ollama passes no `--cache-ram`**, so llama.cpp's default applies, as upstream.
-   This ADR does not change the default.
+2. ~~**`OLLAMA_LLAMA_SERVER_CACHE_RAM` is the host's default** for a load that names none.~~
+   Withdrawn: see the addendum.
+3. **Without the option, ollama passes no `--cache-ram`**, so llama.cpp's default applies, as
+   upstream: the cache is on. This ADR does not change the default.
 4. **The scheduler compares the value a launch would pass**, not the value a client sent. An
-   invalid option falls back to the host's default with a warning, so a Modelfile typo cannot make
-   a model unloadable (as `kv_cache_type` does).
+   invalid option is ignored with a warning, so llama.cpp's default applies and a Modelfile typo
+   cannot make a model unloadable (as `kv_cache_type` does).
 
 ## Consequences
 
@@ -39,7 +41,21 @@ that.
 - **A different value relaunches the runner,** which costs a model load (4–17 s for the models
   measured). Clients that alternate values reload on every switch, so set it per model or per
   client, not per request.
-- **A request that names the host's default does not relaunch the runner** it already has.
+- **An invalid value launches the same runner as no value,** so it does not relaunch one.
 - **An MLX runner ignores the option** and is never relaunched for it.
 - **The change is Go-only,** like `kv_cache_type`, and needs no compat patch at a fold. Upstream
-  has neither the option nor the variable.
+  has no such option.
+
+## Addendum 2026-10-03: no host variable
+
+The first version (#440) also read `OLLAMA_LLAMA_SERVER_CACHE_RAM` as the host's default for a
+load that named no `prompt_cache_ram`. The maintainer withdrew it the same day, before any host set
+it:
+- **Two settings for one flag meant a precedence order** to read every load against: request, then
+  model, then host.
+- **A host-wide value is what the context above says cannot fit every model.**
+
+A model that should run without the cache sets `PARAMETER prompt_cache_ram 0` in its Modelfile,
+and a client sends the option. Unset, nothing changes. The A/B in
+[llama-server-prompt-cache.md](../llama-server-prompt-cache.md) ran on a build that still read the
+variable, which set the same `--cache-ram` flag.

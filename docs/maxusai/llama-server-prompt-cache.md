@@ -6,14 +6,11 @@ otherwise. ollama starts `llama-server` without `--cache-ram`, upstream and this
 cost every vision request measured here, and paid back only when text conversations take turns
 on a model whose state is small.
 
-Two settings size it in MiB, as `--cache-ram` does: `0` turns the cache off and `-1` removes the
-limit.
-- **`prompt_cache_ram`, per model or per request:** a Modelfile `PARAMETER` or the request's
-  `options`, like `num_ctx`. A different value relaunches the model's runner.
-- **`OLLAMA_LLAMA_SERVER_CACHE_RAM`, per host:** the default for every load that names none.
-
-With neither, llama.cpp's default applies, so nothing changes until one is set
-([ADR 0047](adr/0047-llama-server-prompt-cache-is-sized-per-model-request-or-host.md)).
+`prompt_cache_ram` sizes it in MiB, as `--cache-ram` does: `0` turns the cache off and `-1`
+removes the limit. A model sets it with a Modelfile `PARAMETER`, and a client in the request's
+`options`, like `num_ctx`; a different value relaunches the model's runner. Without it,
+llama.cpp's default applies and the cache is on, so nothing changes until a model or a request
+sets it ([ADR 0047](adr/0047-llama-server-prompt-cache-is-sized-per-model-or-request.md)).
 
 ## What the cache does
 
@@ -84,8 +81,10 @@ cache that holds nine of its prompts rarely still holds the one that comes back.
 
 One binary served every run: production's commit (`b43ee8e`) plus this change, built the way
 production was, versioned `0.34.4-dynres-0-gb43ee8e-pcache`. Each run had the server to itself
-with one model loaded, after the same unload. The cache-on runs left the variable unset, and the
-cache-off runs set it to `0`. `llama-server`'s own lines confirm each launch:
+with one model loaded, after the same unload. That build read a host variable,
+`OLLAMA_LLAMA_SERVER_CACHE_RAM`, which ADR 0047's addendum has since withdrawn. The cache-on runs
+left it unset, and the cache-off runs set it to `0`: the same `--cache-ram` flag that
+`prompt_cache_ram` sets. `llama-server`'s own lines confirm each launch:
 - **cache on:** no `--cache-ram` on the command line, and "prompt cache is enabled, size limit:
   8192 MiB";
 - **cache off:** `--cache-ram 0`, and "prompt cache is disabled".
@@ -221,15 +220,15 @@ H100 SXM5 (sm_90), 0.34.4-dynres-0-gb43ee8e-pcache (production plus OLLAMA_LLAMA
 
 `prompt_cache_ram` is a runner option of the same kind as `num_ctx` and `kv_cache_type`
 ([ADR 0005](adr/0005-per-model-kv-cache-type.md)).
-- **Precedence:** the request's option, then the model's `PARAMETER`, then
-  `OLLAMA_LLAMA_SERVER_CACHE_RAM`, then llama.cpp's 8192 MiB.
+- **Precedence:** the request's option, then the model's `PARAMETER`, then llama.cpp's 8192
+  MiB.
 - **A different value relaunches the runner,** as a different `num_ctx` does, at the cost of a
   model load: 4–17 s for the models here. Clients that alternate values reload on every switch,
   so set it per model or per client.
-- **The scheduler compares the value a launch would pass,** so a request that names the host's
-  default does not relaunch the runner it already has.
-- **An invalid value** (below `-1`) falls back to the host's default with a warning, so a
-  Modelfile typo cannot make a model unloadable.
+- **The scheduler compares the value a launch would pass,** so an invalid value, which a launch
+  ignores, does not relaunch a runner started without one.
+- **An invalid value** (below `-1`) is ignored with a warning, so llama.cpp's default applies
+  and a Modelfile typo cannot make a model unloadable.
 - **An MLX runner ignores it,** and is never relaunched for it.
 
 Checked end to end on the H100 on 2026-10-03, one `nemotron3:33b-q8` request at a time. The
@@ -240,12 +239,14 @@ journal shows one `llama-server` launch per change and none for a repeat:
 3. **`0` again:** no launch;
 4. **no option:** relaunched as in 1;
 5. **`2048`:** relaunched with `--cache-ram 2048`, and "size limit: 2048 MiB";
-6. **`-5`:** a warning, and relaunched with the host's default.
+6. **`-5`:** a warning, and relaunched with no `--cache-ram`, as in 1.
 
 ## What to do with it
 
 - **A host that serves vision requests** (extraction, OCR, these benchmarks) loses up to a fifth
-  of its request time to the cache and gets nothing back. Set `OLLAMA_LLAMA_SERVER_CACHE_RAM=0`.
+  of its request time to the cache and gets nothing back. Give its models
+  `PARAMETER prompt_cache_ram 0` in their Modelfiles, or have its clients send
+  `prompt_cache_ram: 0`.
 - **A host that serves both** can give its image-heavy models `PARAMETER prompt_cache_ram 0` in a
   Modelfile, and leave its chat models on the default.
 - **A host whose traffic is text conversations that take turns** gains from it on small-state
@@ -276,6 +277,7 @@ python3 vision-suite/prompt_cache_probe.py compare $(for k in text images; do fo
 python3 tools/prompt_cache_stats.py render $D/stats_ab-h100-2026-10-02.json
 ```
 
-To measure a host again, serve one build twice, the variable unset and then `0`. Run the same
-extbench arms and `prompt_cache_probe.py run` against each, then read the journal with
-`prompt_cache_stats.py parse`, one `--window` per run.
+To measure a host again, run each arm twice on one build, once as is and once with the cache
+off. An extbench arm runs the second time against a Modelfile copy of the model with
+`PARAMETER prompt_cache_ram 0`; `prompt_cache_probe.py run` takes `--prompt-cache-ram 0`. Then
+read the journal with `prompt_cache_stats.py parse`, one `--window` per run.

@@ -293,35 +293,6 @@ func TestLoadTimeout(t *testing.T) {
 	}
 }
 
-func TestLlamaServerCacheRAM(t *testing.T) {
-	type want struct {
-		mib int
-		ok  bool
-	}
-	cases := map[string]want{
-		"":     {0, false}, // unset keeps llama.cpp's default
-		"0":    {0, true},  // disables the cache
-		"4096": {4096, true},
-		"8192": {8192, true},
-		"-1":   {-1, true}, // no limit
-		// invalid values keep the default rather than reach llama-server
-		" ":    {0, false},
-		"-2":   {0, false},
-		"1.5":  {0, false},
-		"8GiB": {0, false},
-		"off":  {0, false},
-	}
-
-	for tt, expect := range cases {
-		t.Run(tt, func(t *testing.T) {
-			t.Setenv("OLLAMA_LLAMA_SERVER_CACHE_RAM", tt)
-			if mib, ok := LlamaServerCacheRAM(); mib != expect.mib || ok != expect.ok {
-				t.Errorf("%q: got (%d, %v), want (%d, %v)", tt, mib, ok, expect.mib, expect.ok)
-			}
-		})
-	}
-}
-
 func TestVar(t *testing.T) {
 	cases := map[string]string{
 		"value":       "value",

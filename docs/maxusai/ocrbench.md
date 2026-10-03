@@ -43,8 +43,8 @@ cannot end a twenty-minute arm. `REFRESH_ROWS=1` re-fetches.
 
 **Seconds per item depend on llama-server's prompt cache.** A GGUF arm's request time
 includes the cache's update when the image changes: up to a fifth of a `gemma4:31b` request.
-Compare seconds only between arms run with the same `prompt_cache_ram` or
-`OLLAMA_LLAMA_SERVER_CACHE_RAM` ([llama-server-prompt-cache.md](llama-server-prompt-cache.md)).
+Compare seconds only between arms run with the same `prompt_cache_ram`
+([llama-server-prompt-cache.md](llama-server-prompt-cache.md)).
 Accuracy does not move.
 
 ## The format

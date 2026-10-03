@@ -1544,9 +1544,8 @@ func (runner *runnerRef) needsReload(ctx context.Context, req *LlmRequest) bool 
 	// send, or the second request reloads the model for nothing.
 	llm.NormalizeImageTokenBudget(req.model.Config.ModelFamily, &optsExisting)
 	llm.NormalizeImageTokenBudget(req.model.Config.ModelFamily, &optsNew)
-	// The same holds for the prompt-cache size: an unset prompt_cache_ram and
-	// one that names OLLAMA_LLAMA_SERVER_CACHE_RAM's value start the same
-	// llama-server.
+	// The same holds for the prompt-cache size: an invalid prompt_cache_ram is
+	// ignored at launch, so it starts the same llama-server as an unset one.
 	llm.NormalizePromptCacheRAM(&optsExisting)
 	llm.NormalizePromptCacheRAM(&optsNew)
 

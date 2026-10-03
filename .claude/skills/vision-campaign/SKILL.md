@@ -27,7 +27,7 @@ H100 campaign (#431) follows this procedure end to end.
 - **llama-server's prompt cache does not move a campaign's throughput columns.** They come from
   llama.cpp's own prompt and eval timings, which leave the cache's update out. It does cost wall
   time on GGUF cells, up to a fifth of a `gemma4:31b` request, and extbench's seconds per item
-  include it. A dedicated benchmark host can set `OLLAMA_LLAMA_SERVER_CACHE_RAM=0` (ADR 0047);
+  include it. A benchmark can run its GGUF models with `PARAMETER prompt_cache_ram 0` (ADR 0047);
   say so in the write-up, because it changes seconds per item.
 - **A difference between hosts in the same cell is not a finding by itself.** Hopper (sm_90) and
   sm_120 select different cuBLAS kernels, and MLX on CUDA is not MLX on Metal. The 2026-09-30

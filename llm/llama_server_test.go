@@ -3008,31 +3008,24 @@ func TestAppendJinjaArgs(t *testing.T) {
 	}
 }
 
-// With neither the option nor the variable, no --cache-ram at all: that is
-// upstream's command line, and llama.cpp's own default (8192 MiB) then applies.
-// The option is per model or per request and wins over the variable, which is
-// per host (docs/maxusai/llama-server-prompt-cache.md).
+// Without the option, no --cache-ram at all: that is upstream's command line,
+// and llama.cpp's own default (8192 MiB, the cache on) then applies. The option
+// is per model or per request (docs/maxusai/llama-server-prompt-cache.md).
 func TestAppendPromptCacheArgs(t *testing.T) {
 	tests := []struct {
 		name string
-		env  string
 		opt  *int
 		want []string
 	}{
-		{name: "neither set", want: []string{"base"}},
-		{name: "variable off", env: "0", want: []string{"base", "--cache-ram", "0"}},
-		{name: "variable sized", env: "2048", want: []string{"base", "--cache-ram", "2048"}},
-		{name: "variable unlimited", env: "-1", want: []string{"base", "--cache-ram", "-1"}},
-		{name: "invalid variable", env: "8GiB", want: []string{"base"}},
-		{name: "option off", opt: testIntPtr(0), want: []string{"base", "--cache-ram", "0"}},
-		{name: "option wins over variable", env: "0", opt: testIntPtr(4096), want: []string{"base", "--cache-ram", "4096"}},
-		{name: "invalid option falls back to variable", env: "2048", opt: testIntPtr(-2), want: []string{"base", "--cache-ram", "2048"}},
-		{name: "invalid option and no variable", opt: testIntPtr(-2), want: []string{"base"}},
+		{name: "unset keeps llama.cpp's default", want: []string{"base"}},
+		{name: "off", opt: testIntPtr(0), want: []string{"base", "--cache-ram", "0"}},
+		{name: "sized", opt: testIntPtr(4096), want: []string{"base", "--cache-ram", "4096"}},
+		{name: "unlimited", opt: testIntPtr(-1), want: []string{"base", "--cache-ram", "-1"}},
+		{name: "invalid keeps llama.cpp's default", opt: testIntPtr(-2), want: []string{"base"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("OLLAMA_LLAMA_SERVER_CACHE_RAM", tt.env)
 			opts := api.DefaultOptions()
 			opts.PromptCacheRAM = tt.opt
 			if got := appendPromptCacheArgs([]string{"base"}, opts); !slices.Equal(got, tt.want) {
@@ -3047,21 +3040,17 @@ func TestAppendPromptCacheArgs(t *testing.T) {
 func TestNormalizePromptCacheRAM(t *testing.T) {
 	tests := []struct {
 		name string
-		env  string
 		opt  *int
 		want *int
 	}{
-		{name: "neither set passes nothing", want: nil},
-		{name: "unset option takes the variable", env: "0", want: testIntPtr(0)},
-		{name: "option stays", opt: testIntPtr(0), want: testIntPtr(0)},
-		{name: "option wins over variable", env: "0", opt: testIntPtr(1024), want: testIntPtr(1024)},
-		{name: "invalid option takes the variable", env: "2048", opt: testIntPtr(-5), want: testIntPtr(2048)},
-		{name: "invalid option and no variable passes nothing", opt: testIntPtr(-5), want: nil},
+		{name: "unset passes nothing", want: nil},
+		{name: "off stays", opt: testIntPtr(0), want: testIntPtr(0)},
+		{name: "size stays", opt: testIntPtr(1024), want: testIntPtr(1024)},
+		{name: "invalid passes nothing", opt: testIntPtr(-5), want: nil},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("OLLAMA_LLAMA_SERVER_CACHE_RAM", tt.env)
 			r := api.Runner{PromptCacheRAM: tt.opt}
 			NormalizePromptCacheRAM(&r)
 			if (r.PromptCacheRAM == nil) != (tt.want == nil) || (tt.want != nil && *r.PromptCacheRAM != *tt.want) {
