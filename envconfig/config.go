@@ -167,7 +167,8 @@ func LoadTimeout() (loadTimeout time.Duration) {
 // OLLAMA_LLAMA_SERVER_CACHE_RAM, and false when it is unset or invalid. It sizes
 // llama.cpp's host-RAM prompt cache, which saves a slot's whole state when a new
 // request cannot reuse the slot: 0 disables the cache, -1 removes the limit.
-// Unset keeps llama.cpp's default of 8192 MiB, which is upstream's behaviour.
+// Unset keeps llama.cpp's default of 8192 MiB, which is upstream's behaviour. A
+// model's or request's prompt_cache_ram option overrides it for that load.
 // MaxusAI fork: on vision requests whose image changes every time, each save
 // copies the state off the GPU (about 890 MiB for gemma4:31b) and is almost
 // never restored (docs/maxusai/llama-server-prompt-cache.md). This lets one

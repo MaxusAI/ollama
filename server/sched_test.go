@@ -966,6 +966,42 @@ func TestSchedNeedsReload(t *testing.T) {
 	require.True(t, resp)
 }
 
+// prompt_cache_ram is a runner option like num_ctx: a different effective value
+// relaunches llama-server, the same one does not, and an MLX runner ignores it.
+func TestSchedNeedsReloadPromptCacheRAM(t *testing.T) {
+	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
+	defer done()
+
+	loaded := func(m *Model, opt *int) *runnerRef {
+		do := api.DefaultOptions()
+		do.PromptCacheRAM = opt
+		return &runnerRef{model: m, Options: &do, llama: &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}}, numParallel: 1}
+	}
+	asks := func(m *Model, opt *int) *LlmRequest {
+		r := &LlmRequest{model: m, opts: api.DefaultOptions()}
+		r.opts.PromptCacheRAM = opt
+		return r
+	}
+	gguf := &Model{}
+
+	t.Setenv("OLLAMA_LLAMA_SERVER_CACHE_RAM", "")
+	require.False(t, loaded(gguf, nil).needsReload(ctx, asks(gguf, nil)))
+	require.True(t, loaded(gguf, nil).needsReload(ctx, asks(gguf, testIntPtr(0))), "default cache to off")
+	require.True(t, loaded(gguf, testIntPtr(0)).needsReload(ctx, asks(gguf, nil)), "off to the default cache")
+	require.False(t, loaded(gguf, testIntPtr(0)).needsReload(ctx, asks(gguf, testIntPtr(0))))
+	require.True(t, loaded(gguf, testIntPtr(0)).needsReload(ctx, asks(gguf, testIntPtr(4096))))
+
+	// With the variable at 0, naming 0 asks for the runner that is already running.
+	t.Setenv("OLLAMA_LLAMA_SERVER_CACHE_RAM", "0")
+	require.False(t, loaded(gguf, nil).needsReload(ctx, asks(gguf, testIntPtr(0))))
+	require.False(t, loaded(gguf, testIntPtr(0)).needsReload(ctx, asks(gguf, nil)))
+	require.True(t, loaded(gguf, nil).needsReload(ctx, asks(gguf, testIntPtr(8192))))
+
+	// An MLX runner has no llama-server prompt cache, so the option cannot reload it.
+	mlx := &Model{Config: model.ConfigV2{ModelFormat: "safetensors"}}
+	require.False(t, loaded(mlx, nil).needsReload(ctx, asks(mlx, testIntPtr(0))))
+}
+
 func TestResolveContextShift(t *testing.T) {
 	trueValue := true
 	falseValue := false

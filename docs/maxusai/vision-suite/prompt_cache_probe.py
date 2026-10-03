@@ -6,8 +6,8 @@ Usage:
     prompt_cache_probe.py compare run.json [run.json ...]
 
 llama.cpp's server keeps a prompt cache in host RAM: 8192 MiB unless `--cache-ram` says
-otherwise, and ollama passes nothing unless OLLAMA_LLAMA_SERVER_CACHE_RAM is set. With one
-slot, a request that cannot reuse the slot's prompt first saves the slot's state into that
+otherwise, and ollama passes nothing unless the `prompt_cache_ram` option or
+OLLAMA_LLAMA_SERVER_CACHE_RAM sets it. With one slot, a request that cannot reuse the slot's prompt first saves the slot's state into that
 cache, and a later request can restore it instead of evaluating its prompt again. This probe
 sends requests that could each resume a state saved two requests earlier:
 

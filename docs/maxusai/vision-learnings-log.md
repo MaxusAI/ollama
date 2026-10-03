@@ -799,8 +799,10 @@ state off the GPU into that cache.
     and `nemotron3:33b-q8` a quarter to a third of each return to a conversation, and cost
     `gemma4:31b` 42 %. On images it cost every model 10–27 %: no restore shortened an image's
     prefill.
-- **Enforced by** — `OLLAMA_LLAMA_SERVER_CACHE_RAM` sets `--cache-ram`, and `0` turns the cache off
-  (`TestAppendPromptCacheArgs`, `TestLlamaServerCacheRAM`). `docs/maxusai/tools/prompt_cache_stats.py`
+- **Enforced by** — `prompt_cache_ram` per model or per request, and `OLLAMA_LLAMA_SERVER_CACHE_RAM`
+  per host, set `--cache-ram`; `0` turns the cache off
+  ([ADR 0047](adr/0047-llama-server-prompt-cache-is-sized-per-model-request-or-host.md);
+  `TestAppendPromptCacheArgs`, `TestSchedNeedsReloadPromptCacheRAM`). `docs/maxusai/tools/prompt_cache_stats.py`
   reads the cost from any host's journal, and `vision-suite/prompt_cache_probe.py` measures what
   the cache buys.
 - **Cost** — on this H100, 2.2 h of request time in two days of benchmark arms, a fifth of
