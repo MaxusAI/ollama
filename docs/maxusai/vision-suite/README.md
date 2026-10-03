@@ -83,6 +83,13 @@ first is image accounting and the second is generation length.
   unless it was explicitly set, so "unset" and "disabled" are the same request but
   only one of them is self-describing in the scores. Inert on the MLX runner,
   which never reads `draft_num_predict` and picks depth adaptively instead),
+  `PROMPT_CACHE_RAM` (llama-server's host-RAM prompt cache, ADR 0047. **Default `0`, the
+  cache off,** sent on every request since 2026-10-03, because a benchmark's image requests
+  pay for the cache's update and get nothing back. A size in MiB or `-1` is sent as given,
+  and `server` sends none, which leaves the model's `PARAMETER` or llama.cpp's default. One
+  value serves every tool, because a change relaunches the runner. Recorded as
+  `req_prompt_cache_ram`, absent when none was sent. A build without the option drops it with
+  a warning in its log and keeps the cache on, and the MLX runner ignores it),
   `ENDPOINT=chat|generate` (default **`chat`** since 2026-08-19 — it was
   `generate`; every runner that never sets ENDPOINT now pins `generate`
   explicitly to keep its published tags comparable. `/api/chat` is what OpenWebUI
@@ -116,7 +123,9 @@ first is image accounting and the second is generation length.
   API (stdlib only, no `datasets`, no HF token) and scored locally: contains-match, integer
   match, relaxed accuracy, and dialect-aware bbox IoU respectively. Env: `LIMIT` (50),
   `OFFSET`, `SLEEP` (yield the GPU between requests), plus the same `THINK` / `ENDPOINT` /
-  `NUM_PREDICT` / `NUM_CTX` knobs as `vision_suite.py`. Writes `ext_<tag>_<bench>.json`. The
+  `NUM_PREDICT` / `NUM_CTX` / `PROMPT_CACHE_RAM` knobs as `vision_suite.py`. Writes
+  `ext_<tag>_<bench>.json`, whose summary records `prompt_cache_ram` because it moves seconds
+  per item. The
   `refcoco` mode reports the winning coordinate dialect and JSON key per item, so it doubles
   as a dialect probe. See [../vision-benchmark-survey.md](../vision-benchmark-survey.md) for
   why the external harnesses' own grounding scorers cannot be trusted with our models.
@@ -138,6 +147,9 @@ first is image accounting and the second is generation length.
   from this, never retyped** (SPEC H7). `--paired` adds the per-pair discordant counts and an
   exact McNemar over the items both arms scored: two accuracies on a shared row set cannot
   distinguish a real difference from a coin-flip disagreement, and the discordant columns can.
+  The footer names the arms' `prompt_cache_ram` once a file records it, and `--timing` warns
+  when the arms sent different values, since seconds per item then do not compare. A file from
+  before 2026-10-03 sent none, so it counts as the server's default, the cache on.
   Measured 2026-09-19: `gemma4:31b` q8_0 and bf16 came back with **zero** discordant items over
   200 OCRBench rows while their accuracy column read 0.845 for both and q4_K_M read 0.855
   ([../ocrbench-gemma4-quant-ladder.md](../ocrbench-gemma4-quant-ladder.md)).

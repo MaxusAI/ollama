@@ -45,7 +45,8 @@ POST http://HOST:11497/api/chat
     "num_ctx": 16384,
     "temperature": 0.0,
     "top_p": 0.95,
-    "top_k": 64
+    "top_k": 64,
+    "prompt_cache_ram": 0
   },
   "format": "json",
   "messages": [
@@ -75,11 +76,21 @@ identical; three things change —
 
 ```json
   "think": false,
-  "options": {"num_predict": 2200, "num_ctx": 16384, "temperature": 0}
+  "options": {"num_predict": 2200, "num_ctx": 16384, "temperature": 0, "prompt_cache_ram": 0}
 ```
 
 (`think: false` appears at top level; when thinking is ON the field is
 omitted; card sampling keys drop out.)
+
+`prompt_cache_ram: 0` turns llama-server's host-RAM prompt cache off
+([ADR 0047](adr/0047-llama-server-prompt-cache-is-sized-per-model-or-request.md)).
+The harness has sent it since 2026-10-03: a request with a new image gains
+nothing from the cache and pays for its update, up to a fifth of a `gemma4:31b`
+request, with the same answers. The GGUF campaigns this page cites ran before
+that, with the cache on, which moves wall time, not answers or tok/s. It is a runner option,
+so a client that shares a model with clients that do not send it should set
+`PARAMETER prompt_cache_ram 0` on the model instead; otherwise every switch
+between them relaunches the runner. A build without the option ignores it.
 
 **The response schema the prompt asks for**, formatted for readability
 (inside the prompt it appears as the escaped one-liner above; `x1…y2` are the

@@ -808,3 +808,23 @@ state off the GPU into that cache.
 - **Cost** — on this H100, 2.2 h of request time in two days of benchmark arms, a fifth of
   `gemma4:31b`'s. journald dropped 163,000 of ollama's lines, and the journal rotated out more than
   a day of logs.
+
+### 2026-10-03 — A runner option every harness tool needs belongs in the one request path, with one value
+The harness turns llama-server's prompt cache off from `client.generate()`, not from each driver.
+A runner option that differs between two requests relaunches the runner, and `vision_suite.py`
+and `finetext_probe.py` share a campaign cell, so two drivers that set it apart could reload the
+model between the two halves of every cell.
+
+- **Evidence** — on the H100, against production's commit plus the option
+  ([llama-server-prompt-cache.md](llama-server-prompt-cache.md#the-harness-turns-it-off)):
+  - extbench, RefCOCO rows 4000–4049 on `gemma4:31b-it-q4_K_M`: 2.039 s a request by default,
+    2.618 s with `PROMPT_CACHE_RAM=server` (−22.1 %), and the same 50 answers as both A/B arms;
+  - one campaign cell: two launches, both with `--cache-ram 0`, the second for a change of
+    `num_ctx`; `finetext_probe.py` reused the suite's runner.
+- **Enforced by** — `client.prompt_cache_ram()` and `test_client.py::TestPromptCacheRAM`: the
+  default, `server`, the calibrated callers that send none, and a value the server would ignore
+  failing before the first request. `req_prompt_cache_ram` in score blocks and `prompt_cache_ram`
+  in extbench summaries; `summarize_extbench.py --timing` warns when arms differ
+  (`test_summarizers.py`).
+- **Cost** — nothing lost to a mismatch yet. Seconds per item published before 2026-10-03 ran
+  with the cache on, so they compare with new arms on accuracy, not on time.

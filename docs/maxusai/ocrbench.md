@@ -45,7 +45,10 @@ cannot end a twenty-minute arm. `REFRESH_ROWS=1` re-fetches.
 includes the cache's update when the image changes: up to a fifth of a `gemma4:31b` request.
 Compare seconds only between arms run with the same `prompt_cache_ram`
 ([llama-server-prompt-cache.md](llama-server-prompt-cache.md)).
-Accuracy does not move.
+Accuracy does not move. Since 2026-10-03 extbench sends `0`, the cache off, and records it in
+the summary. Every GGUF arm the pages above report ran earlier, with the cache on; an MLX arm
+has no such cache. `summarize_extbench.py --timing` warns when the arms it renders sent
+different values.
 
 ## The format
 
