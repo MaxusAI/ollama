@@ -1,0 +1,5733 @@
+{
+ "summary": {
+  "tag": "pc-on-refcoco0-nemotron3-33b-q8",
+  "model": "nemotron3:33b-q8",
+  "benchmark": "refcoco",
+  "dataset": "lmms-lab-encoder/RefCOCO",
+  "split": "val",
+  "offset": 0,
+  "requested": 300,
+  "scored": 300,
+  "errors": 0,
+  "empty_responses": 0,
+  "think_env": "false",
+  "think_on": false,
+  "endpoint": "generate",
+  "host": [
+   "http://127.0.0.1:11434"
+  ],
+  "server_version": [
+   "0.34.4-dynres-0-gb43ee8e-pcache"
+  ],
+  "correct": 280,
+  "mean_iou": 0.8451,
+  "acc@0.5": 0.9333,
+  "dialects": {
+   "bbox_2d norm1000/xyxy": 295,
+   "bbox_2d pixel/yxyx": 2,
+   "bbox_2d pixel/xyxy": 2
+  }
+ },
+ "records": [
+  {
+   "i": 0,
+   "prompt": "Locate the region described as: \"bowl behind the others can only see part\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [706, 0, 984, 212]}",
+   "secs": 9.1,
+   "prompt_eval_count": 345,
+   "eval_count": 25,
+   "expr": "bowl behind the others can only see part",
+   "gt": [
+    468.29998779296875,
+    0.9100000262260437,
+    171.6999969482422,
+    116.12000274658203
+   ],
+   "iou": 0.672,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 1,
+   "prompt": "Locate the region described as: \"front bowl w/carrots in it\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [236, 317, 930, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 345,
+   "eval_count": 27,
+   "expr": "front bowl w/carrots in it",
+   "gt": [
+    151.9600067138672,
+    139.4600067138672,
+    454.92999267578125,
+    283.7300109863281
+   ],
+   "iou": 0.947,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 2,
+   "prompt": "Locate the region described as: \"little girl\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n        184,\n        633,\n        456,\n        998\n    ]\n}",
+   "secs": 0.4,
+   "prompt_eval_count": 378,
+   "eval_count": 37,
+   "expr": "little girl",
+   "gt": [
+    117.81999969482422,
+    300.489990234375,
+    175.10000610351562,
+    180.50999450683594
+   ],
+   "iou": 0.966,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 3,
+   "prompt": "Locate the region described as: \"green woman\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [456, 219, 889, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "green woman",
+   "gt": [
+    289.67999267578125,
+    110.25,
+    290.760009765625,
+    365.3500061035156
+   ],
+   "iou": 0.93,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 4,
+   "prompt": "Locate the region described as: \"mom\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [347, 281, 892, 930]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "mom",
+   "gt": [
+    151.6999969482422,
+    173.8300018310547,
+    218.0800018310547,
+    434.57000732421875
+   ],
+   "iou": 0.898,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 5,
+   "prompt": "Locate the region described as: \"child sitting on womans lap\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [365, 397, 667, 745]}",
+   "secs": 0.3,
+   "prompt_eval_count": 342,
+   "eval_count": 27,
+   "expr": "child sitting on womans lap",
+   "gt": [
+    160.0,
+    246.33999633789062,
+    110.88999938964844,
+    240.7899932861328
+   ],
+   "iou": 0.804,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 6,
+   "prompt": "Locate the region described as: \"left guy\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [12, 75, 503, 717]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 25,
+   "expr": "left guy",
+   "gt": [
+    0.0,
+    31.510000228881836,
+    318.489990234375,
+    344.95001220703125
+   ],
+   "iou": 0.769,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 7,
+   "prompt": "Locate the region described as: \"lady on right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [586, 26, 944, 476]}",
+   "secs": 0.3,
+   "prompt_eval_count": 346,
+   "eval_count": 26,
+   "expr": "lady on right",
+   "gt": [
+    213.47999572753906,
+    6.400000095367432,
+    138.2100067138672,
+    223.58999633789062
+   ],
+   "iou": 0.904,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 8,
+   "prompt": "Locate the region described as: \"bottom box left dude\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [78, 572, 456, 992]}",
+   "secs": 0.3,
+   "prompt_eval_count": 347,
+   "eval_count": 26,
+   "expr": "bottom box left dude",
+   "gt": [
+    31.200000762939453,
+    291.6099853515625,
+    167.0399932861328,
+    207.4499969482422
+   ],
+   "iou": 0.788,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 9,
+   "prompt": "Locate the region described as: \"Woman in top picture on the left.\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [80, 142, 565, 482]}",
+   "secs": 0.3,
+   "prompt_eval_count": 350,
+   "eval_count": 26,
+   "expr": "Woman in top picture on the left.",
+   "gt": [
+    38.20000076293945,
+    73.02999877929688,
+    162.9199981689453,
+    167.4199981689453
+   ],
+   "iou": 0.889,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 10,
+   "prompt": "Locate the region described as: \"bottom right guy\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [312, 522, 995, 990]}",
+   "secs": 0.3,
+   "prompt_eval_count": 345,
+   "eval_count": 27,
+   "expr": "bottom right guy",
+   "gt": [
+    115.20999908447266,
+    257.3800048828125,
+    256.7900085449219,
+    234.8000030517578
+   ],
+   "iou": 0.963,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 11,
+   "prompt": "Locate the region described as: \"cat on top\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [317, 116, 583, 312]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 27,
+   "expr": "cat on top",
+   "gt": [
+    157.36000061035156,
+    64.41000366210938,
+    119.02999877929688,
+    136.19000244140625
+   ],
+   "iou": 0.863,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 12,
+   "prompt": "Locate the region described as: \"black cat under sink\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [333, 748, 888, 995]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "black cat under sink",
+   "gt": [
+    161.1999969482422,
+    478.2200012207031,
+    262.19000244140625,
+    161.77999877929688
+   ],
+   "iou": 0.962,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 13,
+   "prompt": "Locate the region described as: \"Man standing\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [475, 91, 684, 903]}",
+   "secs": 0.3,
+   "prompt_eval_count": 364,
+   "eval_count": 26,
+   "expr": "Man standing",
+   "gt": [
+    307.29998779296875,
+    25.540000915527344,
+    128.11000061035156,
+    310.5400085449219
+   ],
+   "iou": 0.904,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 14,
+   "prompt": "Locate the region described as: \"person in chair at left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n        125,\n        264,\n        512,\n        981\n    ]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 367,
+   "eval_count": 37,
+   "expr": "person in chair at left",
+   "gt": [
+    76.04000091552734,
+    88.18000030517578,
+    251.60000610351562,
+    266.9700012207031
+   ],
+   "iou": 0.951,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 15,
+   "prompt": "Locate the region described as: \"gurl\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [333, 684, 803, 986]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "gurl",
+   "gt": [
+    145.22999572753906,
+    439.94000244140625,
+    192.6699981689453,
+    200.05999755859375
+   ],
+   "iou": 0.911,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 16,
+   "prompt": "Locate the region described as: \"woman in shorts\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n            787,\n            423,\n            998,\n            986\n    ]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 37,
+   "expr": "woman in shorts",
+   "gt": [
+    331.9700012207031,
+    267.989990234375,
+    94.02999877929688,
+    364.7799987792969
+   ],
+   "iou": 0.944,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 17,
+   "prompt": "Locate the region described as: \"psn boy\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [55, 262, 297, 756]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 26,
+   "expr": "psn boy",
+   "gt": [
+    34.22999954223633,
+    120.45999908447266,
+    158.14999389648438,
+    247.86000061035156
+   ],
+   "iou": 0.933,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 18,
+   "prompt": "Locate the region described as: \"boy in black shirt front right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [575, 502, 966, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 382,
+   "eval_count": 27,
+   "expr": "boy in black shirt front right",
+   "gt": [
+    382.6099853515625,
+    244.47999572753906,
+    241.14999389648438,
+    226.13999938964844
+   ],
+   "iou": 0.88,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 19,
+   "prompt": "Locate the region described as: \"kid on right in back, blondish hair\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [636, 246, 936, 821]}",
+   "secs": 0.3,
+   "prompt_eval_count": 385,
+   "eval_count": 27,
+   "expr": "kid on right in back, blondish hair",
+   "gt": [
+    414.4800109863281,
+    116.2699966430664,
+    194.86000061035156,
+    144.25999450683594
+   ],
+   "iou": 0.484,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 20,
+   "prompt": "Locate the region described as: \"girl pink\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [284, 192, 484, 571]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "girl pink",
+   "gt": [
+    184.94000244140625,
+    91.27999877929688,
+    127.9000015258789,
+    181.83999633789062
+   ],
+   "iou": 0.949,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 21,
+   "prompt": "Locate the region described as: \"person in white sleeping far away\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [0, 103, 372, 361]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 342,
+   "eval_count": 28,
+   "expr": "person in white sleeping far away",
+   "gt": [
+    0.0,
+    43.36000061035156,
+    240.57000732421875,
+    101.62999725341797
+   ],
+   "iou": 0.942,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 22,
+   "prompt": "Locate the region described as: \"LADY ON LEFT LAYING ON BED\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 328, 356, 852]}",
+   "secs": 0.3,
+   "prompt_eval_count": 347,
+   "eval_count": 25,
+   "expr": "LADY ON LEFT LAYING ON BED",
+   "gt": [
+    1.8600000143051147,
+    110.70999908447266,
+    223.27999877929688,
+    245.61000061035156
+   ],
+   "iou": 0.868,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 23,
+   "prompt": "Locate the region described as: \"left sandwich\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [73, 50, 384, 717]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 25,
+   "expr": "left sandwich",
+   "gt": [
+    47.349998474121094,
+    25.399999618530273,
+    216.3300018310547,
+    317.489990234375
+   ],
+   "iou": 0.907,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 24,
+   "prompt": "Locate the region described as: \"green vegetable with leaves\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [448, 375, 930, 827]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "green vegetable with leaves",
+   "gt": [
+    261.0299987792969,
+    182.2899932861328,
+    339.7799987792969,
+    290.1600036621094
+   ],
+   "iou": 0.667,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 25,
+   "prompt": "Locate the region described as: \"left person with elbow bent\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n        153,\n            436,\n        402,\n            998\n    ]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 361,
+   "eval_count": 37,
+   "expr": "left person with elbow bent",
+   "gt": [
+    95.0,
+    198.99000549316406,
+    155.17999267578125,
+    258.010009765625
+   ],
+   "iou": 0.934,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 26,
+   "prompt": "Locate the region described as: \"girl brushing teeth\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [270, 276, 697, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 359,
+   "eval_count": 27,
+   "expr": "girl brushing teeth",
+   "gt": [
+    174.89999389648438,
+    129.42999267578125,
+    278.7099914550781,
+    321.5899963378906
+   ],
+   "iou": 0.942,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 27,
+   "prompt": "Locate the region described as: \"BOTTOM R.\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n            584,\n            489,\n            998,\n            998\n    ]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 345,
+   "eval_count": 37,
+   "expr": "BOTTOM R.",
+   "gt": [
+    358.6400146484375,
+    351.9599914550781,
+    241.36000061035156,
+    98.04000091552734
+   ],
+   "iou": 0.408,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 28,
+   "prompt": "Locate the region described as: \"quilt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [186, 323, 998, 881]}",
+   "secs": 0.3,
+   "prompt_eval_count": 344,
+   "eval_count": 27,
+   "expr": "quilt",
+   "gt": [
+    86.58000183105469,
+    145.11000061035156,
+    513.4199829101562,
+    298.989990234375
+   ],
+   "iou": 0.797,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 29,
+   "prompt": "Locate the region described as: \"zebra on left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n            103,\n            25,\n            922,\n            983\n    ]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 381,
+   "eval_count": 36,
+   "expr": "zebra on left",
+   "gt": [
+    48.540000915527344,
+    9.710000038146973,
+    540.4000244140625,
+    464.8999938964844
+   ],
+   "iou": 0.955,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 30,
+   "prompt": "Locate the region described as: \"right zebra\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n            669,\n            296,\n            998,\n            998\n    ]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 37,
+   "expr": "right zebra",
+   "gt": [
+    432.1099853515625,
+    145.85000610351562,
+    205.7100067138672,
+    327.6199951171875
+   ],
+   "iou": 0.95,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 31,
+   "prompt": "Locate the region described as: \"man in black coat\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [858, 265, 998, 756]}",
+   "secs": 0.3,
+   "prompt_eval_count": 400,
+   "eval_count": 27,
+   "expr": "man in black coat",
+   "gt": [
+    545.0399780273438,
+    133.19000244140625,
+    94.95999908447266,
+    249.75999450683594
+   ],
+   "iou": 0.933,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 32,
+   "prompt": "Locate the region described as: \"hitter\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [536, 171, 792, 895]}",
+   "secs": 0.3,
+   "prompt_eval_count": 398,
+   "eval_count": 27,
+   "expr": "hitter",
+   "gt": [
+    341.94000244140625,
+    86.91999816894531,
+    166.3000030517578,
+    366.8999938964844
+   ],
+   "iou": 0.973,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 33,
+   "prompt": "Locate the region described as: \"U2! Man on left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 56, 583, 986]}",
+   "secs": 0.3,
+   "prompt_eval_count": 342,
+   "eval_count": 24,
+   "expr": "U2! Man on left",
+   "gt": [
+    0.0,
+    27.329999923706055,
+    247.3699951171875,
+    612.6699829101562
+   ],
+   "iou": 0.966,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 34,
+   "prompt": "Locate the region described as: \"lady\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [557, 191, 998, 986]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "lady",
+   "gt": [
+    245.60000610351562,
+    122.08000183105469,
+    181.39999389648438,
+    515.75
+   ],
+   "iou": 0.942,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 35,
+   "prompt": "Locate the region described as: \"Woman on left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [127, 120, 516, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 360,
+   "eval_count": 27,
+   "expr": "Woman on left",
+   "gt": [
+    73.70999908447266,
+    56.060001373291016,
+    260.5899963378906,
+    400.75
+   ],
+   "iou": 0.944,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 36,
+   "prompt": "Locate the region described as: \"man right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [336, 36, 962, 989]}",
+   "secs": 0.3,
+   "prompt_eval_count": 358,
+   "eval_count": 26,
+   "expr": "man right",
+   "gt": [
+    215.72000122070312,
+    14.9399995803833,
+    419.1499938964844,
+    447.05999755859375
+   ],
+   "iou": 0.938,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 37,
+   "prompt": "Locate the region described as: \"bag on far left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [48, 267, 342, 856]}",
+   "secs": 0.3,
+   "prompt_eval_count": 360,
+   "eval_count": 26,
+   "expr": "bag on far left",
+   "gt": [
+    24.670000076293945,
+    96.11000061035156,
+    146.44000244140625,
+    195.77999877929688
+   ],
+   "iou": 0.964,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 38,
+   "prompt": "Locate the region described as: \"second bag from left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [328, 306, 550, 856]}",
+   "secs": 0.3,
+   "prompt_eval_count": 360,
+   "eval_count": 27,
+   "expr": "second bag from left",
+   "gt": [
+    164.9499969482422,
+    106.37000274658203,
+    114.06999969482422,
+    187.3000030517578
+   ],
+   "iou": 0.95,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 39,
+   "prompt": "Locate the region described as: \"3rd from left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [536, 277, 756, 848]}",
+   "secs": 0.3,
+   "prompt_eval_count": 360,
+   "eval_count": 27,
+   "expr": "3rd from left",
+   "gt": [
+    268.8399963378906,
+    97.72000122070312,
+    108.1500015258789,
+    196.22000122070312
+   ],
+   "iou": 0.955,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 40,
+   "prompt": "Locate the region described as: \"right one\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [746, 280, 976, 837]}",
+   "secs": 0.3,
+   "prompt_eval_count": 358,
+   "eval_count": 27,
+   "expr": "right one",
+   "gt": [
+    374.6000061035156,
+    96.22000122070312,
+    110.22000122070312,
+    186.52999877929688
+   ],
+   "iou": 0.936,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 41,
+   "prompt": "Locate the region described as: \"bike on right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [670, 295, 966, 728]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 27,
+   "expr": "bike on right",
+   "gt": [
+    429.6600036621094,
+    112.36000061035156,
+    196.86000061035156,
+    181.57000732421875
+   ],
+   "iou": 0.91,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 42,
+   "prompt": "Locate the region described as: \"first bike\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [119, 292, 645, 923]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "first bike",
+   "gt": [
+    81.9800033569336,
+    113.95999908447266,
+    319.82000732421875,
+    258.55999755859375
+   ],
+   "iou": 0.929,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 43,
+   "prompt": "Locate the region described as: \"top left bowl\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [177, 85, 417, 336]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 26,
+   "expr": "top left bowl",
+   "gt": [
+    106.5,
+    37.040000915527344,
+    161.80999755859375,
+    107.87000274658203
+   ],
+   "iou": 0.923,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 44,
+   "prompt": "Locate the region described as: \"top right bowl\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [581, 75, 827, 322]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 26,
+   "expr": "top right bowl",
+   "gt": [
+    381.07000732421875,
+    35.34000015258789,
+    148.99000549316406,
+    99.31999969482422
+   ],
+   "iou": 0.887,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 45,
+   "prompt": "Locate the region described as: \"right sandwhich, left half\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [606, 433, 816, 761]}",
+   "secs": 0.3,
+   "prompt_eval_count": 342,
+   "eval_count": 27,
+   "expr": "right sandwhich, left half",
+   "gt": [
+    388.7900085449219,
+    182.00999450683594,
+    135.30999755859375,
+    142.92999267578125
+   ],
+   "iou": 0.955,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 46,
+   "prompt": "Locate the region described as: \"the first half of the sandwich to the left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [170, 464, 430, 761]}",
+   "secs": 0.3,
+   "prompt_eval_count": 345,
+   "eval_count": 27,
+   "expr": "the first half of the sandwich to the left",
+   "gt": [
+    104.81999969482422,
+    198.2100067138672,
+    175.33999633789062,
+    124.83000183105469
+   ],
+   "iou": 0.939,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 47,
+   "prompt": "Locate the region described as: \"blue shirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [475, 183, 773, 756]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "blue shirt",
+   "gt": [
+    340.8500061035156,
+    86.29000091552734,
+    161.8000030517578,
+    273.9800109863281
+   ],
+   "iou": 0.764,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 48,
+   "prompt": "Locate the region described as: \"guy in middle of pic white shirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [356, 219, 527, 954]}",
+   "secs": 0.3,
+   "prompt_eval_count": 383,
+   "eval_count": 27,
+   "expr": "guy in middle of pic white shirt",
+   "gt": [
+    216.80999755859375,
+    104.9000015258789,
+    121.88999938964844,
+    358.1099853515625
+   ],
+   "iou": 0.885,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 49,
+   "prompt": "Locate the region described as: \"back of head of person at the bottom\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [675, 575, 998, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 384,
+   "eval_count": 27,
+   "expr": "back of head of person at the bottom",
+   "gt": [
+    431.4599914550781,
+    279.3699951171875,
+    202.7899932861328,
+    190.9199981689453
+   ],
+   "iou": 0.918,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 50,
+   "prompt": "Locate the region described as: \"catcher\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [692, 488, 998, 894]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "catcher",
+   "gt": [
+    400.739990234375,
+    233.72999572753906,
+    239.25999450683594,
+    201.14999389648438
+   ],
+   "iou": 0.793,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 51,
+   "prompt": "Locate the region described as: \"the batter\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [566, 223, 716, 856]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "the batter",
+   "gt": [
+    357.82000732421875,
+    109.41000366210938,
+    105.9000015258789,
+    302.29998779296875
+   ],
+   "iou": 0.898,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 52,
+   "prompt": "Locate the region described as: \"2nd person from right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [668, 315, 843, 634]}",
+   "secs": 0.3,
+   "prompt_eval_count": 442,
+   "eval_count": 27,
+   "expr": "2nd person from right",
+   "gt": [
+    408.0,
+    190.91000366210938,
+    117.16000366210938,
+    184.6999969482422
+   ],
+   "iou": 0.853,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 53,
+   "prompt": "Locate the region described as: \"man on right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [665, 343, 998, 775]}",
+   "secs": 0.3,
+   "prompt_eval_count": 440,
+   "eval_count": 27,
+   "expr": "man on right",
+   "gt": [
+    439.30999755859375,
+    211.02000427246094,
+    172.69000244140625,
+    259.7200012207031
+   ],
+   "iou": 0.822,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 54,
+   "prompt": "Locate the region described as: \"swirly rug on floor at bottom right area\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [445, 856, 998, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 447,
+   "eval_count": 27,
+   "expr": "swirly rug on floor at bottom right area",
+   "gt": [
+    280.3399963378906,
+    517.239990234375,
+    330.3399963378906,
+    94.76000213623047
+   ],
+   "iou": 0.897,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 55,
+   "prompt": "Locate the region described as: \"man in jersey\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [142, 325, 454, 634]}",
+   "secs": 0.3,
+   "prompt_eval_count": 440,
+   "eval_count": 27,
+   "expr": "man in jersey",
+   "gt": [
+    9.1899995803833,
+    203.83999633789062,
+    269.19000244140625,
+    139.86000061035156
+   ],
+   "iou": 0.568,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 56,
+   "prompt": "Locate the region described as: \"BOTTOM RIGHT SWIRL\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [445, 856, 998, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 443,
+   "eval_count": 27,
+   "expr": "BOTTOM RIGHT SWIRL",
+   "gt": [
+    271.5,
+    517.0800170898438,
+    340.5,
+    94.87000274658203
+   ],
+   "iou": 0.91,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 57,
+   "prompt": "Locate the region described as: \"bottom left portion of couch on left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 712, 415, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 444,
+   "eval_count": 25,
+   "expr": "bottom left portion of couch on left",
+   "gt": [
+    0.0,
+    408.17999267578125,
+    257.6600036621094,
+    203.82000732421875
+   ],
+   "iou": 0.846,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 58,
+   "prompt": "Locate the region described as: \"chair left most\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 712, 415, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 440,
+   "eval_count": 25,
+   "expr": "chair left most",
+   "gt": [
+    0.0,
+    260.32000732421875,
+    256.760009765625,
+    351.67999267578125
+   ],
+   "iou": 0.492,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 59,
+   "prompt": "Locate the region described as: \"far left guy\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 343, 415, 761]}",
+   "secs": 0.3,
+   "prompt_eval_count": 440,
+   "eval_count": 25,
+   "expr": "far left guy",
+   "gt": [
+    0.0,
+    207.6699981689453,
+    166.41000366210938,
+    255.8000030517578
+   ],
+   "iou": 0.646,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 60,
+   "prompt": "Locate the region described as: \"chair under the guy on the right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [705, 637, 998, 897]}",
+   "secs": 0.3,
+   "prompt_eval_count": 444,
+   "eval_count": 27,
+   "expr": "chair under the guy on the right",
+   "gt": [
+    418.0899963378906,
+    390.5799865722656,
+    192.52999877929688,
+    154.02999877929688
+   ],
+   "iou": 0.902,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 61,
+   "prompt": "Locate the region described as: \"taleft cat\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 26, 153, 452]}",
+   "secs": 0.3,
+   "prompt_eval_count": 360,
+   "eval_count": 24,
+   "expr": "taleft cat",
+   "gt": [
+    0.0,
+    2.109999895095825,
+    95.68000030517578,
+    196.19000244140625
+   ],
+   "iou": 0.918,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 62,
+   "prompt": "Locate the region described as: \"brown cat\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [427, 417, 812, 932]}",
+   "secs": 0.3,
+   "prompt_eval_count": 359,
+   "eval_count": 27,
+   "expr": "brown cat",
+   "gt": [
+    273.5,
+    178.88999938964844,
+    248.3800048828125,
+    230.00999450683594
+   ],
+   "iou": 0.958,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 63,
+   "prompt": "Locate the region described as: \"yellow and blue vehicle closest to camera\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [386, 300, 641, 765]}",
+   "secs": 0.3,
+   "prompt_eval_count": 383,
+   "eval_count": 27,
+   "expr": "yellow and blue vehicle closest to camera",
+   "gt": [
+    245.02999877929688,
+    147.00999450683594,
+    171.4499969482422,
+    230.2899932861328
+   ],
+   "iou": 0.942,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 64,
+   "prompt": "Locate the region described as: \"red turck close to us\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [12, 77, 447, 935]}",
+   "secs": 0.3,
+   "prompt_eval_count": 382,
+   "eval_count": 25,
+   "expr": "red turck close to us",
+   "gt": [
+    0.0,
+    39.63999938964844,
+    289.6000061035156,
+    419.5299987792969
+   ],
+   "iou": 0.955,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 65,
+   "prompt": "Locate the region described as: \"white vehicle, 3rd one from us\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [617, 400, 773, 709]}",
+   "secs": 0.3,
+   "prompt_eval_count": 385,
+   "eval_count": 27,
+   "expr": "white vehicle, 3rd one from us",
+   "gt": [
+    358.510009765625,
+    194.91000366210938,
+    143.5,
+    156.10000610351562
+   ],
+   "iou": 0.675,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 66,
+   "prompt": "Locate the region described as: \"Pitcher\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [358, 306, 686, 912]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "Pitcher",
+   "gt": [
+    152.3300018310547,
+    194.6699981689453,
+    137.72000122070312,
+    394.0199890136719
+   ],
+   "iou": 0.968,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 67,
+   "prompt": "Locate the region described as: \"guy in back\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [656, 209, 881, 538]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 27,
+   "expr": "guy in back",
+   "gt": [
+    278.9700012207031,
+    132.63999938964844,
+    94.47000122070312,
+    213.6699981689453
+   ],
+   "iou": 0.962,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 68,
+   "prompt": "Locate the region described as: \"brocvoli right back\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [575, 266, 845, 545]}",
+   "secs": 0.3,
+   "prompt_eval_count": 461,
+   "eval_count": 27,
+   "expr": "brocvoli right back",
+   "gt": [
+    367.5799865722656,
+    153.74000549316406,
+    171.91000366210938,
+    163.52999877929688
+   ],
+   "iou": 0.928,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 69,
+   "prompt": "Locate the region described as: \"bottom broccoli\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [416, 527, 670, 819]}",
+   "secs": 0.3,
+   "prompt_eval_count": 460,
+   "eval_count": 27,
+   "expr": "bottom broccoli",
+   "gt": [
+    264.489990234375,
+    314.7699890136719,
+    159.69000244140625,
+    167.9600067138672
+   ],
+   "iou": 0.931,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 70,
+   "prompt": "Locate the region described as: \"elephant right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [516, 282, 962, 819]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 30,
+   "expr": "elephant right",
+   "gt": [
+    325.8999938964844,
+    111.48999786376953,
+    296.3500061035156,
+    236.32000732421875
+   ],
+   "iou": 0.928,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 71,
+   "prompt": "Locate the region described as: \"ele left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [127, 230, 547, 722]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "ele left",
+   "gt": [
+    73.7699966430664,
+    99.75,
+    278.1700134277344,
+    211.8300018310547
+   ],
+   "iou": 0.936,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 72,
+   "prompt": "Locate the region described as: \"guy far right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [822, 396, 956, 997]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 27,
+   "expr": "guy far right",
+   "gt": [
+    529.760009765625,
+    169.44000244140625,
+    88.61000061035156,
+    249.63999938964844
+   ],
+   "iou": 0.873,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 73,
+   "prompt": "Locate the region described as: \"SECOND FROM THE RIGHT\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [600, 371, 755, 997]}",
+   "secs": 0.3,
+   "prompt_eval_count": 341,
+   "eval_count": 27,
+   "expr": "SECOND FROM THE RIGHT",
+   "gt": [
+    386.8399963378906,
+    151.5,
+    104.80999755859375,
+    267.739990234375
+   ],
+   "iou": 0.866,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 74,
+   "prompt": "Locate the region described as: \"center man with black hair, back to us\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [386, 340, 616, 989]}",
+   "secs": 0.3,
+   "prompt_eval_count": 345,
+   "eval_count": 27,
+   "expr": "center man with black hair, back to us",
+   "gt": [
+    247.3300018310547,
+    141.80999755859375,
+    148.02000427246094,
+    276.94000244140625
+   ],
+   "iou": 0.98,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 75,
+   "prompt": "Locate the region described as: \"boy sitting on the bench closest to us.\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [158, 616, 372, 997]}",
+   "secs": 0.3,
+   "prompt_eval_count": 344,
+   "eval_count": 27,
+   "expr": "boy sitting on the bench closest to us.",
+   "gt": [
+    101.01000213623047,
+    264.67999267578125,
+    140.27999877929688,
+    159.32000732421875
+   ],
+   "iou": 0.948,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 76,
+   "prompt": "Locate the region described as: \"mother cow\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [36, 25, 869, 635]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 25,
+   "expr": "mother cow",
+   "gt": [
+    13.420000076293945,
+    10.319999694824219,
+    545.030029296875,
+    304.5199890136719
+   ],
+   "iou": 0.941,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 77,
+   "prompt": "Locate the region described as: \"calf\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [145, 215, 595, 646]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "calf",
+   "gt": [
+    100.12999725341797,
+    98.05999755859375,
+    281.80999755859375,
+    210.58999633789062
+   ],
+   "iou": 0.941,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 78,
+   "prompt": "Locate the region described as: \"ASS\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [466, 195, 762, 605]}",
+   "secs": 0.3,
+   "prompt_eval_count": 398,
+   "eval_count": 27,
+   "expr": "ASS",
+   "gt": [
+    288.6000061035156,
+    16.06999969482422,
+    263.95001220703125,
+    481.7900085449219
+   ],
+   "iou": 0.309,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 79,
+   "prompt": "Locate the region described as: \"small zebra facing\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [206, 245, 556, 975]}",
+   "secs": 0.3,
+   "prompt_eval_count": 400,
+   "eval_count": 27,
+   "expr": "small zebra facing",
+   "gt": [
+    126.79000091552734,
+    139.05999755859375,
+    230.72000122070312,
+    301.54998779296875
+   ],
+   "iou": 0.797,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 80,
+   "prompt": "Locate the region described as: \"hand\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 455, 612, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 377,
+   "eval_count": 25,
+   "expr": "hand",
+   "gt": [
+    1.440000057220459,
+    296.94000244140625,
+    288.2900085449219,
+    332.9700012207031
+   ],
+   "iou": 0.94,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 81,
+   "prompt": "Locate the region described as: \"white shirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [288, 0, 762, 166]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 25,
+   "expr": "white shirt",
+   "gt": [
+    53.09000015258789,
+    4.230000019073486,
+    424.760009765625,
+    169.3300018310547
+   ],
+   "iou": 0.318,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 82,
+   "prompt": "Locate the region described as: \"bitch kid\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [516, 535, 669, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 27,
+   "expr": "bitch kid",
+   "gt": [
+    333.6300048828125,
+    253.77999877929688,
+    96.86000061035156,
+    221.6999969482422
+   ],
+   "iou": 0.916,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 83,
+   "prompt": "Locate the region described as: \"red shirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [228, 288, 602, 919]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "red shirt",
+   "gt": [
+    141.3000030517578,
+    144.5399932861328,
+    230.8300018310547,
+    293.3900146484375
+   ],
+   "iou": 0.899,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 84,
+   "prompt": "Locate the region described as: \"left bag\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [44, 425, 420, 838]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 26,
+   "expr": "left bag",
+   "gt": [
+    22.649999618530273,
+    204.94000244140625,
+    248.08999633789062,
+    197.39999389648438
+   ],
+   "iou": 0.965,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 85,
+   "prompt": "Locate the region described as: \"large bag\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [409, 56, 856, 915]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 26,
+   "expr": "large bag",
+   "gt": [
+    261.6199951171875,
+    28.110000610351562,
+    289.7300109863281,
+    418.3800048828125
+   ],
+   "iou": 0.967,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 86,
+   "prompt": "Locate the region described as: \"man on left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [120, 235, 512, 781]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 27,
+   "expr": "man on left",
+   "gt": [
+    75.7699966430664,
+    113.95999908447266,
+    249.08999633789062,
+    263.20001220703125
+   ],
+   "iou": 0.972,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 87,
+   "prompt": "Locate the region described as: \"girl\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [419, 242, 872, 921]}",
+   "secs": 0.3,
+   "prompt_eval_count": 377,
+   "eval_count": 27,
+   "expr": "girl",
+   "gt": [
+    260.04998779296875,
+    115.87999725341797,
+    300.1300048828125,
+    329.3900146484375
+   ],
+   "iou": 0.956,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 88,
+   "prompt": "Locate the region described as: \"car next to cab\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [156, 671, 419, 965]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "car next to cab",
+   "gt": [
+    97.30999755859375,
+    313.2699890136719,
+    173.7899932861328,
+    147.19000244140625
+   ],
+   "iou": 0.894,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 89,
+   "prompt": "Locate the region described as: \"yellow cab\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [456, 596, 911, 927]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "yellow cab",
+   "gt": [
+    293.989990234375,
+    276.3599853515625,
+    289.80999755859375,
+    161.58999633789062
+   ],
+   "iou": 0.945,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 90,
+   "prompt": "Locate the region described as: \"right eleohgabt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [458, 212, 998, 852]}",
+   "secs": 0.3,
+   "prompt_eval_count": 361,
+   "eval_count": 27,
+   "expr": "right eleohgabt",
+   "gt": [
+    296.7799987792969,
+    88.37999725341797,
+    343.2200012207031,
+    283.1600036621094
+   ],
+   "iou": 0.965,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 91,
+   "prompt": "Locate the region described as: \"elephant left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 342, 556, 843]}",
+   "secs": 0.3,
+   "prompt_eval_count": 359,
+   "eval_count": 25,
+   "expr": "elephant left",
+   "gt": [
+    0.0,
+    147.89999389648438,
+    356.1300048828125,
+    225.74000549316406
+   ],
+   "iou": 0.96,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 92,
+   "prompt": "Locate the region described as: \"right elep\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [584, 350, 942, 822]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 27,
+   "expr": "right elep",
+   "gt": [
+    377.82000732421875,
+    149.74000549316406,
+    122.02999877929688,
+    202.00999450683594
+   ],
+   "iou": 0.531,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 93,
+   "prompt": "Locate the region described as: \"dark elephant in back\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [142, 336, 519, 742]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 27,
+   "expr": "dark elephant in back",
+   "gt": [
+    83.4800033569336,
+    142.00999450683594,
+    256.20001220703125,
+    172.72000122070312
+   ],
+   "iou": 0.923,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 94,
+   "prompt": "Locate the region described as: \"front elephant, are you on mtf?\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [14, 396, 527, 995]}",
+   "secs": 0.3,
+   "prompt_eval_count": 345,
+   "eval_count": 26,
+   "expr": "front elephant, are you on mtf?",
+   "gt": [
+    0.0,
+    169.08999633789062,
+    338.6600036621094,
+    257.9100036621094
+   ],
+   "iou": 0.961,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 95,
+   "prompt": "Locate the region described as: \"The banana in the middle with 2 black dots on the stem\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 12, 736, 497]}",
+   "secs": 0.3,
+   "prompt_eval_count": 349,
+   "eval_count": 24,
+   "expr": "The banana in the middle with 2 black dots on the stem",
+   "gt": [
+    158.5,
+    0.6399999856948853,
+    225.44000244140625,
+    155.4199981689453
+   ],
+   "iou": 0.518,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 96,
+   "prompt": "Locate the region described as: \"banana left/middle\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 12, 736, 497]}",
+   "secs": 0.3,
+   "prompt_eval_count": 341,
+   "eval_count": 24,
+   "expr": "banana left/middle",
+   "gt": [
+    0.0,
+    2.799999952316284,
+    336.57000732421875,
+    151.32000732421875
+   ],
+   "iou": 0.861,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 97,
+   "prompt": "Locate the region described as: \"man\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [447, 0, 762, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 337,
+   "eval_count": 25,
+   "expr": "man",
+   "gt": [
+    289.4800109863281,
+    1.440000057220459,
+    205.8000030517578,
+    408.25
+   ],
+   "iou": 0.909,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 98,
+   "prompt": "Locate the region described as: \"woman\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [162, 136, 720, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 337,
+   "eval_count": 27,
+   "expr": "woman",
+   "gt": [
+    82.70999908447266,
+    59.150001525878906,
+    377.95001220703125,
+    367.8500061035156
+   ],
+   "iou": 0.939,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 99,
+   "prompt": "Locate the region described as: \"hot dog on top\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [12, 40, 962, 552]}",
+   "secs": 0.3,
+   "prompt_eval_count": 350,
+   "eval_count": 25,
+   "expr": "hot dog on top",
+   "gt": [
+    3.0399999618530273,
+    15.180000305175781,
+    481.6000061035156,
+    224.61000061035156
+   ],
+   "iou": 0.967,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 100,
+   "prompt": "Locate the region described as: \"bottom hotdog\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n        12,\n        438,\n        984,\n        935\n    ]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 349,
+   "eval_count": 36,
+   "expr": "bottom hotdog",
+   "gt": [
+    1.0099999904632568,
+    184.2100067138672,
+    498.79998779296875,
+    218.5399932861328
+   ],
+   "iou": 0.953,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 101,
+   "prompt": "Locate the region described as: \"right player\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [695, 169, 934, 817]}",
+   "secs": 0.3,
+   "prompt_eval_count": 398,
+   "eval_count": 27,
+   "expr": "right player",
+   "gt": [
+    445.1199951171875,
+    73.9800033569336,
+    150.41000366210938,
+    337.010009765625
+   ],
+   "iou": 0.942,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 102,
+   "prompt": "Locate the region described as: \"middle\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [416, 242, 697, 788]}",
+   "secs": 0.3,
+   "prompt_eval_count": 397,
+   "eval_count": 27,
+   "expr": "middle",
+   "gt": [
+    267.4700012207031,
+    111.87999725341797,
+    181.08999633789062,
+    290.9599914550781
+   ],
+   "iou": 0.916,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 103,
+   "prompt": "Locate the region described as: \"left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [112, 156, 398, 880]}",
+   "secs": 0.3,
+   "prompt_eval_count": 397,
+   "eval_count": 27,
+   "expr": "left",
+   "gt": [
+    69.2300033569336,
+    69.9000015258789,
+    192.0500030517578,
+    374.05999755859375
+   ],
+   "iou": 0.919,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 104,
+   "prompt": "Locate the region described as: \"computer on right side of picture\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [623, 354, 998, 896]}",
+   "secs": 0.3,
+   "prompt_eval_count": 382,
+   "eval_count": 27,
+   "expr": "computer on right side of picture",
+   "gt": [
+    399.3900146484375,
+    171.5500030517578,
+    240.61000061035156,
+    265.8299865722656
+   ],
+   "iou": 0.959,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 105,
+   "prompt": "Locate the region described as: \"laptop next to cat\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [197, 519, 612, 975]}",
+   "secs": 0.3,
+   "prompt_eval_count": 381,
+   "eval_count": 27,
+   "expr": "laptop next to cat",
+   "gt": [
+    122.87999725341797,
+    247.8300018310547,
+    269.70001220703125,
+    213.97000122070312
+   ],
+   "iou": 0.952,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 106,
+   "prompt": "Locate the region described as: \"front giraffe\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n            436,\n            477,\n            980,\n            998\n    ]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 37,
+   "expr": "front giraffe",
+   "gt": [
+    280.0899963378906,
+    234.25999450683594,
+    344.4700012207031,
+    245.74000549316406
+   ],
+   "iou": 0.965,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 107,
+   "prompt": "Locate the region described as: \"left zebra\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [76, 211, 274, 861]}",
+   "secs": 0.3,
+   "prompt_eval_count": 359,
+   "eval_count": 26,
+   "expr": "left zebra",
+   "gt": [
+    37.25,
+    68.61000061035156,
+    102.80000305175781,
+    224.22999572753906
+   ],
+   "iou": 0.93,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 108,
+   "prompt": "Locate the region described as: \"right zebra\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [572, 251, 956, 885]}",
+   "secs": 0.3,
+   "prompt_eval_count": 359,
+   "eval_count": 27,
+   "expr": "right zebra",
+   "gt": [
+    284.6300048828125,
+    80.22000122070312,
+    195.16000366210938,
+    225.5800018310547
+   ],
+   "iou": 0.921,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 109,
+   "prompt": "Locate the region described as: \"zebra with an ass\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [236, 301, 630, 835]}",
+   "secs": 0.3,
+   "prompt_eval_count": 362,
+   "eval_count": 27,
+   "expr": "zebra with an ass",
+   "gt": [
+    112.0,
+    97.80999755859375,
+    212.0399932861328,
+    187.41000366210938
+   ],
+   "iou": 0.882,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 110,
+   "prompt": "Locate the region described as: \"GIRL IN BIKINI ON RIGHT\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [575, 47, 791, 796]}",
+   "secs": 0.3,
+   "prompt_eval_count": 346,
+   "eval_count": 26,
+   "expr": "GIRL IN BIKINI ON RIGHT",
+   "gt": [
+    371.3500061035156,
+    21.110000610351562,
+    146.80999755859375,
+    318.57000732421875
+   ],
+   "iou": 0.895,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 111,
+   "prompt": "Locate the region described as: \"MAN BETWEEN WOMEN\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [511, 0, 673, 762]}",
+   "secs": 0.3,
+   "prompt_eval_count": 343,
+   "eval_count": 25,
+   "expr": "MAN BETWEEN WOMEN",
+   "gt": [
+    325.0400085449219,
+    0.009999999776482582,
+    108.2699966430664,
+    325.3399963378906
+   ],
+   "iou": 0.958,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 112,
+   "prompt": "Locate the region described as: \"far left dude\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [94, 0, 406, 997]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 27,
+   "expr": "far left dude",
+   "gt": [
+    54.689998626708984,
+    0.6700000166893005,
+    206.30999755859375,
+    420.2799987792969
+   ],
+   "iou": 0.956,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 113,
+   "prompt": "Locate the region described as: \"BROC BOTTOM RIGHT\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n        415,\n        462,\n        998,\n        987\n    ]\n}",
+   "secs": 0.4,
+   "prompt_eval_count": 442,
+   "eval_count": 37,
+   "expr": "BROC BOTTOM RIGHT",
+   "gt": [
+    253.44000244140625,
+    283.67999267578125,
+    355.67999267578125,
+    328.32000732421875
+   ],
+   "iou": 0.967,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 114,
+   "prompt": "Locate the region described as: \"Top broccolli\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 0, 492, 485]}",
+   "secs": 0.3,
+   "prompt_eval_count": 442,
+   "eval_count": 23,
+   "expr": "Top broccolli",
+   "gt": [
+    0.0,
+    0.0,
+    301.69000244140625,
+    302.54998779296875
+   ],
+   "iou": 0.979,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 115,
+   "prompt": "Locate the region described as: \"woman on left standing\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [198, 139, 456, 666]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "woman on left standing",
+   "gt": [
+    94.91999816894531,
+    92.04000091552734,
+    117.2300033569336,
+    327.6600036621094
+   ],
+   "iou": 0.943,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 116,
+   "prompt": "Locate the region described as: \"A LADY WITH A BLACK SWIM SUIT HOLDING A UNBRELLA ON THE BEACH\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [635, 128, 821, 666]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 401,
+   "eval_count": 30,
+   "expr": "A LADY WITH A BLACK SWIM SUIT HOLDING A UNBRELLA ON THE BEACH",
+   "gt": [
+    296.75,
+    79.04000091552734,
+    90.5199966430664,
+    346.510009765625
+   ],
+   "iou": 0.952,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 117,
+   "prompt": "Locate the region described as: \"WOMAN IN FRONT\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [352, 352, 715, 692]}",
+   "secs": 0.3,
+   "prompt_eval_count": 382,
+   "eval_count": 27,
+   "expr": "WOMAN IN FRONT",
+   "gt": [
+    165.4499969482422,
+    225.39999389648438,
+    168.5399932861328,
+    216.1199951171875
+   ],
+   "iou": 0.985,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 118,
+   "prompt": "Locate the region described as: \"women sitting down's umbrella\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [235, 320, 635, 662]}",
+   "secs": 0.3,
+   "prompt_eval_count": 383,
+   "eval_count": 27,
+   "expr": "women sitting down's umbrella",
+   "gt": [
+    108.52999877929688,
+    204.9499969482422,
+    188.99000549316406,
+    163.6999969482422
+   ],
+   "iou": 0.743,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 119,
+   "prompt": "Locate the region described as: \"rt umbrella\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [667, 70, 946, 341]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 26,
+   "expr": "rt umbrella",
+   "gt": [
+    317.4800109863281,
+    47.27000045776367,
+    129.6699981689453,
+    170.99000549316406
+   ],
+   "iou": 0.915,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 120,
+   "prompt": "Locate the region described as: \"top left umbrella\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [356, 78, 675, 336]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 26,
+   "expr": "top left umbrella",
+   "gt": [
+    163.22000122070312,
+    50.25,
+    151.77000427246094,
+    143.17999267578125
+   ],
+   "iou": 0.845,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 121,
+   "prompt": "Locate the region described as: \"lady in purpl asian\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [617, 292, 960, 827]}",
+   "secs": 0.3,
+   "prompt_eval_count": 403,
+   "eval_count": 27,
+   "expr": "lady in purpl asian",
+   "gt": [
+    315.5,
+    187.1999969482422,
+    168.47000122070312,
+    347.7799987792969
+   ],
+   "iou": 0.913,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 122,
+   "prompt": "Locate the region described as: \"woman\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [94, 66, 619, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 397,
+   "eval_count": 25,
+   "expr": "woman",
+   "gt": [
+    43.150001525878906,
+    43.2400016784668,
+    266.05999755859375,
+    559.4600219726562
+   ],
+   "iou": 0.924,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 123,
+   "prompt": "Locate the region described as: \"batter\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [331, 169, 553, 836]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "batter",
+   "gt": [
+    209.64999389648438,
+    76.45999908447266,
+    143.3000030517578,
+    280.82000732421875
+   ],
+   "iou": 0.963,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 124,
+   "prompt": "Locate the region described as: \"person sitting on right in black shirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [697, 217, 836, 671]}",
+   "secs": 0.3,
+   "prompt_eval_count": 343,
+   "eval_count": 27,
+   "expr": "person sitting on right in black shirt",
+   "gt": [
+    456.8800048828125,
+    94.22000122070312,
+    100.23999786376953,
+    183.13999938964844
+   ],
+   "iou": 0.672,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 125,
+   "prompt": "Locate the region described as: \"catcher\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 646, 241, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 358,
+   "eval_count": 25,
+   "expr": "catcher",
+   "gt": [
+    0.0,
+    283.75,
+    143.99000549316406,
+    156.25
+   ],
+   "iou": 0.926,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 126,
+   "prompt": "Locate the region described as: \"the batter\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [266, 417, 594, 925]}",
+   "secs": 0.3,
+   "prompt_eval_count": 358,
+   "eval_count": 27,
+   "expr": "the batter",
+   "gt": [
+    171.44000244140625,
+    181.85000610351562,
+    205.13999938964844,
+    228.9199981689453
+   ],
+   "iou": 0.955,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 127,
+   "prompt": "Locate the region described as: \"guy near wall\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [545, 71, 775, 535]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 26,
+   "expr": "guy near wall",
+   "gt": [
+    347.20001220703125,
+    35.869998931884766,
+    146.88999938964844,
+    220.6300048828125
+   ],
+   "iou": 0.967,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 128,
+   "prompt": "Locate the region described as: \"Man with tennis racket\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [406, 138, 623, 833]}",
+   "secs": 0.3,
+   "prompt_eval_count": 381,
+   "eval_count": 27,
+   "expr": "Man with tennis racket",
+   "gt": [
+    260.760009765625,
+    66.80000305175781,
+    133.47000122070312,
+    332.9800109863281
+   ],
+   "iou": 0.959,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 129,
+   "prompt": "Locate the region described as: \"LEFT GREEN SHIRT BENDING DOWN\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [127, 336, 306, 725]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 345,
+   "eval_count": 30,
+   "expr": "LEFT GREEN SHIRT BENDING DOWN",
+   "gt": [
+    73.23999786376953,
+    142.60000610351562,
+    119.30000305175781,
+    165.05999755859375
+   ],
+   "iou": 0.893,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 130,
+   "prompt": "Locate the region described as: \"200999\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [467, 500, 531, 567]}",
+   "secs": 0.3,
+   "prompt_eval_count": 342,
+   "eval_count": 27,
+   "expr": "200999",
+   "gt": [
+    298.4200134277344,
+    161.1999969482422,
+    91.16000366210938,
+    258.1199951171875
+   ],
+   "iou": 0.05,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 131,
+   "prompt": "Locate the region described as: \"heavy guy, jeans, hand out\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [542, 255, 781, 997]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 344,
+   "eval_count": 30,
+   "expr": "heavy guy, jeans, hand out",
+   "gt": [
+    342.55999755859375,
+    112.2699966430664,
+    163.1199951171875,
+    309.92999267578125
+   ],
+   "iou": 0.919,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 132,
+   "prompt": "Locate the region described as: \"broken hot dog\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [98, 496, 480, 962]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 26,
+   "expr": "broken hot dog",
+   "gt": [
+    59.86000061035156,
+    215.52999877929688,
+    250.72999572753906,
+    247.33999633789062
+   ],
+   "iou": 0.882,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 133,
+   "prompt": "Locate the region described as: \"Hot dog beside the dirnk\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [162, 400, 572, 883]}",
+   "secs": 0.3,
+   "prompt_eval_count": 382,
+   "eval_count": 27,
+   "expr": "Hot dog beside the dirnk",
+   "gt": [
+    146.0399932861328,
+    183.9600067138672,
+    224.14999389648438,
+    204.91000366210938
+   ],
+   "iou": 0.683,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 134,
+   "prompt": "Locate the region described as: \"top comic near front\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [158, 477, 495, 750]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "top comic near front",
+   "gt": [
+    174.74000549316406,
+    303.1000061035156,
+    303.1000061035156,
+    130.52000427246094
+   ],
+   "iou": 0.135,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 135,
+   "prompt": "Locate the region described as: \"red comic\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [158, 477, 494, 750]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "red comic",
+   "gt": [
+    106.30999755859375,
+    228.8300018310547,
+    212.6199951171875,
+    132.0800018310547
+   ],
+   "iou": 0.956,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 136,
+   "prompt": "Locate the region described as: \"last book on top right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [395, 21, 547, 336]}",
+   "secs": 0.3,
+   "prompt_eval_count": 354,
+   "eval_count": 26,
+   "expr": "last book on top right",
+   "gt": [
+    257.3299865722656,
+    8.529999732971191,
+    92.41000366210938,
+    131.8300018310547
+   ],
+   "iou": 0.903,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 137,
+   "prompt": "Locate the region described as: \"Bible\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [212, 31, 392, 392]}",
+   "secs": 0.3,
+   "prompt_eval_count": 351,
+   "eval_count": 26,
+   "expr": "Bible",
+   "gt": [
+    134.94000244140625,
+    12.520000457763672,
+    116.2699966430664,
+    154.72999572753906
+   ],
+   "iou": 0.918,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 138,
+   "prompt": "Locate the region described as: \"girl's jacket\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [28, 386, 412, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 26,
+   "expr": "girl's jacket",
+   "gt": [
+    8.069999694824219,
+    63.290000915527344,
+    254.13999938964844,
+    365.7099914550781
+   ],
+   "iou": 0.687,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 139,
+   "prompt": "Locate the region described as: \"guy facing camera\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [425, 206, 552, 862]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 27,
+   "expr": "guy facing camera",
+   "gt": [
+    270.79998779296875,
+    91.19999694824219,
+    83.55000305175781,
+    276.3599853515625
+   ],
+   "iou": 0.956,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 140,
+   "prompt": "Locate the region described as: \"back giraffe\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [136, 211, 466, 990]}",
+   "secs": 0.3,
+   "prompt_eval_count": 352,
+   "eval_count": 27,
+   "expr": "back giraffe",
+   "gt": [
+    88.05999755859375,
+    80.94000244140625,
+    211.00999450683594,
+    302.55999755859375
+   ],
+   "iou": 0.986,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 141,
+   "prompt": "Locate the region described as: \"front giraffe\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [88, 164, 469, 991]}",
+   "secs": 0.3,
+   "prompt_eval_count": 352,
+   "eval_count": 26,
+   "expr": "front giraffe",
+   "gt": [
+    56.66999816894531,
+    63.650001525878906,
+    247.6300048828125,
+    319.989990234375
+   ],
+   "iou": 0.979,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 142,
+   "prompt": "Locate the region described as: \"yelllow\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [452, 356, 711, 991]}",
+   "secs": 0.3,
+   "prompt_eval_count": 352,
+   "eval_count": 27,
+   "expr": "yelllow",
+   "gt": [
+    290.3500061035156,
+    137.75999450683594,
+    163.9199981689453,
+    245.00999450683594
+   ],
+   "iou": 0.98,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 143,
+   "prompt": "Locate the region described as: \"guy on right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [670, 517, 880, 990]}",
+   "secs": 0.3,
+   "prompt_eval_count": 352,
+   "eval_count": 27,
+   "expr": "guy on right",
+   "gt": [
+    429.760009765625,
+    196.57000732421875,
+    134.83999633789062,
+    184.42999267578125
+   ],
+   "iou": 0.945,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 144,
+   "prompt": "Locate the region described as: \"man's head on the left, with hat on\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [42, 14, 225, 225]}",
+   "secs": 0.3,
+   "prompt_eval_count": 347,
+   "eval_count": 25,
+   "expr": "man's head on the left, with hat on",
+   "gt": [
+    22.719999313354492,
+    1.2000000476837158,
+    138.99000549316406,
+    223.6300048828125
+   ],
+   "iou": 0.574,
+   "dialect": "pixel/yxyx",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 145,
+   "prompt": "Locate the region described as: \"woman in white tanktop and green shorts\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [856, 208, 994, 850]}",
+   "secs": 0.3,
+   "prompt_eval_count": 344,
+   "eval_count": 27,
+   "expr": "woman in white tanktop and green shorts",
+   "gt": [
+    553.3300170898438,
+    95.87000274658203,
+    86.66999816894531,
+    264.8900146484375
+   ],
+   "iou": 0.87,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 146,
+   "prompt": "Locate the region described as: \"woman on far left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [25, 308, 262, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 26,
+   "expr": "woman on far left",
+   "gt": [
+    19.420000076293945,
+    143.52999877929688,
+    143.4600067138672,
+    330.07000732421875
+   ],
+   "iou": 0.919,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 147,
+   "prompt": "Locate the region described as: \"man with mask on\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [716, 265, 928, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "man with mask on",
+   "gt": [
+    454.2300109863281,
+    125.73999786376953,
+    140.6699981689453,
+    346.8500061035156
+   ],
+   "iou": 0.944,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 148,
+   "prompt": "Locate the region described as: \"second person from the left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [119, 267, 305, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 381,
+   "eval_count": 27,
+   "expr": "second person from the left",
+   "gt": [
+    78.73999786376953,
+    123.87000274658203,
+    119.7300033569336,
+    311.7300109863281
+   ],
+   "iou": 0.827,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 149,
+   "prompt": "Locate the region described as: \"guy in the middle with red tie\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [372, 242, 577, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 383,
+   "eval_count": 27,
+   "expr": "guy in the middle with red tie",
+   "gt": [
+    237.85000610351562,
+    116.18000030517578,
+    133.4499969482422,
+    357.30999755859375
+   ],
+   "iou": 0.968,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 150,
+   "prompt": "Locate the region described as: \"boy on left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n        162,\n            105,\n        427,\n        986\n    ]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 37,
+   "expr": "boy on left",
+   "gt": [
+    94.04000091552734,
+    43.18000030517578,
+    172.72000122070312,
+    377.1000061035156
+   ],
+   "iou": 0.904,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 151,
+   "prompt": "Locate the region described as: \"blue shirt sad man\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [498, 5, 692, 800]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 25,
+   "expr": "blue shirt sad man",
+   "gt": [
+    318.1000061035156,
+    0.0,
+    128.00999450683594,
+    341.010009765625
+   ],
+   "iou": 0.962,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 152,
+   "prompt": "Locate the region described as: \"far right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [831, 26, 991, 986]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 26,
+   "expr": "far right",
+   "gt": [
+    533.75,
+    5.289999961853027,
+    106.25,
+    417.3800048828125
+   ],
+   "iou": 0.913,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 153,
+   "prompt": "Locate the region described as: \"red jacket kid hood up\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [509, 232, 678, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 341,
+   "eval_count": 27,
+   "expr": "red jacket kid hood up",
+   "gt": [
+    326.25,
+    103.62999725341797,
+    110.3499984741211,
+    322.4100036621094
+   ],
+   "iou": 0.958,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 154,
+   "prompt": "Locate the region described as: \"item on right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [581, 158, 992, 485]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 27,
+   "expr": "item on right",
+   "gt": [
+    371.6400146484375,
+    120.91000366210938,
+    268.3599853515625,
+    117.08999633789062
+   ],
+   "iou": 0.716,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 155,
+   "prompt": "Locate the region described as: \"yellow blbo\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [0, 156, 475, 558]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 28,
+   "expr": "yellow blbo",
+   "gt": [
+    3.819999933242798,
+    81.44999694824219,
+    296.5400085449219,
+    188.3699951171875
+   ],
+   "iou": 0.933,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 156,
+   "prompt": "Locate the region described as: \"front zebra\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [0, 297, 486, 977]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 365,
+   "eval_count": 28,
+   "expr": "front zebra",
+   "gt": [
+    1.6200000047683716,
+    107.88999938964844,
+    310.7099914550781,
+    249.0500030517578
+   ],
+   "iou": 0.971,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 157,
+   "prompt": "Locate the region described as: \"middle zebra\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [212, 244, 711, 858]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 365,
+   "eval_count": 30,
+   "expr": "middle zebra",
+   "gt": [
+    138.52999877929688,
+    91.05999755859375,
+    333.29998779296875,
+    228.99000549316406
+   ],
+   "iou": 0.889,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 158,
+   "prompt": "Locate the region described as: \"zebra right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [669, 300, 847, 656]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 27,
+   "expr": "zebra right",
+   "gt": [
+    431.760009765625,
+    126.16999816894531,
+    117.05000305175781,
+    159.27000427246094
+   ],
+   "iou": 0.872,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 159,
+   "prompt": "Locate the region described as: \"left zebra\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n        25,\n            292,\n            411,\n            675\n    ]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 36,
+   "expr": "left zebra",
+   "gt": [
+    10.529999732971191,
+    123.48999786376953,
+    253.69000244140625,
+    162.74000549316406
+   ],
+   "iou": 0.961,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 160,
+   "prompt": "Locate the region described as: \"right bike\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [456, 254, 861, 796]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "right bike",
+   "gt": [
+    379.7300109863281,
+    122.55000305175781,
+    168.83999633789062,
+    258.8699951171875
+   ],
+   "iou": 0.648,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 161,
+   "prompt": "Locate the region described as: \"left bike\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [150, 325, 636, 827]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "left bike",
+   "gt": [
+    96.2300033569336,
+    150.16000366210938,
+    312.1400146484375,
+    251.16000366210938
+   ],
+   "iou": 0.955,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 162,
+   "prompt": "Locate the region described as: \"pink flowed couch\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [619, 383, 936, 654]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "pink flowed couch",
+   "gt": [
+    401.1099853515625,
+    179.74000549316406,
+    177.8800048828125,
+    132.27000427246094
+   ],
+   "iou": 0.841,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 163,
+   "prompt": "Locate the region described as: \"farthest left tray hot dogs\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 88, 212, 667]}",
+   "secs": 0.3,
+   "prompt_eval_count": 383,
+   "eval_count": 24,
+   "expr": "farthest left tray hot dogs",
+   "gt": [
+    0.0,
+    41.52000045776367,
+    134.77999877929688,
+    273.1000061035156
+   ],
+   "iou": 0.971,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 164,
+   "prompt": "Locate the region described as: \"middle tray of food\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [12, 129, 552, 796]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 26,
+   "expr": "middle tray of food",
+   "gt": [
+    7.480000019073486,
+    62.34000015258789,
+    346.6000061035156,
+    316.6700134277344
+   ],
+   "iou": 0.986,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 165,
+   "prompt": "Locate the region described as: \"red loveseat in center by windows\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [192, 369, 552, 686]}",
+   "secs": 0.3,
+   "prompt_eval_count": 344,
+   "eval_count": 27,
+   "expr": "red loveseat in center by windows",
+   "gt": [
+    112.29000091552734,
+    166.60000610351562,
+    237.47000122070312,
+    115.05000305175781
+   ],
+   "iou": 0.804,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 166,
+   "prompt": "Locate the region described as: \"sofa near camera\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [103, 522, 723, 986]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 27,
+   "expr": "sofa near camera",
+   "gt": [
+    41.41999816894531,
+    209.86000061035156,
+    427.0799865722656,
+    212.6199951171875
+   ],
+   "iou": 0.868,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 167,
+   "prompt": "Locate the region described as: \"bread in the middle, behind the bowl\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [384, 258, 606, 603]}",
+   "secs": 0.3,
+   "prompt_eval_count": 344,
+   "eval_count": 27,
+   "expr": "bread in the middle, behind the bowl",
+   "gt": [
+    227.5,
+    108.20999908447266,
+    157.9499969482422,
+    151.14999389648438
+   ],
+   "iou": 0.849,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 168,
+   "prompt": "Locate the region described as: \"right sandwich\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [525, 167, 845, 745]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "right sandwich",
+   "gt": [
+    334.3399963378906,
+    74.5999984741211,
+    219.7100067138672,
+    246.4600067138672
+   ],
+   "iou": 0.91,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 169,
+   "prompt": "Locate the region described as: \"left guy\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [152, 202, 373, 785]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "left guy",
+   "gt": [
+    99.23999786376953,
+    100.12999725341797,
+    142.3800048828125,
+    278.29998779296875
+   ],
+   "iou": 0.95,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 170,
+   "prompt": "Locate the region described as: \"man on right...NP\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [528, 212, 745, 683]}",
+   "secs": 0.3,
+   "prompt_eval_count": 381,
+   "eval_count": 27,
+   "expr": "man on right...NP",
+   "gt": [
+    338.70001220703125,
+    101.38999938964844,
+    140.22000122070312,
+    229.75999450683594
+   ],
+   "iou": 0.964,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 171,
+   "prompt": "Locate the region described as: \"MAN ON LEFT\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n        115,\n        286,\n        400,\n        702\n    ]\n}",
+   "secs": 0.4,
+   "prompt_eval_count": 340,
+   "eval_count": 37,
+   "expr": "MAN ON LEFT",
+   "gt": [
+    46.029998779296875,
+    177.8699951171875,
+    134.22000122070312,
+    230.4199981689453
+   ],
+   "iou": 0.76,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 172,
+   "prompt": "Locate the region described as: \"man standing in front of bananas almost bald\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [667, 306, 852, 734]}",
+   "secs": 0.3,
+   "prompt_eval_count": 345,
+   "eval_count": 27,
+   "expr": "man standing in front of bananas almost bald",
+   "gt": [
+    275.55999755859375,
+    193.67999267578125,
+    83.54000091552734,
+    280.20001220703125
+   ],
+   "iou": 0.855,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 173,
+   "prompt": "Locate the region described as: \"the mans hair on right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [738, 461, 896, 660]}",
+   "secs": 0.3,
+   "prompt_eval_count": 361,
+   "eval_count": 27,
+   "expr": "the mans hair on right",
+   "gt": [
+    248.38999938964844,
+    128.0800018310547,
+    197.75999450683594,
+    204.9199981689453
+   ],
+   "iou": 0.126,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 174,
+   "prompt": "Locate the region described as: \"PERSON LEG UP\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [280, 101, 922, 979]}",
+   "secs": 0.3,
+   "prompt_eval_count": 361,
+   "eval_count": 27,
+   "expr": "PERSON LEG UP",
+   "gt": [
+    73.33000183105469,
+    25.3700008392334,
+    391.6400146484375,
+    307.6300048828125
+   ],
+   "iou": 0.779,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 175,
+   "prompt": "Locate the region described as: \"the adult\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [105, 119, 660, 875]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "the adult",
+   "gt": [
+    50.45000076293945,
+    72.06999969482422,
+    227.75,
+    537.6599731445312
+   ],
+   "iou": 0.866,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 176,
+   "prompt": "Locate the region described as: \"girl\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [436, 286, 820, 945]}",
+   "secs": 0.3,
+   "prompt_eval_count": 337,
+   "eval_count": 27,
+   "expr": "girl",
+   "gt": [
+    153.5399932861328,
+    176.5,
+    202.3300018310547,
+    440.5400085449219
+   ],
+   "iou": 0.778,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 177,
+   "prompt": "Locate the region described as: \"lef zebra\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [6, 110, 412, 989]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 28,
+   "expr": "lef zebra",
+   "gt": [
+    0.0,
+    45.72999954223633,
+    265.8299865722656,
+    373.510009765625
+   ],
+   "iou": 0.975,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 178,
+   "prompt": "Locate the region described as: \"middle back Z\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [292, 244, 622, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 27,
+   "expr": "middle back Z",
+   "gt": [
+    185.4499969482422,
+    95.61000061035156,
+    389.4100036621094,
+    328.3900146484375
+   ],
+   "iou": 0.528,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 179,
+   "prompt": "Locate the region described as: \"man in right front with blue tie next to older woman\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [886, 269, 984, 800]}",
+   "secs": 0.3,
+   "prompt_eval_count": 387,
+   "eval_count": 27,
+   "expr": "man in right front with blue tie next to older woman",
+   "gt": [
+    565.5800170898438,
+    131.61000061035156,
+    74.41999816894531,
+    258.8399963378906
+   ],
+   "iou": 0.815,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 180,
+   "prompt": "Locate the region described as: \"Front right woman in dark clothes\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [758, 338, 925, 844]}",
+   "secs": 0.3,
+   "prompt_eval_count": 382,
+   "eval_count": 27,
+   "expr": "Front right woman in dark clothes",
+   "gt": [
+    459.0199890136719,
+    160.22000122070312,
+    134.27999877929688,
+    244.82000732421875
+   ],
+   "iou": 0.789,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 181,
+   "prompt": "Locate the region described as: \"lady pink skirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [662, 275, 762, 769]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "lady pink skirt",
+   "gt": [
+    425.95001220703125,
+    132.89999389648438,
+    63.779998779296875,
+    232.42999267578125
+   ],
+   "iou": 0.917,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 182,
+   "prompt": "Locate the region described as: \"bride throwing boquet\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [486, 283, 606, 769]}",
+   "secs": 0.3,
+   "prompt_eval_count": 381,
+   "eval_count": 27,
+   "expr": "bride throwing boquet",
+   "gt": [
+    312.80999755859375,
+    135.97999572753906,
+    75.5,
+    231.91000366210938
+   ],
+   "iou": 0.965,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 183,
+   "prompt": "Locate the region described as: \"guy 2nd from left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [152, 252, 256, 942]}",
+   "secs": 0.3,
+   "prompt_eval_count": 382,
+   "eval_count": 27,
+   "expr": "guy 2nd from left",
+   "gt": [
+    98.54000091552734,
+    124.04000091552734,
+    86.44000244140625,
+    331.05999755859375
+   ],
+   "iou": 0.733,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 184,
+   "prompt": "Locate the region described as: \"girl on the left in the front\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [25, 219, 197, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 383,
+   "eval_count": 26,
+   "expr": "girl on the left in the front",
+   "gt": [
+    9.520000457763672,
+    107.86000061035156,
+    117.36000061035156,
+    372.1400146484375
+   ],
+   "iou": 0.929,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 185,
+   "prompt": "Locate the region described as: \"guy front gray suit left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [247, 504, 466, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 381,
+   "eval_count": 27,
+   "expr": "guy front gray suit left",
+   "gt": [
+    152.08999633789062,
+    242.6999969482422,
+    152.08999633789062,
+    230.8300018310547
+   ],
+   "iou": 0.899,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 186,
+   "prompt": "Locate the region described as: \"right bus\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [806, 328, 998, 845]}",
+   "secs": 0.3,
+   "prompt_eval_count": 364,
+   "eval_count": 27,
+   "expr": "right bus",
+   "gt": [
+    519.3699951171875,
+    118.11000061035156,
+    119.7300033569336,
+    189.30999755859375
+   ],
+   "iou": 0.952,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 187,
+   "prompt": "Locate the region described as: \"bus\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [184, 289, 825, 822]}",
+   "secs": 0.3,
+   "prompt_eval_count": 363,
+   "eval_count": 27,
+   "expr": "bus",
+   "gt": [
+    117.30000305175781,
+    101.12000274658203,
+    411.7799987792969,
+    193.35000610351562
+   ],
+   "iou": 0.974,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 188,
+   "prompt": "Locate the region described as: \"back lady in blue\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [218, 12, 475, 305]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 26,
+   "expr": "back lady in blue",
+   "gt": [
+    101.41000366210938,
+    1.7400000095367432,
+    101.25,
+    185.52000427246094
+   ],
+   "iou": 0.858,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 189,
+   "prompt": "Locate the region described as: \"girl\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [208, 266, 998, 934]}",
+   "secs": 0.3,
+   "prompt_eval_count": 337,
+   "eval_count": 27,
+   "expr": "girl",
+   "gt": [
+    90.70999908447266,
+    168.58999633789062,
+    336.2900085449219,
+    437.7099914550781
+   ],
+   "iou": 0.969,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 190,
+   "prompt": "Locate the region described as: \"right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [827, 185, 998, 881]}",
+   "secs": 0.3,
+   "prompt_eval_count": 377,
+   "eval_count": 27,
+   "expr": "right",
+   "gt": [
+    529.1699829101562,
+    89.2300033569336,
+    110.83000183105469,
+    333.79998779296875
+   ],
+   "iou": 0.986,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 191,
+   "prompt": "Locate the region described as: \"orange shirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [328, 188, 778, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "orange shirt",
+   "gt": [
+    223.27999877929688,
+    89.52999877929688,
+    268.5899963378906,
+    364.5799865722656
+   ],
+   "iou": 0.871,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 192,
+   "prompt": "Locate the region described as: \"man holding child\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 142, 892, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 25,
+   "expr": "man holding child",
+   "gt": [
+    0.0,
+    67.37000274658203,
+    573.6300048828125,
+    412.6300048828125
+   ],
+   "iou": 0.991,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 193,
+   "prompt": "Locate the region described as: \"right meter\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [562, 61, 756, 775]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 26,
+   "expr": "right meter",
+   "gt": [
+    362.6300048828125,
+    28.010000228881836,
+    129.85000610351562,
+    308.760009765625
+   ],
+   "iou": 0.895,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 194,
+   "prompt": "Locate the region described as: \"metor left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [341, 56, 562, 862]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 26,
+   "expr": "metor left",
+   "gt": [
+    214.9199981689453,
+    23.940000534057617,
+    147.2899932861328,
+    348.3999938964844
+   ],
+   "iou": 0.953,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 195,
+   "prompt": "Locate the region described as: \"man\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [498, 496, 634, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 377,
+   "eval_count": 27,
+   "expr": "man",
+   "gt": [
+    324.7300109863281,
+    239.14999389648438,
+    83.20999908447266,
+    240.85000610351562
+   ],
+   "iou": 0.901,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 196,
+   "prompt": "Locate the region described as: \"boy red pants\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [303, 583, 536, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 27,
+   "expr": "boy red pants",
+   "gt": [
+    187.25999450683594,
+    278.8699951171875,
+    158.2100067138672,
+    196.9499969482422
+   ],
+   "iou": 0.924,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 197,
+   "prompt": "Locate the region described as: \"A BLACK BEHIND  NEXT TO THE WHITE ELDERLY GUY\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [77, 25, 436, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 368,
+   "eval_count": 25,
+   "expr": "A BLACK BEHIND  NEXT TO THE WHITE ELDERLY GUY",
+   "gt": [
+    45.060001373291016,
+    6.929999828338623,
+    233.08999633789062,
+    389.07000732421875
+   ],
+   "iou": 0.969,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 198,
+   "prompt": "Locate the region described as: \"man on right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [312, 47, 956, 986]}",
+   "secs": 0.3,
+   "prompt_eval_count": 352,
+   "eval_count": 26,
+   "expr": "man on right",
+   "gt": [
+    200.22999572753906,
+    18.549999237060547,
+    404.04998779296875,
+    371.8599853515625
+   ],
+   "iou": 0.98,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 199,
+   "prompt": "Locate the region described as: \"Green stripes\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [86, 115, 306, 381]}",
+   "secs": 0.3,
+   "prompt_eval_count": 418,
+   "eval_count": 26,
+   "expr": "Green stripes",
+   "gt": [
+    57.04999923706055,
+    47.689998626708984,
+    257.739990234375,
+    244.94000244140625
+   ],
+   "iou": 0.514,
+   "dialect": "pixel/yxyx",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 200,
+   "prompt": "Locate the region described as: \"elephant driver\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [362, 116, 720, 636]}",
+   "secs": 0.3,
+   "prompt_eval_count": 419,
+   "eval_count": 27,
+   "expr": "elephant driver",
+   "gt": [
+    204.02999877929688,
+    67.30000305175781,
+    264.7900085449219,
+    289.55999755859375
+   ],
+   "iou": 0.822,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 201,
+   "prompt": "Locate the region described as: \"elephent in front with snout up in the air,\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [181, 281, 845, 998]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 429,
+   "eval_count": 30,
+   "expr": "elephent in front with snout up in the air,",
+   "gt": [
+    150.36000061035156,
+    156.27000427246094,
+    209.0500030517578,
+    381.4100036621094
+   ],
+   "iou": 0.481,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 202,
+   "prompt": "Locate the region described as: \"rhino\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [181, 285, 998, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 418,
+   "eval_count": 27,
+   "expr": "rhino",
+   "gt": [
+    120.06999969482422,
+    159.27999877929688,
+    519.9299926757812,
+    384.7200012207031
+   ],
+   "iou": 0.976,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 203,
+   "prompt": "Locate the region described as: \"back giraffe\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 356, 831, 989]}",
+   "secs": 0.3,
+   "prompt_eval_count": 345,
+   "eval_count": 25,
+   "expr": "back giraffe",
+   "gt": [
+    0.0,
+    188.08999633789062,
+    169.88999938964844,
+    254.8300018310547
+   ],
+   "iou": 0.541,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 204,
+   "prompt": "Locate the region described as: \"giraffe front\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [169, 136, 844, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 346,
+   "eval_count": 27,
+   "expr": "giraffe front",
+   "gt": [
+    60.66999816894531,
+    57.63999938964844,
+    220.4499969482422,
+    387.29998779296875
+   ],
+   "iou": 0.947,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 205,
+   "prompt": "Locate the region described as: \"zbra front\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [266, 356, 892, 906]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 27,
+   "expr": "zbra front",
+   "gt": [
+    168.57000732421875,
+    174.14999389648438,
+    401.4200134277344,
+    263.8999938964844
+   ],
+   "iou": 0.97,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 206,
+   "prompt": "Locate the region described as: \"ZEBRA BODY ON LEFT OF SCREEN\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [0, 423, 178, 854]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 386,
+   "eval_count": 28,
+   "expr": "ZEBRA BODY ON LEFT OF SCREEN",
+   "gt": [
+    0.0,
+    202.35000610351562,
+    113.7699966430664,
+    217.7899932861328
+   ],
+   "iou": 0.949,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 207,
+   "prompt": "Locate the region described as: \"man turned around\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [242, 402, 506, 983]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 27,
+   "expr": "man turned around",
+   "gt": [
+    151.75,
+    188.2899932861328,
+    178.64999389648438,
+    207.7100067138672
+   ],
+   "iou": 0.687,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 208,
+   "prompt": "Locate the region described as: \"chair in front right being sat in by bald guy looking away\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [586, 727, 931, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 388,
+   "eval_count": 27,
+   "expr": "chair in front right being sat in by bald guy looking away",
+   "gt": [
+    376.0899963378906,
+    346.9100036621094,
+    219.1699981689453,
+    133.08999633789062
+   ],
+   "iou": 0.97,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 209,
+   "prompt": "Locate the region described as: \"chair of guy looking at you in front\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [212, 788, 527, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 384,
+   "eval_count": 27,
+   "expr": "chair of guy looking at you in front",
+   "gt": [
+    134.0399932861328,
+    388.8699951171875,
+    200.55999755859375,
+    91.12999725341797
+   ],
+   "iou": 0.868,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 210,
+   "prompt": "Locate the region described as: \"person sitting behind green pole on left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 396, 223, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 383,
+   "eval_count": 25,
+   "expr": "person sitting behind green pole on left",
+   "gt": [
+    0.07000000029802322,
+    187.41000366210938,
+    142.42999267578125,
+    260.8900146484375
+   ],
+   "iou": 0.884,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 211,
+   "prompt": "Locate the region described as: \"white shirt not facing us\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [598, 412, 920, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 381,
+   "eval_count": 27,
+   "expr": "white shirt not facing us",
+   "gt": [
+    399.6499938964844,
+    197.99000549316406,
+    189.6699981689453,
+    194.4499969482422
+   ],
+   "iou": 0.633,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 212,
+   "prompt": "Locate the region described as: \"man left in white\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [168, 58, 486, 481]}",
+   "secs": 0.3,
+   "prompt_eval_count": 350,
+   "eval_count": 26,
+   "expr": "man left in white",
+   "gt": [
+    83.41000366210938,
+    18.479999542236328,
+    154.25999450683594,
+    178.47000122070312
+   ],
+   "iou": 0.914,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 213,
+   "prompt": "Locate the region described as: \"guy on right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [566, 98, 998, 592]}",
+   "secs": 0.3,
+   "prompt_eval_count": 349,
+   "eval_count": 26,
+   "expr": "guy on right",
+   "gt": [
+    275.05999755859375,
+    32.97999954223633,
+    215.72999572753906,
+    203.14999389648438
+   ],
+   "iou": 0.898,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 214,
+   "prompt": "Locate the region described as: \"arms that are stretched out\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [172, 103, 736, 361]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 341,
+   "eval_count": 30,
+   "expr": "arms that are stretched out",
+   "gt": [
+    108.02999877929688,
+    45.2599983215332,
+    369.5199890136719,
+    294.5400085449219
+   ],
+   "iou": 0.398,
+   "dialect": "pixel/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 215,
+   "prompt": "Locate the region described as: \"yeah haha number 33\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [172, 42, 592, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 344,
+   "eval_count": 26,
+   "expr": "yeah haha number 33",
+   "gt": [
+    108.87999725341797,
+    17.719999313354492,
+    275.3699951171875,
+    408.2799987792969
+   ],
+   "iou": 0.974,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 216,
+   "prompt": "Locate the region described as: \"person on left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 26, 162, 979]}",
+   "secs": 0.3,
+   "prompt_eval_count": 359,
+   "eval_count": 24,
+   "expr": "person on left",
+   "gt": [
+    0.0,
+    0.9399999976158142,
+    99.9800033569336,
+    328.489990234375
+   ],
+   "iou": 0.783,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 217,
+   "prompt": "Locate the region described as: \"woman\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [92, 19, 998, 979]}",
+   "secs": 0.3,
+   "prompt_eval_count": 357,
+   "eval_count": 25,
+   "expr": "woman",
+   "gt": [
+    49.5,
+    0.3799999952316284,
+    443.25,
+    328.5
+   ],
+   "iou": 0.953,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 218,
+   "prompt": "Locate the region described as: \"woman in middle front of pic\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [152, 281, 606, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 342,
+   "eval_count": 27,
+   "expr": "woman in middle front of pic",
+   "gt": [
+    184.11000061035156,
+    125.33000183105469,
+    209.6199951171875,
+    246.22000122070312
+   ],
+   "iou": 0.555,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 219,
+   "prompt": "Locate the region described as: \"front guy\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [197, 35, 962, 988]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 26,
+   "expr": "front guy",
+   "gt": [
+    259.2799987792969,
+    6.510000228881836,
+    361.4599914550781,
+    389.3999938964844
+   ],
+   "iou": 0.665,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 220,
+   "prompt": "Locate the region described as: \"woman with black hair\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [203, 356, 462, 803]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 27,
+   "expr": "woman with black hair",
+   "gt": [
+    119.41000366210938,
+    157.7100067138672,
+    175.75999450683594,
+    192.00999450683594
+   ],
+   "iou": 0.88,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 221,
+   "prompt": "Locate the region described as: \"black shirt bottom left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [16, 681, 244, 995]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 26,
+   "expr": "black shirt bottom left",
+   "gt": [
+    0.0,
+    218.8699951171875,
+    147.32000732421875,
+    208.1300048828125
+   ],
+   "iou": 0.577,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 222,
+   "prompt": "Locate the region described as: \"woman\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [308, 336, 759, 997]}",
+   "secs": 0.3,
+   "prompt_eval_count": 337,
+   "eval_count": 27,
+   "expr": "woman",
+   "gt": [
+    186.99000549316406,
+    135.6699981689453,
+    310.3699951171875,
+    286.2699890136719
+   ],
+   "iou": 0.894,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 223,
+   "prompt": "Locate the region described as: \"beer in middle\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [292, 146, 484, 602]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "beer in middle",
+   "gt": [
+    184.97999572753906,
+    73.06999969482422,
+    128.0800018310547,
+    213.6999969482422
+   ],
+   "iou": 0.938,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 224,
+   "prompt": "Locate the region described as: \"LEFT BEER\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [0, 308, 216, 869]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 28,
+   "expr": "LEFT BEER",
+   "gt": [
+    0.0,
+    150.80999755859375,
+    135.11000061035156,
+    264.29998779296875
+   ],
+   "iou": 0.959,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 225,
+   "prompt": "Locate the region described as: \"right guiness\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [652, 123, 852, 635]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 27,
+   "expr": "right guiness",
+   "gt": [
+    414.6400146484375,
+    58.130001068115234,
+    127.37999725341797,
+    236.97999572753906
+   ],
+   "iou": 0.915,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 226,
+   "prompt": "Locate the region described as: \"beige suitcase\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [611, 473, 934, 704]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "beige suitcase",
+   "gt": [
+    389.79998779296875,
+    228.52999877929688,
+    215.8699951171875,
+    112.3499984741211
+   ],
+   "iou": 0.921,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 227,
+   "prompt": "Locate the region described as: \"red bag\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [430, 406, 612, 683]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "red bag",
+   "gt": [
+    273.05999755859375,
+    201.44000244140625,
+    123.83000183105469,
+    128.10000610351562
+   ],
+   "iou": 0.886,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 228,
+   "prompt": "Locate the region described as: \"the right bench in a subway\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [492, 361, 963, 847]}",
+   "secs": 0.3,
+   "prompt_eval_count": 342,
+   "eval_count": 27,
+   "expr": "the right bench in a subway",
+   "gt": [
+    210.77999877929688,
+    229.11000061035156,
+    198.8699951171875,
+    321.2900085449219
+   ],
+   "iou": 0.96,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 229,
+   "prompt": "Locate the region described as: \"left bench\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [28, 361, 511, 847]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 26,
+   "expr": "left bench",
+   "gt": [
+    11.0,
+    265.1400146484375,
+    204.74000549316406,
+    282.92999267578125
+   ],
+   "iou": 0.862,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 230,
+   "prompt": "Locate the region described as: \"the front of the truck right (grill)\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [542, 519, 989, 985]}",
+   "secs": 0.3,
+   "prompt_eval_count": 386,
+   "eval_count": 27,
+   "expr": "the front of the truck right (grill)",
+   "gt": [
+    443.489990234375,
+    255.61000061035156,
+    195.32000732421875,
+    224.69000244140625
+   ],
+   "iou": 0.633,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 231,
+   "prompt": "Locate the region described as: \"white car on the left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [12, 594, 416, 985]}",
+   "secs": 0.3,
+   "prompt_eval_count": 381,
+   "eval_count": 26,
+   "expr": "white car on the left",
+   "gt": [
+    2.7699999809265137,
+    288.989990234375,
+    263.6099853515625,
+    190.0500030517578
+   ],
+   "iou": 0.97,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 232,
+   "prompt": "Locate the region described as: \"woman in middle in black\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [503, 400, 825, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 341,
+   "eval_count": 27,
+   "expr": "woman in middle in black",
+   "gt": [
+    325.2900085449219,
+    171.75999450683594,
+    202.4600067138672,
+    248.52000427246094
+   ],
+   "iou": 0.956,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 233,
+   "prompt": "Locate the region described as: \"far right woman\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [661, 267, 956, 986]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 27,
+   "expr": "far right woman",
+   "gt": [
+    426.17999267578125,
+    117.01000213623047,
+    200.8699951171875,
+    283.7300109863281
+   ],
+   "iou": 0.846,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 234,
+   "prompt": "Locate the region described as: \"the man\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [225, 453, 580, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "the man",
+   "gt": [
+    139.4499969482422,
+    196.19000244140625,
+    229.85000610351562,
+    229.85000610351562
+   ],
+   "iou": 0.96,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 235,
+   "prompt": "Locate the region described as: \"Man on the left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 52, 419, 516]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 24,
+   "expr": "Man on the left",
+   "gt": [
+    0.0,
+    36.58000183105469,
+    199.25999450683594,
+    286.1400146484375
+   ],
+   "iou": 0.955,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 236,
+   "prompt": "Locate the region described as: \"Arms up!\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [412, 123, 977, 742]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "Arms up!",
+   "gt": [
+    176.8699951171875,
+    80.93000030517578,
+    291.80999755859375,
+    406.2799987792969
+   ],
+   "iou": 0.895,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 237,
+   "prompt": "Locate the region described as: \"biblia sacra vulgata book\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [73, 119, 366, 867]}",
+   "secs": 0.3,
+   "prompt_eval_count": 360,
+   "eval_count": 26,
+   "expr": "biblia sacra vulgata book",
+   "gt": [
+    33.86000061035156,
+    25.1200008392334,
+    149.07000732421875,
+    193.30999755859375
+   ],
+   "iou": 0.923,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 238,
+   "prompt": "Locate the region described as: \"right book page\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [720, 56, 986, 736]}",
+   "secs": 0.3,
+   "prompt_eval_count": 355,
+   "eval_count": 26,
+   "expr": "right book page",
+   "gt": [
+    235.9199981689453,
+    4.900000095367432,
+    258.79998779296875,
+    181.44000244140625
+   ],
+   "iou": 0.468,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 239,
+   "prompt": "Locate the region described as: \"woman sitting on floor with legs apart\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n            466,\n            467,\n            831,\n            998\n    ]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 343,
+   "eval_count": 37,
+   "expr": "woman sitting on floor with legs apart",
+   "gt": [
+    296.5,
+    197.82000732421875,
+    249.32000732421875,
+    228.36000061035156
+   ],
+   "iou": 0.93,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 240,
+   "prompt": "Locate the region described as: \"lady top\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [373, 336, 484, 500]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 27,
+   "expr": "lady top",
+   "gt": [
+    237.49000549316406,
+    113.0999984741211,
+    112.62999725341797,
+    168.94000244140625
+   ],
+   "iou": 0.261,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 241,
+   "prompt": "Locate the region described as: \"vase\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [423, 565, 516, 956]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "vase",
+   "gt": [
+    139.63999938964844,
+    84.56999969482422,
+    350.3299865722656,
+    375.2699890136719
+   ],
+   "iou": 0.085,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 242,
+   "prompt": "Locate the region described as: \"plant on right of desk\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [523, 508, 998, 969]}",
+   "secs": 0.3,
+   "prompt_eval_count": 381,
+   "eval_count": 27,
+   "expr": "plant on right of desk",
+   "gt": [
+    326.8299865722656,
+    248.36000061035156,
+    312.80999755859375,
+    217.88999938964844
+   ],
+   "iou": 0.948,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 243,
+   "prompt": "Locate the region described as: \"L big square\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n        92,\n        356,\n        485,\n        825\n    ]\n}",
+   "secs": 0.4,
+   "prompt_eval_count": 379,
+   "eval_count": 36,
+   "expr": "L big square",
+   "gt": [
+    39.689998626708984,
+    215.14999389648438,
+    198.4499969482422,
+    309.25
+   ],
+   "iou": 0.887,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 244,
+   "prompt": "Locate the region described as: \"top piece of bread\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [300, 92, 702, 348]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 26,
+   "expr": "top piece of bread",
+   "gt": [
+    142.5399932861328,
+    56.900001525878906,
+    186.8300018310547,
+    168.4199981689453
+   ],
+   "iou": 0.958,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 245,
+   "prompt": "Locate the region described as: \"TOP Z\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [12, 75, 998, 792]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 25,
+   "expr": "TOP Z",
+   "gt": [
+    7.190000057220459,
+    44.58000183105469,
+    480.80999755859375,
+    401.260009765625
+   ],
+   "iou": 0.857,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 246,
+   "prompt": "Locate the region described as: \"small one\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [425, 289, 981, 991]}",
+   "secs": 0.3,
+   "prompt_eval_count": 378,
+   "eval_count": 27,
+   "expr": "small one",
+   "gt": [
+    212.85000610351562,
+    183.00999450683594,
+    271.82000732421875,
+    448.7200012207031
+   ],
+   "iou": 0.95,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 247,
+   "prompt": "Locate the region described as: \"man in navy blue shirt and glasses bottom left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [173, 597, 441, 990]}",
+   "secs": 0.3,
+   "prompt_eval_count": 345,
+   "eval_count": 27,
+   "expr": "man in navy blue shirt and glasses bottom left",
+   "gt": [
+    104.81999969482422,
+    252.6999969482422,
+    173.74000549316406,
+    176.02000427246094
+   ],
+   "iou": 0.907,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 248,
+   "prompt": "Locate the region described as: \"woman with light blue shirt on left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [14, 597, 169, 995]}",
+   "secs": 0.3,
+   "prompt_eval_count": 343,
+   "eval_count": 26,
+   "expr": "woman with light blue shirt on left",
+   "gt": [
+    0.0,
+    252.5800018310547,
+    101.22000122070312,
+    176.4199981689453
+   ],
+   "iou": 0.827,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 249,
+   "prompt": "Locate the region described as: \"@2\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [531, 215, 722, 930]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "@2",
+   "gt": [
+    343.2699890136719,
+    98.66999816894531,
+    120.44999694824219,
+    294.7099914550781
+   ],
+   "iou": 0.928,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 250,
+   "prompt": "Locate the region described as: \"middle person\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [425, 300, 562, 941]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "middle person",
+   "gt": [
+    277.2799987792969,
+    129.52999877929688,
+    84.44000244140625,
+    271.5199890136719
+   ],
+   "iou": 0.912,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 251,
+   "prompt": "Locate the region described as: \"man on the left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [334, 234, 527, 960]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 27,
+   "expr": "man on the left",
+   "gt": [
+    210.80999755859375,
+    105.48999786376953,
+    125.61000061035156,
+    302.7300109863281
+   ],
+   "iou": 0.95,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 252,
+   "prompt": "Locate the region described as: \"closed silver laptop\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [492, 645, 892, 841]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 27,
+   "expr": "closed silver laptop",
+   "gt": [
+    209.5,
+    419.44000244140625,
+    173.69000244140625,
+    129.99000549316406
+   ],
+   "iou": 0.848,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 253,
+   "prompt": "Locate the region described as: \"black keyboard\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [595, 519, 824, 627]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "black keyboard",
+   "gt": [
+    205.66000366210938,
+    225.8000030517578,
+    189.85000610351562,
+    204.22000122070312
+   ],
+   "iou": 0.174,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 254,
+   "prompt": "Locate the region described as: \"yellow bottle front right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [496, 606, 731, 875]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "yellow bottle front right",
+   "gt": [
+    239.97999572753906,
+    389.4599914550781,
+    109.9800033569336,
+    167.8699951171875
+   ],
+   "iou": 0.951,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 255,
+   "prompt": "Locate the region described as: \"smallest yellow cylinder\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [256, 664, 471, 875]}",
+   "secs": 0.3,
+   "prompt_eval_count": 380,
+   "eval_count": 27,
+   "expr": "smallest yellow cylinder",
+   "gt": [
+    115.66000366210938,
+    425.8299865722656,
+    115.1500015258789,
+    131.61000061035156
+   ],
+   "iou": 0.876,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 256,
+   "prompt": "Locate the region described as: \"blurry person far right arms crossed\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [796, 75, 998, 412]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 355,
+   "eval_count": 29,
+   "expr": "blurry person far right arms crossed",
+   "gt": [
+    402.70001220703125,
+    32.45000076293945,
+    97.30000305175781,
+    210.3300018310547
+   ],
+   "iou": 0.715,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 257,
+   "prompt": "Locate the region described as: \"person in background directly above fist\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [736, 398, 986, 702]}",
+   "secs": 0.3,
+   "prompt_eval_count": 354,
+   "eval_count": 27,
+   "expr": "person in background directly above fist",
+   "gt": [
+    362.4599914550781,
+    188.07000732421875,
+    122.93000030517578,
+    146.02999877929688
+   ],
+   "iou": 0.851,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 258,
+   "prompt": "Locate the region described as: \"guy in red\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [34, 30, 976, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 351,
+   "eval_count": 25,
+   "expr": "guy in red",
+   "gt": [
+    15.710000038146973,
+    22.110000610351562,
+    476.4200134277344,
+    439.7799987792969
+   ],
+   "iou": 0.962,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 259,
+   "prompt": "Locate the region described as: \"adult to left of kid\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [41, 0, 273, 481]}",
+   "secs": 0.3,
+   "prompt_eval_count": 482,
+   "eval_count": 24,
+   "expr": "adult to left of kid",
+   "gt": [
+    24.6299991607666,
+    0.0,
+    149.52000427246094,
+    311.1400146484375
+   ],
+   "iou": 0.975,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 260,
+   "prompt": "Locate the region described as: \"boy with umbrella\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [466, 106, 662, 595]}",
+   "secs": 0.3,
+   "prompt_eval_count": 479,
+   "eval_count": 27,
+   "expr": "boy with umbrella",
+   "gt": [
+    294.32000732421875,
+    65.94999694824219,
+    130.94000244140625,
+    316.9200134277344
+   ],
+   "iou": 0.946,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 261,
+   "prompt": "Locate the region described as: \"left banana in bunch\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [408, 297, 597, 759]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 27,
+   "expr": "left banana in bunch",
+   "gt": [
+    256.20001220703125,
+    113.2300033569336,
+    250.44000244140625,
+    302.260009765625
+   ],
+   "iou": 0.315,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 262,
+   "prompt": "Locate the region described as: \"banana with large brown spot close to the right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [728, 56, 872, 724]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 346,
+   "eval_count": 29,
+   "expr": "banana with large brown spot close to the right",
+   "gt": [
+    446.19000244140625,
+    8.640000343322754,
+    117.06999969482422,
+    352.1499938964844
+   ],
+   "iou": 0.638,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 263,
+   "prompt": "Locate the region described as: \"bannana in the right corner\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [856, 482, 983, 937]}",
+   "secs": 0.3,
+   "prompt_eval_count": 343,
+   "eval_count": 27,
+   "expr": "bannana in the right corner",
+   "gt": [
+    551.739990234375,
+    176.6199951171875,
+    84.44000244140625,
+    203.42999267578125
+   ],
+   "iou": 0.692,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 264,
+   "prompt": "Locate the region described as: \"front left banana\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [408, 300, 597, 759]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 27,
+   "expr": "front left banana",
+   "gt": [
+    284.3299865722656,
+    0.0,
+    122.58000183105469,
+    249.86000061035156
+   ],
+   "iou": 0.28,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 265,
+   "prompt": "Locate the region described as: \"far left banana top\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [333, 0, 506, 328]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 25,
+   "expr": "far left banana top",
+   "gt": [
+    212.17999267578125,
+    0.800000011920929,
+    145.5500030517578,
+    141.97000122070312
+   ],
+   "iou": 0.743,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 266,
+   "prompt": "Locate the region described as: \"banana in middle\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [555, 0, 756, 869]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 25,
+   "expr": "banana in middle",
+   "gt": [
+    358.67999267578125,
+    4.019999980926514,
+    96.44999694824219,
+    281.32000732421875
+   ],
+   "iou": 0.568,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 267,
+   "prompt": "Locate the region described as: \"Black on right beside plate in front\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [846, 162, 998, 186]}",
+   "secs": 0.3,
+   "prompt_eval_count": 383,
+   "eval_count": 27,
+   "expr": "Black on right beside plate in front",
+   "gt": [
+    278.3699951171875,
+    448.8299865722656,
+    201.6300048828125,
+    190.25999450683594
+   ],
+   "iou": 0.0,
+   "dialect": null,
+   "key": null,
+   "ok": false
+  },
+  {
+   "i": 268,
+   "prompt": "Locate the region described as: \"table\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [296, 106, 998, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 377,
+   "eval_count": 27,
+   "expr": "table",
+   "gt": [
+    148.1300048828125,
+    64.72000122070312,
+    331.8699951171875,
+    166.8300018310547
+   ],
+   "iou": 0.28,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 269,
+   "prompt": "Locate the region described as: \"white shirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [12, 0, 494, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 351,
+   "eval_count": 24,
+   "expr": "white shirt",
+   "gt": [
+    0.0,
+    0.0,
+    191.35000610351562,
+    640.0
+   ],
+   "iou": 0.967,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 270,
+   "prompt": "Locate the region described as: \"man wearing flame shirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [50, 0, 372, 997]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 24,
+   "expr": "man wearing flame shirt",
+   "gt": [
+    24.950000762939453,
+    0.0,
+    211.10000610351562,
+    420.95001220703125
+   ],
+   "iou": 0.947,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 271,
+   "prompt": "Locate the region described as: \"red skirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [352, 300, 584, 944]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "red skirt",
+   "gt": [
+    220.6999969482422,
+    0.0,
+    173.67999267578125,
+    408.7699890136719
+   ],
+   "iou": 0.575,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 272,
+   "prompt": "Locate the region described as: \"pink sweater\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [472, 61, 988, 989]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 26,
+   "expr": "pink sweater",
+   "gt": [
+    301.70001220703125,
+    25.780000686645508,
+    338.29998779296875,
+    395.20001220703125
+   ],
+   "iou": 0.972,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 273,
+   "prompt": "Locate the region described as: \"38\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [275, 285, 325, 366]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "38",
+   "gt": [
+    54.81999969482422,
+    71.6500015258789,
+    239.4600067138672,
+    294.2799987792969
+   ],
+   "iou": 0.021,
+   "dialect": "pixel/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 274,
+   "prompt": "Locate the region described as: \"In green shirt on right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [461, 47, 845, 932]}",
+   "secs": 0.3,
+   "prompt_eval_count": 341,
+   "eval_count": 26,
+   "expr": "In green shirt on right",
+   "gt": [
+    290.0899963378906,
+    21.059999465942383,
+    259.4599914550781,
+    376.260009765625
+   ],
+   "iou": 0.943,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 275,
+   "prompt": "Locate the region described as: \"woman\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [394, 108, 994, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 350,
+   "eval_count": 27,
+   "expr": "woman",
+   "gt": [
+    251.69000244140625,
+    45.77000045776367,
+    381.4700012207031,
+    345.5199890136719
+   ],
+   "iou": 0.981,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 276,
+   "prompt": "Locate the region described as: \"man\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [12, 42, 558, 998]}",
+   "secs": 0.2,
+   "prompt_eval_count": 350,
+   "eval_count": 25,
+   "expr": "man",
+   "gt": [
+    6.170000076293945,
+    13.949999809265137,
+    348.8299865722656,
+    377.0199890136719
+   ],
+   "iou": 0.982,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 277,
+   "prompt": "Locate the region described as: \"right glass\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [819, 47, 989, 442]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 26,
+   "expr": "right glass",
+   "gt": [
+    531.9199829101562,
+    16.200000762939453,
+    108.08000183105469,
+    174.08999633789062
+   ],
+   "iou": 0.847,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 278,
+   "prompt": "Locate the region described as: \"Full glass of water\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [627, 25, 784, 369]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 26,
+   "expr": "Full glass of water",
+   "gt": [
+    406.8500061035156,
+    9.600000381469727,
+    102.66999816894531,
+    153.52000427246094
+   ],
+   "iou": 0.841,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 279,
+   "prompt": "Locate the region described as: \"striped thing\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [80, 694, 444, 902]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 26,
+   "expr": "striped thing",
+   "gt": [
+    59.869998931884766,
+    338.70001220703125,
+    227.10000610351562,
+    96.0
+   ],
+   "iou": 0.884,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 280,
+   "prompt": "Locate the region described as: \"lol you where off a pixel: red sofa arm\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 829, 586, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 387,
+   "eval_count": 25,
+   "expr": "lol you where off a pixel: red sofa arm",
+   "gt": [
+    0.0,
+    278.4599914550781,
+    373.1000061035156,
+    197.33999633789062
+   ],
+   "iou": 0.387,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": false
+  },
+  {
+   "i": 281,
+   "prompt": "Locate the region described as: \"player\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [232, 300, 616, 834]}",
+   "secs": 0.3,
+   "prompt_eval_count": 337,
+   "eval_count": 27,
+   "expr": "player",
+   "gt": [
+    97.80000305175781,
+    188.39999389648438,
+    166.8300018310547,
+    353.79998779296875
+   ],
+   "iou": 0.952,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 282,
+   "prompt": "Locate the region described as: \"guy on the left in back.\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [614, 9, 815, 266]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 342,
+   "eval_count": 28,
+   "expr": "guy on the left in back.",
+   "gt": [
+    259.7300109863281,
+    1.600000023841858,
+    94.70999908447266,
+    169.3300018310547
+   ],
+   "iou": 0.882,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 283,
+   "prompt": "Locate the region described as: \"elephant\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [134, 136, 817, 997]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 27,
+   "expr": "elephant",
+   "gt": [
+    79.8499984741211,
+    56.560001373291016,
+    448.0799865722656,
+    370.44000244140625
+   ],
+   "iou": 0.968,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 284,
+   "prompt": "Locate the region described as: \"right small ele\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [842, 400, 992, 997]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 27,
+   "expr": "right small ele",
+   "gt": [
+    544.5599975585938,
+    164.14999389648438,
+    95.38999938964844,
+    255.08999633789062
+   ],
+   "iou": 0.851,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 285,
+   "prompt": "Locate the region described as: \"man white shirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [523, 0, 981, 508]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 25,
+   "expr": "man white shirt",
+   "gt": [
+    332.3800048828125,
+    0.0,
+    307.6199951171875,
+    221.4199981689453
+   ],
+   "iou": 0.938,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 286,
+   "prompt": "Locate the region described as: \"blue shirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [281, 0, 519, 400]}",
+   "secs": 0.3,
+   "prompt_eval_count": 338,
+   "eval_count": 25,
+   "expr": "blue shirt",
+   "gt": [
+    166.77999877929688,
+    0.6700000166893005,
+    163.88999938964844,
+    183.1699981689453
+   ],
+   "iou": 0.849,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 287,
+   "prompt": "Locate the region described as: \"fat man purple shirt\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [58, 423, 325, 991]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 420,
+   "eval_count": 29,
+   "expr": "fat man purple shirt",
+   "gt": [
+    26.520000457763672,
+    270.9599914550781,
+    151.35000610351562,
+    364.69000244140625
+   ],
+   "iou": 0.954,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 288,
+   "prompt": "Locate the region described as: \"man in black white shorts\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [\n        458,\n        309,\n        698,\n        991\n    ]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 421,
+   "eval_count": 37,
+   "expr": "man in black white shorts",
+   "gt": [
+    249.10000610351562,
+    197.8800048828125,
+    130.5399932861328,
+    441.8399963378906
+   ],
+   "iou": 0.98,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 289,
+   "prompt": "Locate the region described as: \"zebra in the back on the right\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [366, 215, 786, 836]}",
+   "secs": 0.3,
+   "prompt_eval_count": 345,
+   "eval_count": 27,
+   "expr": "zebra in the back on the right",
+   "gt": [
+    299.6400146484375,
+    91.95999908447266,
+    209.64999389648438,
+    258.4800109863281
+   ],
+   "iou": 0.723,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 290,
+   "prompt": "Locate the region described as: \"front zebra\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [197, 129, 672, 856]}",
+   "secs": 0.3,
+   "prompt_eval_count": 339,
+   "eval_count": 27,
+   "expr": "front zebra",
+   "gt": [
+    120.19999694824219,
+    56.5,
+    313.489990234375,
+    309.6400146484375
+   ],
+   "iou": 0.96,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 291,
+   "prompt": "Locate the region described as: \"legs on left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [0, 521, 416, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 25,
+   "expr": "legs on left",
+   "gt": [
+    0.0,
+    244.85000610351562,
+    216.80999755859375,
+    202.7899932861328
+   ],
+   "iou": 0.69,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 292,
+   "prompt": "Locate the region described as: \"lady sitting\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [519, 227, 914, 621]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 27,
+   "expr": "lady sitting",
+   "gt": [
+    334.3800048828125,
+    112.18000030517578,
+    250.25,
+    190.9199981689453
+   ],
+   "iou": 0.948,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 293,
+   "prompt": "Locate the region described as: \"sitting back to us\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\n    \"bbox_2d\": [194, 252, 378, 544]\n}",
+   "secs": 0.3,
+   "prompt_eval_count": 381,
+   "eval_count": 30,
+   "expr": "sitting back to us",
+   "gt": [
+    117.0199966430664,
+    121.75,
+    131.11000061035156,
+    143.02999877929688
+   ],
+   "iou": 0.871,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 294,
+   "prompt": "Locate the region described as: \"suit\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [552, 21, 814, 946]}",
+   "secs": 0.3,
+   "prompt_eval_count": 377,
+   "eval_count": 26,
+   "expr": "suit",
+   "gt": [
+    350.6300048828125,
+    0.5099999904632568,
+    170.47999572753906,
+    464.2300109863281
+   ],
+   "iou": 0.941,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 295,
+   "prompt": "Locate the region described as: \"guy on left\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [366, 135, 573, 862]}",
+   "secs": 0.3,
+   "prompt_eval_count": 379,
+   "eval_count": 27,
+   "expr": "guy on left",
+   "gt": [
+    238.9199981689453,
+    65.77999877929688,
+    132.3800048828125,
+    350.8500061035156
+   ],
+   "iou": 0.923,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 296,
+   "prompt": "Locate the region described as: \"the kid in the back\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [548, 342, 672, 892]}",
+   "secs": 0.3,
+   "prompt_eval_count": 341,
+   "eval_count": 27,
+   "expr": "the kid in the back",
+   "gt": [
+    351.20001220703125,
+    147.61000061035156,
+    85.4000015258789,
+    274.42999267578125
+   ],
+   "iou": 0.777,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 297,
+   "prompt": "Locate the region described as: \"The guy in front\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [72, 21, 630, 986]}",
+   "secs": 0.3,
+   "prompt_eval_count": 340,
+   "eval_count": 25,
+   "expr": "The guy in front",
+   "gt": [
+    41.16999816894531,
+    9.6899995803833,
+    274.7699890136719,
+    399.2300109863281
+   ],
+   "iou": 0.723,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 298,
+   "prompt": "Locate the region described as: \"bottle with yellow cap under candle\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [106, 675, 333, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 344,
+   "eval_count": 27,
+   "expr": "bottle with yellow cap under candle",
+   "gt": [
+    77.38999938964844,
+    282.1300048828125,
+    137.0399932861328,
+    144.8699951171875
+   ],
+   "iou": 0.884,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  },
+  {
+   "i": 299,
+   "prompt": "Locate the region described as: \"bottle directly in front of man\".\nReply with JSON only: a single object with one key \"bbox_2d\" whose value is the bounding box of that region as four numbers. Use whatever coordinate convention you were trained on; do not add any other text.",
+   "pred": "{\"bbox_2d\": [317, 567, 481, 998]}",
+   "secs": 0.3,
+   "prompt_eval_count": 344,
+   "eval_count": 27,
+   "expr": "bottle directly in front of man",
+   "gt": [
+    203.4199981689453,
+    241.80999755859375,
+    110.3499984741211,
+    179.42999267578125
+   ],
+   "iou": 0.916,
+   "dialect": "norm1000/xyxy",
+   "key": "bbox_2d",
+   "ok": true
+  }
+ ]
+}

@@ -163,6 +163,28 @@ func LoadTimeout() (loadTimeout time.Duration) {
 	return loadTimeout
 }
 
+// LlamaServerCacheRAM returns llama-server's --cache-ram, in MiB, from
+// OLLAMA_LLAMA_SERVER_CACHE_RAM, and false when it is unset or invalid. It sizes
+// llama.cpp's host-RAM prompt cache, which saves a slot's whole state when a new
+// request cannot reuse the slot: 0 disables the cache, -1 removes the limit.
+// Unset keeps llama.cpp's default of 8192 MiB, which is upstream's behaviour.
+// MaxusAI fork: on vision requests whose image changes every time, each save
+// copies the state off the GPU (about 890 MiB for gemma4:31b) and is almost
+// never restored (docs/maxusai/llama-server-prompt-cache.md). This lets one
+// image measure the cache on and off.
+func LlamaServerCacheRAM() (int, bool) {
+	s := Var("OLLAMA_LLAMA_SERVER_CACHE_RAM")
+	if s == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < -1 {
+		slog.Warn("invalid OLLAMA_LLAMA_SERVER_CACHE_RAM, keeping llama-server's default", "value", s)
+		return 0, false
+	}
+	return n, true
+}
+
 func Remotes() []string {
 	var r []string
 	raw := strings.TrimSpace(Var("OLLAMA_REMOTES"))

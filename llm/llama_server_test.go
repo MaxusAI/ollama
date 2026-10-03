@@ -3008,6 +3008,31 @@ func TestAppendJinjaArgs(t *testing.T) {
 	}
 }
 
+// Unset must pass no --cache-ram at all: that is upstream's command line, and
+// llama.cpp's own default (8192 MiB) then applies. The variable is only the means
+// to measure the cache on and off (docs/maxusai/llama-server-prompt-cache.md).
+func TestAppendPromptCacheArgs(t *testing.T) {
+	tests := []struct {
+		env  string
+		want []string
+	}{
+		{env: "", want: []string{"base"}},
+		{env: "0", want: []string{"base", "--cache-ram", "0"}},
+		{env: "2048", want: []string{"base", "--cache-ram", "2048"}},
+		{env: "-1", want: []string{"base", "--cache-ram", "-1"}},
+		{env: "8GiB", want: []string{"base"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.env, func(t *testing.T) {
+			t.Setenv("OLLAMA_LLAMA_SERVER_CACHE_RAM", tt.env)
+			if got := appendPromptCacheArgs([]string{"base"}); !slices.Equal(got, tt.want) {
+				t.Fatalf("OLLAMA_LLAMA_SERVER_CACHE_RAM=%q: got %v, want %v", tt.env, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAppendContextShiftArgs(t *testing.T) {
 	opts := api.DefaultOptions()
 	opts.NumKeep = 4

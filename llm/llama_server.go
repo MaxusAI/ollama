@@ -404,6 +404,8 @@ func startLlamaServer(launch llamaServerLaunchConfig, out io.Writer) (cmd *exec.
 
 	params = appendBatchArgs(params, launch.opts, launch.embedding, launch.numParallel)
 
+	params = appendPromptCacheArgs(params)
+
 	// GPU layer offloading — only pass if user explicitly set it (non-default).
 	// Default behavior: let llama-server auto-detect via -ngl auto.
 	if launch.opts.NumGPU > 0 {
@@ -581,6 +583,16 @@ func appendLlamaServerLogArgs(params []string) []string {
 		"--no-log-prefix",
 		"--no-log-timestamps",
 	)
+}
+
+// appendPromptCacheArgs sizes llama-server's host-RAM prompt cache from
+// OLLAMA_LLAMA_SERVER_CACHE_RAM. Unset passes nothing, so llama.cpp's default
+// (8192 MiB) applies, as upstream.
+func appendPromptCacheArgs(params []string) []string {
+	if mib, ok := envconfig.LlamaServerCacheRAM(); ok {
+		return append(params, "--cache-ram", strconv.Itoa(mib))
+	}
+	return params
 }
 
 func appendBatchArgs(params []string, opts api.Options, embedding bool, numParallel int) []string {

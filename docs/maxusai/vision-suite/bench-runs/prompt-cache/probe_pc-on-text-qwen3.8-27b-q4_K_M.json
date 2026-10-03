@@ -1,0 +1,137 @@
+{
+ "label": "cache on",
+ "model": "qwen3.8:27b-q4_K_M",
+ "server_version": [
+  "0.34.4-dynres-0-gb43ee8e-pcache"
+ ],
+ "workload": "conversations",
+ "settings": {
+  "num_ctx": 8192,
+  "num_predict": 48,
+  "turns": 6,
+  "contexts": 2,
+  "doc_words": 2200
+ },
+ "records": [
+  {
+   "kind": "conversation",
+   "context": 0,
+   "turn": 0,
+   "prompt_eval_count": 3735,
+   "prompt_eval_ms": 1519.1,
+   "eval_count": 24,
+   "total_ms": 7534.1,
+   "wall_ms": 7550.0
+  },
+  {
+   "kind": "conversation",
+   "context": 1,
+   "turn": 0,
+   "prompt_eval_count": 3695,
+   "prompt_eval_ms": 1490.2,
+   "eval_count": 24,
+   "total_ms": 2057.5,
+   "wall_ms": 2063.7
+  },
+  {
+   "kind": "conversation",
+   "context": 0,
+   "turn": 1,
+   "prompt_eval_count": 3772,
+   "prompt_eval_ms": 542.3,
+   "eval_count": 23,
+   "total_ms": 1142.4,
+   "wall_ms": 1148.8
+  },
+  {
+   "kind": "conversation",
+   "context": 1,
+   "turn": 1,
+   "prompt_eval_count": 3732,
+   "prompt_eval_ms": 544.1,
+   "eval_count": 24,
+   "total_ms": 1212.7,
+   "wall_ms": 1218.7
+  },
+  {
+   "kind": "conversation",
+   "context": 0,
+   "turn": 2,
+   "prompt_eval_count": 3809,
+   "prompt_eval_ms": 549.3,
+   "eval_count": 25,
+   "total_ms": 1226.7,
+   "wall_ms": 1234.0
+  },
+  {
+   "kind": "conversation",
+   "context": 1,
+   "turn": 2,
+   "prompt_eval_count": 3770,
+   "prompt_eval_ms": 541.2,
+   "eval_count": 25,
+   "total_ms": 1260.5,
+   "wall_ms": 1266.7
+  },
+  {
+   "kind": "conversation",
+   "context": 0,
+   "turn": 3,
+   "prompt_eval_count": 3848,
+   "prompt_eval_ms": 540.8,
+   "eval_count": 26,
+   "total_ms": 1275.9,
+   "wall_ms": 1282.0
+  },
+  {
+   "kind": "conversation",
+   "context": 1,
+   "turn": 3,
+   "prompt_eval_count": 3809,
+   "prompt_eval_ms": 540.6,
+   "eval_count": 25,
+   "total_ms": 1308.0,
+   "wall_ms": 1315.0
+  },
+  {
+   "kind": "conversation",
+   "context": 0,
+   "turn": 4,
+   "prompt_eval_count": 3888,
+   "prompt_eval_ms": 542.3,
+   "eval_count": 25,
+   "total_ms": 1316.3,
+   "wall_ms": 1322.4
+  },
+  {
+   "kind": "conversation",
+   "context": 1,
+   "turn": 4,
+   "prompt_eval_count": 3848,
+   "prompt_eval_ms": 541.7,
+   "eval_count": 25,
+   "total_ms": 1360.8,
+   "wall_ms": 1367.3
+  },
+  {
+   "kind": "conversation",
+   "context": 0,
+   "turn": 5,
+   "prompt_eval_count": 3927,
+   "prompt_eval_ms": 540.8,
+   "eval_count": 24,
+   "total_ms": 1347.1,
+   "wall_ms": 1353.1
+  },
+  {
+   "kind": "conversation",
+   "context": 1,
+   "turn": 5,
+   "prompt_eval_count": 3887,
+   "prompt_eval_ms": 548.0,
+   "eval_count": 24,
+   "total_ms": 1394.5,
+   "wall_ms": 1400.9
+  }
+ ]
+}

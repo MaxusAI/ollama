@@ -782,3 +782,27 @@ the expired links.
 - **Cost** — the H100's first OCRBench pass, both arms: about an hour of a
   rented GPU, and every result in it.
 
+## 2026-10-03 — a default nobody set
+
+### 2026-10-03 — llama-server's default prompt cache charges every vision request and repays almost none
+ollama starts `llama-server` with no `--cache-ram`, so llama.cpp's 8192 MiB host-RAM prompt cache
+is on. With one slot, a request that cannot reuse the slot's prompt first copies the slot's whole
+state off the GPU into that cache.
+
+- **Evidence** — on the H100 (`0.34.4-dynres`, llama.cpp b11081),
+  [llama-server-prompt-cache.md](llama-server-prompt-cache.md):
+  - two days of benchmark arms: 18,549 updates at a median of 564 ms, 2.17 h in all, which
+    restored a prompt 115 times (0.6 %);
+  - one build with the cache on and then off: the same output on 3,800 requests, and 19–22 % less
+    time per request for `gemma4:31b`, 4.5–10.6 % for `qwen3.8:27b-q4_K_M`;
+  - with contexts taking turns (`prompt_cache_probe.py`), the cache saved `qwen3.8:27b-q4_K_M`
+    and `nemotron3:33b-q8` a quarter to a third of each return to a conversation, and cost
+    `gemma4:31b` 42 %. On images it cost every model 10–27 %: no restore shortened an image's
+    prefill.
+- **Enforced by** — `OLLAMA_LLAMA_SERVER_CACHE_RAM` sets `--cache-ram`, and `0` turns the cache off
+  (`TestAppendPromptCacheArgs`, `TestLlamaServerCacheRAM`). `docs/maxusai/tools/prompt_cache_stats.py`
+  reads the cost from any host's journal, and `vision-suite/prompt_cache_probe.py` measures what
+  the cache buys.
+- **Cost** — on this H100, 2.2 h of request time in two days of benchmark arms, a fifth of
+  `gemma4:31b`'s. journald dropped 163,000 of ollama's lines, and the journal rotated out more than
+  a day of logs.
