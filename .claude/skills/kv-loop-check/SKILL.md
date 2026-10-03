@@ -66,6 +66,10 @@ This skill owns the **procedure**. The evidence lives in
      2026-10-03 harness requests turn llama-server's host-RAM prompt cache off
      (`req_prompt_cache_ram: 0` in the scores). That leaves the slot's own reuse of the previous
      prompt's prefix.
+     - **The cache is off only on a build with #440 or later.** An older build logs "invalid option
+       provided", drops the option and keeps the cache on, but the scores still record `0`. Read
+       `server_version` before you rule the cache out. Every production build deployed before
+       2026-10-03 is older, gfx1151's `0.35.0-dynres-0-g043f441` among them.
 3. **Only if the question is precision, run the matrix.** Use `vision-suite/kvloop.sh`; its default
    `ARMS="f16:1 f16:0 f32:0"` is the whole useful matrix. `q8_0` belongs only as a flash-attention-on control,
    because a quantized V cache needs flash attention. Read the runner's logged `--cache-type-k/v` and
