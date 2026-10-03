@@ -89,6 +89,41 @@ def endpoint():
     return os.environ.get("ENDPOINT", "chat")
 
 
+def prompt_cache_ram():
+    """The `prompt_cache_ram` every harness request sends, or None to send none.
+
+    0 by default: llama-server's host-RAM prompt cache off (ADR 0047). With one
+    slot, every request whose prompt the slot cannot reuse first copies the
+    slot's whole state into that cache, and a benchmark's image requests almost
+    never return to an earlier prompt. MEASURED 2026-10-02 on an H100: with it
+    off, gemma4:31b answered 19-22% faster and qwen3.8:27b-q4_K_M 4.5-10.6%
+    faster, with the same output on all 3,800 paired requests
+    (../llama-server-prompt-cache.md).
+
+    PROMPT_CACHE_RAM overrides it: a size in MiB, -1 for no limit, or `server`
+    to send nothing, so the model's PARAMETER or llama.cpp's default applies.
+    ONE value for every tool, because a Runner option that changes between two
+    requests relaunches the runner: vision_suite.py and finetext_probe.py share
+    a campaign cell, and a different value in each would reload the model
+    between them.
+
+    A build without the option (before #440) drops it with a warning in its
+    log and keeps the cache on, so the stamp records what was ASKED; the
+    response's server_version says which build answered.
+    """
+    v = os.environ.get("PROMPT_CACHE_RAM", "").strip()
+    if v == "":
+        return 0
+    if v == "server":
+        return None
+    # Rejected here rather than sent: the server ignores a value below -1 and
+    # keeps its default, so sending one would stamp a setting that never ran.
+    if not re.fullmatch(r"-1|[0-9]+", v):
+        raise ValueError(f"PROMPT_CACHE_RAM={v!r}: expected a size in MiB, "
+                         f"0 (off), -1 (no limit) or 'server'")
+    return int(v)
+
+
 def fingerprint(text):
     """Short stable hash of an exact string. No normalisation — whitespace is
     part of the prompt."""
@@ -198,6 +233,14 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
     # which never reads draft_num_predict and picks depth adaptively instead.
     if use_env_opts and os.environ.get("DRAFT_NUM_PREDICT") not in (None, ""):
         opts["draft_num_predict"] = int(os.environ["DRAFT_NUM_PREDICT"])
+    # llama-server's prompt cache, OFF unless PROMPT_CACHE_RAM says otherwise
+    # (see prompt_cache_ram()). Unlike the knobs above it is sent with nothing
+    # exported. use_env_opts=False still sends none: measure.py, token_split.py
+    # and prompt_cache_probe.py each send exactly the payload they measure with.
+    if use_env_opts:
+        mib = prompt_cache_ram()
+        if mib is not None:
+            opts["prompt_cache_ram"] = mib
     if extra_opts:
         opts.update(extra_opts)
 
@@ -368,6 +411,8 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
     # indistinguishable in the file, and the arm would live only in the tag.
     if "draft_num_predict" in opts:
         r["_draft_num_predict"] = opts["draft_num_predict"]
+    if "prompt_cache_ram" in opts:
+        r["_prompt_cache_ram"] = opts["prompt_cache_ram"]
     return r
 
 
@@ -397,6 +442,12 @@ def capture_stamps(r, model, tag, powermode=None, cold_start=None):
         st["powermode"] = powermode
     if cold_start:
         st["cold_start"] = cold_start
+    # The prompt cache's setting as sent (ADR 0047). It moves wall time, not
+    # the throughput columns, which come from llama.cpp's own timings. Absent
+    # means none was sent, so the server's default, the cache on: true of
+    # every block written before 2026-10-03.
+    if "_prompt_cache_ram" in r:
+        st["req_prompt_cache_ram"] = r["_prompt_cache_ram"]
     return st
 
 

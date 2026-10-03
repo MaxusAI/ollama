@@ -2208,6 +2208,43 @@ class TestExtbenchArmsAndSlices(unittest.TestCase):
             self.assertIn("| hand | 2 | 1/2 |", got)
             self.assertIn("| unlabelled | 1 | 1/1 |", got, "a row with no type is still an item")
 
+    MISSING = object()
+
+    def _timing(self, caches):
+        """Render --timing over one arm per {tag: summary prompt_cache_ram, or MISSING}."""
+        with tempfile.TemporaryDirectory() as d:
+            for tag, v in caches.items():
+                self._write(d, tag, [1, 0])
+                if v is not self.MISSING:
+                    path = os.path.join(d, f"ext_{tag}_ocrbench.json")
+                    with open(path) as f:
+                        doc = json.load(f)
+                    doc["summary"]["prompt_cache_ram"] = v
+                    with open(path, "w") as f:
+                        json.dump(doc, f)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                sys.argv = ["x", "--dir", d, "--timing", "ocrbench", *caches]
+                sxb.main()
+            return out.getvalue()
+
+    def test_a_file_without_the_prompt_cache_field_renders_as_before(self):
+        out = self._timing({"a": self.MISSING, "b": self.MISSING})
+        self.assertNotIn("prompt_cache_ram", out)
+        self.assertNotIn("not comparable", out)
+
+    def test_the_footer_names_the_recorded_prompt_cache_setting(self):
+        out = self._timing({"a": 0, "b": 0})
+        self.assertIn("· prompt_cache_ram: 0\n", out)
+        self.assertNotIn("not comparable", out)
+
+    def test_timing_warns_when_the_arms_sent_different_settings(self):
+        # A summary from before the field sent none, the same as null: the cache on.
+        out = self._timing({"off": 0, "old": self.MISSING})
+        self.assertIn("not comparable", out)
+        self.assertIn("off: 0; old: server default", out)
+        self.assertNotIn("not comparable", self._timing({"new": None, "old": self.MISSING}))
+
     def test_a_missing_row_slice_is_a_comment_not_a_crash(self):
         with tempfile.TemporaryDirectory() as d:
             self._write(d, "a", [1, 0])

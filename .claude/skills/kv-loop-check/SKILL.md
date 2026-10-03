@@ -62,7 +62,10 @@ This skill owns the **procedure**. The evidence lives in
    evicts every model first. Compare it byte for byte with the suite's `think_<tag>_<test>.txt`.
    - **Identical:** the trajectory is the case's own.
    - **Diverges early, with the same `prompt_eval_count`:** the run's state did it, not the setting under test.
-     The likely causes are the prompt cache from the previous cell and the parallel slot.
+     The likely causes are the prompt cache from the previous cell and the parallel slot. Since
+     2026-10-03 harness requests turn llama-server's host-RAM prompt cache off
+     (`req_prompt_cache_ram: 0` in the scores). That leaves the slot's own reuse of the previous
+     prompt's prefix.
 3. **Only if the question is precision, run the matrix.** Use `vision-suite/kvloop.sh`; its default
    `ARMS="f16:1 f16:0 f32:0"` is the whole useful matrix. `q8_0` belongs only as a flash-attention-on control,
    because a quantized V cache needs flash attention. Read the runner's logged `--cache-type-k/v` and

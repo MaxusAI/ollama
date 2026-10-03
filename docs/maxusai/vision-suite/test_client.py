@@ -153,7 +153,10 @@ class TestTextOnly(unittest.TestCase):
 class TestSamplingAndOpts(unittest.TestCase):
 
     def test_apply_sampling_false_adds_nothing(self):
-        opts = call(apply_sampling=False, num_ctx=False).payload["options"]
+        # use_env_opts=False: the Runner options the harness sends by default
+        # (prompt_cache_ram) are TestPromptCacheRAM's subject, not this one's.
+        opts = call(apply_sampling=False, num_ctx=False,
+                    use_env_opts=False).payload["options"]
         self.assertEqual(set(opts), {"num_predict"})
 
     def test_extra_opts_win(self):
@@ -162,6 +165,55 @@ class TestSamplingAndOpts(unittest.TestCase):
 
     def test_fmt_none_omits_format(self):
         self.assertNotIn("format", call(fmt=None).payload)
+
+
+class TestPromptCacheRAM(unittest.TestCase):
+    """Every harness request turns llama-server's prompt cache off unless
+    PROMPT_CACHE_RAM says otherwise (ADR 0047), with one value for every tool:
+    a Runner option that differs between vision_suite.py and finetext_probe.py
+    would relaunch the model between the two halves of a cell."""
+
+    def opts(self, env=None, **kw):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("PROMPT_CACHE_RAM", None)
+            os.environ.update(env or {})
+            with Capture() as cap:
+                r = client.generate("http://h", "M", "p", ["IMG"], **kw)
+        return cap.payload["options"], r
+
+    def test_off_by_default(self):
+        opts, r = self.opts()
+        self.assertEqual(opts["prompt_cache_ram"], 0)
+        self.assertEqual(r["_prompt_cache_ram"], 0)
+
+    def test_a_size_or_no_limit_is_sent_as_given(self):
+        self.assertEqual(self.opts({"PROMPT_CACHE_RAM": "4096"})[0]["prompt_cache_ram"], 4096)
+        self.assertEqual(self.opts({"PROMPT_CACHE_RAM": "-1"})[0]["prompt_cache_ram"], -1)
+
+    def test_server_sends_none(self):
+        opts, r = self.opts({"PROMPT_CACHE_RAM": "server"})
+        self.assertNotIn("prompt_cache_ram", opts)
+        self.assertNotIn("_prompt_cache_ram", r)
+
+    def test_calibrated_callers_send_none(self):
+        # measure.py, token_split.py and prompt_cache_probe.py: exact payloads.
+        opts, _ = self.opts(use_env_opts=False)
+        self.assertNotIn("prompt_cache_ram", opts)
+
+    def test_a_value_the_server_would_ignore_fails_before_sending(self):
+        # The server keeps its default for -5, so sending it would stamp a
+        # setting that never ran; "off" is a typo for 0.
+        for bad in ("-5", "off", "1.5"):
+            with self.subTest(bad=bad), mock.patch.dict(os.environ, {"PROMPT_CACHE_RAM": bad}):
+                with Capture() as cap, self.assertRaises(ValueError):
+                    client.generate("http://h", "M", "p", ["IMG"])
+                self.assertIsNone(cap.payload)
+
+    def test_the_block_records_what_was_sent(self):
+        _, r = self.opts()
+        self.assertEqual(client.capture_stamps(r, "M", "T")["req_prompt_cache_ram"], 0)
+        _, r = self.opts({"PROMPT_CACHE_RAM": "server"})
+        self.assertNotIn("req_prompt_cache_ram", client.capture_stamps(r, "M", "T"))
 
 
 class TestNormalisation(unittest.TestCase):

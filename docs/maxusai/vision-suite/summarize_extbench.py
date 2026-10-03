@@ -25,6 +25,11 @@ recorded)** rather than silently inheriting a sibling's provenance, and a mix of
 hosts, builds or recording states renders the MIXED banner that ADR 0012
 convention 10 makes non-publishable.
 
+The footer also names the `prompt_cache_ram` the arms sent, once a file records it
+(extbench has since 2026-10-03). It moves seconds per item, not accuracy, so
+`--timing` warns when the arms differ. A file without the field sent none, so it reads
+as "server default" (the cache on) and renders as it always has.
+
 With `--paired`, also runs McNemar's exact test between every pair of arms over the
 items both scored. Aggregate accuracies cannot distinguish "these backends differ"
 from "they disagree on a handful of coin-flips"; on a shared row set the discordant
@@ -88,6 +93,12 @@ def provenance(summary):
             return NOT_RECORDED
         return ", ".join(v) if isinstance(v, list) else str(v)
     return one("host"), one("server_version")
+
+
+def prompt_cache(summary):
+    """The `prompt_cache_ram` an arm sent, as text; "server default" when it sent none."""
+    v = summary.get("prompt_cache_ram")
+    return "server default" if v is None else str(v)
 
 
 def mcnemar_exact(b, c):
@@ -154,11 +165,14 @@ def main():
     print(f"\n{r0['benchmark']} — `{r0['dataset']}` [{r0['split']}], "
           f"rows {r0['offset']}..{r0['offset'] + r0['requested']}.")
 
+    caches = {label: prompt_cache(got[0][1]) for label, got in runs.items()}
+    cache_note = (" · prompt_cache_ram: " + ", ".join(sorted(set(caches.values())))
+                  if any("prompt_cache_ram" in got[0][1] for got in runs.values()) else "")
     if len(hosts) > 1 or len(builds) > 1:
         print("\n⚠ **MIXED — rows are not one campaign** "
-              f"(hosts: {sorted(hosts)}; builds: {sorted(builds)})")
+              f"(hosts: {sorted(hosts)}; builds: {sorted(builds)})" + cache_note)
     else:
-        print(f"\nhost: {hosts.pop()} · build: {builds.pop()}")
+        print(f"\nhost: {hosts.pop()} · build: {builds.pop()}" + cache_note)
 
     if paired and len(tags) > 1:
         print(f"\n| pair | both ✓ | both ✗ | A only | B only | McNemar exact p |")
@@ -187,6 +201,10 @@ def main():
             print(f"| {label} | {len(got)} | {accs} | {flips} |")
 
     if flags["timing"]:
+        if len(set(caches.values())) > 1:
+            print("\n⚠ **Seconds per item are not comparable across these arms:** they sent "
+                  "different `prompt_cache_ram` ("
+                  + "; ".join(f"{label}: {v}" for label, v in caches.items()) + ").")
         print("\n| arm | accuracy | ±1 s.e. | mean s/item | median | mean prompt_eval |")
         print("|---|---|---|---|---|---|")
         for label, got in runs.items():

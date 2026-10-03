@@ -10,7 +10,9 @@ on a model whose state is small.
 removes the limit. A model sets it with a Modelfile `PARAMETER`, and a client in the request's
 `options`, like `num_ctx`; a different value relaunches the model's runner. Without it,
 llama.cpp's default applies and the cache is on, so nothing changes until a model or a request
-sets it ([ADR 0047](adr/0047-llama-server-prompt-cache-is-sized-per-model-or-request.md)).
+sets it ([ADR 0047](adr/0047-llama-server-prompt-cache-is-sized-per-model-or-request.md)). The
+vision harness sets it: since 2026-10-03 its requests carry `prompt_cache_ram: 0`
+([below](#the-harness-turns-it-off)).
 
 ## What the cache does
 
@@ -256,11 +258,52 @@ journal shows one `llama-server` launch per change and none for a repeat:
   with this document as its evidence.
 - **Benchmarks:** the vision suite's throughput columns come from llama.cpp's own prompt and eval
   timings, which leave the update out, so they do not move. extbench's seconds per item include
-  it, so arms measured with the cache on and off do not compare on time.
+  it, so arms measured with the cache on and off do not compare on time. The harness now turns
+  it off ([below](#the-harness-turns-it-off)).
 - **Logging:** at verbosity 4 every update logs every cached prompt. On this host journald
   rate-limited `ollama.service` (163,000 lines dropped, all in two fast `nemotron3` arms with the
   cache on), and the default-sized journal rotated out more than a day of logs within two days.
   Read a run's journal soon after it ends.
+
+## The harness turns it off
+
+Since 2026-10-03 the vision harness's one request path, `client.generate()`, sends
+`prompt_cache_ram: 0` on every request (`vision-suite/client.py`, `prompt_cache_ram()`). Every
+tool that measures through it runs with the cache off: `vision_suite.py`, `finetext_probe.py`,
+`extbench.py`, `thinkcap.py`, `variants.py` and `endpoint_compare.py`.
+- **`PROMPT_CACHE_RAM` overrides it:** a size in MiB, `-1`, or `server` to send none. One value
+  serves every tool, because a value that changed between `vision_suite.py` and
+  `finetext_probe.py` would relaunch the runner inside a campaign cell. A value the server would
+  ignore, such as `-5`, stops the run before its first request.
+- **Three tools send none,** because each sends exactly the payload it measures with:
+  `measure.py`, `token_split.py`, and `prompt_cache_probe.py`, which takes `--prompt-cache-ram`.
+- **It is recorded:** `req_prompt_cache_ram` in a score block, `prompt_cache_ram` in an extbench
+  summary. `summarize_extbench.py` names it in the footer, and `--timing` warns when the arms
+  sent different values. A file from before 2026-10-03 sent none, so it counts as the server's
+  default: the cache on.
+- **A build without the option** (before #440) drops it with a warning in its log and keeps the
+  cache on. The record says what was asked, and `server_version` says which build answered.
+
+Checked on the H100 on 2026-10-03, against production's commit plus the option, served beside
+production on its own port:
+1. **extbench,** RefCOCO rows 4000–4049 on `gemma4:31b-it-q4_K_M`, with the A/B's settings. By
+   default llama-server launched with `--cache-ram 0` and logged "prompt cache is disabled".
+   With `PROMPT_CACHE_RAM=server` it launched with no `--cache-ram`, and the cache updated 50
+   times in 50 requests. All 50 answers matched both arms of the A/B, whose 300 rows from the
+   same offset measured 2.527 and 1.964 s (−22.3 %):
+
+| model | rows | requests | cache on, s per request | cache off, s per request | change | outputs that differ |
+|---|---|---|---|---|---|---|
+| `gemma4:31b-it-q4_K_M` | refcoco 4000..4050 | 49 | 2.618 | 2.039 | -22.1 % | 0 |
+
+host: http://127.0.0.1:11535 · build: 0.34.4-dynres-0-gb43ee8e-pcache3
+
+extbench records each request to 0.1 s, so a difference under about 0.05 s per request is below this table's resolution; the journal times each cache update to the millisecond.
+
+2. **One campaign cell,** `vision_suite.py` then `finetext_probe.py` (think off, `/api/chat`):
+   two launches, both with `--cache-ram 0`, the second for the finetext test's larger `num_ctx`.
+   `finetext_probe.py` reused that runner, no request updated the cache, and all 28 blocks
+   recorded `req_prompt_cache_ram: 0`.
 
 ## Reproducing
 
@@ -275,9 +318,12 @@ python3 tools/prompt_cache_stats.py render $D/stats_h100-2026-09-30.json
 python3 tools/prompt_cache_stats.py ab $(for w in refcoco4000 refcoco0; do for m in $M; do echo $D/ext_pc-{on,off}-$w-${m}_refcoco.json; done; done) $(for m in qwen3.8-27b-q4_K_M nemotron3-33b-q8; do echo $D/ext_pc-{on,off}-ocrbench0-${m}_ocrbench.json; done)
 python3 vision-suite/prompt_cache_probe.py compare $(for k in text images; do for m in $M; do echo $D/probe_pc-{on,off}-$k-$m.json; done; done)
 python3 tools/prompt_cache_stats.py render $D/stats_ab-h100-2026-10-02.json
+python3 tools/prompt_cache_stats.py ab $D/ext_pc3-{server,off}-refcoco4000-gemma4-31b-it-q4_K_M_refcoco.json
 ```
 
-To measure a host again, run each arm twice on one build, once as is and once with the cache
-off. An extbench arm runs the second time against a Modelfile copy of the model with
-`PARAMETER prompt_cache_ram 0`; `prompt_cache_probe.py run` takes `--prompt-cache-ram 0`. Then
-read the journal with `prompt_cache_stats.py parse`, one `--window` per run.
+To measure a host again, run each arm twice on one build, once with the cache on and once with
+it off. An extbench arm sends `prompt_cache_ram: 0` unless told otherwise, so its cache-on run
+takes `PROMPT_CACHE_RAM=server`, which sends no option. A Modelfile `PARAMETER` cannot turn the
+cache on for it, because the request's `0` wins. `prompt_cache_probe.py run` sends nothing
+without `--prompt-cache-ram`, and takes `--prompt-cache-ram 0` for the cache-off run. Then read
+the journal with `prompt_cache_stats.py parse`, one `--window` per run.

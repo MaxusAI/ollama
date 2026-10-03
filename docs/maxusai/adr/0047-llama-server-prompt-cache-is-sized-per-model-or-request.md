@@ -1,7 +1,8 @@
 # ADR 0047: llama-server's prompt cache is sized per model or per request
 
 Date: 2026-10-03 · Status: accepted (shipped with the `prompt_cache_ram` option). Decision 2, a
-host-wide variable, was withdrawn the same day: see the addendum.
+host-wide variable, was withdrawn the same day: see the first addendum. The vision harness sends
+`0`: see the second.
 
 ## Context
 
@@ -59,3 +60,23 @@ A model that should run without the cache sets `PARAMETER prompt_cache_ram 0` in
 and a client sends the option. Unset, nothing changes. The A/B in
 [llama-server-prompt-cache.md](../llama-server-prompt-cache.md) ran on a build that still read the
 variable, which set the same `--cache-ram` flag.
+
+## Addendum 2026-10-03: the harness turns it off
+
+The vision harness sends `prompt_cache_ram: 0` on every request, from its one request path
+(`vision-suite/client.py`, `prompt_cache_ram()`). `PROMPT_CACHE_RAM` overrides it with a size,
+`-1`, or `server` to send none. Decision 3 stands: ollama's default is unchanged, for every other
+client too.
+- **The harness's traffic is the case measured above:** almost every request brings a new image,
+  so the cache costs it up to a fifth of a request and returns nothing.
+- **One value serves every tool.** `vision_suite.py` and `finetext_probe.py` share a campaign
+  cell, and a value that differed between them would relaunch the runner inside it.
+- **Three tools send none,** because each sends exactly the payload it measures with:
+  `measure.py`, `token_split.py` and `prompt_cache_probe.py`.
+- **It is recorded:** `req_prompt_cache_ram` in a score block, `prompt_cache_ram` in an extbench
+  summary. `summarize_extbench.py --timing` warns when arms differ. Seconds per item measured
+  before this date ran with the cache on.
+- **A build without the option** drops it with a warning in its log and keeps the cache on. The
+  record says what was asked, and `server_version` says which build answered.
+- **It is the one exception to SPEC H4,** which wants a new knob inert by default. The SPEC
+  records it under H4, with the recording that keeps what H4 protects.

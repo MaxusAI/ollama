@@ -15,7 +15,9 @@ install, no HF token, public datasets only):
 Env: LIMIT (default 50), OFFSET (0), REFRESH_ROWS=1 (re-fetch the cached row
 slice), THINK=on|false (false), ENDPOINT=generate|chat
 (generate), NUM_PREDICT, NUM_CTX (16384), TIMEOUT (900), SLEEP (0 — seconds between
-requests, to yield the GPU on a shared host).
+requests, to yield the GPU on a shared host), PROMPT_CACHE_RAM (0, llama-server's prompt
+cache off; `server` sends none — see client.prompt_cache_ram()). The summary records it
+as `prompt_cache_ram`, because it moves seconds per item.
 
 Writes ext_<tag>_<bench>.json (per-item records + summary) beside the script and
 caches images and the row slice under extimgs/<bench>/.
@@ -462,7 +464,8 @@ def main():
           f"rows {offset}..{offset + limit}")
     rows = fetch_rows(BENCH, offset, limit)
     print(f"# fetched {len(rows)} rows; model={MODEL} think={think} "
-          f"endpoint={os.environ.get('ENDPOINT', 'generate')}")
+          f"endpoint={os.environ.get('ENDPOINT', 'generate')} "
+          f"prompt_cache_ram={client.prompt_cache_ram()}")
     missing = prefetch_images(BENCH, offset, rows)
     print(f"# images: {len(rows) - len(missing)} of {len(rows)} on disk"
           + (f"; {len(missing)} could not be fetched and are recorded as errors" if missing else ""))
@@ -577,6 +580,9 @@ def build_summary(offset, limit, think, records, correct, empty, hosts, builds, 
         # already stamps both on every response; this only persists them.
         "host": sorted(h for h in hosts if h) or None,
         "server_version": sorted(b for b in builds if b) or None,
+        # What gen() sent on every request; None means none, so the server's
+        # default (the cache on), as in every summary written before this field.
+        "prompt_cache_ram": client.prompt_cache_ram(),
         "correct": correct, "accuracy": round(correct / n, 4) if n else None,
     }
     if BENCH == "refcoco":

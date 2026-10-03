@@ -75,7 +75,9 @@ request path migrates onto `client` (it contributes back the one mechanism
    fifth of each request on `gemma4:31b`, with the same answers
    ([ADR 0047](adr/0047-llama-server-prompt-cache-is-sized-per-model-or-request.md)). `forkext` sends them only when the
    caller opted in, and verifies the server build (version pattern per
-   ADR 0032; optionally the served effect) before trusting them.
+   ADR 0032; optionally the served effect) before trusting them. The vision
+   harness opts in to `prompt_cache_ram: 0` by default since 2026-10-03, and
+   records what it sent, not the served effect.
 
 ## 2. The wire contract a consumer must know (condensed)
 

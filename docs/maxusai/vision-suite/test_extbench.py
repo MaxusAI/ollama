@@ -272,6 +272,23 @@ class TestMainLoop(ImageTest):
             self.run_main(rows, lambda *a, **k: {"response": "a"}, self.image)
         self.assertEqual(writes, [("ext_t_ocrbench.partial.json", 2), ("ext_t_ocrbench.json", None)])
 
+    def test_the_summary_records_the_prompt_cache_setting(self):
+        # It moves seconds per item, which summarize_extbench --timing compares.
+        rows = [item("q0", FRESH)]
+        for env, want in ((None, 0), ("server", None), ("4096", 4096)):
+            with self.subTest(env=env), mock.patch.dict(os.environ):
+                os.environ.pop("PROMPT_CACHE_RAM", None)
+                if env:
+                    os.environ["PROMPT_CACHE_RAM"] = env
+                self.run_main(rows, lambda *a, **k: {"response": "a"}, self.image)
+                self.assertEqual(self.results("ext_t_ocrbench.json")["summary"]["prompt_cache_ram"], want)
+
+    def test_a_bad_prompt_cache_setting_stops_the_arm_before_a_request(self):
+        sent = []
+        with mock.patch.dict(os.environ, {"PROMPT_CACHE_RAM": "off"}), self.assertRaises(ValueError):
+            self.run_main([item("q0", FRESH)], lambda *a, **k: sent.append(a), self.image)
+        self.assertEqual(sent, [])
+
     def test_sigterm_ends_the_arm_like_an_interrupt(self):
         with self.assertRaises(SystemExit) as stop:
             extbench.stop_on_sigterm(15, None)
