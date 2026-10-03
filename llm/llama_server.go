@@ -586,8 +586,8 @@ func appendLlamaServerLogArgs(params []string) []string {
 }
 
 // appendPromptCacheArgs sizes llama-server's host-RAM prompt cache from the
-// prompt_cache_ram option, else OLLAMA_LLAMA_SERVER_CACHE_RAM. With neither it
-// passes nothing, so llama.cpp's default (8192 MiB) applies, as upstream.
+// prompt_cache_ram option. Without it, it passes nothing, so llama.cpp's default
+// (8192 MiB) applies, as upstream.
 func appendPromptCacheArgs(params []string, opts api.Options) []string {
 	if mib, ok := resolvePromptCacheRAM(opts.PromptCacheRAM); ok {
 		return append(params, "--cache-ram", strconv.Itoa(mib))
@@ -595,24 +595,25 @@ func appendPromptCacheArgs(params []string, opts api.Options) []string {
 	return params
 }
 
-// resolvePromptCacheRAM is the --cache-ram a launch passes: the per-model or
-// per-request option, else the environment, and false when neither is set. An
-// option below -1 falls back to the environment with a warning, so a Modelfile
-// typo cannot make the model unloadable (as resolveKVCacheType does).
+// resolvePromptCacheRAM is the --cache-ram a launch passes, from the per-model or
+// per-request option, and false when there is none to pass. An option below -1 is
+// ignored with a warning, so llama.cpp's default applies and a Modelfile typo
+// cannot make the model unloadable (as resolveKVCacheType does).
 func resolvePromptCacheRAM(opt *int) (int, bool) {
-	if opt != nil {
-		if *opt >= -1 {
-			return *opt, true
-		}
-		slog.Warn("ignoring invalid prompt_cache_ram option, using server default", "prompt_cache_ram", *opt)
+	if opt == nil {
+		return 0, false
 	}
-	return envconfig.LlamaServerCacheRAM()
+	if *opt < -1 {
+		slog.Warn("ignoring invalid prompt_cache_ram option, using llama.cpp's default", "prompt_cache_ram", *opt)
+		return 0, false
+	}
+	return *opt, true
 }
 
 // NormalizePromptCacheRAM rewrites r's prompt-cache size in place to the value a
 // launch would pass, or nil when it would pass none. The scheduler compares what
-// a runner would be started with: an unset option and one that names the
-// server's default launch the same llama-server, and must not reload the model.
+// a runner would be started with: an invalid option launches the same
+// llama-server as an unset one, and must not reload the model.
 func NormalizePromptCacheRAM(r *api.Runner) {
 	if mib, ok := resolvePromptCacheRAM(r.PromptCacheRAM); ok {
 		r.PromptCacheRAM = &mib

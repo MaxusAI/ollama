@@ -984,18 +984,16 @@ func TestSchedNeedsReloadPromptCacheRAM(t *testing.T) {
 	}
 	gguf := &Model{}
 
-	t.Setenv("OLLAMA_LLAMA_SERVER_CACHE_RAM", "")
 	require.False(t, loaded(gguf, nil).needsReload(ctx, asks(gguf, nil)))
 	require.True(t, loaded(gguf, nil).needsReload(ctx, asks(gguf, testIntPtr(0))), "default cache to off")
 	require.True(t, loaded(gguf, testIntPtr(0)).needsReload(ctx, asks(gguf, nil)), "off to the default cache")
 	require.False(t, loaded(gguf, testIntPtr(0)).needsReload(ctx, asks(gguf, testIntPtr(0))))
 	require.True(t, loaded(gguf, testIntPtr(0)).needsReload(ctx, asks(gguf, testIntPtr(4096))))
 
-	// With the variable at 0, naming 0 asks for the runner that is already running.
-	t.Setenv("OLLAMA_LLAMA_SERVER_CACHE_RAM", "0")
-	require.False(t, loaded(gguf, nil).needsReload(ctx, asks(gguf, testIntPtr(0))))
-	require.False(t, loaded(gguf, testIntPtr(0)).needsReload(ctx, asks(gguf, nil)))
-	require.True(t, loaded(gguf, nil).needsReload(ctx, asks(gguf, testIntPtr(8192))))
+	// An invalid value is ignored at launch, so it asks for the runner an unset one has.
+	require.False(t, loaded(gguf, nil).needsReload(ctx, asks(gguf, testIntPtr(-5))))
+	require.False(t, loaded(gguf, testIntPtr(-5)).needsReload(ctx, asks(gguf, nil)))
+	require.True(t, loaded(gguf, testIntPtr(0)).needsReload(ctx, asks(gguf, testIntPtr(-5))), "off to the default cache")
 
 	// An MLX runner has no llama-server prompt cache, so the option cannot reload it.
 	mlx := &Model{Config: model.ConfigV2{ModelFormat: "safetensors"}}

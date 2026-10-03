@@ -73,7 +73,7 @@ request path migrates onto `client` (it contributes back the one mechanism
    ollama silently drops** (logged server-side only). An extraction client
    that sends one image per request gains from `prompt_cache_ram: 0`, up to a
    fifth of each request on `gemma4:31b`, with the same answers
-   ([ADR 0047](adr/0047-llama-server-prompt-cache-is-sized-per-model-request-or-host.md)). `forkext` sends them only when the
+   ([ADR 0047](adr/0047-llama-server-prompt-cache-is-sized-per-model-or-request.md)). `forkext` sends them only when the
    caller opted in, and verifies the server build (version pattern per
    ADR 0032; optionally the served effect) before trusting them.
 
