@@ -673,9 +673,12 @@ class TestLineageProfilesTrackOneVersionFamily(unittest.TestCase):
         "0.33.0-dynres-0-g5171887",     # a fold tag stamp
         "0.33.2-dynres-0f3a71be1",      # bare-sha form
         "0.34.0-dynres-0-gcf2ad41",     # the v0.34.0 fold tag; both lineage profiles widened with it
+        "0.35.0-dynres-15-ga657392",    # main, deployed on the H100; both widened with it (payload unmoved)
     )
     FOREIGN_STAMPS = (
-        "0.35.0-dynres-0-gabcdef0",     # next family: needs its own fold + widening
+        "0.35.1-dynres-0-gabcdef0",     # next payload: its rc0 moves llama.cpp to b11232, so its own fold + widening
+        "0.36.0-dynres-0-gabcdef0",     # next family
+        "0.35.0-rc0-dynres-0-gabcdef0", # a release candidate of the fold, never widened to
         "0.33.2-maxusai-2b95b4a5",      # the retired native Metal stamp (ADR 0032, 2026-09-19)
         "0.33.2-dynres.1",              # a tag name is not a build stamp
         "0.33.2-dynres.x-0-g2b95b4a",   # point tags are numeric

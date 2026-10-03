@@ -185,6 +185,15 @@ these three, which have each burned real time:
   failed all three tests at exactly 3 × 1800 s while another client was
   saturating the single slot. The harness reports `CONTENTION` (exit 3) rather
   than a false failure — believe it, find the other client, re-run.
+- **On a native Linux host, the harness cannot read the payload pins.**
+  `local_listener_exe` takes `ps -o comm=`, which Linux truncates, so
+  `payload_pin` skips. On a CUDA profile, `mlx_payload_pin` fails too, unless an
+  MLX model loaded inside the run's window. Read both with their own probes,
+  against the server's `lib/ollama`: `probes.llama_cpp_build(None,
+  path=<lib/ollama>/llama-server)`, and `probes.mlx_build_payload(None,
+  exec_cmd=…)` with the `grep` it runs, pointed at `<lib/ollama>/mlx*/libmlx.so`.
+  Done that way for the H100's 0.35.0 deploy on 2026-10-03 (`cuda-dynres-903`'s
+  note in `expectations.toml`).
 
 If a token count moved but the *shape* is right, that is a behaviour change, not
 a broken payload. Re-measure deliberately and update the expectations file with

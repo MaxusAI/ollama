@@ -83,7 +83,27 @@ platform = "cuda"
 # the llama.cpp values measured here still apply. MLX did move, to ce916dbb, and
 # mlx_build records that. Preflight on the fold's deploy candidate passed 21,
 # skipped 7, with both pins asserted.
-version_pattern = '^0\.3[234]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
+#
+# Widened 2026-10-03 to 0.35.0 for the v0.35.0 fold (#427), as ADR 0032 says: that
+# fold moves no native input (llama.cpp stays b11081, MLX 59d600b5), so its builds
+# share this payload and this profile. The H100's build of main,
+# 0.35.0-dynres-15-ga657392, is Go-only, on production's payload, and replaced
+# 0.34.4-dynres-0-gb43ee8e there. Its canary preflight
+# (runs/preflight-cuda-0350-h100-canary-ga657392.json) repeated production's
+# 2026-09-30 run (runs/preflight-cuda-0344-h100-prod-gb43ee8e.json) in 26 of the 29
+# rows both runs have, every measured value included. The version row names the
+# build. The two pins are the other two: main's harness cannot read them on a
+# native Linux host, because local_listener_exe takes `ps -o comm=`, which Linux
+# truncates, so payload_pin skips and mlx_payload_pin, finding no MLX line in a
+# CUDA run's window, fails. Read by their own probes, the payload reports llama.cpp
+# 161755f29 and MLX 0.32.2-65-g59d600b, both pins below. Three extraction_quality
+# skips appear only in production's run, which passed --quality; this profile
+# records no quality thresholds, so they assert nothing. The post-deploy smoke on
+# production (runs/preflight-cuda-0350-h100-prod-ga657392.json) repeated the
+# canary in 27 of its 29 rows; the other two are the pinned budgets, which
+# --skip-pinned leaves out.
+# 0.35.1 stays refused: its rc0 moves llama.cpp to b11232 and MLX to 64ea011c.
+version_pattern = '^(0\.3[234]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})|0\.35\.0-dynres-\d+-g[0-9a-f]{7,40})$'
 # 908 added 2026-09-26 in the v0.34.4 fold (#375): the device half of ce8caa6e6 reverted, the FA MMA tiling for head
 # dims 256/512. It changes attention kernels only, not image preprocessing, so the token ladders and pinned budgets
 # below were measured without it and still describe it; the first preflight on an image built with 908 re-asserts them.
@@ -740,7 +760,15 @@ platform = "mlx-cuda"
 # patterns must stay identical (test_lineage_profiles_share_a_version_pattern).
 # This profile carries no mlx_build pin, so a 0.34.0 run resolves it without
 # asserting which MLX build its numbers were measured on.
-version_pattern = '^0\.3[234]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})$'
+#
+# Widened with cuda-dynres-903 on 2026-10-03 for v0.35.0-dynres, the same Go-only
+# build on the same payload. Its canary preflight
+# (runs/preflight-mlx-cuda-0350-h100-canary-ga657392.json) repeated production's
+# 2026-10-01 run (runs/preflight-mlx-cuda-0344-h100-prod-gb43ee8e.json) in 20 of the
+# 21 rows both runs have, every measured value included; the version row names the
+# build. Its five other rows are gemma4's, which that run left out (--arch qwen35moe
+# --arch qwen35): its token ladder and text baseline pass.
+version_pattern = '^(0\.3[234]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})|0\.35\.0-dynres-\d+-g[0-9a-f]{7,40})$'
 patchset = []                     # llama.cpp compat patches do not apply to MLX
 reference_image = "maxusai/ollama:0.32.14-rc0-dynres-mlxfix"
 expect_patch_marker = 1
