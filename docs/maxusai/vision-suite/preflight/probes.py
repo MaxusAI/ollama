@@ -10,6 +10,7 @@ expectations.toml.
 """
 import base64
 import datetime
+import glob
 import json
 import os
 import re
@@ -17,6 +18,7 @@ import shlex
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -456,6 +458,19 @@ def mlx_build(container, since_epoch, log_cmd=None):
 
 MLX_PAYLOAD_SO = "/usr/lib/ollama/mlx*/libmlx.so"
 MLX_PAYLOAD_VERSION_RE = re.compile(r"\b(\d[\d.]*-\d+-g[0-9a-f]{7,40})\b")
+# The same shape for grep, which is all a container image can be relied on to carry.
+MLX_PAYLOAD_PATTERN = "[0-9][0-9.]*-[0-9][0-9]*-g[0-9a-f][0-9a-f]*"
+
+
+def mlx_version_in(lib):
+    """The MLX version string inside the library file `lib` on this machine, or None."""
+    try:
+        proc = subprocess.run(["grep", "-a", "-o", "-m1", MLX_PAYLOAD_PATTERN, lib], capture_output=True, text=True,
+                              errors="replace", timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = MLX_PAYLOAD_VERSION_RE.search(proc.stdout or "")
+    return m.group(1) if m else None
 
 
 def mlx_build_payload(container, path=MLX_PAYLOAD_SO, exec_cmd=None):
@@ -471,12 +486,12 @@ def mlx_build_payload(container, path=MLX_PAYLOAD_SO, exec_cmd=None):
     rather than the version string of whatever is checked out. `grep -a` is the only tool these images carry.
 
     Returns the version string, or None when there is no MLX payload to read — a CPU or ROCm image legitimately has
-    none, and that must read as "nothing to assert here", never as a pass.
+    none, and that must read as "nothing to assert here", never as a pass. A native host's payload is read by
+    native_mlx_build() instead.
     """
-    pattern = "[0-9][0-9.]*-[0-9][0-9]*-g[0-9a-f][0-9a-f]*"
     cmd = ([exec_cmd.format(container=container)] if exec_cmd else
            ["docker", "exec", container, "sh", "-c",
-            f'for f in {path}; do [ -f "$f" ] && grep -a -o -m1 "{pattern}" "$f" && break; done || true'])
+            f'for f in {path}; do [ -f "$f" ] && grep -a -o -m1 "{MLX_PAYLOAD_PATTERN}" "$f" && break; done || true'])
     try:
         proc = subprocess.run(cmd, shell=bool(exec_cmd), capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError):
@@ -764,8 +779,9 @@ def launched_runner_paths(container, since_epoch, log_cmd=None):
 def local_listener_exe(port):
     """Absolute path of the executable listening on <port> on THIS machine.
 
-    darwin-only by construction: `ps -o comm=` prints the full path there, while
-    Linux truncates comm to 15 characters. Returns None rather than raising —
+    macOS: `ps -o comm=` prints the full path. Linux truncates comm to 15
+    characters ("ollama"), so there the path is /proc/<pid>/exe, which only
+    root or the server's own user may read. Returns None rather than raising —
     every caller treats "cannot tell" as a skip.
     """
     try:
@@ -780,6 +796,20 @@ def local_listener_exe(port):
     # answer; every caller treats None as a skip.
     if len(pid) != 1:
         return None
+    if sys.platform.startswith("linux"):
+        proc_exe = f"/proc/{pid[0]}/exe"
+        try:
+            exe = os.readlink(proc_exe)
+            running, named = os.stat(proc_exe), os.stat(exe)
+        except OSError:
+            return None
+        # The path must name the file that is running. It does not for a
+        # binary swapped under the server ("<path> (deleted)"), nor for a
+        # server in another mount namespace, such as a container on the host's
+        # network, where the same path names something else.
+        if (running.st_dev, running.st_ino) != (named.st_dev, named.st_ino):
+            return None
+        return exe
     try:
         ps = subprocess.run(["ps", "-p", pid[0], "-o", "comm="],
                             capture_output=True, text=True, timeout=30)
@@ -839,34 +869,125 @@ def server_env(port):
     return env or None
 
 
-def lib_ollama_llama_server(exe):
-    """The llama-server `exe` would spawn, or None.
+def lib_ollama_dir(exe):
+    """The lib/ollama directory `exe` loads its payload from, or None.
 
-    Mirrors ml/path.go libOllamaPathCandidates() for darwin, INCLUDING where it
-    stops: libOllamaPathExists() is os.Stat().IsDir(), so ollama takes the first
-    candidate DIRECTORY that exists and looks no further. Walking past an empty
-    lib/ollama to find some other llama-server would report on a binary ollama
-    would never load. The returned path may therefore not exist, and the caller
-    is expected to surface that rather than read it as "no tensor kernels".
+    Mirrors ml/path.go libOllamaPathCandidates() for this platform, INCLUDING
+    where it stops: libOllamaPathExists() is os.Stat().IsDir(), so ollama takes
+    the first candidate DIRECTORY that exists and looks no further. Walking past
+    an empty lib/ollama to find some other payload would report on files ollama
+    would never load. The order is per platform, as in path.go: linux tries
+    exeDir/../lib/ollama first, darwin exeDir/lib/ollama.
 
     EvalSymlinks first, as path.go does: the deploy flow archives binaries and
     swaps them by name, so searching beside the symlink is searching the wrong
-    directory. The two candidates path.go derives from the server's working
+    directory. The candidates path.go derives from the server's working
     directory are omitted, because the harness cannot know it.
     """
     if not exe:
         return None
     d = os.path.dirname(os.path.realpath(exe))
-    for cand in (os.path.join(d, "lib", "ollama"),
+    if sys.platform.startswith("linux"):
+        machine = os.uname().machine
+        arch = {"x86_64": "amd64", "aarch64": "arm64"}.get(machine, machine)
+        cands = (os.path.join(d, "..", "lib", "ollama"),
+                 os.path.join(d, "lib", "ollama"),
+                 os.path.join(d, "build", "lib", "ollama"),
+                 os.path.join(d, "dist", f"linux-{arch}", "lib", "ollama"),
+                 os.path.join(d, "dist", f"linux_{arch}", "lib", "ollama"))
+    else:
+        cands = (os.path.join(d, "lib", "ollama"),
                  os.path.join(d, "..", "lib", "ollama"),
                  os.path.join(d, "build", "lib", "ollama"),
                  os.path.join(d, "dist", "darwin-arm64", "lib", "ollama"),
                  os.path.join(d, "dist", "darwin"),
-                 d):
+                 d)
+    for cand in cands:
         cand = os.path.normpath(cand)
         if os.path.isdir(cand):
-            return os.path.join(cand, "llama-server")
+            return cand
     return None
+
+
+def lib_ollama_llama_server(exe):
+    """The llama-server `exe` would spawn, or None — in the directory
+    lib_ollama_dir() finds, so the returned path may not exist, and the caller
+    is expected to surface that rather than read it as "no tensor kernels".
+    """
+    d = lib_ollama_dir(exe)
+    return os.path.join(d, "llama-server") if d else None
+
+
+def mlx_payload_roots(exe):
+    """The directories `exe` loads MLX from, in the order it tries them.
+
+    Mirrors libOllamaRoots() in mlx/dynamic.go, which is not ml/path.go's list:
+    on linux the only root beside the executable is exeDir/../lib/ollama. The
+    development roots it derives from the working directory are omitted, as
+    in lib_ollama_dir().
+    """
+    if not exe:
+        return []
+    d = os.path.dirname(os.path.realpath(exe))
+    if sys.platform.startswith("linux"):
+        roots = [os.path.join(d, "..", "lib", "ollama")]
+    elif sys.platform == "darwin":
+        roots = [os.path.join(d, "lib", "ollama"), os.path.join(d, "..", "lib", "ollama"), d]
+    else:
+        roots = []
+    return [os.path.normpath(r) for r in roots]
+
+
+def native_mlx_build(exe):
+    """(version, library) for the MLX library `exe` would load, read in place
+    on this machine; (None, None) when there is none.
+
+    As findMLXLibrary() does, each root is searched for mlx_* variant
+    directories, highest first, and then itself, and every root is tried until
+    one holds the library.
+    """
+    name = "libmlx.dylib" if sys.platform == "darwin" else "libmlx.so"
+    for root in mlx_payload_roots(exe):
+        variants = sorted(glob.glob(os.path.join(glob.escape(root), "mlx_*", name)), reverse=True)
+        for lib in variants + [os.path.join(root, name)]:
+            if os.path.isfile(lib):
+                version = mlx_version_in(lib)
+                if version:
+                    return version, lib
+    return None, None
+
+
+def root_runnable(path):
+    """(run, why): the path this process may execute for `path` and None, or None
+    and why it must not execute it.
+
+    Any user but root runs `path` as given: it has nothing to escalate to. Run as
+    root, the harness would execute a binary chosen by whatever holds the port, so
+    it resolves `path` first and runs the resolved file, and only when that file
+    and every directory above it are root's and closed to group and other writes,
+    as a system install is. Checking the binary and its own directory was not
+    enough: os.stat follows a symlink, so a user's symlink to a root-owned payload
+    passed, and the user could re-point it between the check and the exec. Every
+    directory on the resolved path being root's leaves no one else a swap, and
+    running exactly the path that was checked closes the rest.
+    """
+    if not hasattr(os, "geteuid") or os.geteuid() != 0:
+        return path, None
+    real = os.path.realpath(path)
+    p = real
+    while True:
+        try:
+            st = os.lstat(p)
+        except OSError as exc:
+            return None, f"cannot stat {p}: {exc}"
+        if st.st_uid != 0:
+            return None, f"{p} is owned by uid {st.st_uid}, not root"
+        if st.st_mode & 0o022:
+            return None, f"{p} is writable by group or others"
+        parent = os.path.dirname(p)
+        if parent == p:
+            return real, None
+        p = parent
 
 
 def binary_marker_count(path, needle):

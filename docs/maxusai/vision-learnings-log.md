@@ -828,3 +828,23 @@ model between the two halves of every cell.
   (`test_summarizers.py`).
 - **Cost** — nothing lost to a mismatch yet. Seconds per item published before 2026-10-03 ran
   with the cache on, so they compare with new arms on accuracy, not on time.
+
+### 2026-10-03 — A probe that reads `ps -o comm=` works only where comm is a path
+On macOS `ps -o comm=` prints the executable's full path; on Linux it prints the 15-character comm,
+`ollama`. `local_listener_exe` was written on macOS and returned None on every Linux host, so a
+native Linux service's payload pins could not run: `payload_pin` skipped, and on `cuda-dynres-903`
+`mlx_payload_pin` failed a healthy deploy.
+
+- **Evidence** — the H100's 0.35.0 deploy (`preflight/expectations.toml`, `cuda-dynres-903`):
+  - the canary and the post-deploy smoke both read FAIL, on `mlx_payload_pin` alone;
+  - read by hand, both pins matched;
+  - with `/proc/<pid>/exe`, run as root, the same smoke passed: 14 passed, 15 skipped
+    (`preflight/runs/preflight-cuda-0350-h100-prod-root-ga657392.json`).
+- **Enforced by** — `test_verdicts.py::TestNativeLinuxRoutes`, 27 tests:
+  - the `/proc` route, and a binary swapped under the server;
+  - `ml/path.go`'s per-platform order, and `mlx/dynamic.go`'s MLX roots;
+  - root running a payload only when its whole resolved path is root's, and running
+    exactly the path it checked.
+- **Cost** — every native Linux preflight since the pins existed. A fix was written and
+  verified on this H100 on 2026-10-01, then left on an unpushed branch, so the 0.35.0
+  deploy two days later was validated by hand.

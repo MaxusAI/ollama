@@ -11,7 +11,8 @@ import time
 from probes import (ProbeError, TENSOR_ENV_VARS, TENSOR_MARKER,
                     binary_marker_count, gpu_toolchain,
                     container_logs, grep_binary_marker, lib_ollama_llama_server,
-                    launched_runner_paths, local_listener_exe,
+                    launched_runner_paths, local_listener_exe, native_mlx_build,
+                    root_runnable,
                     metal_tensor_discovery, mlx_build_payload, server_env,
                     ladder_image_b64, llama_cpp_build, mlx_build,
                     mlx_describe_commit, nax_probe, parse_load_segments,
@@ -194,13 +195,16 @@ def check_payload_pin(profile, container, exec_cmd=None, host=None):
         # server's path either does not exist locally or belongs to something
         # else. Same restriction, and the same reason, as the tensor payload
         # check: naming the WRONG binary is worse than declining to answer.
-        port = local_port(host)
+        port, exe, why = native_ollama_exe(host)
         if not port:
             return result("payload_pin", SKIP,
                           "no container resolved and the server is not local; "
                           "cannot read llama-server --version",
                           expected=expected)
-        path = lib_ollama_llama_server(local_listener_exe(port))
+        if not exe:
+            return result("payload_pin", SKIP, why, expected=expected,
+                          diagnosis="The payload half of this pin did not run.")
+        path = lib_ollama_llama_server(exe)
         if not path or not os.path.exists(path):
             return result("payload_pin", SKIP,
                           "no llama-server resolved beside the executable "
@@ -209,6 +213,18 @@ def check_payload_pin(profile, container, exec_cmd=None, host=None):
                                     "that exists beside its executable and looks "
                                     "no further, so there may be nothing to read. "
                                     "The payload half of this pin did not run.")
+        run, refusal = root_runnable(path)
+        if refusal:
+            return result("payload_pin", SKIP,
+                          f"not running {path} as root: {refusal}",
+                          expected=expected,
+                          diagnosis="Run the harness as the server's own user, "
+                                    "or install the payload the way a system "
+                                    "install is: root-owned, with every "
+                                    "directory above it, and closed to group "
+                                    "and other writes. The payload half of this "
+                                    "pin did not run.")
+        path = run   # what root_runnable checked; as root, the resolved file
         route = f"resolved from the executable listening on :{port}"
     try:
         actual = (llama_cpp_build(container, exec_cmd=exec_cmd) if container
@@ -299,6 +315,30 @@ def local_port(host):
     if not sep or not port.isdigit():
         return None
     return port if hostname in LOCAL_HOSTNAMES else None
+
+
+def native_ollama_exe(host):
+    """(port, exe, why): the executable of the native ollama serving `host` on
+    this machine, or why there is none to use.
+
+    The payload checks read files beside it, so a listener that is not ollama
+    (an ssh -L forward, a proxy) must not stand in for the server: the
+    lib/ollama next to it would describe something else. _tensor_local_ollama
+    applies the same test."""
+    port = local_port(host)
+    if not port:
+        return None, None, f"{host} is not a server on this machine"
+    exe = local_listener_exe(port)
+    if not exe:
+        return port, None, (
+            f"the executable listening on :{port} could not be resolved: lsof "
+            "must show exactly one listener, and on Linux reading its "
+            "/proc/<pid>/exe needs root or the server's own user, and a path "
+            "that still names the running binary")
+    if "ollama" not in os.path.basename(exe):
+        return port, None, (f"the process listening on :{port} is {exe}, "
+                            "not ollama")
+    return port, exe, None
 
 
 # The platforms that can have a Metal tensor API at all. Everywhere else the
@@ -658,7 +698,7 @@ def _poison_node_evidence(container, since, log_cmd=None):
 
 # --------------------------------------------------------------------------
 
-def check_mlx_payload_pin(profile, container, since, log_cmd=None):
+def check_mlx_payload_pin(profile, container, since, log_cmd=None, host=None):
     """Assert the running MLX payload is the one this profile was measured on.
 
     payload_pin does this for llama.cpp, but on mlx-metal that is the WRONG
@@ -712,11 +752,34 @@ def check_mlx_payload_pin(profile, container, since, log_cmd=None):
     # llama_cpp_build reads llama-server. It cannot see binary/payload skew,
     # only a live load can, so the summary says which source answered.
     source = "the runner's engine-init line"
+    native_why = None  # why the native fallback, when tried, read nothing
     if actual is None and not seen and container and not log_cmd:
         actual = mlx_build_payload(container)
         if actual:
             source = ("the shipped libmlx.so — no MLX request ran in this "
                       "window, so binary/payload skew is not covered")
+    elif (actual is None and not container
+          and not str(profile.get("platform", "")).startswith("mlx-")):
+        # The same fallback on a native host, which has no container to exec
+        # into: the MLX library the LISTENING EXECUTABLE loads, found the way
+        # mlx/dynamic.go finds it. Only where the run loads no MLX model: on
+        # an mlx-* platform the engine-init line belongs in the window, and a
+        # missing one is the log problem the FAILs below describe. A native
+        # --log-cmd reads the whole journal or serve log, so engine-init lines
+        # from earlier loads are normal here; they say nothing about this run
+        # and do not stop the read.
+        port, exe, native_why = native_ollama_exe(host)
+        payload, lib = native_mlx_build(exe) if exe else (None, None)
+        if payload:
+            actual = payload
+            source = (f"the shipped {lib}, loaded by the executable listening "
+                      f"on :{port} — no MLX request ran in this window, so "
+                      f"binary/payload skew is not covered")
+            if seen:
+                source += (f"; the log's {seen} engine-init line(s) fall "
+                           f"outside this run's window")
+        elif exe:
+            native_why = f"{exe} loads no MLX library that could be read"
 
     # FAIL, not SKIP, for the reason check_payload_proof already FAILs here:
     # this check only runs where a pin is declared, so the payload is one the
@@ -732,17 +795,21 @@ def check_mlx_payload_pin(profile, container, since, log_cmd=None):
                           "PREVIOUS server process and not the payload under "
                           "test — the stale-log read that a --log-cmd catting "
                           "an accumulating file produces. Truncate or rotate "
-                          "the serve log before the run.")
+                          "the serve log before the run."
+                          + (f" The library fallback read nothing: {native_why}."
+                             if native_why else ""))
         return result(
             name, FAIL, "no MLX engine-init line in the log window, and no MLX "
                         "payload to read",
             expected=expected,
             diagnosis='The runner logs "MLX engine initialized" when the MLX '
                       "runner starts. None appeared, and libmlx.so could not be "
-                      "read from the container either: either nothing loaded on "
-                      "the MLX path and the image ships no MLX payload, or "
-                      "--log-cmd points at the wrong file. Nothing was "
-                      "verified — this is not a pass.")
+                      "read from the container or from beside the listening "
+                      "executable either: either nothing loaded on the MLX path "
+                      "and the build ships no MLX payload, or --log-cmd points "
+                      "at the wrong file. Nothing was verified — this is not a "
+                      "pass."
+                      + (f" Natively: {native_why}." if native_why else ""))
 
     short, dirty = mlx_describe_commit(actual)
     if dirty:
