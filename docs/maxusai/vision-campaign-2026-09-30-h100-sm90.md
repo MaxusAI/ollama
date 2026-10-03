@@ -5,7 +5,8 @@ One host, one build. A GCP `a3-highgpu-1g` VM — one H100 SXM5 80GB (sm_90), co
 every cell through `RESTART_CMD`). Build **`0.34.4-dynres-0-gb43ee8e`**, a native build of
 `v0.34.4-dynres` with the CUDA 13 payloads: llama.cpp `161755f29`, MLX `59d600b`. Tags are
 unprefixed, driven from `v0.34.4-dynres` through `run_engine_compare.sh`. Wall clock
-2026-09-30 21:25:54 → 22:00:14 think-off and 22:00:31 → 22:40:56 think-on, both `rc=0`.
+2026-09-30 21:25:54 → 22:00:14 think-off and 22:00:31 → 22:40:56 think-on, both `rc=0`. The
+think-off run was repeated on 2026-10-01, 01:59:00 → 02:31:41, `rc=0` (§4).
 
 **What it is.** The first vision-suite campaign on sm_90: the
 [2026-09-18 campaign's](vision-campaign-2026-09-18-mlx8a7ba949-nvfp4.md) five nvfp4 tags on the
@@ -22,7 +23,7 @@ from sm_120 and from MLX on Metal, and four of the five nvfp4 tags are not the a
 Committed data, assembled from the run captures by script (ADR 0012 rule 8):
 
 - `vision-suite/bench-runs/vision-campaign-2026-09-30-h100-sm90.json` — every cell, both finetext
-  arms, and three reruns of one scene cell
+  arms, three reruns of one scene cell, and the think-off repeat (§4)
 - `vision-suite/bench-runs/vision-campaign-2026-09-30-h100-sm90.host-profile.json` — the machine,
   in the `host-profile/1` format: an H100 SXM5 on a PCIe Gen4 x16 link (the GPU supports Gen5),
   Sapphire Rapids, 26 vCPUs, 230 GiB
@@ -116,11 +117,66 @@ with every box, label and colour found every time.
 | rerun 2 | restart_cmd | 0.727 | pixel/xyxy | 6/6 · 6/6 · 6/6 | 541 |
 | rerun 3 | restart_cmd | 0.728 | pixel/xyxy | 6/6 · 6/6 · 6/6 | 541 |
 
-## 4. What the tables show
+## 4. The think-off campaign, run again
+
+On 2026-10-01 the think-off run was repeated on the campaign's boot: the same eight tags in the
+same order, the same knobs plus `TAG_PREFIX=nf`, each cell after a cold restart. It sent the same
+request: `prompt_sha` and `images_sha` equal the campaign's on all 224 arms. It is §1's repeats
+control.
+
+## Scene grounding (six objects, norm-1000 boxes) + document extraction
+
+| Model | Engine | num_ctx | Scene bbox IoU | Boxes / labels / colors | Serial | Invoice (items · qty+price · total) | name_bbox in-band |
+|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | 16384 | **0.731** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+| gemma4:26b-nvfp4 | **MLX** | 16384 | **0.972** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+| gemma4:31b-nvfp4 | **MLX** | 16384 | **0.965** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+| qwen3.8:27b-nvfp4 | **MLX** | 16384 | **0.999** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5/5 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | 16384 | **0.966** | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 0.965 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 4/5 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 0.977 | 6/6 · 6/6 · 6/6 | ✅ | 5/5 · 5/5 · ✅ | 5/5 |
+| nemotron3:33b-q8 | GGUF | 16384 | 0.878 | 6/6 · 6/6 · 6/6 | ❌ | 5/5 · 5/5 · ✅ | 4/5 |
+
+## Fine-text OCR (exact-match recall per size tier, /4) + multi-image + throughput
+
+| Model | Engine | num_ctx | 22px | 16px | 12px | 9px | 7px | Multi-image (3 imgs) | Multi anchored | Think tok | Answer tok | Gen tok/s | Prefill tok/s | s/req | req/h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma4:12b-nvfp4 | **MLX** | 16384 | 4 | 4 | 3 | 2 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 541 | 85 | 2705 | 7.0 | 517 |
+| gemma4:26b-nvfp4 | **MLX** | 16384 | 4 | 4 | 4 | 3 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 535 | 92 | 2254 | 6.6 | 547 |
+| gemma4:31b-nvfp4 | **MLX** | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 537 | 40 | 1738 | 14.3 | 252 |
+| qwen3.8:27b-nvfp4 | **MLX** | 16384 | 4 | 4 | 4 | 2 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 549 | 44 | 7042 | 12.7 | 283 |
+| qwen3.6:35b-a3b-nvfp4 | **MLX** | 16384 | 4 | 4 | 4 | 2 | 1 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 537 | 70 | 6151 | 8.1 | 445 |
+| gemma4:31b-it-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 4 | 3 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 538 | 150 | 1740 | 4.6 | 790 |
+| qwen3.8:27b-q4_K_M | GGUF | 16384 | 4 | 4 | 4 | 2 | 1 | ❌ q4_bbox_hit | ✅ q1 + q2 + q4-bbox | — | 544 | 78 | 1645 | 8.6 | 421 |
+| nemotron3:33b-q8 | GGUF | 16384 | 4 | 4 | 4 | 3 | 0 | ✅ q1 + q2 + q4-bbox | ✅ q1 + q2 + q4-bbox | — | 512 | 244 | 4810 | 2.7 | 1355 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11434 · build(s) 0.34.4-dynres-0-gb43ee8e · think=false
+
+Everything not listed here came back identical:
+- **One pass/fail cell moved:** `gemma4:26b-nvfp4` read 3 of 4 at 9 px instead of 4. Boxes,
+  labels, colours, the serial, the invoice, `name_bbox` and both multi-image questions are the
+  same on all eight tags.
+- **Scene IoU moved on two tags, by at most 0.004.** `gemma4:12b-nvfp4` scored 0.731, so across
+  the campaign cell, §3's reruns and this one it spans 0.724 to 0.731. `gemma4:26b-nvfp4` went
+  from 0.974 to 0.972.
+- **Decode rates held to within 1 tok/s** on every tag.
+- **Prefill rates held to within 3 %, except `gemma4:31b-it-q4_K_M`'s,** which rose 22 %, from
+  1421 to 1740 tok/s, and took its s/req from 4.8 to 4.6.
+  - **Each rate is one request's,** the scene cell's. That request's prefill took 1185 ms in the
+    campaign and 968 ms here, while its decode rate moved by under 1 tok/s.
+  - **This document does not explain the 217 ms.**
+- **`qwen3.6:35b-a3b-nvfp4` answered in 537 tokens instead of 534,** the only answer length to
+  move.
+
+So a difference between two of §1's rows smaller than these is not a finding, and one cell's
+prefill rate moved by a fifth between runs.
+
+## 5. What the tables show
 
 - **`qwen3.8:27b-nvfp4` grounds best:** scene IoU 0.999 think-off and 0.994 think-on, the only
   MLX tag at 5/5 `name_bbox` in-band.
-- **The gemma4 26b and 31b tags read the most fine text,** `[4,4,4,4,3]`, on both engines.
+- **The gemma4 26b and 31b tags read the most fine text,** `[4,4,4,4,3]`, on both engines. In
+  the repeat, 26b read one fewer at 9 px (§4).
 - **On this H100, llama.cpp decodes `gemma4:31b` 3.8× faster than MLX** — 151 against 40 gen tok/s,
   4.8 against 14.3 s/req — with the same grounding, extraction and fine-text cells. The two rows
   are different artifacts (`q4_K_M` against `nvfp4`), so this compares the engine and the format
@@ -131,9 +187,10 @@ with every box, label and colour found every time.
   `qwen3.8:27b-nvfp4` loses 0.005 of scene IoU, one 9 px hit and the `q4_bbox_hit` multi-image
   question — as it did think-on in the 2026-09-18 campaign — at 1.8–3.5× the time per request.
 
-## 5. Limits
+## 6. Limits
 
-- One run per cell, except the three scene reruns: no repeats control for the rest.
+- Think-off ran twice per cell (§4) and think-on once, so think-on has no repeats control.
+- Every rate is one request's, the scene cell's.
 - `powermode` does not apply on CUDA.
 - The MLX and GGUF rows of one model are different artifacts, so an engine comparison here is
   also a quantisation-format comparison.
@@ -143,7 +200,7 @@ with every box, label and colour found every time.
 ## Reproducing
 
 The tables render from the bundle alone, identically, with `summarize_engine_compare.py --bundle`
-(#432). The loop renders each scene rerun; their IoUs are §3's.
+(#432). The loop renders each scene rerun; their IoUs are §3's. The last command renders §4.
 
 ```bash
 cd docs/maxusai/vision-suite
@@ -156,4 +213,7 @@ for n in 1 2 3; do
   python3 summarize_engine_compare.py --bundle $B --think false --prefix rerun_${n}_ \
     --expect scene_single gemma4:12b-nvfp4
 done
+python3 summarize_engine_compare.py --bundle $B --think false --prefix nf1_ gemma4:12b-nvfp4 \
+  gemma4:26b-nvfp4 gemma4:31b-nvfp4 qwen3.8:27b-nvfp4 qwen3.6:35b-a3b-nvfp4 gemma4:31b-it-q4_K_M \
+  qwen3.8:27b-q4_K_M nemotron3:33b-q8
 ```
