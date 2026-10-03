@@ -165,10 +165,13 @@ These are encoded in the harness, not left to the operator to remember:
 
   On a Linux host where ollama runs as a systemd service, read the journal, and
   run as root (or as the service's user): `payload_pin` and the MLX fallback
-  below find the payload through the server's `/proc/<pid>/exe`. As root the
-  harness runs that `llama-server --version` only when root owns it and its
-  directory and neither is writable by group or others, as in a system
-  install, since whatever holds the port chooses it.
+  below find the payload through the server's `/proc/<pid>/exe`. Whatever
+  holds the port chooses that `llama-server`, so as root the harness resolves
+  its path and runs the resolved file only when root owns it and every
+  directory above it, and none is writable by group or others, as in a system
+  install. A group-writable directory on the way, such as an older Debian's
+  `root:staff` `/usr/local`, makes it skip and say which; run as the service's
+  own user there.
 
   ```sh
   sudo python3 preflight.py --host http://127.0.0.1:11434 --platform cuda \

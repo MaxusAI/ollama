@@ -54,7 +54,7 @@ from checks import (CONTENTION, ERROR, FAIL, NEEDS_BASELINE, PASS,  # noqa: E402
                     SKIP)
 from probes import (Ollama, ProbeError, find_container,  # noqa: E402
                     lib_ollama_llama_server, llama_cpp_build,
-                    refuse_as_root)
+                    root_runnable)
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 RUNS = os.path.join(DIR, "runs")
@@ -402,10 +402,10 @@ def main():
             # and never a binary that root must not run.
             _, exe, _ = checks.native_ollama_exe(args.host)
             native = lib_ollama_llama_server(exe)
-            meta["llama_cpp_build"] = (llama_cpp_build(None, path=native)
-                                       if native and os.path.exists(native)
-                                       and not refuse_as_root(native)
-                                       else None)
+            run = (root_runnable(native)[0]
+                   if native and os.path.exists(native) else None)
+            meta["llama_cpp_build"] = (llama_cpp_build(None, path=run)
+                                       if run else None)
     except Exception:
         meta["llama_cpp_build"] = None
     results.append(checks.check_payload_pin(profile, container, args.exec_cmd,

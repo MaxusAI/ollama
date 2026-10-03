@@ -957,26 +957,37 @@ def native_mlx_build(exe):
     return None, None
 
 
-def refuse_as_root(path):
-    """Why this process must not execute `path`, or None when it may.
+def root_runnable(path):
+    """(run, why): the path this process may execute for `path` and None, or None
+    and why it must not execute it.
 
-    Run as root, the harness would execute a binary chosen by whatever holds
-    the port, so there it only runs one that root owns, in a directory root
-    owns, neither writable by group or others — as a system install is. Any
-    other user has nothing to escalate to.
+    Any user but root runs `path` as given: it has nothing to escalate to. Run as
+    root, the harness would execute a binary chosen by whatever holds the port, so
+    it resolves `path` first and runs the resolved file, and only when that file
+    and every directory above it are root's and closed to group and other writes,
+    as a system install is. Checking the binary and its own directory was not
+    enough: os.stat follows a symlink, so a user's symlink to a root-owned payload
+    passed, and the user could re-point it between the check and the exec. Every
+    directory on the resolved path being root's leaves no one else a swap, and
+    running exactly the path that was checked closes the rest.
     """
     if not hasattr(os, "geteuid") or os.geteuid() != 0:
-        return None
-    for p in (path, os.path.dirname(path) or "."):
+        return path, None
+    real = os.path.realpath(path)
+    p = real
+    while True:
         try:
-            st = os.stat(p)
+            st = os.lstat(p)
         except OSError as exc:
-            return f"cannot stat {p}: {exc}"
+            return None, f"cannot stat {p}: {exc}"
         if st.st_uid != 0:
-            return f"{p} is owned by uid {st.st_uid}, not root"
+            return None, f"{p} is owned by uid {st.st_uid}, not root"
         if st.st_mode & 0o022:
-            return f"{p} is writable by group or others"
-    return None
+            return None, f"{p} is writable by group or others"
+        parent = os.path.dirname(p)
+        if parent == p:
+            return real, None
+        p = parent
 
 
 def binary_marker_count(path, needle):

@@ -92,16 +92,18 @@ platform = "cuda"
 # (runs/preflight-cuda-0350-h100-canary-ga657392.json) repeated production's
 # 2026-09-30 run (runs/preflight-cuda-0344-h100-prod-gb43ee8e.json) in 26 of the 29
 # rows both runs have, every measured value included. The version row names the
-# build. The two pins are the other two: main's harness cannot read them on a
-# native Linux host, because local_listener_exe takes `ps -o comm=`, which Linux
-# truncates, so payload_pin skips and mlx_payload_pin, finding no MLX line in a
-# CUDA run's window, fails. Read by their own probes, the payload reports llama.cpp
-# 161755f29 and MLX 0.32.2-65-g59d600b, both pins below. Three extraction_quality
-# skips appear only in production's run, which passed --quality; this profile
-# records no quality thresholds, so they assert nothing. The post-deploy smoke on
-# production (runs/preflight-cuda-0350-h100-prod-ga657392.json) repeated the
-# canary in 27 of its 29 rows; the other two are the pinned budgets, which
-# --skip-pinned leaves out.
+# build. The two pins are the other two: main's harness could not read them on a
+# native Linux host, because local_listener_exe took `ps -o comm=`, which Linux
+# truncates, so payload_pin skipped and mlx_payload_pin, finding no MLX line in a
+# CUDA run's window, failed. Read by their own probes, the payload reports
+# llama.cpp 161755f29 and MLX 0.32.2-65-g59d600b, both pins below. Three
+# extraction_quality skips appear only in production's run, which passed
+# --quality; this profile records no quality thresholds, so they assert nothing.
+# The post-deploy smoke on production (runs/preflight-cuda-0350-h100-prod-ga657392.json)
+# repeated the canary in 27 of its 29 rows; the other two are the pinned budgets,
+# which --skip-pinned leaves out. Run again as root once the harness read
+# /proc/<pid>/exe on Linux (runs/preflight-cuda-0350-h100-prod-root-ga657392.json),
+# it read both pins from the served payload and passed: 14 passed, 15 skipped.
 # 0.35.1 stays refused: its rc0 moves llama.cpp to b11232 and MLX to 64ea011c.
 version_pattern = '^(0\.3[234]\.\d+(-rc\d+)?-dynres(\.\d+)?(-\d+-g[0-9a-f]{7,40}|-[0-9a-f]{7,40})|0\.35\.0-dynres-\d+-g[0-9a-f]{7,40})$'
 # 908 added 2026-09-26 in the v0.34.4 fold (#375): the device half of ce8caa6e6 reverted, the FA MMA tiling for head

@@ -2526,6 +2526,81 @@ class TestNativeLinuxRoutes(unittest.TestCase):
         self.assertEqual(r["status"], SKIP)
         self.assertIn("as root", r["summary"])
 
+    @contextlib.contextmanager
+    def as_root(self, owner=lambda path: 0, mode=lambda path: 0o755):
+        """euid 0, with lstat reporting `owner(path)` and `mode(path)` for every
+        path, so a test can give root a tree it does not really own."""
+        real_lstat = os.lstat
+
+        def lstat(path, *args, **kwargs):
+            st = real_lstat(path, *args, **kwargs)
+            kind = st.st_mode & ~0o7777
+            return os.stat_result((kind | mode(str(path)), st.st_ino, st.st_dev, st.st_nlink,
+                                   owner(str(path)), 0, st.st_size, 0, 0, 0))
+        with mock.patch.object(probes.os, "geteuid", lambda: 0, create=True), \
+             mock.patch.object(probes.os, "lstat", lstat):
+            yield
+
+    def symlinked_payload(self, d):
+        """<d>/canary/lib/ollama, a symlink to <d>/system/lib/ollama: a canary
+        that borrows an installed payload, the way the H100's did."""
+        server = self.touch(d, "system", "lib", "ollama", "llama-server")
+        os.makedirs(os.path.join(d, "canary", "lib"))
+        os.symlink(os.path.join(d, "system", "lib", "ollama"), os.path.join(d, "canary", "lib", "ollama"))
+        return os.path.join(d, "canary", "lib", "ollama", "llama-server"), os.path.realpath(server)
+
+    def test_any_other_user_runs_the_path_as_given(self):
+        with tempfile.TemporaryDirectory() as d:
+            link, _ = self.symlinked_payload(d)
+            with mock.patch.object(probes.os, "geteuid", lambda: 1000, create=True):
+                self.assertEqual(probes.root_runnable(link), (link, None))
+
+    def test_as_root_the_resolved_file_runs_when_its_whole_path_is_roots(self):
+        """The symlink is resolved and the TARGET is what runs, so re-pointing
+        the link after the check changes nothing."""
+        with tempfile.TemporaryDirectory() as d:
+            link, real = self.symlinked_payload(d)
+            with self.as_root():
+                self.assertEqual(probes.root_runnable(link), (real, None))
+
+    def test_as_root_a_directory_above_the_payload_owned_by_a_user_refuses(self):
+        """The binary and its own directory were all the old check looked at.
+        A user who owns any directory above them can swap the payload out from
+        under the check."""
+        with tempfile.TemporaryDirectory() as d:
+            link, real = self.symlinked_payload(d)
+            above = os.path.dirname(os.path.dirname(os.path.dirname(real)))   # <d>/system
+            with self.as_root(owner=lambda p: 1000 if p == above else 0):
+                run, why = probes.root_runnable(link)
+        self.assertIsNone(run)
+        self.assertEqual(why, f"{above} is owned by uid 1000, not root")
+
+    def test_as_root_a_group_writable_directory_above_the_payload_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            _, real = self.symlinked_payload(d)
+            lib = os.path.dirname(os.path.dirname(real))                     # <d>/system/lib
+            with self.as_root(mode=lambda p: 0o775 if p == lib else 0o755):
+                run, why = probes.root_runnable(real)
+        self.assertIsNone(run)
+        self.assertEqual(why, f"{lib} is writable by group or others")
+
+    def test_as_root_payload_pin_runs_exactly_the_path_it_checked(self):
+        """End to end through payload_pin: the llama-server that runs is the
+        resolved one, not the symlinked path the listener's directory names."""
+        with tempfile.TemporaryDirectory() as d:
+            exe = self.service(d)
+            lib = os.path.join(d, "lib")
+            os.rename(os.path.join(lib, "ollama"), os.path.join(lib, "ollama-real"))
+            os.symlink(os.path.join(lib, "ollama-real"), os.path.join(lib, "ollama"))
+            ran = []
+            with self.linux_listener(exe), self.as_root(), \
+                 mock.patch.object(checks, "llama_cpp_build",
+                                   lambda container, path=None, exec_cmd=None: ran.append(path) or "161755f29"):
+                r = checks.check_payload_pin({"llama_cpp_build": "161755f29"}, None,
+                                             host="http://127.0.0.1:11434")
+        self.assertEqual(r["status"], PASS, r["summary"])
+        self.assertEqual(ran, [os.path.realpath(os.path.join(lib, "ollama-real", "llama-server"))])
+
     # ---- native_mlx_build: the library the executable loads, read in place ----
 
     @staticmethod

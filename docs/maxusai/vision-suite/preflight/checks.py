@@ -12,7 +12,7 @@ from probes import (ProbeError, TENSOR_ENV_VARS, TENSOR_MARKER,
                     binary_marker_count, gpu_toolchain,
                     container_logs, grep_binary_marker, lib_ollama_llama_server,
                     launched_runner_paths, local_listener_exe, native_mlx_build,
-                    refuse_as_root,
+                    root_runnable,
                     metal_tensor_discovery, mlx_build_payload, server_env,
                     ladder_image_b64, llama_cpp_build, mlx_build,
                     mlx_describe_commit, nax_probe, parse_load_segments,
@@ -213,16 +213,18 @@ def check_payload_pin(profile, container, exec_cmd=None, host=None):
                                     "that exists beside its executable and looks "
                                     "no further, so there may be nothing to read. "
                                     "The payload half of this pin did not run.")
-        refusal = refuse_as_root(path)
+        run, refusal = root_runnable(path)
         if refusal:
             return result("payload_pin", SKIP,
                           f"not running {path} as root: {refusal}",
                           expected=expected,
                           diagnosis="Run the harness as the server's own user, "
                                     "or install the payload the way a system "
-                                    "install is: root-owned, closed to group "
+                                    "install is: root-owned, with every "
+                                    "directory above it, and closed to group "
                                     "and other writes. The payload half of this "
                                     "pin did not run.")
+        path = run   # what root_runnable checked; as root, the resolved file
         route = f"resolved from the executable listening on :{port}"
     try:
         actual = (llama_cpp_build(container, exec_cmd=exec_cmd) if container
