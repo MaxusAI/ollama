@@ -108,6 +108,8 @@ and then, not always adjacently. extbench ran each arm as it runs a benchmark: t
 | `qwen3.8:27b-q4_K_M` | ocrbench 0..1000 | 999 | 1.191 | 1.065 | -10.6 % | 0 |
 | `nemotron3:33b-q8` | ocrbench 0..1000 | 999 | 0.334 | 0.283 | -15.3 % | 0 |
 
+host: http://127.0.0.1:11434 · build: 0.34.4-dynres-0-gb43ee8e-pcache
+
 extbench records each request to 0.1 s, so a difference under about 0.05 s per request is below this table's resolution; the journal times each cache update to the millisecond.
 
 - **The cache changed no answer.** Every output of the 3,800 paired requests is the same string with
@@ -127,32 +129,32 @@ requests earlier: this is the case the cache is for.
 
 | run | model | workload | contexts × turns | first visit: prefill, request | every return: prefill, request | prompt tokens, last turn |
 |---|---|---|---|---|---|---|
-| cache on | `gemma4:31b-it-q4_K_M` | conversations | 2 × 6 | 2.04 s, 6.56 s | 1.66 s, 3.22 s | 3660 |
-| cache off | `gemma4:31b-it-q4_K_M` | conversations | 2 × 6 | 2.04 s, 6.15 s | 2.06 s, 2.27 s | 3660 |
-| cache on | `qwen3.8:27b-q4_K_M` | conversations | 2 × 6 | 1.50 s, 4.81 s | 0.54 s, 1.29 s | 3907 |
-| cache off | `qwen3.8:27b-q4_K_M` | conversations | 2 × 6 | 1.50 s, 4.67 s | 1.55 s, 1.90 s | 3907 |
-| cache on | `nemotron3:33b-q8` | conversations | 2 × 6 | 0.44 s, 4.88 s | 0.14 s, 0.39 s | 4066 |
-| cache off | `nemotron3:33b-q8` | conversations | 2 × 6 | 0.44 s, 4.90 s | 0.37 s, 0.51 s | 4066 |
-| cache on | `gemma4:31b-it-q4_K_M` | images | 2 × 6 | 1.67 s, 6.15 s | 1.60 s, 2.52 s | 1097 |
-| cache off | `gemma4:31b-it-q4_K_M` | images | 2 × 6 | 1.68 s, 5.91 s | 1.61 s, 1.84 s | 1097 |
-| cache on | `qwen3.8:27b-q4_K_M` | images | 2 × 6 | 0.77 s, 4.04 s | 0.70 s, 1.35 s | 1082 |
-| cache off | `qwen3.8:27b-q4_K_M` | images | 2 × 6 | 0.77 s, 3.92 s | 0.71 s, 1.19 s | 1082 |
-| cache on | `nemotron3:33b-q8` | images | 2 × 6 | 0.23 s, 4.66 s | 0.11 s, 0.31 s | 291 |
-| cache off | `nemotron3:33b-q8` | images | 2 × 6 | 0.24 s, 4.72 s | 0.11 s, 0.28 s | 291 |
+| cache on | `gemma4:31b-it-q4_K_M` | conversations | 2 × 6 | 2.03 s, 6.48 s | 1.66 s, 3.21 s | 3660 |
+| cache off | `gemma4:31b-it-q4_K_M` | conversations | 2 × 6 | 2.03 s, 6.07 s | 2.05 s, 2.26 s | 3660 |
+| cache on | `qwen3.8:27b-q4_K_M` | conversations | 2 × 6 | 1.50 s, 4.82 s | 0.55 s, 1.30 s | 3907 |
+| cache off | `qwen3.8:27b-q4_K_M` | conversations | 2 × 6 | 1.50 s, 4.70 s | 1.55 s, 1.90 s | 3907 |
+| cache on | `nemotron3:33b-q8` | conversations | 2 × 6 | 0.44 s, 4.87 s | 0.14 s, 0.39 s | 4066 |
+| cache off | `nemotron3:33b-q8` | conversations | 2 × 6 | 0.44 s, 4.89 s | 0.37 s, 0.51 s | 4066 |
+| cache on | `gemma4:31b-it-q4_K_M` | images | 2 × 6 | 1.68 s, 6.17 s | 1.61 s, 2.53 s | 1097 |
+| cache off | `gemma4:31b-it-q4_K_M` | images | 2 × 6 | 1.69 s, 5.90 s | 1.61 s, 1.84 s | 1097 |
+| cache on | `qwen3.8:27b-q4_K_M` | images | 2 × 6 | 0.77 s, 3.99 s | 0.70 s, 1.34 s | 1082 |
+| cache off | `qwen3.8:27b-q4_K_M` | images | 2 × 6 | 0.77 s, 3.97 s | 0.71 s, 1.18 s | 1082 |
+| cache on | `nemotron3:33b-q8` | images | 2 × 6 | 0.23 s, 4.71 s | 0.11 s, 0.32 s | 291 |
+| cache off | `nemotron3:33b-q8` | images | 2 × 6 | 0.23 s, 4.71 s | 0.11 s, 0.28 s | 291 |
 
-build(s): 0.34.4-dynres-0-gb43ee8e-pcache
+host: http://127.0.0.1:11434 · build: 0.34.4-dynres-0-gb43ee8e-pcache
 
 **Conversations: the cache pays back on the two small-state models, and costs `gemma4:31b`.**
-- **`qwen3.8:27b-q4_K_M` returns to a conversation in 1.29 s with the cache and 1.90 s without;
+- **`qwen3.8:27b-q4_K_M` returns to a conversation in 1.30 s with the cache and 1.90 s without;
   `nemotron3:33b-q8` in 0.39 s against 0.51 s.** A restore leaves about a third of the prefill to
-  run: 0.54 s of 1.55 s, and 0.14 s of 0.37 s.
-- **`gemma4:31b` returns in 3.22 s with it and 2.27 s without.** Its restore leaves most of the
-  prefill (1.66 s of 2.06 s), and saving and restoring a conversation's state, about 1,080 MiB,
+  run: 0.55 s of 1.55 s, and 0.14 s of 0.37 s.
+- **`gemma4:31b` returns in 3.21 s with it and 2.26 s without.** Its restore leaves most of the
+  prefill (1.66 s of 2.05 s), and saving and restoring a conversation's state, about 1,080 MiB,
   costs more than the rest saves.
 
 **Images: no restore shortened a prefill.** An image that comes back evaluates as long with the
-cache as without (1.60 s against 1.61 s for `gemma4:31b`), so the cache only adds its update:
-27 % of `gemma4:31b`'s request, 10–12 % of the others'.
+cache as without (1.61 s either way for `gemma4:31b`), so the cache only adds its update: 27 % of
+`gemma4:31b`'s request, 12 % of the others'.
 
 ### The cache's own record of the A/B
 
@@ -164,9 +166,9 @@ are the one- and three-request rows.
 
 | model | window | requests | cache updates | restores | slot reuse | state, median | MiB per token | update, median | update, p90 | compute, median |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `gemma4:31b-it-q4_K_M` | pc-off-images-gemma4-31b-it-q4_K_M | 12 | 0 | 0 | 0 | — | — | — | — | 1771 ms |
-| `nemotron3:33b-q8` | pc-off-images-nemotron3-33b-q8 | 13 | 0 | 0 | 0 | — | — | — | — | 296 ms |
-| `qwen3.8:27b-q4_K_M` | pc-off-images-qwen3.8-27b-q4_K_M | 12 | 0 | 0 | 0 | — | — | — | — | 1292 ms |
+| `gemma4:31b-it-q4_K_M` | pc-off-images-gemma4-31b-it-q4_K_M | 12 | 0 | 0 | 0 | — | — | — | — | 1768 ms |
+| `nemotron3:33b-q8` | pc-off-images-nemotron3-33b-q8 | 13 | 0 | 0 | 0 | — | — | — | — | 297 ms |
+| `qwen3.8:27b-q4_K_M` | pc-off-images-qwen3.8-27b-q4_K_M | 12 | 0 | 0 | 0 | — | — | — | — | 1293 ms |
 | `nemotron3:33b-q8` | pc-off-ocrbench0-nemotron3-33b-q8 | 995 | 0 | 0 | 37 | — | — | — | — | 160 ms |
 | `qwen3.8:27b-q4_K_M` | pc-off-ocrbench0-nemotron3-33b-q8 | 1 | 0 | 0 | 0 | — | — | — | — | 1035 ms |
 | `nemotron3:33b-q8` | pc-off-ocrbench0-qwen3.8-27b-q4_K_M | 1 | 0 | 0 | 0 | — | — | — | — | 237 ms |
@@ -179,14 +181,14 @@ are the one- and three-request rows.
 | `qwen3.8:27b-q4_K_M` | pc-off-refcoco4000-nemotron3-33b-q8 | 1 | 0 | 0 | 0 | — | — | — | — | 1296 ms |
 | `gemma4:31b-it-q4_K_M` | pc-off-refcoco4000-qwen3.8-27b-q4_K_M | 1 | 0 | 0 | 0 | — | — | — | — | 1914 ms |
 | `qwen3.8:27b-q4_K_M` | pc-off-refcoco4000-qwen3.8-27b-q4_K_M | 299 | 0 | 0 | 0 | — | — | — | — | 1083 ms |
-| `gemma4:31b-it-q4_K_M` | pc-off-text-gemma4-31b-it-q4_K_M | 11 | 0 | 0 | 0 | — | — | — | — | 2196 ms |
-| `nemotron3:33b-q8` | pc-off-text-nemotron3-33b-q8 | 10 | 0 | 0 | 0 | — | — | — | — | 468 ms |
-| `qwen3.8:27b-q4_K_M` | pc-off-text-nemotron3-33b-q8 | 1 | 0 | 0 | 0 | — | — | — | — | 1300 ms |
-| `gemma4:31b-it-q4_K_M` | pc-off-text-qwen3.8-27b-q4_K_M | 1 | 0 | 0 | 0 | — | — | — | — | 1916 ms |
+| `gemma4:31b-it-q4_K_M` | pc-off-text-gemma4-31b-it-q4_K_M | 11 | 0 | 0 | 0 | — | — | — | — | 2190 ms |
+| `nemotron3:33b-q8` | pc-off-text-nemotron3-33b-q8 | 10 | 0 | 0 | 0 | — | — | — | — | 469 ms |
+| `qwen3.8:27b-q4_K_M` | pc-off-text-nemotron3-33b-q8 | 1 | 0 | 0 | 0 | — | — | — | — | 1296 ms |
+| `gemma4:31b-it-q4_K_M` | pc-off-text-qwen3.8-27b-q4_K_M | 1 | 0 | 0 | 0 | — | — | — | — | 1914 ms |
 | `qwen3.8:27b-q4_K_M` | pc-off-text-qwen3.8-27b-q4_K_M | 11 | 0 | 0 | 0 | — | — | — | — | 1849 ms |
-| `gemma4:31b-it-q4_K_M` | pc-on-images-gemma4-31b-it-q4_K_M | 12 | 12 | 10 | 0 | 887.1 MiB | 0.796 | 674 ms | 681 ms | 1733 ms |
-| `nemotron3:33b-q8` | pc-on-images-nemotron3-33b-q8 | 9 | 10 | 8 | 0 | 49.6 MiB | 0.149 | 37 ms | 146 ms | 298 ms |
-| `qwen3.8:27b-q4_K_M` | pc-on-images-qwen3.8-27b-q4_K_M | 11 | 12 | 10 | 0 | 219.0 MiB | 0.197 | 162 ms | 169 ms | 1289 ms |
+| `gemma4:31b-it-q4_K_M` | pc-on-images-gemma4-31b-it-q4_K_M | 12 | 12 | 10 | 0 | 887.1 MiB | 0.796 | 680 ms | 692 ms | 1739 ms |
+| `nemotron3:33b-q8` | pc-on-images-nemotron3-33b-q8 | 9 | 9 | 7 | 0 | 49.6 MiB | 0.149 | 37 ms | 38 ms | 299 ms |
+| `qwen3.8:27b-q4_K_M` | pc-on-images-qwen3.8-27b-q4_K_M | 11 | 12 | 10 | 0 | 219.0 MiB | 0.197 | 160 ms | 163 ms | 1286 ms |
 | `nemotron3:33b-q8` | pc-on-ocrbench0-nemotron3-33b-q8 | 850 | 813 | 32 | 37 | 49.6 MiB | 0.149 | 45 ms | 55 ms | 164 ms |
 | `qwen3.8:27b-q4_K_M` | pc-on-ocrbench0-nemotron3-33b-q8 | 1 | 0 | 0 | 0 | — | — | — | — | 1036 ms |
 | `nemotron3:33b-q8` | pc-on-ocrbench0-qwen3.8-27b-q4_K_M | 3 | 3 | 3 | 0 | 49.4 MiB | 0.165 | 37 ms | 43 ms | 239 ms |
@@ -199,15 +201,15 @@ are the one- and three-request rows.
 | `qwen3.8:27b-q4_K_M` | pc-on-refcoco4000-nemotron3-33b-q8 | 1 | 0 | 0 | 0 | — | — | — | — | 1295 ms |
 | `gemma4:31b-it-q4_K_M` | pc-on-refcoco4000-qwen3.8-27b-q4_K_M | 1 | 0 | 0 | 0 | — | — | — | — | 1921 ms |
 | `qwen3.8:27b-q4_K_M` | pc-on-refcoco4000-qwen3.8-27b-q4_K_M | 299 | 300 | 0 | 0 | 221.7 MiB | 0.192 | 132 ms | 134 ms | 1081 ms |
-| `gemma4:31b-it-q4_K_M` | pc-on-text-gemma4-31b-it-q4_K_M | 11 | 12 | 8 | 0 | 1079.5 MiB | 0.302 | 1217 ms | 1687 ms | 1720 ms |
-| `nemotron3:33b-q8` | pc-on-text-nemotron3-33b-q8 | 11 | 11 | 9 | 0 | 71.0 MiB | 0.018 | 100 ms | 125 ms | 246 ms |
-| `qwen3.8:27b-q4_K_M` | pc-on-text-nemotron3-33b-q8 | 1 | 0 | 0 | 0 | — | — | — | — | 1296 ms |
-| `gemma4:31b-it-q4_K_M` | pc-on-text-qwen3.8-27b-q4_K_M | 1 | 0 | 0 | 0 | — | — | — | — | 1911 ms |
-| `qwen3.8:27b-q4_K_M` | pc-on-text-qwen3.8-27b-q4_K_M | 11 | 11 | 9 | 0 | 389.3 MiB | 0.102 | 374 ms | 473 ms | 854 ms |
+| `gemma4:31b-it-q4_K_M` | pc-on-text-gemma4-31b-it-q4_K_M | 11 | 12 | 8 | 0 | 1079.5 MiB | 0.302 | 1214 ms | 1561 ms | 1720 ms |
+| `nemotron3:33b-q8` | pc-on-text-nemotron3-33b-q8 | 11 | 12 | 10 | 0 | 71.0 MiB | 0.018 | 97 ms | 126 ms | 244 ms |
+| `qwen3.8:27b-q4_K_M` | pc-on-text-nemotron3-33b-q8 | 1 | 0 | 0 | 0 | — | — | — | — | 1297 ms |
+| `gemma4:31b-it-q4_K_M` | pc-on-text-qwen3.8-27b-q4_K_M | 1 | 0 | 0 | 0 | — | — | — | — | 1917 ms |
+| `qwen3.8:27b-q4_K_M` | pc-on-text-qwen3.8-27b-q4_K_M | 12 | 12 | 10 | 0 | 389.3 MiB | 0.102 | 385 ms | 485 ms | 858 ms |
 
 | the whole log | cache updates | restores | mean | p10 | median | p90 | max | total |
 |---|---|---|---|---|---|---|---|---|
-| all | 3190 | 171 | 178 ms | 30 ms | 130 ms | 572 ms | 2128 ms | 0.16 h |
+| all | 3266 | 229 | 182 ms | 30 ms | 130 ms | 574 ms | 2128 ms | 0.17 h |
 
 journald dropped lines in `nemotron3:33b-q8` pc-on-ocrbench0-nemotron3-33b-q8 (29138 lines): those rows' counts are lower bounds.
 

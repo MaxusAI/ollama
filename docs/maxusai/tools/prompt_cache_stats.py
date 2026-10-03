@@ -28,6 +28,8 @@ ollama.service" notices are read too: a row they fall in carries `journal_lines_
 `render` prints the tables from that JSON alone (SPEC vision-harness-reuse H7: a
 published table is a generator's output, pasted verbatim).
 
+Run it from a checkout: it imports `load` and `provenance` from `../vision-suite` (SPEC H5).
+
 This tool sends no request. The requests that take turns between contexts, the case the cache
 exists for, come from `vision-suite/prompt_cache_probe.py`, through `client.generate()`
 (SPEC H9).
@@ -44,6 +46,10 @@ import re
 import statistics
 import sys
 from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "vision-suite"))
+from summarize_engine_compare import load  # noqa: E402  (H5)
+from summarize_extbench import provenance  # noqa: E402  (H13: the footer reads the files)
 
 LINE = re.compile(r"^(\S+) \S+ [^:]+: (.*)$")
 SUPPRESSED = re.compile(r"Suppressed (\d+) messages from ollama")
@@ -188,11 +194,12 @@ def ab(paths):
     print("| model | rows | requests | cache on, s per request | cache off, s per request | change "
           "| outputs that differ |")
     print("|---|---|---|---|---|---|---|")
+    hosts, builds = set(), set()
     for on_path, off_path in zip(paths[::2], paths[1::2]):
-        runs = []
-        for p in (on_path, off_path):
-            with open(p) as f:
-                runs.append(json.load(f))
+        runs = [load(p) for p in (on_path, off_path)]
+        for p, d in zip((on_path, off_path), runs):
+            if d is None:
+                raise ValueError(f"{p}: missing or unreadable")
         (on, off), keys = runs, ("model", "benchmark", "dataset", "split", "offset", "requested")
         if [on["summary"].get(k) for k in keys] != [off["summary"].get(k) for k in keys]:
             raise ValueError(f"{on_path} and {off_path} are not the same arm")
@@ -203,9 +210,17 @@ def ab(paths):
         m_off = statistics.mean(b[i]["secs"] for i in shared)
         differ = sum(1 for i in shared + ([first] if first in a and first in b else [])
                      if a[i]["pred"] != b[i]["pred"])
+        for d in (on, off):
+            h, b = provenance(d["summary"])
+            hosts.add(h)
+            builds.add(b)
         s = on["summary"]
         print(f"| `{s['model']}` | {s['benchmark']} {s['offset']}..{s['offset'] + s['requested']} "
               f"| {len(shared)} | {m_on:.3f} | {m_off:.3f} | {(m_off / m_on - 1) * 100:+.1f} % | {differ} |")
+    if len(hosts) > 1 or len(builds) > 1:
+        print("\n⚠ **MIXED — rows are not one campaign** " f"(hosts: {sorted(hosts)}; builds: {sorted(builds)})")
+    else:
+        print(f"\nhost: {hosts.pop()} · build: {builds.pop()}")
     print("\nextbench records each request to 0.1 s, so a difference under about 0.05 s per request is "
           "below this table's resolution; the journal times each cache update to the millisecond.")
 

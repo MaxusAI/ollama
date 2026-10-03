@@ -1,6 +1,9 @@
 {
  "label": "cache on",
  "model": "nemotron3:33b-q8",
+ "host": [
+  "http://127.0.0.1:11434"
+ ],
  "server_version": [
   "0.34.4-dynres-0-gb43ee8e-pcache"
  ],
@@ -18,120 +21,120 @@
    "context": 0,
    "turn": 0,
    "prompt_eval_count": 285,
-   "prompt_eval_ms": 326.5,
+   "prompt_eval_ms": 322.6,
    "eval_count": 46,
-   "total_ms": 8988.6,
-   "wall_ms": 9000.2
+   "total_ms": 9083.6,
+   "wall_ms": 9095.9
   },
   {
    "kind": "image",
    "context": 1,
    "turn": 0,
    "prompt_eval_count": 291,
-   "prompt_eval_ms": 129.4,
+   "prompt_eval_ms": 128.9,
    "eval_count": 31,
-   "total_ms": 311.5,
-   "wall_ms": 313.9
+   "total_ms": 315.2,
+   "wall_ms": 317.4
   },
   {
    "kind": "image",
    "context": 0,
    "turn": 1,
    "prompt_eval_count": 285,
-   "prompt_eval_ms": 104.0,
+   "prompt_eval_ms": 104.6,
    "eval_count": 26,
-   "total_ms": 277.0,
-   "wall_ms": 279.1
+   "total_ms": 279.5,
+   "wall_ms": 281.6
   },
   {
    "kind": "image",
    "context": 1,
    "turn": 1,
    "prompt_eval_count": 291,
-   "prompt_eval_ms": 104.6,
+   "prompt_eval_ms": 105.4,
    "eval_count": 46,
-   "total_ms": 353.8,
-   "wall_ms": 356.1
+   "total_ms": 355.3,
+   "wall_ms": 357.6
   },
   {
    "kind": "image",
    "context": 0,
    "turn": 2,
    "prompt_eval_count": 284,
-   "prompt_eval_ms": 106.4,
+   "prompt_eval_ms": 106.7,
    "eval_count": 48,
-   "total_ms": 366.9,
-   "wall_ms": 369.0
+   "total_ms": 369.1,
+   "wall_ms": 371.4
   },
   {
    "kind": "image",
    "context": 1,
    "turn": 2,
    "prompt_eval_count": 290,
-   "prompt_eval_ms": 105.4,
+   "prompt_eval_ms": 106.8,
    "eval_count": 48,
-   "total_ms": 359.8,
-   "wall_ms": 362.2
+   "total_ms": 363.6,
+   "wall_ms": 366.3
   },
   {
    "kind": "image",
    "context": 0,
    "turn": 3,
    "prompt_eval_count": 287,
-   "prompt_eval_ms": 107.3,
+   "prompt_eval_ms": 107.5,
    "eval_count": 48,
-   "total_ms": 367.0,
-   "wall_ms": 369.1
+   "total_ms": 364.9,
+   "wall_ms": 367.0
   },
   {
    "kind": "image",
    "context": 1,
    "turn": 3,
    "prompt_eval_count": 293,
-   "prompt_eval_ms": 105.8,
+   "prompt_eval_ms": 105.9,
    "eval_count": 48,
-   "total_ms": 359.2,
-   "wall_ms": 361.3
+   "total_ms": 360.6,
+   "wall_ms": 362.8
   },
   {
    "kind": "image",
    "context": 0,
    "turn": 4,
    "prompt_eval_count": 291,
-   "prompt_eval_ms": 107.3,
+   "prompt_eval_ms": 107.8,
    "eval_count": 4,
-   "total_ms": 188.4,
-   "wall_ms": 190.1
+   "total_ms": 188.5,
+   "wall_ms": 190.5
   },
   {
    "kind": "image",
    "context": 1,
    "turn": 4,
    "prompt_eval_count": 297,
-   "prompt_eval_ms": 105.4,
+   "prompt_eval_ms": 106.5,
    "eval_count": 4,
-   "total_ms": 182.9,
-   "wall_ms": 184.8
+   "total_ms": 183.5,
+   "wall_ms": 185.6
   },
   {
    "kind": "image",
    "context": 0,
    "turn": 5,
    "prompt_eval_count": 288,
-   "prompt_eval_ms": 105.8,
+   "prompt_eval_ms": 107.1,
    "eval_count": 48,
-   "total_ms": 363.8,
-   "wall_ms": 366.0
+   "total_ms": 364.3,
+   "wall_ms": 366.4
   },
   {
    "kind": "image",
    "context": 1,
    "turn": 5,
    "prompt_eval_count": 294,
-   "prompt_eval_ms": 105.6,
+   "prompt_eval_ms": 106.2,
    "eval_count": 33,
-   "total_ms": 299.6,
-   "wall_ms": 301.6
+   "total_ms": 301.5,
+   "wall_ms": 303.5
   }
  ]
 }

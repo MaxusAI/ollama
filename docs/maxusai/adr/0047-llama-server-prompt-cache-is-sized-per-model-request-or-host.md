@@ -1,6 +1,6 @@
 # ADR 0047: llama-server's prompt cache is sized per model, per request or per host
 
-Date: 2026-10-03 · Status: proposed
+Date: 2026-10-03 · Status: accepted (shipped with the `prompt_cache_ram` option)
 
 ## Context
 

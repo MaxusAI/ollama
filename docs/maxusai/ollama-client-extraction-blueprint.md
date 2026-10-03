@@ -69,8 +69,11 @@ request path migrates onto `client` (it contributes back the one mechanism
    window and the model digest after load. This is what turns the ladder
    from "correct if the cold restart worked" into "checked".
 5. **Fork extensions are explicit.** `image_min_tokens`, `image_max_tokens`,
-   `kv_cache_type` are fork wire options that **stock ollama silently
-   drops** (logged server-side only). `forkext` sends them only when the
+   `kv_cache_type` and `prompt_cache_ram` are fork wire options that **stock
+   ollama silently drops** (logged server-side only). An extraction client
+   that sends one image per request gains from `prompt_cache_ram: 0`, up to a
+   fifth of each request on `gemma4:31b`, with the same answers
+   ([ADR 0047](adr/0047-llama-server-prompt-cache-is-sized-per-model-request-or-host.md)). `forkext` sends them only when the
    caller opted in, and verifies the server build (version pattern per
    ADR 0032; optionally the served effect) before trusting them.
 

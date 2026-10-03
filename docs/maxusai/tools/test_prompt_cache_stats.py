@@ -124,12 +124,13 @@ class Parse(unittest.TestCase):
 
 
 class AB(unittest.TestCase):
-    def arm(self, tmp, name, secs, preds, model="m:1", offset=4000):
+    def arm(self, tmp, name, secs, preds, model="m:1", offset=4000, build="b1"):
         recs = [{"i": offset + k, "secs": x, "pred": y, "ok": True} for k, (x, y) in enumerate(zip(secs, preds))]
         path = os.path.join(tmp, name)
         with open(path, "w") as f:
             json.dump({"summary": {"model": model, "benchmark": "refcoco", "dataset": "d", "split": "val",
-                                   "offset": offset, "requested": len(recs)}, "records": recs}, f)
+                                   "offset": offset, "requested": len(recs), "host": ["http://h:11434"],
+                                   "server_version": [build]}, "records": recs}, f)
         return path
 
     def test_a_pair_reports_means_without_the_load_and_differing_outputs(self):
@@ -140,6 +141,22 @@ class AB(unittest.TestCase):
             with contextlib.redirect_stdout(out):
                 pcs.ab([on, off])
         self.assertIn("| `m:1` | refcoco 4000..4003 | 2 | 2.500 | 2.000 | -20.0 % | 1 |", out.getvalue())
+        self.assertIn("host: http://h:11434 · build: b1", out.getvalue())
+
+    def test_a_pair_from_two_builds_renders_mixed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            on = self.arm(tmp, "on.json", [1.0, 1.0], ["a", "b"])
+            off = self.arm(tmp, "off.json", [1.0, 1.0], ["a", "b"], build="b2")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                pcs.ab([on, off])
+        self.assertIn("MIXED", out.getvalue())
+
+    def test_an_unreadable_file_is_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            on = self.arm(tmp, "on.json", [1.0, 1.0], ["a", "b"])
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
+                pcs.ab([on, os.path.join(tmp, "missing.json")])
 
     def test_a_pair_must_be_the_same_arm(self):
         with tempfile.TemporaryDirectory() as tmp:

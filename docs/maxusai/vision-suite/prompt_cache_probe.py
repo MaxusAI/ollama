@@ -32,6 +32,8 @@ import sys
 import time
 
 import client
+from summarize_engine_compare import load        # H5
+from summarize_extbench import provenance       # H13: the footer reads the files, never guesses
 
 WORDS = ("amber basalt cedar delta ember fjord granite harbor iris juniper kelp lagoon meadow "
          "nickel orchid pewter quartz river slate tundra umber violet willow xenon yarrow zinc").split()
@@ -61,9 +63,10 @@ def ask(args, prompt, images):
 
 
 def run(args):
-    records, builds = [], set()
+    records, hosts, builds = [], set(), set()
 
     def record(kind, ctx, turn, r, wall):
+        hosts.add(r.get("_host"))
         builds.add(r.get("_server_version"))
         records.append({"kind": kind, "context": ctx, "turn": turn,
                         "prompt_eval_count": r.get("prompt_eval_count"),
@@ -89,6 +92,7 @@ def run(args):
                 so_far[c] += f"{question} {r.get('response', '').strip()}\n"
                 record("conversation", c, turn, r, wall)
     return {"label": args.label, "model": args.model,
+            "host": sorted(h for h in hosts if h) or None,
             "server_version": sorted(b for b in builds if b) or None,
             "workload": "images" if args.image else "conversations",
             "settings": {"num_ctx": args.num_ctx, "num_predict": args.num_predict, "turns": args.turns,
@@ -101,8 +105,10 @@ def compare(paths):
     """One row per run: the first request of each context, then every later one."""
     runs = []
     for p in paths:
-        with open(p) as f:
-            runs.append(json.load(f))
+        d = load(p)
+        if d is None:
+            raise ValueError(f"{p}: missing or unreadable")
+        runs.append(d)
     print("| run | model | workload | contexts × turns | first visit: prefill, request | "
           "every return: prefill, request | prompt tokens, last turn |")
     print("|---|---|---|---|---|---|---|")
@@ -117,8 +123,15 @@ def compare(paths):
               f"| {mean(first, 'prompt_eval_ms'):.2f} s, {mean(first, 'wall_ms'):.2f} s "
               f"| {mean(back, 'prompt_eval_ms'):.2f} s, {mean(back, 'wall_ms'):.2f} s "
               f"| {round(statistics.mean(r['prompt_eval_count'] or 0 for r in recs if r['turn'] == last))} |")
-    builds = sorted({b for d in runs for b in (d.get("server_version") or ["not recorded"])})
-    print(f"\nbuild(s): {', '.join(builds)}")
+    hosts, builds = set(), set()
+    for d in runs:
+        h, b = provenance(d)
+        hosts.add(h)
+        builds.add(b)
+    if len(hosts) > 1 or len(builds) > 1:
+        print("\n⚠ **MIXED — rows are not one campaign** " f"(hosts: {sorted(hosts)}; builds: {sorted(builds)})")
+    else:
+        print(f"\nhost: {hosts.pop()} · build: {builds.pop()}")
 
 
 def main():
@@ -139,7 +152,10 @@ def main():
     c.add_argument("runs", nargs="+")
     args = ap.parse_args()
     if args.cmd == "compare":
-        compare(args.runs)
+        try:
+            compare(args.runs)
+        except ValueError as e:
+            ap.error(str(e))
         return
     if len(args.image) == 1:
         ap.error("--image takes two or more images, so that they take turns")

@@ -75,8 +75,8 @@ class Run(unittest.TestCase):
         r = d["records"][0]
         self.assertEqual((r["prompt_eval_ms"], r["total_ms"], r["prompt_eval_count"]), (250.0, 400.0, 100))
         self.assertGreater(r["wall_ms"], 0)
-        self.assertEqual((d["server_version"], d["workload"], d["settings"]["contexts"]),
-                         (["test-build"], "conversations", 2))
+        self.assertEqual((d["host"], d["server_version"], d["workload"], d["settings"]["contexts"]),
+                         ([self.host], ["test-build"], "conversations", 2))
 
     def test_images_take_turns(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -100,26 +100,43 @@ class Run(unittest.TestCase):
 
 
 class Compare(unittest.TestCase):
-    def test_one_row_per_run(self):
-        def run(label, back_ms):
-            recs = [{"context": c, "turn": t, "prompt_eval_count": 1000 + 10 * t,
-                     "prompt_eval_ms": 2000.0 if t == 0 else back_ms, "wall_ms": 2500.0 if t == 0 else back_ms + 400}
-                    for t in range(3) for c in range(2)]
-            return {"label": label, "model": "m:1", "server_version": ["test-build"], "workload": "conversations",
-                    "settings": {"contexts": 2, "turns": 3}, "records": recs}
+    @staticmethod
+    def run_file(tmp, label, back_ms, build="test-build", host="http://h:11434"):
+        recs = [{"context": c, "turn": t, "prompt_eval_count": 1000 + 10 * t,
+                 "prompt_eval_ms": 2000.0 if t == 0 else back_ms, "wall_ms": 2500.0 if t == 0 else back_ms + 400}
+                for t in range(3) for c in range(2)]
+        d = {"label": label, "model": "m:1", "host": [host] if host else None, "server_version": [build],
+             "workload": "conversations", "settings": {"contexts": 2, "turns": 3}, "records": recs}
+        path = os.path.join(tmp, label.replace(" ", "-") + ".json")
+        with open(path, "w") as f:
+            json.dump(d, f)
+        return path
+
+    def render(self, paths):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            probe.compare(paths)
+        return out.getvalue()
+
+    def test_one_row_per_run_and_one_provenance_footer(self):
         with tempfile.TemporaryDirectory() as tmp:
-            paths = []
-            for label, back in (("cache on", 100.0), ("cache off", 2100.0)):
-                paths.append(os.path.join(tmp, label.replace(" ", "-") + ".json"))
-                with open(paths[-1], "w") as f:
-                    json.dump(run(label, back), f)
-            out = io.StringIO()
-            with contextlib.redirect_stdout(out):
-                probe.compare(paths)
-        text = out.getvalue()
+            text = self.render([self.run_file(tmp, "cache on", 100.0), self.run_file(tmp, "cache off", 2100.0)])
         self.assertIn("| cache on | `m:1` | conversations | 2 × 3 | 2.00 s, 2.50 s | 0.10 s, 0.50 s | 1020 |", text)
         self.assertIn("| cache off | `m:1` | conversations | 2 × 3 | 2.00 s, 2.50 s | 2.10 s, 2.50 s | 1020 |", text)
-        self.assertIn("build(s): test-build", text)
+        self.assertIn("host: http://h:11434 · build: test-build", text)
+        self.assertNotIn("MIXED", text)
+
+    def test_runs_from_two_builds_or_an_unrecorded_host_render_mixed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = self.render([self.run_file(tmp, "cache on", 100.0), self.run_file(tmp, "cache off", 2100.0, build="other")])
+            self.assertIn("MIXED", text)
+            text = self.render([self.run_file(tmp, "cache on", 100.0), self.run_file(tmp, "cache off", 2100.0, host=None)])
+        self.assertIn("MIXED", text)
+        self.assertIn("pre-H11 run (not recorded)", text)
+
+    def test_an_unreadable_run_is_an_error(self):
+        with self.assertRaises(ValueError):
+            probe.compare(["/nonexistent/run.json"])
 
 
 if __name__ == "__main__":

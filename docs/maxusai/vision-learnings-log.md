@@ -797,7 +797,7 @@ state off the GPU into that cache.
     time per request for `gemma4:31b`, 4.5–10.6 % for `qwen3.8:27b-q4_K_M`;
   - with contexts taking turns (`prompt_cache_probe.py`), the cache saved `qwen3.8:27b-q4_K_M`
     and `nemotron3:33b-q8` a quarter to a third of each return to a conversation, and cost
-    `gemma4:31b` 42 %. On images it cost every model 10–27 %: no restore shortened an image's
+    `gemma4:31b` 42 %. On images it cost every model 12–27 %: no restore shortened an image's
     prefill.
 - **Enforced by** — `prompt_cache_ram` per model or per request, and `OLLAMA_LLAMA_SERVER_CACHE_RAM`
   per host, set `--cache-ram`; `0` turns the cache off
