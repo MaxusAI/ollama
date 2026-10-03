@@ -1,0 +1,140 @@
+{
+ "label": "cache on",
+ "model": "gemma4:31b-it-q4_K_M",
+ "host": [
+  "http://127.0.0.1:11434"
+ ],
+ "server_version": [
+  "0.34.4-dynres-0-gb43ee8e-pcache"
+ ],
+ "workload": "images",
+ "settings": {
+  "num_ctx": 8192,
+  "num_predict": 48,
+  "turns": 6,
+  "contexts": 2,
+  "doc_words": null
+ },
+ "records": [
+  {
+   "kind": "image",
+   "context": 0,
+   "turn": 0,
+   "prompt_eval_count": 1102,
+   "prompt_eval_ms": 1762.9,
+   "eval_count": 11,
+   "total_ms": 9712.4,
+   "wall_ms": 9723.9
+  },
+  {
+   "kind": "image",
+   "context": 1,
+   "turn": 0,
+   "prompt_eval_count": 1086,
+   "prompt_eval_ms": 1597.9,
+   "eval_count": 43,
+   "total_ms": 2611.5,
+   "wall_ms": 2613.6
+  },
+  {
+   "kind": "image",
+   "context": 0,
+   "turn": 1,
+   "prompt_eval_count": 1102,
+   "prompt_eval_ms": 1621.5,
+   "eval_count": 20,
+   "total_ms": 2491.6,
+   "wall_ms": 2493.5
+  },
+  {
+   "kind": "image",
+   "context": 1,
+   "turn": 1,
+   "prompt_eval_count": 1086,
+   "prompt_eval_ms": 1596.1,
+   "eval_count": 25,
+   "total_ms": 2549.1,
+   "wall_ms": 2551.2
+  },
+  {
+   "kind": "image",
+   "context": 0,
+   "turn": 2,
+   "prompt_eval_count": 1101,
+   "prompt_eval_ms": 1609.1,
+   "eval_count": 48,
+   "total_ms": 2899.5,
+   "wall_ms": 2901.8
+  },
+  {
+   "kind": "image",
+   "context": 1,
+   "turn": 2,
+   "prompt_eval_count": 1085,
+   "prompt_eval_ms": 1598.8,
+   "eval_count": 15,
+   "total_ms": 2463.0,
+   "wall_ms": 2464.9
+  },
+  {
+   "kind": "image",
+   "context": 0,
+   "turn": 3,
+   "prompt_eval_count": 1104,
+   "prompt_eval_ms": 1619.2,
+   "eval_count": 12,
+   "total_ms": 2464.5,
+   "wall_ms": 2466.4
+  },
+  {
+   "kind": "image",
+   "context": 1,
+   "turn": 3,
+   "prompt_eval_count": 1088,
+   "prompt_eval_ms": 1601.3,
+   "eval_count": 12,
+   "total_ms": 2452.0,
+   "wall_ms": 2453.9
+  },
+  {
+   "kind": "image",
+   "context": 0,
+   "turn": 4,
+   "prompt_eval_count": 1108,
+   "prompt_eval_ms": 1618.8,
+   "eval_count": 2,
+   "total_ms": 2395.3,
+   "wall_ms": 2397.1
+  },
+  {
+   "kind": "image",
+   "context": 1,
+   "turn": 4,
+   "prompt_eval_count": 1092,
+   "prompt_eval_ms": 1606.7,
+   "eval_count": 2,
+   "total_ms": 2365.6,
+   "wall_ms": 2367.4
+  },
+  {
+   "kind": "image",
+   "context": 0,
+   "turn": 5,
+   "prompt_eval_count": 1105,
+   "prompt_eval_ms": 1617.2,
+   "eval_count": 22,
+   "total_ms": 2539.9,
+   "wall_ms": 2541.7
+  },
+  {
+   "kind": "image",
+   "context": 1,
+   "turn": 5,
+   "prompt_eval_count": 1089,
+   "prompt_eval_ms": 1604.0,
+   "eval_count": 31,
+   "total_ms": 2645.8,
+   "wall_ms": 2647.7
+  }
+ ]
+}

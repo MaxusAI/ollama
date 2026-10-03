@@ -232,6 +232,36 @@ func TestGenerationDefaultMappingsAreOptions(t *testing.T) {
 	}
 }
 
+// prompt_cache_ram is nil unless set, and 0 is a value rather than "unset": it
+// turns the cache off. A Modelfile PARAMETER reaches the same field through
+// FormatParams.
+func TestPromptCacheRAMOption(t *testing.T) {
+	for _, tt := range []struct {
+		req  string
+		want *int
+	}{
+		{`{}`, nil},
+		{`{ "prompt_cache_ram": 0 }`, testIntPtr(0)},
+		{`{ "prompt_cache_ram": 4096 }`, testIntPtr(4096)},
+		{`{ "prompt_cache_ram": -1 }`, testIntPtr(-1)},
+	} {
+		var m map[string]any
+		require.NoError(t, json.Unmarshal([]byte(tt.req), &m))
+		opts := DefaultOptions()
+		require.NoError(t, opts.FromMap(m))
+		assert.Equal(t, tt.want, opts.PromptCacheRAM, tt.req)
+	}
+
+	params, err := FormatParams(map[string][]string{"prompt_cache_ram": {"0"}})
+	require.NoError(t, err)
+	opts := DefaultOptions()
+	require.NoError(t, opts.FromMap(params))
+	assert.Equal(t, testIntPtr(0), opts.PromptCacheRAM)
+
+	_, err = FormatParams(map[string][]string{"prompt_cache_ram": {"off"}})
+	assert.Error(t, err)
+}
+
 func TestUseMmapFormatParams(t *testing.T) {
 	tr := true
 	fa := false

@@ -141,6 +141,17 @@ first is image accounting and the second is generation length.
   Measured 2026-09-19: `gemma4:31b` q8_0 and bf16 came back with **zero** discordant items over
   200 OCRBench rows while their accuracy column read 0.845 for both and q4_K_M read 0.855
   ([../ocrbench-gemma4-quant-ladder.md](../ocrbench-gemma4-quant-ladder.md)).
+- `prompt_cache_probe.py run --host URL --model M --label L [--image A --image B]` — requests
+  that take turns between two contexts, the case llama-server's host-RAM prompt cache is for:
+  two conversations growing turn by turn, or two images. Every request goes through
+  `client.generate()`, and each records the prefill llama-server ran, ollama's total and the
+  wall clock. `compare` prints one row per run.
+  - **Run it twice on one build,** with `OLLAMA_LLAMA_SERVER_CACHE_RAM` unset and then `0`, to
+    measure what the cache buys. `../tools/prompt_cache_stats.py` reads what it costs from the
+    journal.
+  - **Measured 2026-10-03 on an H100** ([../llama-server-prompt-cache.md](../llama-server-prompt-cache.md)):
+    the cache saved `qwen3.8:27b-q4_K_M` and `nemotron3:33b-q8` a quarter to a third of each
+    return to a conversation, cost `gemma4:31b` 42 %, and never shortened an image's prefill.
 - `run_grid.sh <host> <tag-prefix>` — model × think-mode grid against one host, with an
   optional restart hook between runs (see below). Budgets are **per think-mode** and set by
   the runner: think-off `num_predict` 4000, think-on `num_ctx - CTX_PROMPT_RESERVE` (8192 at

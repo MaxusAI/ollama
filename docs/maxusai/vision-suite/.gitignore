@@ -31,6 +31,9 @@ ext_*.json
 # fetch on the host rendering it, and this repo does not redistribute the
 # benchmark's content.
 !bench-runs/ocrbench/ext_*_ocrbench.json
+# The cache-on and cache-off arms docs/maxusai/llama-server-prompt-cache.md renders, beside the
+# host profile they ran on, for the same reason.
+!bench-runs/prompt-cache/ext_*.json
 __pycache__/
 ft_*.json
 

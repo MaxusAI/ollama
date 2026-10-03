@@ -1,0 +1,31 @@
+name: prompt-cache-stats
+
+# prompt_cache_stats.py reads what llama-server's host-RAM prompt cache did from ollama's own
+# journal, and drives the requests that measure what it buys. Its tests run on journal lines
+# captured from a GCP H100 VM (identifiers removed) and against a fake ollama server. The policy
+# is in docs/maxusai/tools/prompt_cache_stats.py.
+#
+# Unconditional, for the reason source-paths.yaml gives: a path-filtered workflow never reports
+# on a pull request whose paths do not match.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'release/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  prompt-cache-stats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: The tool's own tests
+        run: python3 docs/maxusai/tools/test_prompt_cache_stats.py

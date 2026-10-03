@@ -624,6 +624,13 @@ type Runner struct {
 	// (llama-server --cache-type-k / --cache-type-v). Quantized V requires
 	// flash attention. Empty means the server-wide environment value.
 	KVCacheType string `json:"kv_cache_type,omitempty"`
+
+	// PromptCacheRAM sizes llama-server's host-RAM prompt cache for this model
+	// load, in MiB (llama-server --cache-ram): 0 turns the cache off and -1
+	// removes the limit. Nil means OLLAMA_LLAMA_SERVER_CACHE_RAM, and llama.cpp's
+	// default (8192) when that is unset too. A different value relaunches the
+	// runner, as num_ctx does; an MLX runner ignores it.
+	PromptCacheRAM *int `json:"prompt_cache_ram,omitempty"`
 }
 
 // EmbedRequest is the request passed to [Client.Embed].

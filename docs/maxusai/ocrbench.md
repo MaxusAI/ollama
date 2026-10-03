@@ -40,6 +40,12 @@ cannot end a twenty-minute arm. `REFRESH_ROWS=1` re-fetches.
 - **A running arm checkpoints** to `ext_<tag>_ocrbench.partial.json` every 50 items and
   when it is stopped.
 
+**Seconds per item depend on llama-server's prompt cache.** A GGUF arm's request time
+includes the cache's update when the image changes: up to a fifth of a `gemma4:31b` request.
+Compare seconds only between arms run with the same `prompt_cache_ram` or
+`OLLAMA_LLAMA_SERVER_CACHE_RAM` ([llama-server-prompt-cache.md](llama-server-prompt-cache.md)).
+Accuracy does not move.
+
 ## The format
 
 One renderer, `vision-suite/summarize_extbench.py`, pasted verbatim (SPEC
