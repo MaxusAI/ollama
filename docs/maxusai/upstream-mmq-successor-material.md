@@ -171,6 +171,7 @@ CUDA host (sm_120, b11081):
 |---|---|---|---|
 | raw (upstream `ne11`) | VMM pool (shipping) | 8192 and 33792 | HTTP 200, image decoded |
 | raw (upstream `ne11`) + 910 | exact-size `cudaMalloc` | 8192 | **illegal memory access at `decoding image batch 1/2`, core dump** |
+| #29941 (`ne12`, merged) + 910 | exact-size `cudaMalloc` | 8192 | HTTP 200, image decoded cleanly |
 | new 903 (widest tile) + 910 | exact-size `cudaMalloc` | 8192 | HTTP 200, image decoded cleanly |
 
 The broadcast gate/up MUL_MAT_ID has `ne11 == 1`, so upstream's `get_J_max(ne11) = 0`: `src1_q8_1` gets no tail
@@ -184,7 +185,9 @@ widest-tile 903 decodes it cleanly. Logs and the full table: [tasks/mmq-successo
 compute-sanitizer cannot instrument the model through `ollama serve`: ollama re-execs its runner with a rebuilt
 environment that drops the sanitizer injection, so only the parent is instrumented. The precise
 `Invalid __global__ read ... mul_mat_q` line is from the test-backend-ops path under memcheck; on the real model the
-exact-size allocation turns the same read into the deterministic crash above.
+exact-size allocation turns the same read into the deterministic crash above. **#29941 does not crash this path:** `get_J_max(ne12)` with `ne12 = 2048` pads the widest tile, so the merged fix
+covers the large-image src1 read; its residual gaps (`ids_dst`, and src1 below 128 tokens) are the test-backend-ops
+exact rows, not this one.
 
 **What it does not show.** The case aborts when it runs on a pool nothing larger has used before it. That holds for
 `-p` on the case alone, and for `-o MUL_MAT_ID` if no earlier case needs more pool. In a full run the pool may
