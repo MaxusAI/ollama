@@ -4,6 +4,15 @@ Companion to [upstream-mmq-submission-material.md](upstream-mmq-submission-mater
 to #29941's merge. This file holds what a successor PR needs: the defect that is left, the change, the test cases,
 and the measurements behind each claim.
 
+> [!CAUTION]
+> **Superseded in part by [upstream-mmq-29953-material.md](upstream-mmq-29953-material.md) (2026-10-05).** Two
+> claims below are wrong. (1) The src1 padding a tile needs is not `J - 1` blocks but
+> `ceil(GGML_PAD(J*sizeof(block_q8_1_mmq), nthreads*sizeof(int))/sizeof(block_q8_1_mmq)) - 1`, because the y load
+> copies the whole padded shared-memory tile; so the widest-tile rule this file proposes is itself short on
+> gfx1151. (2) The "CPU check" counts below came from a build without `-gencode`, which makes
+> `ggml_cuda_mmq_get_config()` return another architecture's config table. The newer file has the corrected
+> arithmetic, the corrected counts, and llama.cpp#29953.
+
 > [!IMPORTANT]
 > **This is raw material, not text to post.** ggml-org/llama.cpp prohibits AI-written posts (bug reports, pull
 > request descriptions, replies, ...), and undisclosed AI use can get the account banned. The maintainer writes the

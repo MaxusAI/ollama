@@ -1,0 +1,12 @@
+ids16      MMQ_ID q4_0  fb=0 prec=q8 ne11=  16 ne12=   16 n_used= 16 ne02= 256 | J= 16 nthreads=256 | src1 need= 21 pad= 16 SHORT   | ids_dst n=    256 need= 15 pad=  0 SHORT  
+ids64      MMQ_ID q4_0  fb=0 prec=q8 ne11=  64 ne12=  100 n_used= 64 ne02= 256 | J=112 nthreads=256 | src1 need=113 pad= 96 SHORT   | ids_dst n=   6400 need=111 pad=  0 SHORT  
+e120_b1    MMQ_ID q4_K  fb=1 prec=q8 ne11=   1 ne12=  120 n_used= 10 ne02= 256 | J=128 nthreads=256 | src1 need=127 pad= 64 SHORT   | ids_dst n=   1200 need=127 pad=  0 SHORT  
+e120_b0    MMQ_ID q4_K  fb=1 prec=q8 ne11=  10 ne12=  120 n_used= 10 ne02= 256 | J=128 nthreads=256 | src1 need=127 pad= 64 SHORT   | ids_dst n=   1200 need=127 pad=  0 SHORT  
+j100_b0    MMQ_ID q4_0  fb=0 prec=q8 ne11=  10 ne12=  100 n_used= 10 ne02= 512 | J=112 nthreads=256 | src1 need=113 pad= 96 SHORT   | ids_dst n=   1000 need=111 pad=  0 SHORT  
+j100_b1    MMQ_ID q4_0  fb=0 prec=q8 ne11=   1 ne12=  100 n_used= 10 ne02= 512 | J=112 nthreads=256 | src1 need=113 pad= 96 SHORT   | ids_dst n=   1000 need=111 pad=  0 SHORT  
+p29847_b1  MMQ_ID q4_0  fb=0 prec=q8 ne11=   1 ne12=  508 n_used= 10 ne02= 512 | J=128 nthreads=256 | src1 need=127 pad=128 covered | ids_dst n=   5080 need=127 pad=  0 SHORT  
+p29847_b0  MMQ_ID q4_0  fb=0 prec=q8 ne11=  10 ne12=  508 n_used= 10 ne02= 512 | J=128 nthreads=256 | src1 need=127 pad=128 covered | ids_dst n=   5080 need=127 pad=  0 SHORT  
+one113     MMQ_ID q4_K  fb=1 prec=q8 ne11=   1 ne12=  113 n_used=  1 ne02=  64 | J=128 nthreads=256 | src1 need=127 pad= 64 SHORT   | ids_dst n=    113 need=127 pad=  0 SHORT  
+orig2040   MMQ_ID q4_K  fb=0 prec=q8 ne11=   1 ne12= 2040 n_used=  8 ne02= 256 | J=128 nthreads=256 | src1 need=127 pad=128 covered | ids_dst n=  16320 need=127 pad=  0 SHORT  
+fb65       MMQ_ID q4_K  fb=1 prec=q8 ne11=   1 ne12=   65 n_used=  8 ne02= 256 | J=128 nthreads=256 | src1 need=127 pad= 64 SHORT   | ids_dst n=    520 need=127 pad=  0 SHORT  
+t100       MMQ_ID q4_K  fb=0 prec=q8 ne11=   1 ne12=  100 n_used=  8 ne02= 256 | J=112 nthreads=256 | src1 need=113 pad= 96 SHORT   | ids_dst n=    800 need=111 pad=  0 SHORT  

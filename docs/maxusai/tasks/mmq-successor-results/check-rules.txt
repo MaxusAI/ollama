@@ -1,0 +1,62 @@
+ids branch: 4717824 shapes (sm_75/86/89/120 and gfx1151 x 10 types x fallback 0/1 x every MMQ batch up to
+            1024 tokens x n_expert_used 1..16 x broadcast 0/1; on gfx1151 also x 8/32/128/256 experts)
+ src1_q8_1, one expert per token (n_expert_used = 1):
+  #24127 (ne11)                      SHORT in 162688 shapes, worst 127 blocks past the allocation
+                                      worst case: sm_75, q4_0, fallback=0, 113/1/256: J=128, nthreads=256, padding=0
+                                      by arch: sm_75 20328, sm_86 20328, sm_89 20328, sm_120 20328, gfx1151 81376
+  #29941 (ne12), master              SHORT in 11426 shapes, worst 63 blocks past the allocation
+                                      worst case: sm_75, q4_0, fallback=1, 65/1/256: J=128, nthreads=256, padding=64
+                                      by arch: sm_75 2258, sm_86 2368, sm_89 2368, sm_120 2368, gfx1151 2064
+  #29953 (the launched tile)         SHORT in 76656 shapes, worst 6 blocks past the allocation
+                                      worst case: sm_75, q2_K, fallback=0, 8/1/256: J=8, nthreads=256, padding=8
+                                      by arch: sm_75 4984, sm_86 4488, sm_89 4488, sm_120 4488, gfx1151 58208
+  #27044 (ne12*n_expert_used)        SHORT in 11426 shapes, worst 63 blocks past the allocation
+                                      worst case: sm_75, q4_0, fallback=1, 65/1/256: J=128, nthreads=256, padding=64
+                                      by arch: sm_75 2258, sm_86 2368, sm_89 2368, sm_120 2368, gfx1151 2064
+  #448 (widest tile)                 SHORT in 128 shapes, worst 5 blocks past the allocation
+                                      worst case: gfx1151, q2_K, fallback=0, 513/1/8: J=80, nthreads=256, padding=80
+                                      by arch: sm_75 0, sm_86 0, sm_89 0, sm_120 0, gfx1151 128
+  #448 amended (widest padded tile)  covered
+ src1_q8_1, two or more experts per token:
+  #24127 (ne11)                      SHORT in 4555104 shapes, worst 127 blocks past the allocation
+                                      worst case: sm_75, q4_0, fallback=0, 113/2/256: J=128, nthreads=256, padding=0
+                                      by arch: sm_75 609832, sm_86 609832, sm_89 609832, sm_120 609832, gfx1151 2115776
+  #29941 (ne12), master              SHORT in 365780 shapes, worst 63 blocks past the allocation
+                                      worst case: sm_75, q4_0, fallback=1, 65/2/256: J=128, nthreads=256, padding=64
+                                      by arch: sm_75 67740, sm_86 71040, sm_89 71040, sm_120 71040, gfx1151 84920
+  #29953 (the launched tile)         SHORT in 1532066 shapes, worst 6 blocks past the allocation
+                                      worst case: sm_75, q2_K, fallback=0, 8/2/256: J=8, nthreads=256, padding=8
+                                      by arch: sm_75 149520, sm_86 134640, sm_89 134640, sm_120 134640, gfx1151 978626
+  #27044 (ne12*n_expert_used)        SHORT in 29960 shapes, worst 17 blocks past the allocation
+                                      worst case: gfx1151, q4_K, fallback=0, 5/2/8: J=16, nthreads=128, padding=0
+                                      by arch: sm_75 648, sm_86 648, sm_89 648, sm_120 648, gfx1151 27368
+  #448 (widest tile)                 SHORT in 25256 shapes, worst 5 blocks past the allocation
+                                      worst case: gfx1151, q2_K, fallback=0, 65/8/8: J=80, nthreads=256, padding=80
+                                      by arch: sm_75 0, sm_86 0, sm_89 0, sm_120 0, gfx1151 25256
+  #448 amended (widest padded tile)  covered
+ ids_dst, any n_expert_used:
+  #24127 (ne11)                      SHORT in 4717824 shapes, worst 127 int32 entries past the allocation
+                                      worst case: sm_75, q4_0, fallback=0, 113/1/256: J=128, nthreads=256, padding=0
+                                      by arch: sm_75 630168, sm_86 630168, sm_89 630168, sm_120 630168, gfx1151 2197152
+  #29941 (ne12), master              SHORT in 4717824 shapes, worst 127 int32 entries past the allocation
+                                      worst case: sm_75, q4_0, fallback=0, 113/1/256: J=128, nthreads=256, padding=0
+                                      by arch: sm_75 630168, sm_86 630168, sm_89 630168, sm_120 630168, gfx1151 2197152
+  #29953 (the launched tile)         SHORT in 4717824 shapes, worst 127 int32 entries past the allocation
+                                      worst case: sm_75, q4_0, fallback=0, 113/1/256: J=128, nthreads=256, padding=0
+                                      by arch: sm_75 630168, sm_86 630168, sm_89 630168, sm_120 630168, gfx1151 2197152
+  #27044 (ne12*n_expert_used)        SHORT in 4717824 shapes, worst 127 int32 entries past the allocation
+                                      worst case: sm_75, q4_0, fallback=0, 113/1/256: J=128, nthreads=256, padding=0
+                                      by arch: sm_75 630168, sm_86 630168, sm_89 630168, sm_120 630168, gfx1151 2197152
+  #448 (widest tile)                 covered
+  #448 amended (widest padded tile)  covered
+dense branch: 101600 shapes (same archs, types and fallbacks x every MMQ batch up to 1024 columns)
+  #24127 (ne11)                      SHORT in 705 shapes, worst 9 blocks past the allocation
+                                      worst case: gfx1151, q4_0, fallback=0, 9/0/0: J=16, nthreads=128, padding=0
+                                      by arch: sm_75 130, sm_86 130, sm_89 130, sm_120 130, gfx1151 185
+  #29953 (the launched tile)         SHORT in 90 shapes, worst 5 blocks past the allocation
+                                      worst case: sm_75, q2_K, fallback=0, 321/0/0: J=80, nthreads=256, padding=80
+                                      by arch: sm_75 45, sm_86 0, sm_89 0, sm_120 0, gfx1151 45
+  #448 (widest tile)                 SHORT in 45 shapes, worst 5 blocks past the allocation
+                                      worst case: gfx1151, q2_K, fallback=0, 321/0/0: J=80, nthreads=256, padding=80
+                                      by arch: sm_75 0, sm_86 0, sm_89 0, sm_120 0, gfx1151 45
+  #448 amended (widest padded tile)  covered
