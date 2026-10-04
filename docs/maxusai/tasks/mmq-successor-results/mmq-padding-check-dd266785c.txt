@@ -1,0 +1,30 @@
+ids branch: 4717824 shapes (sm_75/86/89/120 and gfx1151 x 10 types x fallback 0/1 x every MMQ batch up to 1024 tokens
+            x n_expert_used 1..16 x broadcast 0/1; on gfx1151 also x 8/32/128/256 experts)
+ src1_q8_1, one expert per token (n_expert_used = 1):
+  #24127 (ne11)                                SHORT in 162688 shapes, worst 127 blocks past the allocation (sm_75, q4_0, fallback=0, 113/1/256: J=128, padding=0)
+                                                by arch: sm_75 20328, sm_86 20328, sm_89 20328, sm_120 20328, gfx1151 81376
+  master = #29941 (ne12)                       SHORT in 9604 shapes, worst 63 blocks past the allocation (sm_75, q4_0, fallback=1, 65/1/256: J=128, padding=64)
+                                                by arch: sm_75 2156, sm_86 2264, sm_89 2264, sm_120 2264, gfx1151 656
+  #27044 (ne12*n_expert_used)                  SHORT in 9604 shapes, worst 63 blocks past the allocation (sm_75, q4_0, fallback=1, 65/1/256: J=128, padding=64)
+                                                by arch: sm_75 2156, sm_86 2264, sm_89 2264, sm_120 2264, gfx1151 656
+  successor (widest tile)                      covered
+ src1_q8_1, two or more experts per token:
+  #24127 (ne11)                                SHORT in 4546296 shapes, worst 127 blocks past the allocation (sm_75, q4_0, fallback=0, 113/2/256: J=128, padding=0)
+                                                by arch: sm_75 609608, sm_86 609608, sm_89 609608, sm_120 609608, gfx1151 2107864
+  master = #29941 (ne12)                       SHORT in 294826 shapes, worst 63 blocks past the allocation (sm_75, q4_0, fallback=1, 65/2/256: J=128, padding=64)
+                                                by arch: sm_75 64680, sm_86 67920, sm_89 67920, sm_120 67920, gfx1151 26386
+  #27044 (ne12*n_expert_used)                  SHORT in 192 shapes, worst 15 blocks past the allocation (gfx1151, q4_K, fallback=0, 5/2/8: J=16, padding=0)
+                                                by arch: sm_75 0, sm_86 0, sm_89 0, sm_120 0, gfx1151 192
+  successor (widest tile)                      covered
+ ids_dst, any n_expert_used:
+  #24127 (ne11)                                SHORT in 4717824 shapes, worst 127 int32 entries past the allocation (sm_75, q4_0, fallback=0, 113/1/256: J=128, padding=0)
+                                                by arch: sm_75 630168, sm_86 630168, sm_89 630168, sm_120 630168, gfx1151 2197152
+  master = #29941 (ne12)                       SHORT in 4717824 shapes, worst 127 int32 entries past the allocation (sm_75, q4_0, fallback=0, 113/1/256: J=128, padding=0)
+                                                by arch: sm_75 630168, sm_86 630168, sm_89 630168, sm_120 630168, gfx1151 2197152
+  #27044 (ne12*n_expert_used)                  SHORT in 4717824 shapes, worst 127 int32 entries past the allocation (sm_75, q4_0, fallback=0, 113/1/256: J=128, padding=0)
+                                                by arch: sm_75 630168, sm_86 630168, sm_89 630168, sm_120 630168, gfx1151 2197152
+  successor (widest tile)                      covered
+dense branch: 101600 shapes (same archs, types and fallbacks x every MMQ batch up to 1024 columns)
+  master (ne11)                                SHORT in 140 shapes, worst 7 blocks past the allocation (gfx1151, q4_0, fallback=0, 9/0/0: J=16, padding=0)
+                                                by arch: sm_75 0, sm_86 0, sm_89 0, sm_120 0, gfx1151 140
+  widest tile                                  covered
