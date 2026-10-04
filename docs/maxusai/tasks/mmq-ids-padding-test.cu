@@ -16,9 +16,9 @@
 //   nvcc -std=c++17 -I. -Iggml/include -Iggml/src -Iggml/src/ggml-cuda mmq-ids-padding-test.cu -o t && ./t
 // The exit code is non-zero only if #27044's rule leaves a shape short.
 //
-// On llama.cpp master 05043961 (2026-10-04), it checked 2,438,400 shapes in 88 s:
-//   master (ne11)                  FAIL: padding < J-1 in 2437760 shapes; worst 127 blocks short
-//   #29941 (ne12)                  FAIL: padding < J-1 in 267960 shapes; worst 63 blocks short
+// On llama.cpp master 05043961 (2026-10-04), it checked 2,439,360 shapes in 68 s:
+//   master (ne11)                  FAIL: padding < J-1 in 2438432 shapes; worst 127 blocks short
+//   #29941 (ne12)                  FAIL: padding < J-1 in 268440 shapes; worst 63 blocks short
 //                                  (sm_75, q4_0, fallback=1, ne12=65, n_expert_used=2: J=128, padding=64)
 //   #27044 (ne12*n_expert_used)    pass
 #include "ggml/src/ggml-cuda/mmq.cuh"
@@ -30,6 +30,16 @@
 void ggml_cuda_error(const char *, const char *, const char *, int, const char *) { abort(); }
 int ggml_cuda_get_device() { return 0; }  // never reached: nothing below queries a device
 extern "C" void ggml_abort(const char *, int, const char *, ...) { abort(); }
+
+// The largest MUL_MAT_ID batch that MMVQ takes on Turing and newer (mmvq.cu, get_mmvq_mmid_max_batch_turing_plus);
+// a larger batch goes to MMQ. Replicated here because mmvq.cu defines it outside its header.
+static int mmvq_mmid_max_turing_plus(ggml_type t) {
+    switch (t) {
+        case GGML_TYPE_Q2_K: return 7;
+        case GGML_TYPE_Q3_K: return 5;
+        default:             return MMVQ_MAX_BATCH_SIZE;
+    }
+}
 
 // mul_mat_q_switch_J's choice, for NVIDIA (ncols_opt = ne12). Returns the launched tile width, 0 if none.
 static int launched_J(ggml_type t, bool fb, int cc, size_t smpbo, int64_t ncols_opt) {
@@ -60,7 +70,7 @@ int main() {
     const char * ex_arch[3] = {"", "", ""}; int ex_t[3] = {}; int ex_fb[3] = {}, ex_ne12[3] = {}, ex_u[3] = {}, ex_J[3] = {}, ex_pad[3] = {};
 
     for (const arch & a : archs) for (int ti = 0; ti < 10; ++ti) for (int fb = 0; fb < 2; ++fb)
-    for (int64_t ne12 = MMVQ_MAX_BATCH_SIZE + 1; ne12 <= 1024; ++ne12) {   // ne12 <= 8 goes to MMVQ, not MMQ
+    for (int64_t ne12 = mmvq_mmid_max_turing_plus(types[ti]) + 1; ne12 <= 1024; ++ne12) {   // smaller batches go to MMVQ
         const ggml_type t = types[ti];
         const int J = launched_J(t, fb, a.cc, a.smpbo, ne12);
         if (J == 0) continue;
@@ -78,7 +88,7 @@ int main() {
             }
         }
     }
-    printf("checked %ld shapes: 4 archs x 10 types x fallback 0/1 x ne12 9..1024 x n_expert_used 2..16 x broadcast 0/1\n", checked);
+    printf("checked %ld shapes: 4 archs x 10 types x fallback 0/1 x every MMQ batch up to 1024 tokens x n_expert_used 2..16 x broadcast 0/1\n", checked);
     for (int r = 0; r < 3; ++r) {
         printf("%-30s %s", rule_name[r], short_n[r] ? "FAIL" : "pass");
         if (short_n[r]) printf(": padding < J-1 in %ld shapes; worst %d blocks short (%s, %s, fallback=%d, ne12=%d, n_expert_used=%d: J=%d, padding=%d)",

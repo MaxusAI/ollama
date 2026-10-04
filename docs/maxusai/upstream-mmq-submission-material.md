@@ -70,23 +70,28 @@ Facts for the maintainer's reply. As above, the reply itself must be written by 
   `mul_mat_q_switch_J` picks the tile width `J` against `ncols_opt`. That is `ne12` on NVIDIA.
   On RDNA3 and RDNA4, gfx1151 included, it is the average number of tokens per expert,
   `⌈ne12·n_expert_used/ne02⌉`, which is never larger. So `ne12` bounds the launched `J`.
-- **At 512 tokens or more, both lines give the same padding.** `ggml_cuda_mmq_get_J_max` caps its
-  argument at 512. Every crash reported on #27044 used a batch of 1024 to 2178 tokens, and ours
-  used 2040. So #29941 fixes all of them by arithmetic.
-- **Below 512 tokens, #29941 pads less, and it can pad too little.**
+- **From 128 tokens up, both lines give the same padding on NVIDIA.** `ggml_cuda_mmq_get_J_max` caps
+  its argument at 512, but no tile wider than 128 has a config, so both lines pad 128 blocks
+  (corrected 2026-10-04 from "512 tokens": see "Results on sm_120"). Every crash reported on #27044
+  used a batch of 1024 to 2178 tokens, and ours used 2040. So #29941 fixes all of them by arithmetic.
+- **Below 128 tokens, #29941 pads less, and it can pad too little.**
   - `ggml_cuda_mmq_get_J_max` rounds its argument down to a multiple of 8.
   - `mul_mat_q_switch_J` picks the smallest `J` that covers `ncols_opt` in one tile, so it rounds
     up.
   - The src1 tile load, `for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; ...)`, has no bound.
 
-  With 100 tokens on NVIDIA, #29941 pads 96 rows, but the launch can choose `J = 104`. The last
-  tile can then read up to 7 rows past the padding. `ne12*n_expert_used` covers this whenever a
-  token uses two or more experts.
+  With 100 tokens on sm_120, #29941 pads 96 blocks. No config exists at `J = 104`, so the launch
+  takes `J = 112`. The last tile can then read up to 15 blocks past the padding; that was measured
+  ("Results on sm_120"). `ne12*n_expert_used` covers this whenever a token uses two or more experts.
 - **Neither line closes the two gaps** that the sanitizer report on #27044 (2026-09-02) found:
   - fewer than 8 rows gets no padding, while a `J = 8` kernel loads 8;
   - `ids_dst` is read past its end by up to `(J-1)*4` bytes.
 
   Padding by the `J` that is actually launched closes all three gaps.
+
+  On Turing and newer, MMQ takes only `MUL_MAT_ID` batches above MMVQ's limit: 8 tokens for most
+  types, 7 for q2_K, 5 for q3_K (`get_mmvq_mmid_max_batch_turing_plus`). So with two or more experts
+  per token, the MMQ path always has at least 12 rows, and the first gap needs one expert per token.
 
 **What this means for the fork.** Compat `903` carries our line, and every production build
 applies it, gfx1151's included. gfx1151 reaches this branch:
@@ -169,9 +174,11 @@ for `b=1`.
 
 **A GPU-free check.** [`tasks/mmq-ids-padding-test.cu`](tasks/mmq-ids-padding-test.cu) replays the padding rule
 against upstream's own config functions.
-- **What it covers:** 2,438,400 shapes, from 4 architectures, 10 types, both fallback modes, 9 to 1,024 tokens, 2 to
-  16 experts used, broadcast or not.
-- **What it finds:** #29941 leaves 267,960 of them short, by up to 63 blocks, all below 128 tokens. #27044 leaves none.
+- **What it covers:** 2,439,360 shapes, from 4 architectures, 10 types, both fallback modes, every batch that takes
+  MMQ up to 1,024 tokens, 2 to 16 experts used, broadcast or not.
+- **What it finds:** #29941 leaves 268,440 of them short, by up to 63 blocks, all below 128 tokens. #27044 leaves none.
+- **A correction:** its first version assumed MMVQ takes every batch up to 8 tokens. It does not for q2_K (7) or
+  q3_K (5), so it missed 960 shapes. The corrected run, with the same conclusion, is the one above.
 - **Its limit:** it replicates `mul_mat_q_switch_J`'s selection loop, so it holds only as long as upstream keeps that
   loop.
 
