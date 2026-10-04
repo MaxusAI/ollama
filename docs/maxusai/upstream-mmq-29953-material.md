@@ -171,14 +171,21 @@ Run it three ways. The results below are from this host; the full matrix is unde
 `#27044` passes `guard:src1` here only because `get_J_max(ne12*n_expert_used) = get_J_max(256) = 128`, far more
 than the 21 blocks this shape needs; it is short elsewhere (see the CPU check).
 
-**Why this shape and not a wider one.** `need` is the worst case over all routings. What a given case actually
-reads past the data is `ceil(T/B) - r` blocks, where `r` is the last non-empty expert's row count: the worst case
-needs `r = 1`. With 256 experts and `ne12*n_expert_used = 256` rows, the mean is one row per expert and `r` is
-small, so `ids16` realises it. The wider cases in the patch (`ids64`, `j100_b0`, `t100`, all `J = 112`,
-`need = 113`) have `r` around 25, so they read only about 89 blocks past and #29941's 96 blocks still covers
-them -- `ids64` passes `guard:src1` under every rule but `ne11`. Their `J = 112` is still evidence for the
-arithmetic, via the CPU check, but not a fault. An over-read is a function of the routing as well as the shape,
-which is the third reason this bug is hard to hit on purpose, after the pool and the fixup buffer.
+**Why this shape.** `need` is the worst case over all routings. What a given case actually reads past the data
+is `ceil(T/B) - r` blocks, where `r` is the last non-empty expert's row count, so the worst case needs `r = 1`.
+Whether a case can realise it is set by the mean rows per expert, `ne12*n_expert_used / ne02`:
+
+| case | rows | experts | mean rows/expert | `J` | realises the worst case? |
+|---|---|---|---|---|---|
+| `ids16` | 256 | 256 | 1.0 | 16 | yes, every run |
+| `j100_b0`, `j100_b1` | 1,000 | 512 | 2.0 | 112 | sometimes |
+| `t100` | 800 | 256 | 3.1 | 112 | sometimes |
+| `ids64` | 6,400 | 256 | 25.0 | 112 | no: reads about 89 blocks past, which `ne12`'s 96 covers |
+
+So `ids16` is the case to hand over: one row per expert, every run, and a 5-block shortfall against #29953 rather
+than one. `ids64` is the control that shows the routing matters -- it passes `guard:src1` under every rule but
+`ne11`. An over-read is a function of the routing as well as the shape, which is the third reason this bug is
+hard to hit on purpose, after the pool and the fixup buffer.
 
 ## The amendment
 
@@ -227,9 +234,38 @@ tested change.
 
 ## Results
 
-_Pending: [tasks/mmq-rules-gpu.sh](tasks/mmq-rules-gpu.sh)'s matrix (7 rules x 12 cases x 4 modes, sm_120,
-CUDA 12.8) is in progress; [tasks/mmq-rules-table.py](tasks/mmq-rules-table.py) renders it into
-`tasks/mmq-successor-results/matrix.md` and that table replaces this paragraph._
+Seven padding rules x twelve cases x four modes on one RTX PRO 6000 Blackwell (sm_120, CUDA 12.8 throughout),
+one process per run, from [tasks/mmq-rules-gpu.sh](tasks/mmq-rules-gpu.sh). Full table rendered by
+[tasks/mmq-rules-table.py](tasks/mmq-rules-table.py): [tasks/mmq-successor-results/matrix.md](tasks/mmq-successor-results/matrix.md),
+raw rows in [results.tsv](tasks/mmq-successor-results/results.tsv).
+
+**`ids_dst`, guarded, all twelve cases.** `ne11`, `ne12`, #29953 and #27044 abort in every case; the three rules
+that pad `ids_dst` pass every case. This is not a corner: it is every MoE shape tested.
+
+**Exact-size allocations under memcheck, all twelve cases.** All four published rules report errors, from 43
+(`orig2040`) to 11,939 (`one113`, #29953); the three amended rules report 0 in all twelve.
+
+**src1, guarded.** Here the rules separate, and the routing matters:
+
+| case | `ne11` | `ne12` | #29953 | #27044 | the three amended |
+|---|---|---|---|---|---|
+| `ids16` | abort | abort | **abort 2/2** | pass | pass |
+| `j100_b1` | abort | abort | **abort 1/2** | pass | pass |
+| `one113` | abort | abort | pass | **abort 2/2** | pass |
+| `j100_b0`, `e120_b0/b1`, `fb65`, `t100` | abort | abort | pass | pass | pass |
+| `p29847_b0/b1`, `orig2040`, `ids64` | abort | pass | pass | pass | pass |
+
+`j100_b1` is #29953's one-block shortfall at `J = 112` (`need` 113 against its 112), which is marginal against
+the guard's at most 127 bytes of alignment slack and needs `r = 1`; **1 of 2 is not a result**, so it is being
+repeated with the amended rule as a control in the same harness, and the rate goes here when it is in. `ids16` is
+the case that does not depend on luck.
+
+**Stock, no sanitizer, no debug allocator.** `ne11` aborts on four cases and `ne12` on `e120_b0` and `e120_b1`;
+everything else passes under every rule. That is the pool doing what it always does, and the reason a user hits
+this as an intermittent crash rather than a test failure.
+
+Two addenda were still running when this was written: the combined `guard` mode (both buffers at once) for five
+cases, and the `j100_b1` repeats. Both only add rows; no cell above changes.
 
 ## Reproduce
 

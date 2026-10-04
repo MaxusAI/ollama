@@ -1,0 +1,610 @@
+case	variant	mode	rep	passed	illegal_access	memcheck_errors
+ids16	ne12	guard_src1	1	0	1	
+p29847_b0	ne12	stock	1	1	0	
+p29847_b0	ne12	stock	2	1	0	
+p29847_b0	ne12	stock	3	1	0	
+p29847_b0	ne12	guard	1	0	1	
+p29847_b0	ne12	guard	2	0	1	
+p29847_b0	ne12	guard	3	0	1	
+p29847_b0	ne12	guard_ids_dst	1	0	1	
+p29847_b0	ne12	guard_ids_dst	2	0	1	
+p29847_b0	ne12	guard_ids_dst	3	0	1	
+p29847_b0	ne12	guard_src1	1	1	0	
+p29847_b0	ne12	guard_src1	2	1	0	
+p29847_b0	ne12	guard_src1	3	1	0	
+p29847_b0	ne12	memcheck	1	1	0	0
+p29847_b0	ne12	exact	1	0	0	776
+p29847_b1	ne12	stock	1	1	0	
+p29847_b1	ne12	stock	2	1	0	
+p29847_b1	ne12	stock	3	1	0	
+p29847_b1	ne12	guard	1	0	1	
+p29847_b1	ne12	guard	2	0	1	
+p29847_b1	ne12	guard	3	0	1	
+p29847_b1	ne12	guard_ids_dst	1	0	1	
+p29847_b1	ne12	guard_ids_dst	2	0	1	
+p29847_b1	ne12	guard_ids_dst	3	0	1	
+p29847_b1	ne12	guard_src1	1	1	0	
+p29847_b1	ne12	guard_src1	2	1	0	
+p29847_b1	ne12	guard_src1	3	1	0	
+p29847_b1	ne12	memcheck	1	1	0	0
+p29847_b1	ne12	exact	1	0	0	838
+j100_b0	ne12	stock	1	1	0	
+j100_b0	ne12	stock	2	1	0	
+j100_b0	ne12	stock	3	1	0	
+j100_b0	ne12	guard	1	0	1	
+j100_b0	ne12	guard	2	0	1	
+j100_b0	ne12	guard	3	0	1	
+j100_b0	ne12	guard_ids_dst	1	0	1	
+j100_b0	ne12	guard_ids_dst	2	0	1	
+j100_b0	ne12	guard_ids_dst	3	0	1	
+j100_b0	ne12	guard_src1	1	0	1	
+j100_b0	ne12	guard_src1	2	0	1	
+j100_b0	ne12	guard_src1	3	0	1	
+j100_b0	ne12	memcheck	1	1	0	0
+ids16	ne11	stock	1	1	0	
+ids16	ne11	stock	2	1	0	
+ids16	ne11	guard_ids_dst	1	0	1	
+ids16	ne11	guard_ids_dst	2	0	1	
+ids16	ne11	guard_src1	1	0	1	
+ids16	ne11	guard_src1	2	0	1	
+ids16	ne11	exact	1	0	0	142
+ids16	ne12	stock	1	1	0	
+ids16	ne12	stock	2	1	0	
+ids16	ne12	guard_ids_dst	1	0	1	
+ids16	ne12	guard_ids_dst	2	0	1	
+ids16	ne12	guard_src1	2	0	1	
+ids16	ne12	exact	1	0	0	334
+ids16	p27044	stock	1	1	0	
+ids16	p27044	stock	2	1	0	
+ids16	p27044	guard_ids_dst	1	0	1	
+ids16	p27044	guard_ids_dst	2	0	1	
+ids16	p27044	guard_src1	1	1	0	
+ids16	p27044	guard_src1	2	1	0	
+ids16	p27044	exact	1	1	0	0
+ids16	successor	stock	1	1	0	
+ids16	successor	stock	2	1	0	
+ids16	successor	guard_ids_dst	1	1	0	
+ids16	successor	guard_ids_dst	2	1	0	
+ids16	successor	guard_src1	1	1	0	
+ids16	successor	guard_src1	2	1	0	
+ids16	successor	exact	1	1	0	0
+ids16	s448p	stock	1	1	0	
+ids16	s448p	stock	2	1	0	
+ids16	s448p	guard_ids_dst	1	1	0	
+ids16	s448p	guard_ids_dst	2	1	0	
+ids16	s448p	guard_src1	1	1	0	
+ids16	s448p	guard_src1	2	1	0	
+ids16	s448p	exact	1	1	0	0
+ids16	p29953	stock	1	1	0	
+ids16	p29953	stock	2	1	0	
+ids16	p29953	guard_ids_dst	1	0	1	
+ids16	p29953	guard_ids_dst	2	0	1	
+ids16	p29953	guard_src1	1	0	1	
+ids16	p29953	guard_src1	2	0	1	
+ids16	p29953	exact	1	0	0	214
+ids16	p29953fix	stock	1	1	0	
+ids16	p29953fix	stock	2	1	0	
+ids16	p29953fix	guard_ids_dst	1	1	0	
+ids16	p29953fix	guard_ids_dst	2	1	0	
+ids16	p29953fix	guard_src1	1	1	0	
+ids16	p29953fix	guard_src1	2	1	0	
+ids16	p29953fix	exact	1	1	0	0
+ids64	ne11	stock	1	1	0	
+ids64	ne11	stock	2	1	0	
+ids64	ne11	guard_ids_dst	1	0	1	
+ids64	ne11	guard_ids_dst	2	0	1	
+ids64	ne11	guard_src1	1	0	1	
+ids64	ne11	guard_src1	2	0	1	
+ids64	ne11	exact	1	0	0	245
+ids64	ne12	stock	1	1	0	
+ids64	ne12	stock	2	1	0	
+ids64	ne12	guard_ids_dst	1	0	1	
+ids64	ne12	guard_ids_dst	2	0	1	
+ids64	ne12	guard_src1	1	1	0	
+ids64	ne12	guard_src1	2	1	0	
+ids64	ne12	exact	1	0	0	140
+ids64	p27044	stock	1	1	0	
+ids64	p27044	stock	2	1	0	
+ids64	p27044	guard_ids_dst	1	0	1	
+ids64	p27044	guard_ids_dst	2	0	1	
+ids64	p27044	guard_src1	1	1	0	
+ids64	p27044	guard_src1	2	1	0	
+ids64	p27044	exact	1	0	0	170
+ids64	successor	stock	1	1	0	
+ids64	successor	stock	2	1	0	
+ids64	successor	guard_ids_dst	1	1	0	
+ids64	successor	guard_ids_dst	2	1	0	
+ids64	successor	guard_src1	1	1	0	
+ids64	successor	guard_src1	2	1	0	
+ids64	successor	exact	1	1	0	0
+ids64	s448p	stock	1	1	0	
+ids64	s448p	stock	2	1	0	
+ids64	s448p	guard_ids_dst	1	1	0	
+ids64	s448p	guard_ids_dst	2	1	0	
+ids64	s448p	guard_src1	1	1	0	
+ids64	s448p	guard_src1	2	1	0	
+ids64	s448p	exact	1	1	0	0
+ids64	p29953	stock	1	1	0	
+ids64	p29953	stock	2	1	0	
+ids64	p29953	guard_ids_dst	1	0	1	
+ids64	p29953	guard_ids_dst	2	0	1	
+ids64	p29953	guard_src1	1	1	0	
+ids64	p29953	guard_src1	2	1	0	
+ids64	p29953	exact	1	0	0	166
+ids64	p29953fix	stock	1	1	0	
+ids64	p29953fix	stock	2	1	0	
+ids64	p29953fix	guard_ids_dst	1	1	0	
+ids64	p29953fix	guard_ids_dst	2	1	0	
+ids64	p29953fix	guard_src1	1	1	0	
+ids64	p29953fix	guard_src1	2	1	0	
+ids64	p29953fix	exact	1	1	0	0
+e120_b1	ne11	stock	1	0	1	
+e120_b1	ne11	stock	2	0	1	
+e120_b1	ne11	guard_ids_dst	1	0	1	
+e120_b1	ne11	guard_ids_dst	2	0	1	
+e120_b1	ne11	guard_src1	1	0	1	
+e120_b1	ne11	guard_src1	2	0	1	
+e120_b1	ne11	exact	1	0	0	1332
+e120_b1	ne12	stock	1	0	1	
+e120_b1	ne12	stock	2	0	1	
+e120_b1	ne12	guard_ids_dst	1	0	1	
+e120_b1	ne12	guard_ids_dst	2	0	1	
+e120_b1	ne12	guard_src1	1	0	1	
+e120_b1	ne12	guard_src1	2	0	1	
+e120_b1	ne12	exact	1	0	0	1428
+e120_b1	p27044	stock	1	1	0	
+e120_b1	p27044	stock	2	1	0	
+e120_b1	p27044	guard_ids_dst	1	0	1	
+e120_b1	p27044	guard_ids_dst	2	0	1	
+e120_b1	p27044	guard_src1	1	1	0	
+e120_b1	p27044	guard_src1	2	1	0	
+e120_b1	p27044	exact	1	0	0	1537
+e120_b1	successor	stock	1	1	0	
+e120_b1	successor	stock	2	1	0	
+e120_b1	successor	guard_ids_dst	1	1	0	
+e120_b1	successor	guard_ids_dst	2	1	0	
+e120_b1	successor	guard_src1	1	1	0	
+e120_b1	successor	guard_src1	2	1	0	
+e120_b1	successor	exact	1	1	0	0
+e120_b1	s448p	stock	1	1	0	
+e120_b1	s448p	stock	2	1	0	
+e120_b1	s448p	guard_ids_dst	1	1	0	
+e120_b1	s448p	guard_ids_dst	2	1	0	
+e120_b1	s448p	guard_src1	1	1	0	
+e120_b1	s448p	guard_src1	2	1	0	
+e120_b1	s448p	exact	1	1	0	0
+e120_b1	p29953	stock	1	1	0	
+e120_b1	p29953	stock	2	1	0	
+e120_b1	p29953	guard_ids_dst	1	0	1	
+e120_b1	p29953	guard_ids_dst	2	0	1	
+e120_b1	p29953	guard_src1	1	1	0	
+e120_b1	p29953	guard_src1	2	1	0	
+e120_b1	p29953	exact	1	0	0	1470
+e120_b1	p29953fix	stock	1	1	0	
+e120_b1	p29953fix	stock	2	1	0	
+e120_b1	p29953fix	guard_ids_dst	1	1	0	
+e120_b1	p29953fix	guard_ids_dst	2	1	0	
+e120_b1	p29953fix	guard_src1	1	1	0	
+e120_b1	p29953fix	guard_src1	2	1	0	
+e120_b1	p29953fix	exact	1	1	0	0
+j100_b0	ne11	stock	1	1	0	
+j100_b0	ne11	stock	2	1	0	
+j100_b0	ne11	guard_ids_dst	1	0	1	
+j100_b0	ne11	guard_ids_dst	2	0	1	
+j100_b0	ne11	guard_src1	1	0	1	
+j100_b0	ne11	guard_src1	2	0	1	
+j100_b0	ne11	exact	1	0	0	2489
+j100_b0	ne12	exact	1	0	0	2214
+j100_b0	p27044	stock	1	1	0	
+j100_b0	p27044	stock	2	1	0	
+j100_b0	p27044	guard_ids_dst	1	0	1	
+j100_b0	p27044	guard_ids_dst	2	0	1	
+j100_b0	p27044	guard_src1	1	1	0	
+j100_b0	p27044	guard_src1	2	1	0	
+j100_b0	p27044	exact	1	0	0	1031
+j100_b0	successor	stock	1	1	0	
+j100_b0	successor	stock	2	1	0	
+j100_b0	successor	guard_ids_dst	1	1	0	
+j100_b0	successor	guard_ids_dst	2	1	0	
+j100_b0	successor	guard_src1	1	1	0	
+j100_b0	successor	guard_src1	2	1	0	
+j100_b0	successor	exact	1	1	0	0
+j100_b0	s448p	stock	1	1	0	
+j100_b0	s448p	stock	2	1	0	
+j100_b0	s448p	guard_ids_dst	1	1	0	
+j100_b0	s448p	guard_ids_dst	2	1	0	
+j100_b0	s448p	guard_src1	1	1	0	
+j100_b0	s448p	guard_src1	2	1	0	
+j100_b0	s448p	exact	1	1	0	0
+j100_b0	p29953	stock	1	1	0	
+j100_b0	p29953	stock	2	1	0	
+j100_b0	p29953	guard_ids_dst	1	0	1	
+j100_b0	p29953	guard_ids_dst	2	0	1	
+j100_b0	p29953	guard_src1	1	1	0	
+j100_b0	p29953	guard_src1	2	1	0	
+j100_b0	p29953	exact	1	0	0	1021
+j100_b0	p29953fix	stock	1	1	0	
+j100_b0	p29953fix	stock	2	1	0	
+j100_b0	p29953fix	guard_ids_dst	1	1	0	
+j100_b0	p29953fix	guard_ids_dst	2	1	0	
+j100_b0	p29953fix	guard_src1	1	1	0	
+j100_b0	p29953fix	guard_src1	2	1	0	
+j100_b0	p29953fix	exact	1	1	0	0
+p29847_b1	ne11	stock	1	0	1	
+p29847_b1	ne11	stock	2	0	1	
+p29847_b1	ne11	guard_ids_dst	1	0	1	
+p29847_b1	ne11	guard_ids_dst	2	0	1	
+p29847_b1	ne11	guard_src1	1	0	1	
+p29847_b1	ne11	guard_src1	2	0	1	
+p29847_b1	ne11	exact	1	0	0	934
+p29847_b1	p27044	stock	1	1	0	
+p29847_b1	p27044	stock	2	1	0	
+p29847_b1	p27044	guard_ids_dst	1	0	1	
+p29847_b1	p27044	guard_ids_dst	2	0	1	
+p29847_b1	p27044	guard_src1	1	1	0	
+p29847_b1	p27044	guard_src1	2	1	0	
+p29847_b1	p27044	exact	1	0	0	763
+p29847_b1	successor	stock	1	1	0	
+p29847_b1	successor	stock	2	1	0	
+p29847_b1	successor	guard_ids_dst	1	1	0	
+p29847_b1	successor	guard_ids_dst	2	1	0	
+p29847_b1	successor	guard_src1	1	1	0	
+p29847_b1	successor	guard_src1	2	1	0	
+p29847_b1	successor	exact	1	1	0	0
+p29847_b1	s448p	stock	1	1	0	
+p29847_b1	s448p	stock	2	1	0	
+p29847_b1	s448p	guard_ids_dst	1	1	0	
+p29847_b1	s448p	guard_ids_dst	2	1	0	
+p29847_b1	s448p	guard_src1	1	1	0	
+p29847_b1	s448p	guard_src1	2	1	0	
+p29847_b1	s448p	exact	1	1	0	0
+p29847_b1	p29953	stock	1	1	0	
+p29847_b1	p29953	stock	2	1	0	
+p29847_b1	p29953	guard_ids_dst	1	0	1	
+p29847_b1	p29953	guard_ids_dst	2	0	1	
+p29847_b1	p29953	guard_src1	1	1	0	
+p29847_b1	p29953	guard_src1	2	1	0	
+p29847_b1	p29953	exact	1	0	0	831
+p29847_b1	p29953fix	stock	1	1	0	
+p29847_b1	p29953fix	stock	2	1	0	
+p29847_b1	p29953fix	guard_ids_dst	1	1	0	
+p29847_b1	p29953fix	guard_ids_dst	2	1	0	
+p29847_b1	p29953fix	guard_src1	1	1	0	
+p29847_b1	p29953fix	guard_src1	2	1	0	
+p29847_b1	p29953fix	exact	1	1	0	0
+one113	ne11	stock	1	1	0	
+one113	ne11	stock	2	1	0	
+one113	ne11	guard_ids_dst	1	0	1	
+one113	ne11	guard_ids_dst	2	0	1	
+one113	ne11	guard_src1	1	0	1	
+one113	ne11	guard_src1	2	0	1	
+one113	ne11	exact	1	0	0	2594
+one113	ne12	stock	1	1	0	
+one113	ne12	stock	2	1	0	
+one113	ne12	guard_ids_dst	1	0	1	
+one113	ne12	guard_ids_dst	2	0	1	
+one113	ne12	guard_src1	1	0	1	
+one113	ne12	guard_src1	2	0	1	
+one113	ne12	exact	1	0	0	2594
+one113	p27044	stock	1	1	0	
+one113	p27044	stock	2	1	0	
+one113	p27044	guard_ids_dst	1	0	1	
+one113	p27044	guard_ids_dst	2	0	1	
+one113	p27044	guard_src1	1	0	1	
+one113	p27044	guard_src1	2	0	1	
+one113	p27044	exact	1	0	0	2639
+one113	successor	stock	1	1	0	
+one113	successor	stock	2	1	0	
+one113	successor	guard_ids_dst	1	1	0	
+one113	successor	guard_ids_dst	2	1	0	
+one113	successor	guard_src1	1	1	0	
+one113	successor	guard_src1	2	1	0	
+one113	successor	exact	1	1	0	0
+one113	s448p	stock	1	1	0	
+one113	s448p	stock	2	1	0	
+one113	s448p	guard_ids_dst	1	1	0	
+one113	s448p	guard_ids_dst	2	1	0	
+one113	s448p	guard_src1	1	1	0	
+one113	s448p	guard_src1	2	1	0	
+one113	s448p	exact	1	1	0	0
+one113	p29953	stock	1	1	0	
+one113	p29953	stock	2	1	0	
+one113	p29953	guard_ids_dst	1	0	1	
+one113	p29953	guard_ids_dst	2	0	1	
+one113	p29953	guard_src1	1	1	0	
+one113	p29953	guard_src1	2	1	0	
+one113	p29953	exact	1	0	0	11939
+one113	p29953fix	stock	1	1	0	
+one113	p29953fix	stock	2	1	0	
+one113	p29953fix	guard_ids_dst	1	1	0	
+one113	p29953fix	guard_ids_dst	2	1	0	
+one113	p29953fix	guard_src1	1	1	0	
+one113	p29953fix	guard_src1	2	1	0	
+one113	p29953fix	exact	1	1	0	0
+fb65	ne11	stock	1	1	0	
+fb65	ne11	stock	2	1	0	
+fb65	ne11	guard_ids_dst	1	0	1	
+fb65	ne11	guard_ids_dst	2	0	1	
+fb65	ne11	guard_src1	1	0	1	
+fb65	ne11	guard_src1	2	0	1	
+fb65	ne11	exact	1	0	0	523
+fb65	ne12	stock	1	1	0	
+fb65	ne12	stock	2	1	0	
+fb65	ne12	guard_ids_dst	1	0	1	
+fb65	ne12	guard_ids_dst	2	0	1	
+fb65	ne12	guard_src1	1	0	1	
+fb65	ne12	guard_src1	2	0	1	
+fb65	ne12	exact	1	0	0	324
+fb65	p27044	stock	1	1	0	
+fb65	p27044	stock	2	1	0	
+fb65	p27044	guard_ids_dst	1	0	1	
+fb65	p27044	guard_ids_dst	2	0	1	
+fb65	p27044	guard_src1	1	1	0	
+fb65	p27044	guard_src1	2	1	0	
+fb65	p27044	exact	1	0	0	430
+fb65	successor	stock	1	1	0	
+fb65	successor	stock	2	1	0	
+fb65	successor	guard_ids_dst	1	1	0	
+fb65	successor	guard_ids_dst	2	1	0	
+fb65	successor	guard_src1	1	1	0	
+fb65	successor	guard_src1	2	1	0	
+fb65	successor	exact	1	1	0	0
+fb65	s448p	stock	1	1	0	
+fb65	s448p	stock	2	1	0	
+fb65	s448p	guard_ids_dst	1	1	0	
+fb65	s448p	guard_ids_dst	2	1	0	
+fb65	s448p	guard_src1	1	1	0	
+fb65	s448p	guard_src1	2	1	0	
+fb65	s448p	exact	1	1	0	0
+fb65	p29953	stock	1	1	0	
+fb65	p29953	stock	2	1	0	
+fb65	p29953	guard_ids_dst	1	0	1	
+fb65	p29953	guard_ids_dst	2	0	1	
+fb65	p29953	guard_src1	1	1	0	
+fb65	p29953	guard_src1	2	1	0	
+fb65	p29953	exact	1	0	0	280
+fb65	p29953fix	stock	1	1	0	
+fb65	p29953fix	stock	2	1	0	
+fb65	p29953fix	guard_ids_dst	1	1	0	
+fb65	p29953fix	guard_ids_dst	2	1	0	
+fb65	p29953fix	guard_src1	1	1	0	
+fb65	p29953fix	guard_src1	2	1	0	
+fb65	p29953fix	exact	1	1	0	0
+orig2040	ne11	stock	1	1	0	
+orig2040	ne11	stock	2	1	0	
+orig2040	ne11	guard_ids_dst	1	0	1	
+orig2040	ne11	guard_ids_dst	2	0	1	
+orig2040	ne11	guard_src1	1	0	1	
+orig2040	ne11	guard_src1	2	0	1	
+orig2040	ne11	exact	1	0	0	46
+orig2040	ne12	stock	1	1	0	
+orig2040	ne12	stock	2	1	0	
+orig2040	ne12	guard_ids_dst	1	0	1	
+orig2040	ne12	guard_ids_dst	2	0	1	
+orig2040	ne12	guard_src1	1	1	0	
+orig2040	ne12	guard_src1	2	1	0	
+orig2040	ne12	exact	1	0	0	57
+orig2040	p27044	stock	1	1	0	
+orig2040	p27044	stock	2	1	0	
+orig2040	p27044	guard_ids_dst	1	0	1	
+orig2040	p27044	guard_ids_dst	2	0	1	
+orig2040	p27044	guard_src1	1	1	0	
+orig2040	p27044	guard_src1	2	1	0	
+orig2040	p27044	exact	1	0	0	58
+orig2040	successor	stock	1	1	0	
+orig2040	successor	stock	2	1	0	
+orig2040	successor	guard_ids_dst	1	1	0	
+orig2040	successor	guard_ids_dst	2	1	0	
+orig2040	successor	guard_src1	1	1	0	
+orig2040	successor	guard_src1	2	1	0	
+orig2040	successor	exact	1	1	0	0
+orig2040	s448p	stock	1	1	0	
+orig2040	s448p	stock	2	1	0	
+orig2040	s448p	guard_ids_dst	1	1	0	
+orig2040	s448p	guard_ids_dst	2	1	0	
+orig2040	s448p	guard_src1	1	1	0	
+orig2040	s448p	guard_src1	2	1	0	
+orig2040	s448p	exact	1	1	0	0
+orig2040	p29953	stock	1	1	0	
+orig2040	p29953	stock	2	1	0	
+orig2040	p29953	guard_ids_dst	1	0	1	
+orig2040	p29953	guard_ids_dst	2	0	1	
+orig2040	p29953	guard_src1	1	1	0	
+orig2040	p29953	guard_src1	2	1	0	
+orig2040	p29953	exact	1	0	0	43
+orig2040	p29953fix	stock	1	1	0	
+orig2040	p29953fix	stock	2	1	0	
+orig2040	p29953fix	guard_ids_dst	1	1	0	
+orig2040	p29953fix	guard_ids_dst	2	1	0	
+orig2040	p29953fix	guard_src1	1	1	0	
+orig2040	p29953fix	guard_src1	2	1	0	
+orig2040	p29953fix	exact	1	1	0	0
+e120_b0	ne11	stock	1	0	1	
+e120_b0	ne11	stock	2	0	1	
+e120_b0	ne11	guard_ids_dst	1	0	1	
+e120_b0	ne11	guard_ids_dst	2	0	1	
+e120_b0	ne11	guard_src1	1	0	1	
+e120_b0	ne11	guard_src1	2	0	1	
+e120_b0	ne11	exact	1	0	0	1592
+e120_b0	ne12	stock	1	0	1	
+e120_b0	ne12	stock	2	0	1	
+e120_b0	ne12	guard_ids_dst	1	0	1	
+e120_b0	ne12	guard_ids_dst	2	0	1	
+e120_b0	ne12	guard_src1	1	0	1	
+e120_b0	ne12	guard_src1	2	0	1	
+e120_b0	ne12	exact	1	0	0	1693
+e120_b0	p27044	stock	1	1	0	
+e120_b0	p27044	stock	2	1	0	
+e120_b0	p27044	guard_ids_dst	1	0	1	
+e120_b0	p27044	guard_ids_dst	2	0	1	
+e120_b0	p27044	guard_src1	1	1	0	
+e120_b0	p27044	guard_src1	2	1	0	
+e120_b0	p27044	exact	1	0	0	1367
+e120_b0	successor	stock	1	1	0	
+e120_b0	successor	stock	2	1	0	
+e120_b0	successor	guard_ids_dst	1	1	0	
+e120_b0	successor	guard_ids_dst	2	1	0	
+e120_b0	successor	guard_src1	1	1	0	
+e120_b0	successor	guard_src1	2	1	0	
+e120_b0	successor	exact	1	1	0	0
+e120_b0	s448p	stock	1	1	0	
+e120_b0	s448p	stock	2	1	0	
+e120_b0	s448p	guard_ids_dst	1	1	0	
+e120_b0	s448p	guard_ids_dst	2	1	0	
+e120_b0	s448p	guard_src1	1	1	0	
+e120_b0	s448p	guard_src1	2	1	0	
+e120_b0	s448p	exact	1	1	0	0
+e120_b0	p29953	stock	1	1	0	
+e120_b0	p29953	stock	2	1	0	
+e120_b0	p29953	guard_ids_dst	1	0	1	
+e120_b0	p29953	guard_ids_dst	2	0	1	
+e120_b0	p29953	guard_src1	1	1	0	
+e120_b0	p29953	guard_src1	2	1	0	
+e120_b0	p29953	exact	1	0	0	1434
+e120_b0	p29953fix	stock	1	1	0	
+e120_b0	p29953fix	stock	2	1	0	
+e120_b0	p29953fix	guard_ids_dst	1	1	0	
+e120_b0	p29953fix	guard_ids_dst	2	1	0	
+e120_b0	p29953fix	guard_src1	1	1	0	
+e120_b0	p29953fix	guard_src1	2	1	0	
+e120_b0	p29953fix	exact	1	1	0	0
+j100_b1	ne11	stock	1	1	0	
+j100_b1	ne11	stock	2	1	0	
+j100_b1	ne11	guard_ids_dst	1	0	1	
+j100_b1	ne11	guard_ids_dst	2	0	1	
+j100_b1	ne11	guard_src1	1	0	1	
+j100_b1	ne11	guard_src1	2	0	1	
+j100_b1	ne11	exact	1	0	0	3120
+j100_b1	ne12	stock	1	1	0	
+j100_b1	ne12	stock	2	1	0	
+j100_b1	ne12	guard_ids_dst	1	0	1	
+j100_b1	ne12	guard_ids_dst	2	0	1	
+j100_b1	ne12	guard_src1	1	0	1	
+j100_b1	ne12	guard_src1	2	0	1	
+j100_b1	ne12	exact	1	0	0	3058
+j100_b1	p27044	stock	1	1	0	
+j100_b1	p27044	stock	2	1	0	
+j100_b1	p27044	guard_ids_dst	1	0	1	
+j100_b1	p27044	guard_ids_dst	2	0	1	
+j100_b1	p27044	guard_src1	1	1	0	
+j100_b1	p27044	guard_src1	2	1	0	
+j100_b1	p27044	exact	1	0	0	2554
+j100_b1	successor	stock	1	1	0	
+j100_b1	successor	stock	2	1	0	
+j100_b1	successor	guard_ids_dst	1	1	0	
+j100_b1	successor	guard_ids_dst	2	1	0	
+j100_b1	successor	guard_src1	1	1	0	
+j100_b1	successor	guard_src1	2	1	0	
+j100_b1	successor	exact	1	1	0	0
+j100_b1	s448p	stock	1	1	0	
+j100_b1	s448p	stock	2	1	0	
+j100_b1	s448p	guard_ids_dst	1	1	0	
+j100_b1	s448p	guard_ids_dst	2	1	0	
+j100_b1	s448p	guard_src1	1	1	0	
+j100_b1	s448p	guard_src1	2	1	0	
+j100_b1	s448p	exact	1	1	0	0
+j100_b1	p29953	stock	1	1	0	
+j100_b1	p29953	stock	2	1	0	
+j100_b1	p29953	guard_ids_dst	1	0	1	
+j100_b1	p29953	guard_ids_dst	2	0	1	
+j100_b1	p29953	guard_src1	1	1	0	
+j100_b1	p29953	guard_src1	2	0	1	
+j100_b1	p29953	exact	1	0	0	2594
+j100_b1	p29953fix	stock	1	1	0	
+j100_b1	p29953fix	stock	2	1	0	
+j100_b1	p29953fix	guard_ids_dst	1	1	0	
+j100_b1	p29953fix	guard_ids_dst	2	1	0	
+j100_b1	p29953fix	guard_src1	1	1	0	
+j100_b1	p29953fix	guard_src1	2	1	0	
+j100_b1	p29953fix	exact	1	1	0	0
+p29847_b0	ne11	stock	1	0	1	
+p29847_b0	ne11	stock	2	0	1	
+p29847_b0	ne11	guard_ids_dst	1	0	1	
+p29847_b0	ne11	guard_ids_dst	2	0	1	
+p29847_b0	ne11	guard_src1	1	0	1	
+p29847_b0	ne11	guard_src1	2	0	1	
+p29847_b0	ne11	exact	1	0	0	838
+p29847_b0	p27044	stock	1	1	0	
+p29847_b0	p27044	stock	2	1	0	
+p29847_b0	p27044	guard_ids_dst	1	0	1	
+p29847_b0	p27044	guard_ids_dst	2	0	1	
+p29847_b0	p27044	guard_src1	1	1	0	
+p29847_b0	p27044	guard_src1	2	1	0	
+p29847_b0	p27044	exact	1	0	0	820
+p29847_b0	successor	stock	1	1	0	
+p29847_b0	successor	stock	2	1	0	
+p29847_b0	successor	guard_ids_dst	1	1	0	
+p29847_b0	successor	guard_ids_dst	2	1	0	
+p29847_b0	successor	guard_src1	1	1	0	
+p29847_b0	successor	guard_src1	2	1	0	
+p29847_b0	successor	exact	1	1	0	0
+p29847_b0	s448p	stock	1	1	0	
+p29847_b0	s448p	stock	2	1	0	
+p29847_b0	s448p	guard_ids_dst	1	1	0	
+p29847_b0	s448p	guard_ids_dst	2	1	0	
+p29847_b0	s448p	guard_src1	1	1	0	
+p29847_b0	s448p	guard_src1	2	1	0	
+p29847_b0	s448p	exact	1	1	0	0
+p29847_b0	p29953	stock	1	1	0	
+p29847_b0	p29953	stock	2	1	0	
+p29847_b0	p29953	guard_ids_dst	1	0	1	
+p29847_b0	p29953	guard_ids_dst	2	0	1	
+p29847_b0	p29953	guard_src1	1	1	0	
+p29847_b0	p29953	guard_src1	2	1	0	
+p29847_b0	p29953	exact	1	0	0	772
+p29847_b0	p29953fix	stock	1	1	0	
+p29847_b0	p29953fix	stock	2	1	0	
+p29847_b0	p29953fix	guard_ids_dst	1	1	0	
+p29847_b0	p29953fix	guard_ids_dst	2	1	0	
+p29847_b0	p29953fix	guard_src1	1	1	0	
+p29847_b0	p29953fix	guard_src1	2	1	0	
+p29847_b0	p29953fix	exact	1	1	0	0
+t100	ne11	stock	1	1	0	
+t100	ne11	stock	2	1	0	
+t100	ne11	guard_ids_dst	1	0	1	
+t100	ne11	guard_ids_dst	2	0	1	
+t100	ne11	guard_src1	1	0	1	
+t100	ne11	guard_src1	2	0	1	
+t100	ne11	exact	1	0	0	2150
+t100	ne12	stock	1	1	0	
+t100	ne12	stock	2	1	0	
+t100	ne12	guard_ids_dst	1	0	1	
+t100	ne12	guard_ids_dst	2	0	1	
+t100	ne12	guard_src1	1	0	1	
+t100	ne12	guard_src1	2	0	1	
+t100	ne12	exact	1	0	0	1630
+t100	p27044	stock	1	1	0	
+t100	p27044	stock	2	1	0	
+t100	p27044	guard_ids_dst	1	0	1	
+t100	p27044	guard_ids_dst	2	0	1	
+t100	p27044	guard_src1	1	1	0	
+t100	p27044	guard_src1	2	1	0	
+t100	p27044	exact	1	0	0	1825
+t100	successor	stock	1	1	0	
+t100	successor	stock	2	1	0	
+t100	successor	guard_ids_dst	1	1	0	
+t100	successor	guard_ids_dst	2	1	0	
+t100	successor	guard_src1	1	1	0	
+t100	successor	guard_src1	2	1	0	
+t100	successor	exact	1	1	0	0
+t100	s448p	stock	1	1	0	
+t100	s448p	stock	2	1	0	
+t100	s448p	guard_ids_dst	1	1	0	
+t100	s448p	guard_ids_dst	2	1	0	
+t100	s448p	guard_src1	1	1	0	
+t100	s448p	guard_src1	2	1	0	
+t100	s448p	exact	1	1	0	0
+t100	p29953	stock	1	1	0	
+t100	p29953	stock	2	1	0	
+t100	p29953	guard_ids_dst	1	0	1	
+t100	p29953	guard_ids_dst	2	0	1	
+t100	p29953	guard_src1	1	1	0	
+t100	p29953	guard_src1	2	1	0	
+t100	p29953	exact	1	0	0	1498
+t100	p29953fix	stock	1	1	0	
+t100	p29953fix	stock	2	1	0	
+t100	p29953fix	guard_ids_dst	1	1	0	
+t100	p29953fix	guard_ids_dst	2	1	0	
+t100	p29953fix	guard_src1	1	1	0	
+t100	p29953fix	guard_src1	2	1	0	
+t100	p29953fix	exact	1	1	0	0
