@@ -23,6 +23,29 @@ This one holds the facts, measurements and file references needed to submit the 
 > explain every line to a reviewer without AI assistance, and verbose AI-sounding responses
 > "will not be well-received".
 
+## Outcome (2026-10-04)
+
+- **Upstream merged #29941 and closed #27044.** The upstream CUDA maintainer merged
+  [#29941](https://github.com/ggml-org/llama.cpp/pull/29941) at 12:10 UTC as `dd266785c`, and
+  closed [#27044](https://github.com/ggml-org/llama.cpp/pull/27044) at 12:12 "in favor of the
+  other one, assuming the issue is now fixed".
+- **What merged is the line measured below.** It is the one-line `ne11` → `ne12`. Between
+  `05043961`, where "Results on sm_120" was measured, and `dd266785c`, it is the only change to
+  `ggml-cuda`'s `mmq`, `mmvq`, `mmid` and `common` files. So those results describe upstream
+  `master` now:
+  - from 128 tokens up, it pads as #27044 does, and every reported crash is fixed;
+  - below 128 tokens, the last tile can still read up to 63 blocks past the padding.
+
+  The stock memory pool hid that read in every case measured.
+- **The fork keeps 903** (the maintainer's decision, 2026-10-04). That is the second of the two
+  options under "What this means for the fork". Nothing changes at b11081, and v0.35.1's b11232
+  also predates `dd266785c`. At the first pin that contains it, 903's context line reads `ne12`, so
+  re-cut the patch as `ne12` → `ne12*n_expert_used`. The retirement register's row says what
+  retires it.
+- **Nothing was posted upstream** by the fork. A follow-up there on the residual would have to be
+  written by hand, like every post. `test-backend-ops` cannot show the residual, because the
+  stock pool hides it, so use the CPU check and the exact-allocation switch in `docs/maxusai/tasks/`.
+
 ## What happened when we filed it
 
 Recorded because the failure mode is not obvious and the next person will hit it.
@@ -50,7 +73,8 @@ Two further notes from that round:
 
 Facts for the maintainer's reply. As above, the reply itself must be written by hand.
 
-**State of #27044 on 2026-10-04:** open, with review required.
+**State of #27044 on the morning of 2026-10-04:** open, with review required. It was closed that
+day; see "Outcome" above.
 - Other users confirmed the fix on sm_75 (RTX 2080 Ti), on sm_120 (twice) and on a GB10
   (sm_121a).
 - An upstream reviewer linked issue #29847, which has a `test-backend-ops` reproducer:
@@ -104,8 +128,10 @@ options:
 **Open, for the CUDA host:**
 1. ~~On sm_120, run each case three ways: `master`, `master` + 903, and `master` + #29941, under
    `compute-sanitizer --tool memcheck`.~~ Done on 2026-10-04: see "Results on sm_120" below.
-2. Give the maintainer the results, for a hand-written reply on #27044.
-3. At the next llama.cpp bump, check 903 against upstream's line.
+2. ~~Give the maintainer the results, for a hand-written reply on #27044.~~ Given on
+   2026-10-04. #27044 was closed the same day ("Outcome" above).
+3. At the first llama.cpp pin that contains `dd266785c`, re-cut 903 as `ne12` →
+   `ne12*n_expert_used` ("Outcome" above).
 
 ## Results on sm_120 (2026-10-04)
 
