@@ -159,12 +159,23 @@ Shapes left short, from [tasks/mmq-successor-results/check-rules.txt](tasks/mmq-
 
 | rule | src1, 1 expert/token | src1, >=2 experts/token | `ids_dst` | dense |
 |---|---|---|---|---|
-| #24127 (`ne11`) | 162,688 (worst 127) | 4,555,104 (worst 127) | all 4,717,824 (worst 127) | 705 (worst 9) |
-| #29941 (`ne12`) | 11,426 (worst 63) | 365,780 (worst 63) | all 4,717,824 | - |
-| **#29953** | **76,656 (worst 6)** | **1,532,066 (worst 6)** | **all 4,717,824** | **90 (worst 5)** |
-| #27044 | 11,426 (worst 63) | 29,960 (worst 17) | all 4,717,824 | - |
-| #448 as published | 128 (worst 5), gfx1151 only | 25,256 (worst 5), gfx1151 only | covered | 45 (worst 5), gfx1151 only |
+| #24127 (`ne11`) | 162,672 (worst 127) | 4,554,640 (worst 127) | all 4,717,328 (worst 127) | 705 (worst 9) |
+| #29941 (`ne12`) | 11,410 (worst 63) | 365,300 (worst 63) | all 4,717,328 | - |
+| **#29953** | **76,640 (worst 6)** | **1,531,586 (worst 6)** | **all 4,717,328** | **90 (worst 5)** |
+| #27044 | 11,410 (worst 63) | 29,944 (worst 17) | all 4,717,328 | - |
+| #448 as published | 128 (worst 5), gfx1151 q2_K only | 25,256 (worst 5), gfx1151 q2_K only | covered | 45 (worst 5), gfx1151 only |
 | **#448 amended** | covered | covered | covered | covered |
+
+> [!NOTE]
+> **Two corrections from the ROCm host (MaxusAI/ollama#449).** The counts above are the corrected ones.
+> 1. The NVIDIA MMVQ limit is not "Turing and newer": Volta, and Ada Lovelace and newer, always take MMVQ for
+>    MUL_MAT_ID up to `MMVQ_MAX_BATCH_SIZE` for **every** type, and only Turing and Ampere use the per-type
+>    table. Reading it as Turing-and-newer counted q2_K at 8 tokens and q3_K at 6..8 as MMQ shapes on sm_89 and
+>    sm_120, where MMVQ takes them: 496 shapes, now excluded. #29953's worst case, `q2_K, J = 8`, therefore holds
+>    on sm_75 and sm_86 but **not** on sm_89 or sm_120.
+> 2. The gfx1151 shortfall is **q2_K only**, not q2_K and q3_K: q3_K's non-fallback table on gfx1151 reaches
+>    `J = 128`, so its widest tile already covers the 85 blocks needed. `mmq-jpad-cost.cu` had been printing one
+>    row all along and the earlier text said two types anyway.
 
 "worst" is blocks (or `int32` entries for `ids_dst`) past the allocation. Per-architecture counts are in the
 program's output; on sm_120 #29953 is short in 4,488 one-expert and 134,640 multi-expert shapes. gfx1151's column
@@ -266,8 +277,12 @@ hard to hit on purpose, after the pool and the fixup buffer.
   branches reserved before #24127.
   - Against the plain widest-tile rule the amendment is free almost everywhere: across the five architectures and
     ten types checked, the two differ in **exactly one** combination -- gfx1151, non-fallback, q2_K, where the
-    padding goes from 80 to 86 blocks, 864 bytes more per call. Everywhere else both give 128 blocks.
+    padding goes from 80 to **85** blocks, **720** bytes more per call. Everywhere else both give 128 blocks.
     [tasks/mmq-jpad-cost.cu](tasks/mmq-jpad-cost.cu) prints it.
+    - The patch computes `J_pad = nbytes_pad_y / sizeof(block_q8_1_mmq)`, a **floor**, so it reserves 85 blocks
+      and not the 86 a ceiling would give. That is sufficient -- `floor(T/B) >= ceil(T/B) - 1`, the requirement --
+      and the CPU check now scores the floor, so the rule it validates is the one the code implements. The ROCm
+      host measured `pad=85` on the device and the read at 12,288 - 144 = 12,144 bytes, inside it.
 
 An equivalent standalone change against master, for a tree without #29953, is
 [tasks/mmq-fix-amended.patch](tasks/mmq-fix-amended.patch): it takes the maximum padded tile over every config
@@ -379,6 +394,40 @@ this as an intermittent crash rather than a test failure.
   3. `MMQ_DEBUG_ALLOC=guard:src1 test-backend-ops test -o MUL_MAT_ID -b CUDA0 -p 'type_a=q4_0,type_b=f32,n_mats=256,n_used=16,b=0,m=640,n=16,k=2560,'`
      -> illegal memory access,
   4. apply `tasks/mmq-amend-29953.patch` and run it again -> passes. Then repeat with `guard:ids_dst`.
+
+## Measured on gfx1151 (MaxusAI/ollama#449)
+
+The ROCm host answered the ask. **The amendment is confirmed on hardware, and four things here were wrong.**
+Full reply on the issue; build was a Ryzen AI Max+ 395 / Radeon 8060S, ROCm 7.2.1, b11081 and `3070d927f`.
+
+- **hipcc's tables are byte-identical to nvcc's**, for b11081 and `dd266785c` alike, and `mmq-jpad-cost` matches.
+  So the modelled gfx1151 column was right about the tables, and is no longer modelled.
+- **The gap reproduces, and the amendment fixes it.** Under `guard:src1` on q2_K at `J = 80` with one row in the
+  last expert: widest-tile 903 aborts 6/6, amended passes 6/6, every passing run matching the CPU backend.
+- **The guard allocator ports to HIP**, which #449 wrongly told them not to bother with: HIP VMM is supported on
+  that APU, granularity 4 KiB, and `vendors/hip.h` already maps the `cuMem*` calls. Their three edits
+  (`cuCtxGetDevice` -> `ggml_cuda_get_device()`, the granularity enumerator, a `char *` cast on `b.base`) are now
+  in [tasks/mmq-debug-alloc.cuh](tasks/mmq-debug-alloc.cuh) behind `GGML_USE_HIP`.
+- **Counted is not reachable.** Of the 25,384 shapes the check calls short for the widest-tile rule, **2,648 can
+  reach MMQ** on that device and **2,616** have a routing that reads past the allocation: q2_K on RDNA3 only
+  takes MMQ with at least 64 experts or at most 128 tokens, which rules out both worst cases the check names,
+  including all 128 one-expert-per-token shapes and all 45 dense ones. "Short in N shapes" in this file means
+  *the rule cannot be shown sufficient for N shapes*, not *N shapes fault*.
+- **`test_mul_mat_id` cannot produce the gfx1151 gap at all.** Its routing is uniform, so at the ~65 rows per
+  expert that `J = 80` needs, the last expert holds ~65 rows and the read stays inside the padding. The ROCm host
+  wrote a program that builds the routing by hand, putting token 0 alone in the last expert. **That is a limit of
+  the harness in this file**, not of the defect: the same uniformity is why `ids64` never faults on src1 here.
+- **A gap in main's 903 that this file missed:** `ne12*n_expert_used` is short on gfx1151 for a 6-of-128 K-quant
+  MoE at 5 tokens (q4_K, `J = 16`, `nthreads = 128`, need 17, `get_J_max(30) = 16`), aborting 2/2 under
+  `guard:src1`. Production's nemotron3 is 6-of-128 but its experts are q5_0/q8_0, which stay on MMVQ to 8 tokens.
+- **#29953's head is clean on gfx1151 too**: 72/72 on the twelve cases and 36/36 on the hand-routed ones, with
+  the device reporting src1 padded by the padded tile and `ids_dst` by `J_best-1`. Once the pin includes it,
+  903's src1 and `ids_dst` padding is redundant on ROCm as well as CUDA.
+- **The retracted NVFP4 claim is CUDA-only in any case**, since `use_native_fp4` needs
+  `blackwell_mma_available()`.
+- Production on gfx1151 is unaffected under all three forms of 903, with a tightest margin of 144 bytes under
+  main's rule. Its MoE experts are q4_K/q6_K/q8_0 (`qwen3.6:35b-a3b`, `qwen3-vl:30b-a3b`), q4_K/q5_0/q8_0
+  (`gemma4:26b-a4b`) and q5_0/q8_0 (`nemotron3:33b`), read from that host's GGUF headers.
 
 ## For the fork
 

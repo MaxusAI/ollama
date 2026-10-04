@@ -20,8 +20,8 @@ int main(){
         for (int J = 8; J <= 128; J += 8) {
             ggml_cuda_mmq_config c = ggml_cuda_mmq_get_config(t, J, fb, a.cc);
             if (c.type == GGML_TYPE_COUNT) continue;
-            const int blocks = (int)((GGML_PAD(c.J*B, c.nthreads*sizeof(int)) + B - 1)/B);
-            if (blocks > n) n = blocks;
+            const size_t nb = GGML_PAD(c.J*B, c.nthreads*sizeof(int));
+            if ((int) (nb/B) > n) n = (int) (nb/B);   // the patch floors; see #449
         }
         if (n != o) printf("%-9s %-3d %-6s %6d %6d %8zu\n", a.n, fb, tn[ti], o, n, (size_t)(n - o)*B);
     }

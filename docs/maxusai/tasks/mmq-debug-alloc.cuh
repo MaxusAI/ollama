@@ -98,8 +98,18 @@ static mmq_dbg_buf mmq_dbg_alloc(const mmq_dbg_mode mode, const size_t size, con
         return b;
     }
 
+    // HIP: vendors/hip.h already maps the cuMem* calls, but cuCtxGetDevice has no mapping, the granularity
+    // enumerator is spelled differently, and hipDeviceptr_t is void * so b.base needs a cast to do arithmetic on.
+    // Verified on gfx1151 / ROCm 7.2.1, where VMM is supported and the granularity is 4 KiB against 2 MiB on
+    // sm_120 (MaxusAI/ollama#449).
+#ifdef GGML_USE_HIP
+    const int dev = ggml_cuda_get_device();
+    const auto gran_flag = hipMemAllocationGranularityMinimum;
+#else
     CUdevice dev;
     CU_CHECK(cuCtxGetDevice(&dev));
+    const auto gran_flag = CU_MEM_ALLOC_GRANULARITY_MINIMUM;
+#endif // GGML_USE_HIP
 
     CUmemAllocationProp prop = {};
     prop.type          = CU_MEM_ALLOCATION_TYPE_PINNED;
@@ -107,7 +117,7 @@ static mmq_dbg_buf mmq_dbg_alloc(const mmq_dbg_mode mode, const size_t size, con
     prop.location.id   = dev;
 
     size_t gran = 0;
-    CU_CHECK(cuMemGetAllocationGranularity(&gran, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+    CU_CHECK(cuMemGetAllocationGranularity(&gran, &prop, gran_flag));
 
     b.msize = ((size + gran - 1) / gran) * gran;
     b.rsize = b.msize + gran; // the extra granule is reserved so nothing else can map there, and left unmapped
@@ -126,7 +136,7 @@ static mmq_dbg_buf mmq_dbg_alloc(const mmq_dbg_mode mode, const size_t size, con
 
     // Put the end of the buffer at the end of the mapping, keeping ptr aligned.
     const size_t off = (b.msize - size) & ~(align - 1);
-    b.ptr = (void *) (b.base + off);
+    b.ptr = (void *) ((char *) b.base + off);
     return b;
 }
 

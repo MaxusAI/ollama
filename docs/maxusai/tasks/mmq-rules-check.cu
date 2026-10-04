@@ -49,16 +49,24 @@ extern "C" void ggml_abort(const char *, int, const char *, ...) { abort(); }
 
 static const size_t BLOCK = sizeof(block_q8_1_mmq);
 
-// The largest MUL_MAT_ID batch MMVQ takes (mmvq.cu, get_mmvq_mmid_max_batch_*; defined outside its header, so
+// The largest MUL_MAT_ID batch MMVQ takes (mmvq.cu, get_mmvq_mmid_max_batch*; defined outside its header, so
 // replicated for the ten types checked). A larger batch goes to MMQ.
+//
+// The dispatcher's NVIDIA branch is not "Turing and newer": Volta and Ada Lovelace and newer always take MMVQ up
+// to MMVQ_MAX_BATCH_SIZE for every type, and only Turing..Ampere use the per-type table. Reading it as
+// Turing-and-newer counted q2_K at 8 tokens and q3_K at 6..8 as MMQ shapes on sm_89 and sm_120, where MMVQ takes
+// them -- caught by the ROCm host on MaxusAI/ollama#449.
 static int mmvq_mmid_max(ggml_type t, int cc) {
     if (GGML_CUDA_CC_IS_RDNA3(cc)) {
-        switch (t) {
+        switch (t) {   // get_mmvq_mmid_max_batch_rdna3
             case GGML_TYPE_Q4_K: case GGML_TYPE_Q5_K: case GGML_TYPE_Q6_K: return 4;
             default: return MMVQ_MAX_BATCH_SIZE;
         }
     }
-    switch (t) {  // Turing and newer
+    if (cc == GGML_CUDA_CC_VOLTA || cc >= GGML_CUDA_CC_ADA_LOVELACE) {
+        return MMVQ_MAX_BATCH_SIZE;
+    }
+    switch (t) {   // get_mmvq_mmid_max_batch_turing_plus, Turing and Ampere only
         case GGML_TYPE_Q2_K: return 7;
         case GGML_TYPE_Q3_K: return 5;
         default:             return MMVQ_MAX_BATCH_SIZE;
@@ -86,14 +94,17 @@ static void launched(ggml_type t, bool fb, int cc, size_t smpbo, int64_t ncols_o
 // #448 as written: the widest tile that has a config, in blocks. And amended: the widest padded tile.
 static void widest(ggml_type t, bool fb, int cc, int * J_out, int * pad_out) {
     *J_out = ggml_cuda_mmq_get_J_max(t, fb, cc, 512);
-    int pad = 0;
+    size_t widest_bytes = 0;
     for (int J = 8; J <= 128; J += 8) {
         const ggml_cuda_mmq_config c = ggml_cuda_mmq_get_config(t, J, fb, cc);
         if (c.type == GGML_TYPE_COUNT) continue;
-        const int blocks = (int) ((GGML_PAD(c.J*BLOCK, c.nthreads*sizeof(int)) + BLOCK - 1) / BLOCK);
-        if (blocks > pad) pad = blocks;
+        // mmq-fix-amended.patch computes J_pad = nbytes_pad_y / sizeof(block_q8_1_mmq), a floor. That is still
+        // enough -- floor(T/B) >= ceil(T/B) - 1 = the requirement -- and it is what the shipped patch does, so
+        // score that rather than a ceiling the code does not use.
+        const size_t nbytes = GGML_PAD(c.J*BLOCK, c.nthreads*sizeof(int));
+        if (nbytes > widest_bytes) widest_bytes = nbytes;
     }
-    *pad_out = pad;
+    *pad_out = (int) (widest_bytes / BLOCK);
 }
 
 static const char * const ARCH_NAMES[5] = {"sm_75", "sm_86", "sm_89", "sm_120", "gfx1151"};

@@ -160,14 +160,24 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
     - **Amended the same day** to the widest *padded* tile, after llama.cpp#29953
       (the fixup to #29941) was reproduced and the requirement turned out to be
       larger than `J - 1`. The plain widest-tile rule was short by up to 5 blocks
-      in 25,384 gfx1151 shapes (q2_K and q3_K, `J = 80` with `nthreads = 256`
-      needs 85 blocks against the widest tile's 80), which matters because the
-      ROCm host serves gfx1151. Measurements:
+      in 25,384 gfx1151 shapes (**q2_K only**, non-fallback, where `J = 80` with
+      `nthreads = 256` needs 85 blocks against the widest tile's 80), which
+      matters because the ROCm host serves gfx1151.
+    - **Confirmed on gfx1151 hardware**, MaxusAI/ollama#449: hipcc's tables are
+      byte-identical to nvcc's, and under a guard page the widest-tile form
+      aborts while the amended form passes. Of the 25,384 counted shapes, 2,648
+      can reach MMQ on that device and 2,616 have a routing that reads past the
+      allocation - q2_K on RDNA3 only takes MMQ with >= 64 experts or <= 128
+      tokens. `test_mul_mat_id` cannot produce the gap, because its routing is
+      uniform and `J = 80` needs about 65 rows per expert; the ROCm host built
+      the routing by hand. Measurements:
       `docs/maxusai/upstream-mmq-29953-material.md`.
   - **What the amendment costs.** Across five architectures and ten quantization
     types, the two rules differ in exactly one combination: gfx1151,
-    non-fallback, q2_K, where `J_pad` goes from 80 to 86 blocks - 864 bytes more
-    per call. Everywhere else both give 128 blocks, so the amendment is free.
+    non-fallback, q2_K, where `J_pad` goes from 80 to 85 blocks - **720 bytes**
+    more per call. Everywhere else both give 128 blocks, so the amendment is
+    free. The patch floors `nbytes_pad_y / sizeof(block_q8_1_mmq)`, which is
+    sufficient because `floor(T/B) >= ceil(T/B) - 1`, the requirement.
     `docs/maxusai/tasks/mmq-jpad-cost.cu` prints the comparison;
     `tasks/mmq-successor-results/jpad-cost.txt` is its output.
   - **At the next pin move.** From the first llama.cpp pin that contains
