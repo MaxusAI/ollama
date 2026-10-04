@@ -12,6 +12,50 @@ arithmetic: **the required src1 padding is larger than every rule proposed so fa
 > the checks, the harness) is AI-generated, which the project allows **with disclosure**: fill in the template's
 > `AI usage disclosure:` line.
 
+## Upstream got there first: #29953 now carries both amendments (2026-10-05, 18:55Z)
+
+**Everything below about src1 and `ids_dst` is now fixed upstream, found independently.** On #29953, `hclsys`
+reported from a GB10 (sm_121a, CUDA 13.0) exactly the two gaps this file was written about, with the same
+formula:
+
+- src1: "the `tile_y` load loops in `mul_mat_q_process_tile` run to the next multiple of `nthreads` (J=112: 4032
+  ints -> 4096 with 256 threads) and `mmq_get_nbytes_shared` pads `nbs_y` for that, but the global padding is
+  only `J_best*sizeof(block_q8_1_mmq)`" -- 10 of 16 ids-shuffle seeds hit it at `n = 100`, 0 of 16 with
+  `GGML_PAD(J_best*sizeof(block_q8_1_mmq), config.nthreads*sizeof(int))`.
+- `ids_dst`: "gets read up to `J_best-1` ints past `ne_get_rows` too with exact-size allocs".
+
+The author pushed both the same day. At head `3070d927f` ("CUDA: fix MMQ out-of-bounds reads"):
+`nthreads_best` is carried out of the selection loop, `src1_q8_1_padding` is the padded tile, and `ids_dst` is
+`ne_get_rows + J_best-1`. That is our `tasks/mmq-amend-29953.patch` in all but spelling -- theirs uses the tight
+`J_best-1` bound for `ids_dst` where ours used `J_best`. **So there is nothing to send upstream about those two,
+and `mmq-amend-29953.patch` is of historical interest only.** Our independent arrival at the same formula, from a
+different direction (the CPU sweep rather than a seed sweep), is a cross-check on both.
+
+### What is still open upstream: the NVFP4 y scales
+
+`src1_scale` is **not** padded at head `3070d927f` -- both `alloc` calls are untouched context in the diff -- and
+it is read exactly the way `ids_dst` is:
+
+- `offset_y_scale += col_low + jt*J; y_scale_tile = y_scale + offset_y_scale;` (`mmq.cuh`), so `y_scale_tile`
+  points at the tile's first column.
+- The stream-k fixup write-back is called as `write_back(sum, ids_dst, tmp_fixup + blockIdx.x*(J*I), y_scale, I,
+  I, J)`: `j_max == J`, so its `if (j > j_max)` guard never fires and it reads `y_scale_tile[j]` for every column
+  of the tile.
+- So the last expert's last tile reads up to `J_best - 1` floats past `src1_scale`'s `ne12*n_expert_used`
+  (`ne13*ne12*ne11` in the dense branch) -- the same bound the PR just fixed for `ids_dst`.
+- **Every** NVFP4 config with native FP4 uses stream-k, on sm_120 and sm_121 alike, so the path is not exotic:
+  [tasks/mmq-nvfp4-streamk-probe.cu](tasks/mmq-nvfp4-streamk-probe.cu), output in
+  [tasks/mmq-successor-results/nvfp4-streamk.txt](tasks/mmq-successor-results/nvfp4-streamk.txt).
+
+[tasks/mmq-amend-29953-yscale.patch](tasks/mmq-amend-29953-yscale.patch) is the two-line fix against
+`3070d927f`, in the PR's own idiom.
+
+> [!NOTE]
+> **This one is read, not measured.** It needs native FP4, which an sm_120 build without `120a` does not have, so
+> nothing on this host exercises it; the GPU runs here all take the q8_1 path. `hclsys`'s GB10 is sm_121a and does
+> have it, but their sweep covered q4_0, q4_K, q6_K and q8_0 -- not NVFP4. Worth saying so plainly if this is
+> passed on.
+
 ## Where it stands (2026-10-05)
 
 - **#29953** ("CUDA: fix MMQ ncols rounding direction for alloc", head `5bd8b0013`, base `46847e615`) moves the

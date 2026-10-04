@@ -1,0 +1,4 @@
+cc=1200 fb=0 NVFP4 prec=Q4: J=8(nth=256,stream_k=1) J=16(nth=256,stream_k=1) J=24(nth=256,stream_k=1) J=32(nth=256,stream_k=1) J=40(nth=256,stream_k=1) J=48(nth=256,stream_k=1) J=64(nth=256,stream_k=1) J=80(nth=256,stream_k=1) J=96(nth=256,stream_k=1) J=112(nth=256,stream_k=1) J=128(nth=256,stream_k=1)
+cc=1200 fb=1 NVFP4 prec=Q4: J=8(nth=256,stream_k=1) J=16(nth=256,stream_k=1) J=32(nth=256,stream_k=1) J=64(nth=256,stream_k=1) J=128(nth=256,stream_k=1)
+cc=1210 fb=0 NVFP4 prec=Q4: J=8(nth=256,stream_k=1) J=16(nth=256,stream_k=1) J=24(nth=256,stream_k=1) J=32(nth=256,stream_k=1) J=40(nth=256,stream_k=1) J=48(nth=256,stream_k=1) J=64(nth=256,stream_k=1) J=80(nth=256,stream_k=1) J=96(nth=256,stream_k=1) J=112(nth=256,stream_k=1) J=128(nth=256,stream_k=1)
+cc=1210 fb=1 NVFP4 prec=Q4: J=8(nth=256,stream_k=1) J=16(nth=256,stream_k=1) J=32(nth=256,stream_k=1) J=64(nth=256,stream_k=1) J=128(nth=256,stream_k=1)
