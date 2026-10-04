@@ -97,15 +97,87 @@ options:
 - keep a reworked 903 on top of #29941, for the rounding gap.
 
 **Open, for the CUDA host:**
-1. On sm_120, run each case three ways: `master`, `master` + 903, and `master` + #29941. Run all
-   of them under `compute-sanitizer --tool memcheck`. The cases are:
-   - the original reproducer: the MoE vision model with 256 experts, 8 used, q4_K gate/up, and a
-     2040-token ubatch;
-   - #29847's two cases.
-
-   A case below 128 tokens that is not a multiple of 8 would test the rounding gap.
+1. ~~On sm_120, run each case three ways: `master`, `master` + 903, and `master` + #29941, under
+   `compute-sanitizer --tool memcheck`.~~ Done on 2026-10-04: see "Results on sm_120" below.
 2. Give the maintainer the results, for a hand-written reply on #27044.
 3. At the next llama.cpp bump, check 903 against upstream's line.
+
+## Results on sm_120 (2026-10-04)
+
+**Setup.**
+- **Hardware and llama.cpp:** the CUDA host's RTX PRO 6000 Blackwell (sm_120), CUDA 13.0, driver 580.126.18,
+  llama.cpp master `05043961`.
+- **Three builds of `test-backend-ops`,** which differ only in the ids-path padding argument:
+  - `master`: `ne11`;
+  - #29941: `ne12`;
+  - #27044, that is 903's line: `ne12*n_expert_used`.
+- **One process per case,** under `compute-sanitizer --tool memcheck`.
+
+**#29941 reads past its buffer below 128 tokens. #27044 does not, in any case.** Memcheck errors when the src1
+buffer has its own exact-size allocation (✓ test passed, ✗ aborted):
+
+| case | `master` | #29941 | #27044 |
+|---|---|---|---|
+| 65 tokens, 576 rows (fallback), q4_K, 256 experts, 8 used | 3,041 ✗ | **3,229 ✗** | **0 ✓** |
+| 100 tokens, 512 rows, q4_K, 256 experts, 8 used | 6,693 ✗ | **557 ✗** | **0 ✓** |
+| 100 tokens, #29847's shape (q4_0, 512 experts, 10 used) | 7,341 ✗ | **53 ✗** | **0 ✓** |
+| 2040 tokens, the original fault's shape | 101 ✗ | 0 ✓ | 0 ✓ |
+| 508 tokens, #29847, `b=0` | 913 ✗ | 0 ✓ | 0 ✓ |
+| 508 tokens, #29847, `b=1` | 2,397 ✗ | 0 ✓ | 0 ✓ |
+
+With the stock memory pool, every cell is 0 ✓ except `master` on #29847's two cases: 237 ✗ for `b=0` and 1,257 ✗
+for `b=1`.
+
+**What decides each result.**
+- **The tile the kernel launches, against the padding.** `mul_mat_q_switch_J` sets the tile width `J`, and
+  `ggml_cuda_mmq_get_J_max()` sets the padding.
+  - At 65 tokens with 576 rows, the fallback configs offer only `J` = 8, 16, 32, 64 and 128, so the launch is
+    `J = 128`. #29941 pads 64 blocks there, and #27044 128.
+  - At 100 tokens with 512 rows, the launch is `J = 112`, against padding of 96 and 128 blocks.
+  - The last expert's last tile can read up to `J − 1` blocks past the data.
+- **The faults match the arithmetic.** #29941's 65-token errors come from `mul_mat_q<q4_K, 128, fallback>` reading
+  past an allocation of 1,207,296 bytes. That is 1,198,080 bytes of data plus #29941's 64 blocks of 144 bytes.
+- **At 508 and 2,040 tokens, both lines pad 128 blocks,** the widest tile the kernel launches. So #29847's
+  cases and the original fault do not separate them.
+
+**How to read the numbers.**
+- **An error count does not measure the overrun.**
+  - Memcheck stops each warp at its first out-of-bounds load. Every variant's furthest reported read is about
+    1 KB past its allocation, also with `--padding 65536`.
+  - So a count reflects the random routing and the scheduling. Two runs of the same #29941 build gave 2,337 and
+    3,361.
+  - Only zero against non-zero carries information.
+- **The stock pool hides the over-read.** The next pool allocation is mapped right after the buffer, so the stray
+  reads land in valid memory. That is why the exact allocation is needed.
+
+**Two local changes, common to all three builds:**
+- **The debug switch.** `MMQ445_EXACT=1` gives the src1 buffer an exact-size `cudaMalloc`, and is debug only.
+- **A workaround for a launch failure.** On master `05043961`, every MoE `MUL_MAT_ID` through MMQ failed on this host
+  with `invalid argument` at the `mm_ids_helper` launch, before any padding code ran. Master's own test cases
+  failed the same way.
+  - `mm_ids_helper` has 1 KB of static shared memory, and `CUDA_SET_SHARED_MEMORY_LIMIT` raises its dynamic limit to
+    the device maximum, 101,376 bytes.
+  - A standalone kernel with the same 1 KB static array gets the same error.
+  - The workaround leaves the limit at its default, which covers the `n_tokens*4` bytes of every case here.
+  - This is a separate upstream problem. It has not been checked on other GPUs or CUDA versions.
+
+**A GPU-free check.** [`tasks/mmq-ids-padding-test.cu`](tasks/mmq-ids-padding-test.cu) replays the padding rule
+against upstream's own config functions.
+- **What it covers:** 2,438,400 shapes, from 4 architectures, 10 types, both fallback modes, 9 to 1,024 tokens, 2 to
+  16 experts used, broadcast or not.
+- **What it finds:** #29941 leaves 267,960 of them short, by up to 63 blocks, all below 128 tokens. #27044 leaves none.
+- **Its limit:** it replicates `mul_mat_q_switch_J`'s selection loop, so it holds only as long as upstream keeps that
+  loop.
+
+**Reproducing.**
+- **CPU, no GPU:** build [`tasks/mmq-ids-padding-test.cu`](tasks/mmq-ids-padding-test.cu) with nvcc, from the root of a
+  llama.cpp checkout. Its header has the command.
+- **GPU:** run `tasks/mmq-ids-padding-gpu.sh <llama.cpp checkout>`
+  ([script](tasks/mmq-ids-padding-gpu.sh)).
+  - It applies [`tasks/mmq-ids-padding-gpu.patch`](tasks/mmq-ids-padding-gpu.patch), which holds the six cases, the
+    debug switch and the workaround.
+  - It builds the three variants and runs the matrix.
+  - Any NVIDIA GPU that takes the MMQ path will do. Each case needs about 1 to 2 GB.
 
 ## Strategy: a PR, not an issue
 

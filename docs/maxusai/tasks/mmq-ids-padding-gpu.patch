@@ -1,0 +1,76 @@
+diff --git a/ggml/src/ggml-cuda/mmid.cu b/ggml/src/ggml-cuda/mmid.cu
+index 0b222e63..79b9aefe 100644
+--- a/ggml/src/ggml-cuda/mmid.cu
++++ b/ggml/src/ggml-cuda/mmid.cu
+@@ -139,12 +139,15 @@ static void launch_mm_ids_helper(
+     const int id = ggml_cuda_get_device();
+     const int warp_size = ggml_cuda_info().devices[id].warp_size;
+     const size_t smpbo = ggml_cuda_info().devices[id].smpbo;
+-    CUDA_SET_SHARED_MEMORY_LIMIT(mm_ids_helper<n_expert_used_template>, smpbo);
++    // MMQ445 (local workaround, not part of the comparison): raising the limit to smpbo fails on this sm_120/CUDA 13.0 build
++    // (the helper also has static shared memory); the default limit covers n_tokens*4 bytes for every case tested here.
++    // CUDA_SET_SHARED_MEMORY_LIMIT(mm_ids_helper<n_expert_used_template>, smpbo);
++    GGML_UNUSED(smpbo);
+ 
+     const dim3 num_blocks(n_experts, 1, 1);
+     const dim3 block_size(warp_size, 1, 1);
+     const size_t nbytes_shared = n_tokens*sizeof(mm_ids_helper_store);
+-    GGML_ASSERT(nbytes_shared <= smpbo);
++    GGML_ASSERT(nbytes_shared <= 48*1024 - 1024);
+     mm_ids_helper<n_expert_used_template><<<num_blocks, block_size, nbytes_shared, stream>>>
+         (ids, ids_src1, ids_dst, expert_bounds, n_tokens, n_expert_used_var, nchannels_y, si1, sis1, write_inverse);
+ }
+diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
+index 3e1721bb..c26a4cc1 100644
+--- a/ggml/src/ggml-cuda/mmq.cu
++++ b/ggml/src/ggml-cuda/mmq.cu
+@@ -1,5 +1,6 @@
+ #include "common.cuh"
+ #include "mmq.cuh"
++#include <cstdlib>
+ #include "quantize.cuh"
+ #include "mmid.cuh"
+ 
+@@ -256,7 +257,13 @@ void ggml_cuda_mul_mat_q(
+ 
+     const size_t nbytes_src1_q8_1 = ne12*n_expert_used*ne10_padded * y_block_size/y_values_per_block +
+         ggml_cuda_mmq_get_J_max(src0->type, fallback, cc, ne11) * sizeof(block_q8_1_mmq);
+-    ggml_cuda_pool_alloc<char> src1_q8_1(ctx.pool(), nbytes_src1_q8_1);
++    // MMQ445 (debug, not for upstream): MMQ445_EXACT=1 gives this buffer its own exact-size cudaMalloc, so that
++    // compute-sanitizer flags any read past the tail padding instead of landing in the pool's next allocation.
++    static const bool mmq445_exact = getenv("MMQ445_EXACT") != nullptr;
++    char * mmq445_buf = nullptr;
++    ggml_cuda_pool_alloc<char> src1_q8_1_pool(ctx.pool());
++    if (mmq445_exact) { CUDA_CHECK(cudaMalloc(&mmq445_buf, nbytes_src1_q8_1)); } else { src1_q8_1_pool.alloc(nbytes_src1_q8_1); }
++    struct { char * p; char * get() const { return p; } } src1_q8_1 = { mmq445_exact ? mmq445_buf : src1_q8_1_pool.get() };
+     ggml_cuda_pool_alloc<float> src1_scale(ctx.pool());
+     if (src0->type == GGML_TYPE_NVFP4 && use_native_fp4) {
+         src1_scale.alloc(ne12*n_expert_used);
+@@ -313,6 +320,7 @@ void ggml_cuda_mul_mat_q(
+         ne12, ncols_opt};
+ 
+     ggml_cuda_mul_mat_q_switch_type(ctx, args, stream, prec_src1);
++    if (mmq445_exact) { CUDA_CHECK(cudaStreamSynchronize(stream)); CUDA_CHECK(cudaFree(mmq445_buf)); }
+ }
+ 
+ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t n_experts) {
+diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
+index 507fda75..20a26e29 100644
+--- a/tests/test-backend-ops.cpp
++++ b/tests/test-backend-ops.cpp
+@@ -9241,6 +9241,15 @@ static const ggml_type other_types[] = {
+ // Test cases for evaluation: should try to cover edge cases while using small input sizes to keep the runtime low
+ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+     std::vector<std::unique_ptr<test_case>> test_cases;
++
++    // MMQ445: MUL_MAT_ID src1 tail padding checks (llama.cpp#27044 vs #29941), sm_120
++    for (bool b : {false, true}) {   // #29847's two cases: 508 tokens
++        test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_0, GGML_TYPE_F32, 512, 10, b, 640, 508, 2560));
++    }
++    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32, 256, 8, true, 512, 2040, 2048)); // original fault: ffn_moe_gate-3
++    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32, 256, 8, true, 576,   65, 2048)); // fallback: J 128 vs #29941 pad 64
++    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32, 256, 8, true, 512,  100, 2048)); // J 112 vs #29941 pad 96
++    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_0, GGML_TYPE_F32, 512, 10, true, 640, 100, 2560)); // #29847's shape at 100 tokens
+     std::default_random_engine rng(0);
+ 
+     // unary ops
