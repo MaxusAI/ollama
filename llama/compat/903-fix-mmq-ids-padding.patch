@@ -1,17 +1,31 @@
 diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
-index b13b34ee..23dd4d7c 100644
+index b13b34ee..79596971 100644
 --- a/ggml/src/ggml-cuda/mmq.cu
 +++ b/ggml/src/ggml-cuda/mmq.cu
-@@ -128,17 +128,24 @@ void ggml_cuda_mul_mat_q(
+@@ -128,17 +128,38 @@ void ggml_cuda_mul_mat_q(
  
      const bool fallback = ne01 % 128 != 0;
  
 +    // MAXUSAI (compat 903): MMQ loads src1 and ids_dst in whole tiles of J columns, and the stream-k fixup path
-+    // reads the NVFP4 y scales the same way, so the last tile can read up to J - 1 columns past the data: for
-+    // MUL_MAT_ID the last expert's last tile may hold a single row. mul_mat_q_switch_J rounds the batch up to J,
-+    // while get_J_max() of the batch rounds down. So pad for the widest tile that has a config, as
-+    // get_mmq_x_max_host() did before #24127. Upstream's #29941 (get_J_max(ne12)) is short below 128 tokens.
-+    const int64_t J_pad = ggml_cuda_mmq_get_J_max(src0->type, fallback, cc, 512);
++    // reads the NVFP4 y scales the same way, so the last tile can read past the data: for MUL_MAT_ID the last
++    // expert's last tile may hold a single row, at any batch size. A tile's y load is unbounded in l and copies
++    // the whole padded shared-memory y tile, GGML_PAD(J*sizeof(block_q8_1_mmq), nthreads*sizeof(int)) bytes --
++    // the same expression mmq_get_nbytes_shared() uses -- so J blocks is not enough either. mul_mat_q_switch_J
++    // rounds the batch up to J while get_J_max() of the batch rounds down, so pad for the widest padded tile any
++    // launch could pick. Upstream's #29941 (get_J_max(ne12)) is short below 128 tokens, #29953 (the launched J)
++    // is short by up to 6 blocks, and neither pads ids_dst at all.
++    size_t nbytes_pad_y = 0;
++    for (int J_cand = 8; J_cand <= 128; J_cand += 8) {
++        const ggml_cuda_mmq_config config = ggml_cuda_mmq_get_config(src0->type, J_cand, fallback, cc);
++        if (config.type == GGML_TYPE_COUNT) {
++            continue;
++        }
++        const size_t nbytes_y = GGML_PAD(config.J*sizeof(block_q8_1_mmq), config.nthreads*sizeof(int));
++        if (nbytes_y > nbytes_pad_y) {
++            nbytes_pad_y = nbytes_y;
++        }
++    }
++    const int64_t J_pad = nbytes_pad_y / sizeof(block_q8_1_mmq);
 +
      const bool use_native_fp4 = blackwell_mma_available(cc) && (src0->type == GGML_TYPE_MXFP4 || src0->type == GGML_TYPE_NVFP4);
      const size_t y_block_size       = use_native_fp4 ? sizeof(block_fp4_mmq) : sizeof(block_q8_1_mmq);
@@ -29,7 +43,7 @@ index b13b34ee..23dd4d7c 100644
          }
  
          {
-@@ -185,7 +192,7 @@ void ggml_cuda_mul_mat_q(
+@@ -185,7 +206,7 @@ void ggml_cuda_mul_mat_q(
      GGML_ASSERT(ne1 == n_expert_used);
  
      ggml_cuda_pool_alloc<int32_t> ids_src1(ctx.pool(), ne_get_rows);
@@ -38,7 +52,7 @@ index b13b34ee..23dd4d7c 100644
      ggml_cuda_pool_alloc<int32_t> expert_bounds(ctx.pool(), ne02 + 1);
  
      // gate/up activations are broadcast across experts (ne11 == 1): quantize each token once and
-@@ -203,11 +210,11 @@ void ggml_cuda_mul_mat_q(
+@@ -203,11 +224,11 @@ void ggml_cuda_mul_mat_q(
      }
  
      const size_t nbytes_src1_q8_1 = ne12*n_expert_used*ne10_padded * y_block_size/y_values_per_block +

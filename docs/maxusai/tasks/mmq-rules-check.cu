@@ -31,6 +31,8 @@
 // Build from the root of a llama.cpp checkout, with the CUDA toolkit's nvcc. It never touches a GPU:
 //   nvcc -Wno-deprecated-gpu-targets -std=c++17 -I. -Iggml/include -Iggml/src -Iggml/src/ggml-cuda \
 //        mmq-rules-check.cu -o mmq-rules-check -lcublas -lcuda
+// It calls ggml_cuda_mmq_get_config() in its four-argument form, which exists at the fork's pin b11081 and is
+// master's signature with prec_src1 defaulted, so the same source builds against either.
 //   ./mmq-rules-check            the whole sweep
 //   ./mmq-rules-check --design   shapes for test_mul_mat_id where only ids_dst is short
 // The exit code is non-zero if the last rule leaves a shape short.
@@ -74,7 +76,7 @@ static void launched(ggml_type t, bool fb, int cc, size_t smpbo, int64_t ncols_o
     int nt_best = INT_MAX;
     *J_out = 0; *nth_out = 0;
     for (int J = 8; J <= 128 && nt_best > 1; J += 8) {
-        const ggml_cuda_mmq_config c = ggml_cuda_mmq_get_config(t, J, fb, cc, GGML_PREC_Q8);
+        const ggml_cuda_mmq_config c = ggml_cuda_mmq_get_config(t, J, fb, cc);
         if (c.type == GGML_TYPE_COUNT || mmq_get_nbytes_shared(c, cc) > smpbo) continue;
         const int nt = (ncols_opt + c.J - 1) / c.J;
         if (nt < nt_best) { nt_best = nt; *J_out = c.J; *nth_out = c.nthreads; }
@@ -86,7 +88,7 @@ static void widest(ggml_type t, bool fb, int cc, int * J_out, int * pad_out) {
     *J_out = ggml_cuda_mmq_get_J_max(t, fb, cc, 512);
     int pad = 0;
     for (int J = 8; J <= 128; J += 8) {
-        const ggml_cuda_mmq_config c = ggml_cuda_mmq_get_config(t, J, fb, cc, GGML_PREC_Q8);
+        const ggml_cuda_mmq_config c = ggml_cuda_mmq_get_config(t, J, fb, cc);
         if (c.type == GGML_TYPE_COUNT) continue;
         const int blocks = (int) ((GGML_PAD(c.J*BLOCK, c.nthreads*sizeof(int)) + BLOCK - 1) / BLOCK);
         if (blocks > pad) pad = blocks;

@@ -129,15 +129,22 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
 
 - `903-fix-mmq-ids-padding.patch` - **not a compatibility shim** (see "Number
   bands" below). In `ggml/src/ggml-cuda/mmq.cu`, pads every buffer that MMQ
-  reads in whole tiles for the widest tile that has a config,
-  `ggml_cuda_mmq_get_J_max(type, fallback, cc, 512)`, which is 128 on NVIDIA.
+  reads in whole tiles for the widest **padded** tile any launch could pick,
+  `max over J of GGML_PAD(J*sizeof(block_q8_1_mmq), nthreads*sizeof(int))`.
   That covers `src1_q8_1` in both branches, `ids_dst`, and NVFP4's `src1_scale`.
-  - **Why.** A tile loads `J` columns with no bound, so the last tile can read up
-    to `J - 1` columns past the data. For MUL_MAT_ID, the last expert's last tile
-    may hold a single row. `mul_mat_q_switch_J` rounds the batch up to `J`, while
-    `get_J_max()` of the batch rounds down, so padding derived from the batch
-    falls short for some shapes. Before #24127 (b9992), both branches padded by
-    the widest tile.
+  - **Why.** A tile loads `J` columns with no bound, so the last tile can read
+    past the data. For MUL_MAT_ID, the last expert's last tile may hold a single
+    row, at any batch size. `mul_mat_q_switch_J` rounds the batch up to `J`,
+    while `get_J_max()` of the batch rounds down, so padding derived from the
+    batch falls short for some shapes. Before #24127 (b9992), both branches
+    padded by the widest tile.
+  - **Why the *padded* tile and not `J` blocks.** The y load is
+    `for (l0 = 0; l0 < J*MMQ_TILE_Y_K; l0 += nthreads) tile_y[l0+tid] = by0[l0+tid];`
+    with no bound on `l`, so it copies the whole padded shared-memory y tile,
+    `GGML_PAD(J*sizeof(block_q8_1_mmq), nthreads*sizeof(int))` bytes - the same
+    expression `mmq_get_nbytes_shared()` uses. That exceeds `J` blocks whenever
+    `nthreads*4` does not divide `J*144`: on sm_120 `J = 16` needs 21 blocks and
+    `J = 112` needs 113. Only `J = 128` happens to equal `J - 1`.
   - **The fault it was written for** (2026-08-13). Under MoE broadcast,
     `ne11 == 1`, so upstream's `get_J_max(ne11)` returned 0. `src1_q8_1` then got
     no padding, and MMQ read up to a 128-column tile past it: an illegal memory
@@ -150,9 +157,20 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
     - #27044's line was short with one expert per token, and padded no `ids_dst`.
     - The maintainer switched 903 to the widest-tile rule on 2026-10-05. The
       measurements are in `docs/maxusai/upstream-mmq-successor-material.md`.
+    - **Amended the same day** to the widest *padded* tile, after llama.cpp#29953
+      (the fixup to #29941) was reproduced and the requirement turned out to be
+      larger than `J - 1`. The plain widest-tile rule was short by up to 5 blocks
+      in 25,384 gfx1151 shapes (q2_K and q3_K, `J = 80` with `nthreads = 256`
+      needs 85 blocks against the widest tile's 80), which matters because the
+      ROCm host serves gfx1151. Measurements:
+      `docs/maxusai/upstream-mmq-29953-material.md`.
   - **At the next pin move.** From the first llama.cpp pin that contains
-    `dd266785c`, the ids branch's context line reads `ne12`. Re-cut the hunk
-    against it; the change stays the same.
+    `dd266785c`, the ids branch's context line reads `ne12`, and from the first
+    that contains #29953 there is no `get_J_max()` call left to replace - pad
+    by the padded tile of the `J_best` that PR already computes
+    (`docs/maxusai/tasks/mmq-amend-29953.patch` is that form). Re-cut the hunk
+    against the new context; the rule stays the same. Check the series on a
+    checkout before building.
   - **References.**
     - `docs/maxusai/qwen35moe-mmq-investigation.md`: the original diagnosis.
     - `docs/maxusai/mmq-padding-regression-window.md`: the affected build range.
