@@ -46,6 +46,67 @@ Two further notes from that round:
   how these reports find each other: #22867 was linked to this bug by its distinctive
   `find_slot` line, not by any argument. The filed PR had to be corrected after the fact.
 
+## The review, and the maintainer's variant (2026-10-04)
+
+Facts for the maintainer's reply. As above, the reply itself must be written by hand.
+
+**State of #27044 on 2026-10-04:** open, with review required.
+- Other users confirmed the fix on sm_75 (RTX 2080 Ti), on sm_120 (twice) and on a GB10
+  (sm_121a).
+- An upstream reviewer linked issue #29847, which has a `test-backend-ops` reproducer:
+  `test_mul_mat_id(GGML_TYPE_Q4_0, GGML_TYPE_F32, 512, 10, b, 640, 508, 2560)`, for `b` false
+  and true. On the GB10 our line takes `compute-sanitizer` memcheck from 485 errors to 0, and the
+  full `MUL_MAT_ID` (933) and `MUL_MAT` (1304) suites pass. The reviewer suggested adding the two
+  cases to our PR.
+- **The upstream CUDA maintainer** wrote #24127, the refactor that introduced the bug. He said
+  our fix "looks 90% correct" and opened his own PR,
+  [#29941](https://github.com/ggml-org/llama.cpp/pull/29941). He asked whether #29941 also
+  works for us. #29941 changes the same line, but pads with `ne12` (the tokens in the batch)
+  instead of `ne12*n_expert_used`. It adds no test cases, because the tensors are large.
+
+**How the two lines differ.** This comes from reading upstream `master` (`mmq.cu`, `mmq.cuh`) on
+2026-10-04, not from a measurement:
+- **The maintainer's argument holds.** The `ids` launch passes `ncols_max = ne12`, and
+  `mul_mat_q_switch_J` picks the tile width `J` against `ncols_opt`. That is `ne12` on NVIDIA.
+  On RDNA3 and RDNA4, gfx1151 included, it is the average number of tokens per expert,
+  `⌈ne12·n_expert_used/ne02⌉`, which is never larger. So `ne12` bounds the launched `J`.
+- **At 512 tokens or more, both lines give the same padding.** `ggml_cuda_mmq_get_J_max` caps its
+  argument at 512. Every crash reported on #27044 used a batch of 1024 to 2178 tokens, and ours
+  used 2040. So #29941 fixes all of them by arithmetic.
+- **Below 512 tokens, #29941 pads less, and it can pad too little.**
+  - `ggml_cuda_mmq_get_J_max` rounds its argument down to a multiple of 8.
+  - `mul_mat_q_switch_J` picks the smallest `J` that covers `ncols_opt` in one tile, so it rounds
+    up.
+  - The src1 tile load, `for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; ...)`, has no bound.
+
+  With 100 tokens on NVIDIA, #29941 pads 96 rows, but the launch can choose `J = 104`. The last
+  tile can then read up to 7 rows past the padding. `ne12*n_expert_used` covers this whenever a
+  token uses two or more experts.
+- **Neither line closes the two gaps** that the sanitizer report on #27044 (2026-09-02) found:
+  - fewer than 8 rows gets no padding, while a `J = 8` kernel loads 8;
+  - `ids_dst` is read past its end by up to `(J-1)*4` bytes.
+
+  Padding by the `J` that is actually launched closes all three gaps.
+
+**What this means for the fork.** Compat `903` carries our line, and every production build
+applies it, gfx1151's included. gfx1151 reaches this branch:
+[rocm-mmq-ids-padding-result.md](tasks/rocm-mmq-ids-padding-result.md). If upstream merges #29941
+instead of #27044, 903 stops applying at the next llama.cpp bump. Then decide between two
+options:
+- drop 903, because #29941 covers every shape that we have seen crash;
+- keep a reworked 903 on top of #29941, for the rounding gap.
+
+**Open, for the CUDA host:**
+1. On sm_120, run each case three ways: `master`, `master` + 903, and `master` + #29941. Run all
+   of them under `compute-sanitizer --tool memcheck`. The cases are:
+   - the original reproducer: the MoE vision model with 256 experts, 8 used, q4_K gate/up, and a
+     2040-token ubatch;
+   - #29847's two cases.
+
+   A case below 128 tokens that is not a multiple of 8 would test the rounding gap.
+2. Give the maintainer the results, for a hand-written reply on #27044.
+3. At the next llama.cpp bump, check 903 against upstream's line.
+
 ## Strategy: a PR, not an issue
 
 The fix is verifiable by reading one function — no hardware, no model, no reproduction.
