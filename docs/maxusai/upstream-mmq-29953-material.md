@@ -31,30 +31,46 @@ The author pushed both the same day. At head `3070d927f` ("CUDA: fix MMQ out-of-
 and `mmq-amend-29953.patch` is of historical interest only.** Our independent arrival at the same formula, from a
 different direction (the CPU sweep rather than a seed sweep), is a cross-check on both.
 
-### What is still open upstream: the NVFP4 y scales
+### RETRACTED: the NVFP4 y scales are not read out of bounds
 
-`src1_scale` is **not** padded at head `3070d927f` -- both `alloc` calls are untouched context in the diff -- and
-it is read exactly the way `ids_dst` is:
+This file previously claimed that `src1_scale` is read up to `J_best - 1` floats past its end, by the same
+mechanism as `ids_dst`, and offered a two-line patch for it. **That claim does not survive measurement. Do not
+pass it on.**
 
-- `offset_y_scale += col_low + jt*J; y_scale_tile = y_scale + offset_y_scale;` (`mmq.cuh`), so `y_scale_tile`
-  points at the tile's first column.
-- The stream-k fixup write-back is called as `write_back(sum, ids_dst, tmp_fixup + blockIdx.x*(J*I), y_scale, I,
-  I, J)`: `j_max == J`, so its `if (j > j_max)` guard never fires and it reads `y_scale_tile[j]` for every column
-  of the tile.
-- So the last expert's last tile reads up to `J_best - 1` floats past `src1_scale`'s `ne12*n_expert_used`
-  (`ne13*ne12*ne11` in the dense branch) -- the same bound the PR just fixed for `ids_dst`.
-- **Every** NVFP4 config with native FP4 uses stream-k, on sm_120 and sm_121 alike, so the path is not exotic:
-  [tasks/mmq-nvfp4-streamk-probe.cu](tasks/mmq-nvfp4-streamk-probe.cu), output in
-  [tasks/mmq-successor-results/nvfp4-streamk.txt](tasks/mmq-successor-results/nvfp4-streamk.txt).
+The reasoning was: `offset_y_scale += col_low + jt*J; y_scale_tile = y_scale + offset_y_scale;`, and the stream-k
+fixup write-back is called as `write_back(sum, ids_dst, tmp_fixup + blockIdx.x*(J*I), y_scale, I, I, J)` with
+`j_max == J`, so its `if (j > j_max)` guard never fires and `y_scale_tile[j]` is read for the whole tile. Every
+part of that is in the source at head `3070d927f`, and the write-back is the same
+`ggml_cuda_mmq_write_back_mma<type, J, fallback>` for NVFP4 as for everything else, so the
+`if constexpr (type == GGML_TYPE_NVFP4)` branch is compiled.
 
-[tasks/mmq-amend-29953-yscale.patch](tasks/mmq-amend-29953-yscale.patch) is the two-line fix against
-`3070d927f`, in the PR's own idiom.
+What was measured instead, on the RTX PRO 6000 Blackwell with a `120a` build -- native FP4 really is in play, the
+build reports `prec=q4` and `MMQ_SCALE alloc n=9` shows the buffer being allocated:
 
-> [!NOTE]
-> **This one is read, not measured.** It needs native FP4, which an sm_120 build without `120a` does not have, so
-> nothing on this host exercises it; the GPU runs here all take the q8_1 path. `hclsys`'s GB10 is sm_121a and does
-> have it, but their sweep covered q4_0, q4_K, q6_K and q8_0 -- not NVFP4. Worth saying so plainly if this is
-> passed on.
+| shape | runs the fixup kernel? | `src1_scale`, exact size, memcheck | `guard:src1_scale` |
+|---|---|---|---|
+| `nvfp4, 8 experts, 1 used, 640x9x512` | **yes** (40 tiles, 21% of the waves on 188 SMs) | **0 errors** | 3/3 pass |
+| `nvfp4, 256 experts, 16 used, 640x16x512` | no (2560 tiles, 97%, so blocks == ntiles) | 0 errors | 3/3 pass |
+
+The control that rules out a harness fault: shrinking the allocation to one float makes memcheck report 9 errors
+immediately -- as **writes**, from the quantize kernel filling one scale per column. So the buffer is
+instrumented, it is live, the kernel's results are numerically correct, and nothing reads or writes past its
+`ne12*n_expert_used` entries.
+
+**Two things this corrects in the earlier write-up.** First, "every NVFP4 config uses stream-k, so the path is
+not exotic" was beside the point: stream-k is always selected, but the *fixup kernel* -- the only unbounded
+reader -- runs only when `launch_mul_mat_q` falls back to `nsm` blocks, which it does only when the tiles fill
+under 90% of the waves. The first shape tried was at 97% and never ran it;
+[tasks/mmq-fixup-shape-search.cu](tasks/mmq-fixup-shape-search.cu) finds shapes that do. Second, the claim was
+labelled "read, not measured" on the grounds that this host has no native FP4. That was wrong too:
+`blackwell_mma_available()` only needs `highest_compiled_arch >= 1200`, which even a plain `sm_120` build gives,
+and `__CUDA_ARCH_LIST__` is 1200 for both `120` and `120a`.
+
+**Why the read does not happen is not established.** The source says the whole tile is read; the device says
+nothing goes past the buffer. Rather than guess at the reconciliation, the claim is withdrawn.
+`tasks/mmq-amend-29953-yscale.patch` is kept only as the record of what was tried and is **not** to be sent
+anywhere. There is therefore **nothing outstanding for upstream from this work**: #29953's head fixes src1 and
+`ids_dst`, and the third buffer turned out not to need it.
 
 ## Where it stands (2026-10-05)
 
@@ -275,6 +291,31 @@ padding. That is a refactor of the amendment, not a different fix: `mmq_get_nbyt
 so the helper returns the identical value. **It is not what the measurements here were taken with** -- they used
 the 8-line form, which keeps `mmq.cuh` untouched -- so it is a suggestion for the maintainer to weigh, not a
 tested change.
+
+## A second architecture, and the dense branch (sm_75)
+
+`dense321` is a plain `MUL_MAT` -- `test_mul_mat(Q2_K, F32, 512, 321, 1024)`, no `MUL_MAT_ID` anywhere. On sm_75
+(RTX 2080 Ti, the only NVIDIA architecture where the CPU check finds the dense branch short at all, 45 shapes),
+three rules x two cases x three modes, from [tasks/mmq-successor-results/matrix-sm75.md](tasks/mmq-successor-results/matrix-sm75.md):
+
+| guard page | `ne12` (#29941) | #29953 as published | #29953 + amendment |
+|---|---|---|---|
+| `ids16`, src1 | 0/3 abort | 0/3 abort | 3/3 |
+| `ids16`, `ids_dst` | 0/3 abort | 0/3 abort | 3/3 |
+| **`dense321`, src1** | 3/3 | **0/3 abort** | 3/3 |
+| `dense321`, `ids_dst` | 3/3 | 3/3 | 3/3 (the dense branch has none) |
+| stock, both cases | pass | pass | pass |
+
+- **The defect is not MUL_MAT_ID-specific.** A plain dense matmul aborts, deterministically, on a second
+  architecture.
+- **`ne12` passes `dense321` where the published #29953 fails**, because master's `get_J_max(ne11)` with
+  `ne11 = 321` happens to give 128 blocks, covering the 85 needed, while #29953 tightened it to exactly
+  `J_best = 80`. In the dense branch the published fixup was a regression against master for this shape.
+- **Read against the published `5bd8b0013`, not today's head.** The head's padded-tile fix gives
+  `GGML_PAD(80*144, 1024) = 86` blocks, so it covers this; the "amendment" column is equivalent for src1 and
+  passes. So this is evidence that the correction upstream landed was necessary, and necessary beyond MoE -- not
+  a live bug in the head.
+- `ids16` reproducing identically on sm_75 is the check that the sm_120 results were not architecture-specific.
 
 ## Results
 

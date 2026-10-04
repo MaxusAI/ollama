@@ -31,6 +31,8 @@ JOBS=${JOBS:-8}
 REPS=${REPS:-3}
 MIN_FREE_MIB=${MIN_FREE_MIB:-20480}
 MODES=${MODES:-stock guard guard_ids_dst guard_src1 memcheck exact}
+# One build directory per CUDA_ARCH, or the two architectures clobber each other's objects.
+BUILD_DIR=${BUILD_DIR:-build-mmq-successor}
 VARIANTS=${VARIANTS:-ne11 ne12 p27044 successor p29953}
 # CMake hands nvcc the toolkit's include directory, but a search path from a shell profile (CPATH and friends) is
 # searched first, and one naming another toolkit mixes headers: CUDA 12.1's crt/host_config.h refuses gcc 13.
@@ -50,7 +52,7 @@ if ! grep -q 'get_J_max(113) = 64' tests/test-backend-ops.cpp; then
     git apply "$HERE/mmq-tests.patch" || { echo "mmq-tests.patch does not apply"; exit 1; }
 fi
 
-cmake -S . -B build-mmq-successor -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
+cmake -S . -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
       -DCMAKE_CUDA_COMPILER="$CUDA_HOME/bin/nvcc" -DCUDAToolkit_ROOT="$CUDA_HOME" -DBUILD_SHARED_LIBS=OFF \
       -DLLAMA_BUILD_TESTS=ON -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF -DLLAMA_CURL=OFF \
       > "$OUT/logs/cmake.log" 2>&1 || { echo "cmake failed, see $OUT/logs/cmake.log"; exit 1; }
@@ -62,15 +64,15 @@ for v in $VARIANTS; do for e in stock debug; do
     git checkout --quiet -- "$F" "$H"
     python3 "$HERE/mmq-variant.py" . "$v" $([ $e = debug ] && echo --debug) > /dev/null || exit 1
     echo "building $v-$e ..."
-    ninja -C build-mmq-successor -j "$JOBS" test-backend-ops > "$OUT/logs/build-$v-$e.log" 2>&1 \
+    ninja -C "$BUILD_DIR" -j "$JOBS" test-backend-ops > "$OUT/logs/build-$v-$e.log" 2>&1 \
         || { echo "build $v-$e failed, see $OUT/logs/build-$v-$e.log"; exit 1; }
-    cp build-mmq-successor/bin/test-backend-ops "$OUT/bin/test-backend-ops-$v-$e"
+    cp "$BUILD_DIR"/bin/test-backend-ops "$OUT/bin/test-backend-ops-$v-$e"
 done; done
 git checkout --quiet -- "$F" "$H"
 
 # The twelve cases of mmq-tests.patch, in its order. test_mul_mat_id(type_a, f32, n_mats, n_used, b, m, n, k)
 # gives ne02 = n_mats experts, n_expert_used = n_used, ne11 = b ? 1 : n_used, ne12 = n tokens, ne01 = m rows.
-CASES_ALL="p29847_b0 p29847_b1 j100_b0 j100_b1 e120_b0 e120_b1 one113 orig2040 fb65 t100 ids16 ids64"
+CASES_ALL="p29847_b0 p29847_b1 j100_b0 j100_b1 e120_b0 e120_b1 one113 orig2040 fb65 t100 ids16 ids64 dense321"
 CASES=${CASES:-$CASES_ALL}
 declare -A P=(
     [p29847_b0]='type_a=q4_0,type_b=f32,n_mats=512,n_used=10,b=0,m=640,n=508,k=2560,'
@@ -85,7 +87,11 @@ declare -A P=(
     [t100]='type_a=q4_K,type_b=f32,n_mats=256,n_used=8,b=1,m=512,n=100,k=2048,'
     [ids16]='type_a=q4_0,type_b=f32,n_mats=256,n_used=16,b=0,m=640,n=16,k=2560,'
     [ids64]='type_a=q4_0,type_b=f32,n_mats=256,n_used=64,b=0,m=640,n=100,k=2560,'
+    # MUL_MAT, not MUL_MAT_ID: the dense branch reads a padded y tile too. Short only on sm_75 among NVIDIA.
+    # -p is a regex (std::regex_search), so the brackets must be escaped or [1,1] reads as a character class
+    [dense321]='type_a=q2_K,type_b=f32,m=512,n=321,k=1024,bs=\[1,1\],nr=\[1,1\],per=\[0,1,2,3\],'
 )
+declare -A OP=( [dense321]=MUL_MAT )   # every other case is MUL_MAT_ID
 # mode -> binary suffix, MMQ_DEBUG_ALLOC value, sanitizer yes/no
 declare -A M_BIN=( [stock]=stock [memcheck]=stock [exact]=debug [guard]=debug [guard_ids_dst]=debug [guard_src1]=debug )
 declare -A M_ENV=( [stock]=off [memcheck]=off [exact]=exact [guard]=guard [guard_ids_dst]=guard:ids_dst [guard_src1]=guard:src1 )
@@ -105,10 +111,10 @@ for c in $CASES; do for v in $VARIANTS; do for mode in $MODES; do
         if [ "${M_SAN[$mode]}" = 1 ]; then
             env CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES="$GPU" MMQ_DEBUG_ALLOC="${M_ENV[$mode]}" timeout 2700 \
                 "$SAN" --tool memcheck --show-backtrace no --print-limit 3 \
-                "$bin" test -o MUL_MAT_ID -b CUDA0 -p "${P[$c]}" > "$log" 2>&1
+                "$bin" test -o "${OP[$c]:-MUL_MAT_ID}" -b CUDA0 -p "${P[$c]}" > "$log" 2>&1
         else
             env CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES="$GPU" MMQ_DEBUG_ALLOC="${M_ENV[$mode]}" timeout 900 \
-                "$bin" test -o MUL_MAT_ID -b CUDA0 -p "${P[$c]}" > "$log" 2>&1
+                "$bin" test -o "${OP[$c]:-MUL_MAT_ID}" -b CUDA0 -p "${P[$c]}" > "$log" 2>&1
         fi
         pass=$(grep -qE '^ *1/1 tests passed' "$log" && echo 1 || echo 0)
         ill=$(grep -c 'illegal memory access' "$log")

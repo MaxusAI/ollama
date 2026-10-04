@@ -16,7 +16,7 @@
 // crash. The buffer's last byte sits at the last byte of the mapping, so the read has nowhere to land.
 //
 // Either mode takes an optional suffix naming one buffer, so a fault can be attributed: `guard:ids_dst`,
-// `guard:src1`, `exact:ids_dst`, `exact:src1`. Without a suffix both buffers are instrumented.
+// `guard:src1`, `guard:src1_scale`, `exact:ids_dst`, ... Without a suffix all three are instrumented.
 
 #pragma once
 
@@ -28,11 +28,11 @@
 #include <cstdio>
 
 enum mmq_dbg_mode { MMQ_DBG_OFF = 0, MMQ_DBG_EXACT = 1, MMQ_DBG_GUARD = 2 };
-enum mmq_dbg_buf_id { MMQ_DBG_IDS_DST = 1, MMQ_DBG_SRC1 = 2 };
+enum mmq_dbg_buf_id { MMQ_DBG_IDS_DST = 1, MMQ_DBG_SRC1 = 2, MMQ_DBG_SRC1_SCALE = 4 };
 
 struct mmq_dbg_cfg {
     mmq_dbg_mode mode = MMQ_DBG_OFF;
-    int          bufs = MMQ_DBG_IDS_DST | MMQ_DBG_SRC1;
+    int          bufs = MMQ_DBG_IDS_DST | MMQ_DBG_SRC1 | MMQ_DBG_SRC1_SCALE;
 };
 
 static mmq_dbg_cfg mmq_dbg_cfg_init() {
@@ -51,8 +51,10 @@ static mmq_dbg_cfg mmq_dbg_cfg_init() {
             c.bufs = MMQ_DBG_IDS_DST;
         } else if (strcmp(which, "src1") == 0) {
             c.bufs = MMQ_DBG_SRC1;
+        } else if (strcmp(which, "src1_scale") == 0) {
+            c.bufs = MMQ_DBG_SRC1_SCALE;   // native-FP4 y scales, read per whole tile by the stream-k fixup
         } else {
-            fprintf(stderr, "MMQ_DEBUG_ALLOC: expected ids_dst or src1 after ':', got '%s'\n", which);
+            fprintf(stderr, "MMQ_DEBUG_ALLOC: expected ids_dst, src1 or src1_scale after ':', got '%s'\n", which);
             exit(1);
         }
     }
@@ -143,8 +145,8 @@ static void mmq_dbg_free(mmq_dbg_buf & b) {
 
 // Stands in for ggml_cuda_pool_alloc<T> at the call sites, so the surrounding code is untouched.
 template <typename T> struct mmq_dbg_ptr {
-    T * p = nullptr;
-    T * get() const { return p; }
+    T * ptr = nullptr;              // the dense branch passes src1_q8_1 as .ptr
+    T * get() const { return ptr; } // the ids branch as .get()
 };
 
 // MMQ_DEBUG_PRINT=1: one line per MUL_MAT_ID call with the shape, the tile width the launch is about to pick, and
@@ -172,7 +174,9 @@ static int mmq_src1_need_blocks(const int J, const int nthreads) {
     return (int) ((bytes + sizeof(block_q8_1_mmq) - 1) / sizeof(block_q8_1_mmq)) - 1;
 }
 
+// ids_dst_n < 0 means the dense branch, which has no ids_dst.
 static void mmq_dbg_report(
+        const char * branch,
         const ggml_type type, const bool fallback, const ggml_prec prec_src1, const int cc, const size_t smpbo,
         const int64_t ne11, const int64_t ne12, const int64_t n_expert_used, const int64_t ne02,
         const size_t pad_bytes, const int64_t ids_dst_n, const int64_t ids_dst_entries) {
@@ -180,8 +184,9 @@ static void mmq_dbg_report(
         return;
     }
 
-    const bool rdna = GGML_CUDA_CC_IS_RDNA3(cc) || GGML_CUDA_CC_IS_RDNA4(cc);
-    const int64_t ncols_opt = rdna ? (ne12*n_expert_used + ne02 - 1) / ne02 : ne12;
+    const bool    dense     = ids_dst_n < 0;
+    const bool    rdna      = GGML_CUDA_CC_IS_RDNA3(cc) || GGML_CUDA_CC_IS_RDNA4(cc);
+    const int64_t ncols_opt = dense ? ne11 : (rdna ? (ne12*n_expert_used + ne02 - 1) / ne02 : ne12);
 
     int J_launch = 0, ntiles_best = INT_MAX, nthreads = 0;
     for (int J = 8; J <= 128 && ntiles_best > 1; J += 8) {
@@ -198,15 +203,26 @@ static void mmq_dbg_report(
     }
 
     const int pad_blocks = (int) (pad_bytes / sizeof(block_q8_1_mmq));
-    const int need_src1  = mmq_src1_need_blocks(J_launch, nthreads);
-    const int need_ids   = J_launch - 1; // the last expert's last tile can hold a single row
+    int need_src1 = mmq_src1_need_blocks(J_launch, nthreads);
+    if (dense && J_launch > 0) {
+        // the dense branch's last tile holds ne11 - (ntiles - 1)*J columns, all but one of which is data
+        const int64_t ntiles = (ne11 + J_launch - 1) / J_launch;
+        need_src1 -= (int) (ne11 - (ntiles - 1)*J_launch - 1);
+    }
 
-    fprintf(stderr,
-            "MMQ_ID %-5s fb=%d prec=%s ne11=%4ld ne12=%5ld n_used=%3ld ne02=%4ld | J=%3d nthreads=%3d "
-            "| src1 need=%3d pad=%3d %-7s | ids_dst n=%7ld need=%3d pad=%3ld %-7s\n",
-            ggml_type_name(type), (int) fallback, prec_src1 == GGML_PREC_F32 ? "f32" : "q8",
+    fprintf(stderr, "MMQ_%-5s %-5s fb=%d prec=%s ne11=%5ld ne12=%5ld n_used=%3ld ne02=%4ld | J=%3d nthreads=%3d"
+            " | src1 need=%3d pad=%3d %-7s",
+            branch, ggml_type_name(type), (int) fallback,
+            prec_src1 == GGML_PREC_Q4  ? "q4"  : prec_src1 == GGML_PREC_Q8        ? "q8" :
+            prec_src1 == GGML_PREC_F32 ? "f32" : prec_src1 == GGML_PREC_UNDEFINED ? "und" : "???",
             (long) ne11, (long) ne12, (long) n_expert_used, (long) ne02, J_launch, nthreads,
-            need_src1, pad_blocks, pad_blocks >= need_src1 ? "covered" : "SHORT",
-            (long) ids_dst_entries, need_ids, (long) (ids_dst_n - ids_dst_entries),
-            ids_dst_n - ids_dst_entries >= need_ids ? "covered" : "SHORT");
+            need_src1, pad_blocks, pad_blocks >= need_src1 ? "covered" : "SHORT");
+    if (dense) {
+        fprintf(stderr, " | no ids_dst\n");
+    } else {
+        const int need_ids = J_launch - 1; // the last expert's last tile can hold a single row
+        fprintf(stderr, " | ids_dst n=%7ld need=%3d pad=%3ld %-7s\n",
+                (long) ids_dst_entries, need_ids, (long) (ids_dst_n - ids_dst_entries),
+                ids_dst_n - ids_dst_entries >= need_ids ? "covered" : "SHORT");
+    }
 }

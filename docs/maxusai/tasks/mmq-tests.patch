@@ -1,8 +1,22 @@
 diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
-index 507fda75..6fc681ba 100644
+index 507fda75..32c9ceb8 100644
 --- a/tests/test-backend-ops.cpp
 +++ b/tests/test-backend-ops.cpp
-@@ -10529,6 +10529,32 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+@@ -10441,6 +10441,13 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+     test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_F16, GGML_TYPE_F32, 4, 2, false, 8, 16, 64, 1.0f, 64));
+ 
+     test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q4_0, GGML_TYPE_F32, 576, 512, 576, {1,1}, {1,1}));
++
++    // MMQ's dense branch reads a padded y tile too, so the same shortfall exists without MUL_MAT_ID. On sm_75,
++    // q2_K at 321 columns with ne01 % 128 == 0 launches J = 80 with 256 threads: the tile load copies
++    // GGML_PAD(80*144, 1024) = 12288 bytes = 86 blocks, and 321 columns leave one in the last of five tiles, so
++    // 85 blocks are past the data against #29953's 80 and master's get_J_max(321) = 80. The CPU check finds no
++    // such shape on sm_86, sm_89 or sm_120.
++    test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q2_K, GGML_TYPE_F32, 512, 321, 1024, {1,1}, {1,1}));
+     test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q4_0, GGML_TYPE_F32, 1, 2048, 8192, {1,  1}, {1, 1}));
+     for (ggml_type type_a : all_types) {
+         test_cases.emplace_back(new test_mul_mat(type_a, GGML_TYPE_F32, 1, 64, 256, {1,  1}, {1, 1}));
+@@ -10529,6 +10536,32 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
      }
      test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_0, GGML_TYPE_F32, 32, 2, false, 2880, 32, 2880));
  
