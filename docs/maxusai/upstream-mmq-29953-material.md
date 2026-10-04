@@ -255,17 +255,28 @@ that pad `ids_dst` pass every case. This is not a corner: it is every MoE shape 
 | `j100_b0`, `e120_b0/b1`, `fb65`, `t100` | abort | abort | pass | pass | pass |
 | `p29847_b0/b1`, `orig2040`, `ids64` | abort | pass | pass | pass | pass |
 
-`j100_b1` is #29953's one-block shortfall at `J = 112` (`need` 113 against its 112), which is marginal against
-the guard's at most 127 bytes of alignment slack and needs `r = 1`; **1 of 2 is not a result**, so it is being
-repeated with the amended rule as a control in the same harness, and the rate goes here when it is in. `ids16` is
-the case that does not depend on luck.
+**The `J = 112` cells, ten repeats each, with the amendment as a control in the same harness.** #29953's
+shortfall there is one 144-byte block, which only bites when the routing puts a single row in the last non-empty
+expert, so it is a rate rather than a verdict. Aborts out of ten:
+
+| case | mean rows/expert | `ne12` (#29941) | **#29953** | **#29953 + amendment** |
+|---|---|---|---|---|
+| `ids16` (`J` = 16, 5 blocks short) | 1.0 | 10/10 | **10/10** | **0/10** |
+| `j100_b1` (`J` = 112, 1 block short) | 2.0 | 10/10 | **4/10** | **0/10** |
+| `j100_b0` (`J` = 112, 1 block short) | 2.0 | 10/10 | **1/10** | **0/10** |
+
+So the one-block shortfall is real and reproducible, at 4 in 10 and 1 in 10; the amendment is clean 10 of 10 on
+both in the same harness, which is what separates the padding from the harness. `ids16` is the case to hand over:
+its 5-block shortfall and one row per expert make it deterministic.
+
+**Combined guard, both buffers at once, five cases x seven rules.** All four published rules abort on all five
+cases; all three amended rules pass. No exceptions.
 
 **Stock, no sanitizer, no debug allocator.** `ne11` aborts on four cases and `ne12` on `e120_b0` and `e120_b1`;
 everything else passes under every rule. That is the pool doing what it always does, and the reason a user hits
 this as an intermittent crash rather than a test failure.
 
-Two addenda were still running when this was written: the combined `guard` mode (both buffers at once) for five
-cases, and the `j100_b1` repeats. Both only add rows; no cell above changes.
+749 rows in all, from the main pass plus [tasks/mmq-rules-addenda.sh](tasks/mmq-rules-addenda.sh).
 
 ## Reproduce
 

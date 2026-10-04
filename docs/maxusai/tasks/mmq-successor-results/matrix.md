@@ -44,9 +44,13 @@
 
 | case | ne11 (#24127) | ne12 (#29941, master) | #29953 | ne12*n_expert_used (#27044) | widest tile (#448) | widest padded tile (#448 amended) | #29953 + amendment |
 |---|---|---|---|---|---|---|---|
+| `ids16` | 0/2 abort | 0/2 abort | 0/2 abort | 0/2 abort | 2/2 | 2/2 | 2/2 |
 | `p29847_b0` | - | 0/3 abort | - | - | - | - | - |
 | `p29847_b1` | - | 0/3 abort | - | - | - | - | - |
-| `j100_b0` | - | 0/3 abort | - | - | - | - | - |
+| `j100_b0` | 0/2 abort | 0/3 abort | 0/2 abort | 0/2 abort | 2/2 | 2/2 | 2/2 |
+| `ids64` | 0/2 abort | 0/2 abort | 0/2 abort | 0/2 abort | 2/2 | 2/2 | 2/2 |
+| `e120_b1` | 0/2 abort | 0/2 abort | 0/2 abort | 0/2 abort | 2/2 | 2/2 | 2/2 |
+| `one113` | 0/2 abort | 0/2 abort | 0/2 abort | 0/2 abort | 2/2 | 2/2 | 2/2 |
 
 ### guard page on ids_dst only, no sanitizer
 
@@ -69,16 +73,16 @@
 
 | case | ne11 (#24127) | ne12 (#29941, master) | #29953 | ne12*n_expert_used (#27044) | widest tile (#448) | widest padded tile (#448 amended) | #29953 + amendment |
 |---|---|---|---|---|---|---|---|
-| `ids16` | 0/2 abort | 0/2 abort | 0/2 abort | 2/2 | 2/2 | 2/2 | 2/2 |
+| `ids16` | 0/2 abort | 0/10 abort | 0/10 abort | 2/2 | 2/2 | 2/2 | 10/10 |
 | `p29847_b0` | 0/2 abort | 3/3 | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 |
 | `p29847_b1` | 0/2 abort | 3/3 | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 |
-| `j100_b0` | 0/2 abort | 0/3 abort | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 |
+| `j100_b0` | 0/2 abort | 0/10 abort | 9/10 abort | 2/2 | 2/2 | 2/2 | 10/10 |
 | `ids64` | 0/2 abort | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 |
 | `e120_b1` | 0/2 abort | 0/2 abort | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 |
 | `one113` | 0/2 abort | 0/2 abort | 2/2 | 0/2 abort | 2/2 | 2/2 | 2/2 |
 | `fb65` | 0/2 abort | 0/2 abort | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 |
 | `orig2040` | 0/2 abort | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 |
 | `e120_b0` | 0/2 abort | 0/2 abort | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 |
-| `j100_b1` | 0/2 abort | 0/2 abort | 1/2 abort | 2/2 | 2/2 | 2/2 | 2/2 |
+| `j100_b1` | 0/2 abort | 0/10 abort | 6/10 abort | 2/2 | 2/2 | 2/2 | 10/10 |
 | `t100` | 0/2 abort | 0/2 abort | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 |
 
