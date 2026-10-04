@@ -152,14 +152,20 @@ for `b=1`.
 
 **Two local changes, common to all three builds:**
 - **The debug switch.** `MMQ445_EXACT=1` gives the src1 buffer an exact-size `cudaMalloc`, and is debug only.
-- **A workaround for a launch failure.** On master `05043961`, every MoE `MUL_MAT_ID` through MMQ failed on this host
-  with `invalid argument` at the `mm_ids_helper` launch, before any padding code ran. Master's own test cases
-  failed the same way.
-  - `mm_ids_helper` has 1 KB of static shared memory, and `CUDA_SET_SHARED_MEMORY_LIMIT` raises its dynamic limit to
-    the device maximum, 101,376 bytes.
-  - A standalone kernel with the same 1 KB static array gets the same error.
+- **A workaround for a launch failure in these builds.** In these builds of master `05043961`, every MoE `MUL_MAT_ID`
+  through MMQ failed on this host with `invalid argument` at the `mm_ids_helper` launch, before any padding code
+  ran. Master's own test cases failed the same way.
+  - The compiled helper reports 1 KB of static shared memory (`cuobjdump -res-usage`). `CUDA_SET_SHARED_MEMORY_LIMIT`
+    raises its dynamic limit to the device maximum, 101,376 bytes.
+  - A standalone kernel with a 1 KB static array gets the same error.
   - The workaround leaves the limit at its default, which covers the `n_tokens*4` bytes of every case here.
-  - This is a separate upstream problem. It has not been checked on other GPUs or CUDA versions.
+  - **This is not shown to be upstream's problem** (corrected 2026-10-04):
+    - `mmid.cu` is byte-identical in b11081, b11232 and master `05043961`.
+    - Production's b11081 build runs this path on the same card.
+    - Production's `sm_120a` PTX for the helper declares no static shared memory; it is compiled to SASS on the GPU
+      at load time.
+    - These builds compiled native `sm_120a` code with CUDA 13.0, as a static build. The 1 KB more likely comes from
+      that build configuration than from upstream's code.
 
 **A GPU-free check.** [`tasks/mmq-ids-padding-test.cu`](tasks/mmq-ids-padding-test.cu) replays the padding rule
 against upstream's own config functions.
