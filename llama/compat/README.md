@@ -132,8 +132,8 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   `ggml/src/ggml-cuda/mmq.cu` from the flattened row count
   (`ne12*n_expert_used`) instead of `ne11`. Under MoE broadcast `ne11 == 1`, so
   `ggml_cuda_mmq_get_J_max()` returns 0, `src1_q8_1` gets no tail padding at
-  all, and MMQ overruns the logical end by up to a 512-row tile — an illegal
-  memory access. Stock-ggml defect, not fork-specific; it surfaces under Ollama
+  all, and MMQ overruns the logical end by up to one tile, at most 128 rows
+  (no MMQ config is wider), which is an illegal memory access. Stock-ggml defect, not fork-specific; it surfaces under Ollama
   because one value is passed as both `-b` and `-ub`, so a whole image arrives
   in a single ubatch. See `docs/maxusai/qwen35moe-mmq-investigation.md` for the
   diagnosis, `docs/maxusai/mmq-padding-regression-window.md` for the affected
@@ -141,6 +141,16 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   this must not be backported to a lineage pinned at or below b9990 — there is
   nothing there to fix and the patch will not apply), and
   `docs/maxusai/upstream-mmq-ids-padding-issue.md` for the upstream report.
+
+  **Upstream took a narrower line, and 903 stays.** On 2026-10-04 upstream
+  merged #29941 (`dd266785c`), which pads by `ne12`, and closed #27044 in its
+  favour. That covers every reported crash: all were at 128 tokens or more,
+  where both lines pad 128 blocks. Below 128 tokens it can leave the last tile
+  up to 63 blocks short. The measurements are in
+  `docs/maxusai/upstream-mmq-submission-material.md`. The maintainer decided
+  the same day to keep 903. At the first llama.cpp pin that contains
+  `dd266785c`, 903's context line reads `ne12`, so re-cut the patch as
+  `ne12` → `ne12*n_expert_used`.
 - `908-revert-fattn-mma-gemma4-tiling.patch` - **not a compatibility shim**
   (see "Number bands" below). Reverts the device half of llama.cpp
   `ce8caa6e6` ("CUDA: tune FA for Gemma 4 on Ampere or newer", in b11081):
