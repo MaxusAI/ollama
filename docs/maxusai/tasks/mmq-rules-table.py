@@ -24,8 +24,10 @@ VARIANT_LABEL = {
     "p29953":    "#29953",
     "p27044":    "ne12*n_expert_used (#27044)",
     "successor": "widest tile (#448)",
+    "s448p":     "widest padded tile (#448 amended)",
+    "p29953fix": "#29953 + amendment",
 }
-VARIANT_ORDER = ["ne11", "ne12", "p29953", "p27044", "successor"]
+VARIANT_ORDER = ["ne11", "ne12", "p29953", "p27044", "successor", "s448p", "p29953fix"]
 
 
 def main():
@@ -38,7 +40,12 @@ def main():
 
     cases = list(dict.fromkeys(r["case"] for r in rows))
     modes = [m for m in MODE_LABEL if any(r["mode"] == m for r in rows)]
-    variants = [v for v in VARIANT_ORDER if any(r["variant"] == v for r in rows)]
+    seen = list(dict.fromkeys(r["variant"] for r in rows))
+    unknown = [v for v in seen if v not in VARIANT_LABEL]
+    if unknown:
+        sys.exit("variant(s) %s are in the data but not in VARIANT_LABEL: add them or the column is dropped"
+                 % ", ".join(unknown))
+    variants = [v for v in VARIANT_ORDER if v in seen]
     cell = collections.defaultdict(list)
     for r in rows:
         cell[(r["case"], r["variant"], r["mode"])].append(r)
