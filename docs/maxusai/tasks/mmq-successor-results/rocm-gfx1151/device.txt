@@ -1,0 +1,29 @@
+# docs/maxusai/tasks/mmq-hip-vmm-probe.hip on gfx1151, ROCm 7.2.1, production server idle (no model loaded)
+$ ./mmq-hip-vmm-probe 0
+gcnArchName=gfx1151 warpSize=32 sharedMemPerBlock=65536 sharedMemPerBlockOptin=65536 multiProcessorCount=20 VMM=1
+granularity min=4096 recommended=4096
+reading 1024 ints of a 4096-byte mapping, the last 0 past its end
+hipDeviceSynchronize -> no error
+exit 0
+
+$ ./mmq-hip-vmm-probe 1
+gcnArchName=gfx1151 warpSize=32 sharedMemPerBlock=65536 sharedMemPerBlockOptin=65536 multiProcessorCount=20 VMM=1
+granularity min=4096 recommended=4096
+reading 1024 ints of a 4096-byte mapping, the last 1 past its end
+hipDeviceSynchronize -> an illegal memory access was encountered
+exit 1
+
+$ journalctl -k -o cat --since <the second run>    (amdgpu lines)
+amdgpu 0000:c6:00.0: amdgpu: [gfxhub] page fault (src_id:0 ring:24 vmid:8 pasid:<n>)
+amdgpu 0000:c6:00.0: amdgpu:  in process mmq-hip-vmm-pro pid <pid> thread mmq-hip-vmm-pro pid <pid>)
+amdgpu 0000:c6:00.0: amdgpu:   in page starting at address 0x000070016e805000 from client 10
+amdgpu 0000:c6:00.0: amdgpu: GCVM_L2_PROTECTION_FAULT_STATUS:0x00801430
+amdgpu 0000:c6:00.0: amdgpu: 	 Faulty UTCL2 client ID: SQC (data) (0xa)
+amdgpu 0000:c6:00.0: amdgpu: 	 MORE_FAULTS: 0x0
+amdgpu 0000:c6:00.0: amdgpu: 	 WALKER_ERROR: 0x0
+amdgpu 0000:c6:00.0: amdgpu: 	 PERMISSION_FAULTS: 0x3
+amdgpu 0000:c6:00.0: amdgpu: 	 MAPPING_ERROR: 0x0
+amdgpu 0000:c6:00.0: amdgpu: 	 RW: 0x0
+
+$ ./mmq-hip-vmm-probe 0    # the GPU afterwards
+hipDeviceSynchronize -> no error
