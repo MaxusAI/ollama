@@ -107,11 +107,13 @@ static void widest(ggml_type t, bool fb, int cc, int * J_out, int * pad_out) {
     *pad_out = (int) (widest_bytes / BLOCK);
 }
 
-static const char * const ARCH_NAMES[5] = {"sm_75", "sm_86", "sm_89", "sm_120", "gfx1151"};
-static int arch_index(const char * name) { for (int i = 0; i < 5; ++i) if (!strcmp(name, ARCH_NAMES[i])) return i; return 0; }
+#define N_ARCH 10
+static const char * const ARCH_NAMES[N_ARCH] = {"sm_75", "sm_86", "sm_89", "sm_120", "gfx1151",
+                                                "sm_70", "sm_80", "sm_90", "CDNA3", "RDNA4"};
+static int arch_index(const char * name) { for (int i = 0; i < N_ARCH; ++i) if (!strcmp(name, ARCH_NAMES[i])) return i; return 0; }
 
 struct tally {
-    long n = 0; long n_arch[5] = {}; int worst = 0; char ex[220] = "";
+    long n = 0; long n_arch[N_ARCH] = {}; int worst = 0; char ex[220] = "";
     void add(int shortfall, const char * arch, const char * tname, int fb, long a, long b, long c, int J, int nth, int pad) {
         if (shortfall <= 0) return;
         ++n; ++n_arch[arch_index(arch)];
@@ -127,7 +129,7 @@ struct tally {
             printf(" in %ld shapes, worst %d %s past the allocation\n", n, worst, unit);
             printf("  %-34s  worst case: %s\n", "", ex);
             printf("  %-34s  by arch:", "");
-            for (int i = 0; i < 5; ++i) printf(" %s %ld%s", ARCH_NAMES[i], n_arch[i], i < 4 ? "," : "");
+            for (int i = 0; i < N_ARCH; ++i) if (n_arch[i]) printf(" %s %ld", ARCH_NAMES[i], n_arch[i]);
         }
         printf("\n");
     }
@@ -139,12 +141,22 @@ static const char * const RN[NR] = {
     "#27044 (ne12*n_expert_used)", "#448 (widest tile)", "#448 amended (widest padded tile)"};
 
 struct arch { const char * name; int cc; size_t smpbo; };
+// smpbo is the opt-in shared memory per block; on HIP ggml uses sharedMemPerBlock, 64 KiB on these parts.
+// It only ever REMOVES candidate configs from the launch, so the amended rule -- the max padded tile over every
+// config that exists for (type, fallback, cc) -- is sufficient whatever it is. These values are the documented
+// per-architecture limits; sm_120's was read from this host.
 static const arch ARCHS[] = {
     {"sm_75",   GGML_CUDA_CC_TURING,        65536},
     {"sm_86",   860,                       101376},
     {"sm_89",   GGML_CUDA_CC_ADA_LOVELACE, 101376},
     {"sm_120",  GGML_CUDA_CC_BLACKWELL,    101376},
     {"gfx1151", GGML_CUDA_CC_RDNA3_5,       65536},
+    // added to test the construction against config tables this work never touched
+    {"sm_70",   GGML_CUDA_CC_VOLTA,         98304},
+    {"sm_80",   GGML_CUDA_CC_AMPERE,       166912},
+    {"sm_90",   GGML_CUDA_CC_HOPPER,       232448},
+    {"CDNA3",   GGML_CUDA_CC_CDNA3,         65536},
+    {"RDNA4",   GGML_CUDA_CC_RDNA4,         65536},
 };
 static const ggml_type TYPES[] = {GGML_TYPE_Q4_0, GGML_TYPE_Q4_1, GGML_TYPE_Q5_0, GGML_TYPE_Q5_1, GGML_TYPE_Q8_0,
                                   GGML_TYPE_Q2_K, GGML_TYPE_Q3_K, GGML_TYPE_Q4_K, GGML_TYPE_Q5_K, GGML_TYPE_Q6_K};
@@ -258,8 +270,9 @@ int main(int argc, char ** argv) {
         }
     }
 
-    printf("ids branch: %ld shapes (sm_75/86/89/120 and gfx1151 x 10 types x fallback 0/1 x every MMQ batch up to\n"
-           "            1024 tokens x n_expert_used 1..16 x broadcast 0/1; on gfx1151 also x 8/32/128/256 experts)\n",
+    printf("ids branch: %ld shapes (sm_70/75/80/86/89/90/120, gfx1151, CDNA3 and RDNA4 x 10 types x fallback 0/1\n"
+           "            x every MMQ batch up to 1024 tokens x n_expert_used 1..16 x broadcast 0/1; on RDNA3/4 also\n"
+           "            x 8/32/128/256 experts)\n",
            ids_shapes);
     printf(" src1_q8_1, one expert per token (n_expert_used = 1):\n");
     for (int r = 0; r < NR; ++r) ids_src1[r][0].print(RN[r], "blocks");
@@ -269,7 +282,7 @@ int main(int argc, char ** argv) {
     for (int r = 0; r < NR; ++r) {
         tally both = ids_dst[r][0].n ? ids_dst[r][0] : ids_dst[r][1];
         both.n = ids_dst[r][0].n + ids_dst[r][1].n;
-        for (int i = 0; i < 5; ++i) both.n_arch[i] = ids_dst[r][0].n_arch[i] + ids_dst[r][1].n_arch[i];
+        for (int i = 0; i < N_ARCH; ++i) both.n_arch[i] = ids_dst[r][0].n_arch[i] + ids_dst[r][1].n_arch[i];
         if (ids_dst[r][1].worst > both.worst) { both.worst = ids_dst[r][1].worst; snprintf(both.ex, sizeof(both.ex), "%s", ids_dst[r][1].ex); }
         both.print(RN[r], "int32 entries");
     }

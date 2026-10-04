@@ -190,6 +190,37 @@ pool mapped after it.
 Note the direction of the trade: #29953 is short in **more** shapes than #29941 but by **less** -- at most 6
 blocks instead of 63 -- because it fixes the rounding and leaves only the padded-tile term.
 
+## Ten architectures: the amended rule is sufficient by construction
+
+The amended rule takes the **maximum padded tile over every config that exists** for `(type, fallback, cc)`. The
+launch can only pick one of those configs, filtered further by shared memory, and `smpbo` only ever *removes*
+candidates. So the amended rule is sufficient on any architecture and any shared-memory limit, given only that
+`mul_mat_q_switch_J` keeps picking from `ggml_cuda_mmq_get_config(type, J, fallback, cc)` for `J` in 8..128. The
+sweeps confirm the construction; they are not what makes it hold.
+
+Re-run over ten architectures -- adding sm_70, sm_80, sm_90, CDNA3 and RDNA4 to the original five, 9,431,816
+ids-branch shapes ([tasks/mmq-successor-results/check-rules-wide.txt](tasks/mmq-successor-results/check-rules-wide.txt)):
+
+| rule | src1, >=2 experts/token | worst | short on which architectures |
+|---|---|---|---|
+| #29941 (`ne12`), master | 1,255,564 | 63 blocks | all ten |
+| #29953 at `3070d927f` | 3,520,756 | **12 blocks** | all ten |
+| #27044, main's 903 | 635,468 | 17 blocks | all ten |
+| #448 as published | 626,512 | **7 blocks** | **gfx1151 25,256, CDNA3 576,000, RDNA4 25,256; zero on all seven NVIDIA** |
+| **#448 amended** | **covered** | - | none |
+
+**This widens the case for the amendment well beyond gfx1151.** `nthreads` is 512 on CDNA, not 256, so the
+padded tile is larger: the worst case is CDNA3, q4_0, non-fallback, `J = 64` with `nthreads = 512`, where
+`GGML_PAD(64*144, 2048) = 10,240` bytes needs 71 blocks against the widest tile's 64. The dense branch is short
+there too (1,960 CDNA3 shapes against 45 each on sm_75, gfx1151 and RDNA4).
+
+> [!WARNING]
+> **sm_70, sm_80, sm_90, CDNA3 and RDNA4 are modelled, not measured** -- there is no such hardware here and
+> nobody has run them. gfx1151 was modelled too and came back byte-identical on hipcc (#449), which is some
+> evidence the modelling is sound, but it is not proof for CDNA or RDNA4. Their `smpbo` values are the documented
+> per-architecture limits rather than readings, which the construction above makes harmless. And as #449
+> established, a counted shape is not a reachable one: these are counts.
+
 ## Why nobody sees this locally
 
 Both reads usually land in memory the process has already mapped, so they neither fault nor show up under
