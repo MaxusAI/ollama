@@ -202,6 +202,25 @@ An equivalent standalone change against master, for a tree without #29953, is
 [tasks/mmq-fix-amended.patch](tasks/mmq-fix-amended.patch): it takes the maximum padded tile over every config
 that exists, so it does not depend on the launch choice.
 
+**Worth offering alongside it, in #29953's own spirit.** The amendment spells `GGML_PAD(J*B, nthreads*4)` out in
+`mmq.cu`, which leaves the same expression written twice -- once for the shared-memory tile, once for the
+allocation -- and that duplication is how this class of bug arrives. Naming it once in `mmq.cuh` removes that:
+
+```c
+// Bytes of src1 a tile of this config reads from its first column: the tile load copies the whole padded
+// shared-memory y tile, so this is exactly the y term of mmq_get_nbytes_shared().
+static size_t mmq_get_nbytes_y_tile(const ggml_cuda_mmq_config & config) {
+    return GGML_PAD(config.J*sizeof(block_q8_1_mmq), config.nthreads*sizeof(int));
+}
+```
+
+with `mmq_get_nbytes_shared()` calling it for its `nbs_y` term and `ggml_cuda_mul_mat_q` calling it for the
+padding. That is a refactor of the amendment, not a different fix: `mmq_get_nbytes_shared()` already computes
+`nbs_ids + nbs_x + GGML_PAD(nbs_y, config.nthreads*sizeof(int))` with `nbs_y = config.J*sizeof(block_q8_1_mmq)`,
+so the helper returns the identical value. **It is not what the measurements here were taken with** -- they used
+the 8-line form, which keeps `mmq.cuh` untouched -- so it is a suggestion for the maintainer to weigh, not a
+tested change.
+
 ## Results
 
 _Pending: [tasks/mmq-rules-gpu.sh](tasks/mmq-rules-gpu.sh)'s matrix (7 rules x 12 cases x 4 modes, sm_120,
