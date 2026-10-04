@@ -1,0 +1,10 @@
+cmn  common_param: system_info: n_threads = 16 (n_threads_batch = 16) / 32 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | AVX512 = 1 | LLAMAFILE = 1 | REPACK = 1 | CUDA : ARCHS = 1200 | USE_GRAPHS = 1 | FA_QUANTS = q4_0-q4_0,q8_0-q8_0,f16-f16,bf16-bf16 | BLACKWELL_NATIVE_FP4 = 1 | 
+llama_context: n_batch               = 2048
+llama_context: n_ubatch              = 2048
+get_dummy_batch: warmup with image size = 1472 x 1472
+get_dummy_batch: warmup with image size = 1472 x 1472
+time=2026-10-04T15:21:24.298Z level=INFO source=sched.go:759 msg="loaded runners" count=1
+decoding image batch 1/2, n_tokens_batch = 2048
+image decoded (batch 1/2) in 73846 ms
+decoding image batch 2/2, n_tokens_batch = 2032
+image decoded (batch 2/2) in 657 ms

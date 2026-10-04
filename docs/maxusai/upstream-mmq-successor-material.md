@@ -160,6 +160,32 @@ The build here used nvcc 12.8 with CUDA 12.1's runtime; the driver's run with a 
 
 [tasks/mmq-crash-shape.cu](tasks/mmq-crash-shape.cu) is the search that found it, using the same pool and fixup model.
 
+## The over-read on a real model (2026-10-05)
+
+The test-backend-ops cases are synthetic. The over-read also reproduces end to end on a served model, which is how it
+was first found (`qwen35moe-mmq-investigation.md`). On `qwen3.6:35b-a3b-q4_K_M` (qwen35moe, 256 experts, 8 used) with
+one 3072x1728 image and `num_batch=2048` (the image prefills as 2048+2032-token ubatches through the experts), on the
+CUDA host (sm_120, b11081):
+
+| libggml-cuda.so | src1 allocation | num_ctx | outcome |
+|---|---|---|---|
+| raw (upstream `ne11`) | VMM pool (shipping) | 8192 and 33792 | HTTP 200, image decoded |
+| raw (upstream `ne11`) + 910 | exact-size `cudaMalloc` | 8192 | **illegal memory access at `decoding image batch 1/2`, core dump** |
+| new 903 (widest tile) + 910 | exact-size `cudaMalloc` | 8192 | HTTP 200, image decoded cleanly |
+
+The broadcast gate/up MUL_MAT_ID has `ne11 == 1`, so upstream's `get_J_max(ne11) = 0`: `src1_q8_1` gets no tail
+padding and the kernel reads a whole tile past it. The shipping VMM pool maps memory beyond the buffer, so the read
+lands in valid memory and the run completes -- the bug is latent, which is why it first looked like an intermittent
+crash gated on `num_ctx > 32768`. Debug patch `910-mmq-exact-debug.patch` (env `MMQ_EXACT=1`, not shipped) gives
+`src1` its own exact-size allocation so the read crosses the boundary deterministically: the raw kernel then
+core-dumps at the image-batch decode (`llama_context::process_ubatch -> decode`, `ggml-cuda.cu:108`), and the
+widest-tile 903 decodes it cleanly. Logs and the full table: [tasks/mmq-successor-results/real-model/](tasks/mmq-successor-results/real-model/).
+
+compute-sanitizer cannot instrument the model through `ollama serve`: ollama re-execs its runner with a rebuilt
+environment that drops the sanitizer injection, so only the parent is instrumented. The precise
+`Invalid __global__ read ... mul_mat_q` line is from the test-backend-ops path under memcheck; on the real model the
+exact-size allocation turns the same read into the deterministic crash above.
+
 **What it does not show.** The case aborts when it runs on a pool nothing larger has used before it. That holds for
 `-p` on the case alone, and for `-o MUL_MAT_ID` if no earlier case needs more pool. In a full run the pool may
 already be larger, and the read lands in mapped memory again: the same holds for #29847's cases. On a GPU whose SM

@@ -1,0 +1,32 @@
+--- a/ggml/src/ggml-cuda/mmq.cu
++++ b/ggml/src/ggml-cuda/mmq.cu
+@@ -1,5 +1,6 @@
+ #include "common.cuh"
+ #include "mmq.cuh"
++#include <cstdlib>
+ #include "quantize.cuh"
+ #include "mmid.cuh"
+ 
+@@ -211,7 +212,13 @@
+ 
+     const size_t nbytes_src1_q8_1 = ne12*n_expert_used*ne10_padded * y_block_size/y_values_per_block +
+         J_pad * sizeof(block_q8_1_mmq);
+-    ggml_cuda_pool_alloc<char> src1_q8_1(ctx.pool(), nbytes_src1_q8_1);
++    // MAXUSAI MMQ_EXACT (debug, not for shipping): see 910. With the widest-tile padding above, the exact-size
++    // allocation INCLUDES J_pad blocks, so the tile read stays inside it and compute-sanitizer stays clean.
++    static const bool mmq_exact = getenv("MMQ_EXACT") != nullptr;
++    char * mmq_exact_buf = nullptr;
++    ggml_cuda_pool_alloc<char> src1_q8_1_pool(ctx.pool());
++    if (mmq_exact) { CUDA_CHECK(cudaMalloc(&mmq_exact_buf, nbytes_src1_q8_1)); } else { src1_q8_1_pool.alloc(nbytes_src1_q8_1); }
++    struct { char * p; char * get() const { return p; } } src1_q8_1 = { mmq_exact ? mmq_exact_buf : src1_q8_1_pool.get() };
+     ggml_cuda_pool_alloc<float> src1_scale(ctx.pool());
+     if (src0->type == GGML_TYPE_NVFP4 && use_native_fp4) {
+         src1_scale.alloc(ne12*n_expert_used + J_pad);
+@@ -268,6 +275,7 @@
+         ne12, ncols_opt};
+ 
+     ggml_cuda_mul_mat_q_switch_type(ctx, args, stream);
++    if (mmq_exact) { CUDA_CHECK(cudaStreamSynchronize(stream)); CUDA_CHECK(cudaFree(mmq_exact_buf)); }
+ }
+ 
+ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t n_experts) {
