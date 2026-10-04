@@ -1,10 +1,12 @@
-// gfx1151 companion to mmq-rules-check.cu (#448, answering #449). Same sweep, same six rules, same tile
-// selection, plus the two things that decide whether a shape the check counts is one this device can hit:
+// AMD companion to mmq-rules-check.cu (#448, answering #449; --arch added for #450's review). Same sweep, same six
+// rules, same tile selection, plus the two things that decide whether a shape the check counts can be hit:
 //
 //   dispatch  ggml_cuda_should_use_mmq() and the MUL_MAT_ID MMVQ batch limit, compiled from the checkout's own
 //             mmq.cu / mmvq.cu (cut verbatim by mmq-extract-dispatch.sh into dispatch.inc, not re-typed), with the
-//             device's real cc (gfx1151 = OFFSET_AMD + 0x1151) and smpbo (65536, read from hipDeviceProp_t).
-//             On RDNA3 q2_K goes to MMQ only with >= 64 experts or <= 128 tokens; otherwise hipBLAS runs it.
+//             device's cc (gfx1151 = OFFSET_AMD + 0x1151, ...) and smpbo (65536 on these parts; read from
+//             hipDeviceProp_t on gfx1151). On RDNA3 q2_K goes to MMQ only with >= 64 experts or <= 128 tokens;
+//             CDNA3 and RDNA4 always take MMQ for these types. RDNA3/4 pick J from rows per expert, the rest
+//             from tokens, and the sweep follows mmq-rules-check.cu: 8/32/128/256 experts on RDNA, 256 elsewhere.
 //   routing   whether some routing leaves the last non-empty expert's last tile holding one column, which is the
 //             case the check assumes. With n_used < n_experts one token can be the only row of the last expert.
 //             With n_used == n_experts every expert holds exactly ne12 rows, so the last tile holds
@@ -14,7 +16,9 @@
 //   mmq-extract-dispatch.sh . > dispatch.inc
 //   hipcc -std=c++17 -DGGML_USE_HIP --offload-arch=gfx1151 -I. -Iggml/include -Iggml/src -Iggml/src/ggml-cuda \
 //         -I<dir of dispatch.inc> mmq-gfx1151-reach.cu -o mmq-gfx1151-reach
-//   ./mmq-gfx1151-reach [--production]   --production also lists K-quant MoE shapes short under main's 903
+//   ./mmq-gfx1151-reach [--arch gfx1151|gfx1200|gfx942|gfx906] [--production]
+//   --arch picks the device (default gfx1151, the only one measured); --production lists K-quant MoE shapes short
+//   under main's 903.
 #include "ggml/src/ggml-cuda/mmq.cuh"
 #include "ggml/src/ggml-cuda/mmvq.cuh"
 #include <climits>
@@ -32,8 +36,9 @@ int ggml_cuda_get_device() { return 0; }
 #include "dispatch.inc"
 
 static const size_t BLOCK = sizeof(block_q8_1_mmq);
-static const int    CC    = GGML_CUDA_CC_OFFSET_AMD + 0x1151;   // what ggml_cuda_parse_id("gfx1151") returns
-static const size_t SMPBO = 65536;                              // hipDeviceProp_t::sharedMemPerBlock on this device
+static int          CC    = GGML_CUDA_CC_OFFSET_AMD + 0x1151;   // what ggml_cuda_parse_id("gfx1151") returns
+static const size_t SMPBO = 65536;                              // hipDeviceProp_t::sharedMemPerBlock, all four parts
+static const char * ARCH  = "gfx1151";
 
 // Bytes one tile's y load copies from its first column.
 static size_t tile_bytes(int J, int nthreads) { return GGML_PAD(J*BLOCK, nthreads*sizeof(int)); }
@@ -69,7 +74,7 @@ static const char * const RN[NR] = {
 static const ggml_type TYPES[] = {GGML_TYPE_Q4_0, GGML_TYPE_Q4_1, GGML_TYPE_Q5_0, GGML_TYPE_Q5_1, GGML_TYPE_Q8_0,
                                   GGML_TYPE_Q2_K, GGML_TYPE_Q3_K, GGML_TYPE_Q4_K, GGML_TYPE_Q5_K, GGML_TYPE_Q6_K};
 static const char * const TN[] = {"q4_0", "q4_1", "q5_0", "q5_1", "q8_0", "q2_K", "q3_K", "q4_K", "q5_K", "q6_K"};
-static const int NE02S[] = {8, 32, 128, 256};
+static const int NE02S[] = {8, 32, 128, 256};   // RDNA3/4 only; elsewhere the sweep uses 256 experts
 
 struct tally {
     long all = 0, reach = 0, real = 0;           // as the PR counts / reaches MMQ / and a routing realises it
@@ -101,7 +106,23 @@ int main(int argc, char ** argv) {
     g_info.devices[0].smpb = SMPBO;
     g_info.devices[0].warp_size = 32;
 
-    const bool prod = argc > 1 && !strcmp(argv[1], "--production");
+    bool prod = false;
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--production")) { prod = true; continue; }
+        if (!strcmp(argv[i], "--arch") && i + 1 < argc) {
+            ARCH = argv[++i];
+            if      (!strcmp(ARCH, "gfx1151")) CC = GGML_CUDA_CC_OFFSET_AMD + 0x1151;
+            else if (!strcmp(ARCH, "gfx1200")) CC = GGML_CUDA_CC_OFFSET_AMD + 0x1200;
+            else if (!strcmp(ARCH, "gfx942"))  CC = GGML_CUDA_CC_OFFSET_AMD + 0x942;
+            else if (!strcmp(ARCH, "gfx906"))  CC = GGML_CUDA_CC_OFFSET_AMD + 0x906;
+            else { fprintf(stderr, "unknown --arch %s\n", ARCH); return 2; }
+            continue;
+        }
+        fprintf(stderr, "usage: %s [--arch gfx1151|gfx1200|gfx942|gfx906] [--production]\n", argv[0]);
+        return 2;
+    }
+    g_info.devices[0].cc = CC;
+    const bool rdna = GGML_CUDA_CC_IS_RDNA3(CC) || GGML_CUDA_CC_IS_RDNA4(CC);
 
     tally src1[NR], dst[NR], dense[NR]; long one_all = 0, one_reach = 0;
     long n_ids = 0, n_dense = 0;
@@ -114,10 +135,10 @@ int main(int argc, char ** argv) {
 
         for (int64_t ne12 = mmvq_max + 1; ne12 <= 1024; ++ne12)
         for (int n_used = 1; n_used <= 16; ++n_used)
-        for (int ei = 0; ei < 4; ++ei) {
-            const int64_t ne02 = NE02S[ei];
+        for (int ei = 0; ei < (rdna ? 4 : 1); ++ei) {
+            const int64_t ne02 = rdna ? NE02S[ei] : 256;
             if (n_used > ne02) continue;
-            const int64_t ncols_opt = (ne12*n_used + ne02 - 1) / ne02;
+            const int64_t ncols_opt = rdna ? (ne12*n_used + ne02 - 1) / ne02 : ne12;
             int J, nth;
             launched(t, fb, ncols_opt, &J, &nth);
             if (J == 0) continue;
@@ -173,8 +194,8 @@ int main(int argc, char ** argv) {
         }
     }
 
-    printf("gfx1151 (cc 0x%x, smpbo %zu), %ld ids-branch and %ld dense shapes -- the PR's sweep for this arch\n",
-           CC & 0xffff, SMPBO, n_ids, n_dense);
+    printf("%s (cc 0x%x, smpbo %zu), %ld ids-branch and %ld dense shapes -- mmq-rules-check.cu's sweep for this arch\n",
+           ARCH, CC & 0xffff, SMPBO, n_ids, n_dense);
     printf("columns: all = short as the PR counts (one column in the last tile); reach = and the build sends the shape\n"
            "         to MMQ; real = reaches MMQ and some routing makes the read leave the allocation\n");
     printf(" src1_q8_1, ids branch:                    %8s %8s %8s\n", "all", "reach", "real");
@@ -188,13 +209,14 @@ int main(int argc, char ** argv) {
     if (prod) {
         // The shapes production's MoE GGUFs can produce here, under main's 903 (#27044's rule).
         printf("\nproduction-like MUL_MAT_ID shapes short under #27044 (main's 903), n_used 6/8, 128/256 experts, ne12 <= 4096:\n");
+        const bool rdna_p = rdna;
         const ggml_type PT[] = {GGML_TYPE_Q4_K, GGML_TYPE_Q5_K, GGML_TYPE_Q6_K, GGML_TYPE_Q8_0, GGML_TYPE_Q4_0};
         const char * PN[] = {"q4_K", "q5_K", "q6_K", "q8_0", "q4_0"};
         for (int pi = 0; pi < 5; ++pi) for (int fb = 0; fb < 2; ++fb) for (int n_used : {6, 8}) for (int64_t ne02 : {128, 256}) {
             const ggml_type t = PT[pi];
             for (int64_t ne12 = get_mmvq_mmid_max_batch(t, CC) + 1; ne12 <= 4096; ++ne12) {
                 if (!ggml_cuda_should_use_mmq(t, CC, ne12, ne02)) continue;
-                const int64_t ncols_opt = (ne12*n_used + ne02 - 1) / ne02;
+                const int64_t ncols_opt = rdna_p ? (ne12*n_used + ne02 - 1) / ne02 : ne12;
                 int J, nth;
                 launched(t, fb, ncols_opt, &J, &nth);
                 const long T = (long) tile_bytes(J, nth);

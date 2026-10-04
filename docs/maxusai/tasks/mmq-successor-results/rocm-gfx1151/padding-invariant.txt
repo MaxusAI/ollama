@@ -1,0 +1,50 @@
+# docs/maxusai/tasks/mmq-padding-invariant.cu, built with hipcc (HIP 7.2.53211) on b11081 (161755f29) and on llama.cpp#29953 at
+# 3070d927f: the two outputs are byte-identical (sha256 cc6c63b26e7ee547...), exit 0 on both.
+
+table                      configs | rule                                   short configs, launchable, worst blocks past
+pascal_older (< sm_61)         242 | J blocks (#29953 as first posted)       198  198   6
+                                   | padded tile of J (#29953, 3070d927f)      0    0   0
+                                   | widest tile (903 before amending)         0    0   0
+                                   | widest padded tile (903 amended)          0    0   0
+pascal_dp4a (sm_61)            242 | J blocks (#29953 as first posted)       198  198   6
+                                   | padded tile of J (#29953, 3070d927f)      0    0   0
+                                   | widest tile (903 before amending)         0    0   0
+                                   | widest padded tile (903 amended)          0    0   0
+ampere (sm_70 .. sm_90)        352 | J blocks (#29953 as first posted)       264  264   6
+                                   | padded tile of J (#29953, 3070d927f)      0    0   0
+                                   | widest tile (903 before amending)         0    0   0
+                                   | widest padded tile (903 amended)          0    0   0
+blackwell (sm_100, 120)        352 | J blocks (#29953 as first posted)       264  264   6
+                                   | padded tile of J (#29953, 3070d927f)      0    0   0
+                                   | widest tile (903 before amending)         0    0   0
+                                   | widest padded tile (903 amended)          0    0   0
+gcn (gfx906)                   250 | J blocks (#29953 as first posted)       234  234  10
+                                   | padded tile of J (#29953, 3070d927f)      0    0   0
+                                   | widest tile (903 before amending)        28   28   7
+                                   | widest padded tile (903 amended)          0    0   0
+cdna (gfx908 .. gfx950)        154 | J blocks (#29953 as first posted)       154  154  12
+                                   | padded tile of J (#29953, 3070d927f)      0    0   0
+                                   | widest tile (903 before amending)        44   44   7
+                                   | widest padded tile (903 amended)          0    0   0
+rdna2 (gfx1030)                242 | J blocks (#29953 as first posted)       198  198   6
+                                   | padded tile of J (#29953, 3070d927f)      0    0   0
+                                   | widest tile (903 before amending)         0    0   0
+                                   | widest padded tile (903 amended)          0    0   0
+rdna3 (gfx1100 .. 1102)        243 | J blocks (#29953 as first posted)        93   91   3
+                                   | padded tile of J (#29953, 3070d927f)      0    0   0
+                                   | widest tile (903 before amending)         0    0   0
+                                   | widest padded tile (903 amended)          0    0   0
+rdna3_5 (gfx1150, 1151)        260 | J blocks (#29953 as first posted)       130  130   5
+                                   | padded tile of J (#29953, 3070d927f)      0    0   0
+                                   | widest tile (903 before amending)         1    1   5
+                                   | widest padded tile (903 amended)          0    0   0
+rdna4 (gfx1200, 1201)          260 | J blocks (#29953 as first posted)       130  130   5
+                                   | padded tile of J (#29953, 3070d927f)      0    0   0
+                                   | widest tile (903 before amending)         1    1   5
+                                   | widest padded tile (903 amended)          0    0   0
+
+2597 configs in 10 tables
+  J blocks (#29953 as first posted)        SHORT
+  padded tile of J (#29953, 3070d927f)     covered
+  widest tile (903 before amending)        SHORT
+  widest padded tile (903 amended)         covered

@@ -1,0 +1,42 @@
+gfx1200 (cc 0x1200, smpbo 65536), 2198664 ids-branch and 20320 dense shapes -- mmq-rules-check.cu's sweep for this arch
+columns: all = short as the PR counts (one column in the last tile); reach = and the build sends the shape
+         to MMQ; real = reaches MMQ and some routing makes the read leave the allocation
+ src1_q8_1, ids branch:                         all    reach     real
+  #24127 (ne11), stock b11081           2198664  2198664  2198260   worst 18288 B past: q4_0 fb=0 ne12=129 n_used=7 n_exp=8 b=0: J=128 nthreads=256 pad=0 blocks
+                                         by type (all/real): q4_0 219672/219632 q4_1 219672/219632 q5_0 219672/219632 q5_1 219672/219632 q8_0 219672/219632 q2_K 219456/219412 q3_K 220320/220280 q4_K 220320/220280 q5_K 220104/220064 q6_K 220104/220064
+  #29941 (ne12), master                   88496    88496    82710   worst 9072 B past: q4_0 fb=1 ne12=74 n_used=7 n_exp=8 b=0: J=128 nthreads=256 pad=64 blocks
+                                         by type (all/real): q4_0 6180/5740 q4_1 6180/5740 q5_0 6180/5740 q5_1 6180/5740 q8_0 6180/5740 q2_K 30716/28890 q3_K 6828/6388 q4_K 6828/6388 q5_K 6612/6172 q6_K 6612/6172
+  #29953 (the launched tile)            1038346  1038346  1029048   worst 624 B past: q4_0 fb=0 ne12=74 n_used=7 n_exp=8 b=0: J=80 nthreads=256 pad=80 blocks
+                                         by type (all/real): q4_0 103576/102740 q4_1 103576/102740 q5_0 103576/102740 q5_1 103576/102740 q8_0 103576/102740 q2_K 104002/102268 q3_K 104224/103376 q4_K 104224/103376 q5_K 104008/103164 q6_K 104008/103164
+  #27044 (ne12*n_used), main's 903        29712    29712    28074   worst 2416 B past: q4_0 fb=0 ne12=8 n_used=1 n_exp=8 b=0: J=16 nthreads=128 pad=0 blocks
+                                         by type (all/real): q4_0 368/368 q4_1 368/368 q5_0 368/368 q5_1 368/368 q8_0 368/368 q2_K 25712/24074 q3_K 584/584 q4_K 584/584 q5_K 496/496 q6_K 496/496
+  #448 (widest tile)                      25384    25384    23746   worst 624 B past: q2_K fb=0 ne12=74 n_used=7 n_exp=8 b=0: J=80 nthreads=256 pad=80 blocks
+                                         by type (all/real): q2_K 25384/23746
+  #448 amended (widest padded tile)           0        0        0
+ ids_dst, ids branch:
+  #24127 (ne11), stock b11081           2198664  2198664  2197958   worst 508 B past: q4_0 fb=0 ne12=129 n_used=7 n_exp=8 b=0: J=128 nthreads=256 pad=0 blocks
+                                         by type (all/real): q4_0 219672/219602 q4_1 219672/219602 q5_0 219672/219602 q5_1 219672/219602 q8_0 219672/219602 q2_K 219456/219380 q3_K 220320/220250 q4_K 220320/220250 q5_K 220104/220034 q6_K 220104/220034
+  #29941 (ne12), master                 2198664  2198664  2197958   worst 508 B past: q4_0 fb=0 ne12=129 n_used=7 n_exp=8 b=0: J=128 nthreads=256 pad=128 blocks
+                                         by type (all/real): q4_0 219672/219602 q4_1 219672/219602 q5_0 219672/219602 q5_1 219672/219602 q8_0 219672/219602 q2_K 219456/219380 q3_K 220320/220250 q4_K 220320/220250 q5_K 220104/220034 q6_K 220104/220034
+  #29953 (the launched tile)            2198664  2198664  2197958   worst 508 B past: q4_0 fb=0 ne12=129 n_used=7 n_exp=8 b=0: J=128 nthreads=256 pad=128 blocks
+                                         by type (all/real): q4_0 219672/219602 q4_1 219672/219602 q5_0 219672/219602 q5_1 219672/219602 q8_0 219672/219602 q2_K 219456/219380 q3_K 220320/220250 q4_K 220320/220250 q5_K 220104/220034 q6_K 220104/220034
+  #27044 (ne12*n_used), main's 903      2198664  2198664  2197958   worst 508 B past: q4_0 fb=0 ne12=129 n_used=7 n_exp=8 b=0: J=128 nthreads=256 pad=128 blocks
+                                         by type (all/real): q4_0 219672/219602 q4_1 219672/219602 q5_0 219672/219602 q5_1 219672/219602 q8_0 219672/219602 q2_K 219456/219380 q3_K 220320/220250 q4_K 220320/220250 q5_K 220104/220034 q6_K 220104/220034
+  #448 (widest tile)                          0        0        0
+  #448 amended (widest padded tile)           0        0        0
+ src1, dense branch:
+  #24127 (ne11), stock b11081               185      185      185   worst 1264 B past: q4_0 fb=0 ne11=9: J=16 nthreads=128 pad=0 blocks
+                                         by type (all/real): q4_0 14/14 q4_1 14/14 q5_0 14/14 q5_1 14/14 q8_0 14/14 q2_K 59/59 q3_K 14/14 q4_K 14/14 q5_K 14/14 q6_K 14/14
+  #29953 (the launched tile)                 45       45       45   worst 624 B past: q2_K fb=0 ne11=321: J=80 nthreads=256 pad=80 blocks
+                                         by type (all/real): q2_K 45/45
+  #448 (widest tile)                         45       45       45   worst 624 B past: q2_K fb=0 ne11=321: J=80 nthreads=256 pad=80 blocks
+                                         by type (all/real): q2_K 45/45
+  #448 amended (widest padded tile)           0        0        0
+
+#448 (widest tile), one expert per token: short in 128 shapes, 128 of them reach MMQ
+
+production-like MUL_MAT_ID shapes short under #27044 (main's 903), n_used 6/8, 128/256 experts, ne12 <= 4096:
+  q4_K fb=0 n_used=6 n_exp=128 ne12=5: rows=30 J=16 nthreads=128 tile reads 2560 B, pad 16 blocks = 2304 B -> 112 B past
+  q4_K fb=0 n_used=6 n_exp=256 ne12=5: rows=30 J=16 nthreads=128 tile reads 2560 B, pad 16 blocks = 2304 B -> 112 B past
+  q4_K fb=1 n_used=6 n_exp=128 ne12=5: rows=30 J=16 nthreads=128 tile reads 2560 B, pad 16 blocks = 2304 B -> 112 B past
+  q4_K fb=1 n_used=6 n_exp=256 ne12=5: rows=30 J=16 nthreads=128 tile reads 2560 B, pad 16 blocks = 2304 B -> 112 B past

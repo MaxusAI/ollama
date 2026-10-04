@@ -1,4 +1,4 @@
-gfx1151 (cc 0x1151, smpbo 65536), 2197152 ids-branch and 20320 dense shapes -- the PR's sweep for this arch
+gfx1151 (cc 0x1151, smpbo 65536), 2197152 ids-branch and 20320 dense shapes -- mmq-rules-check.cu's sweep for this arch
 columns: all = short as the PR counts (one column in the last tile); reach = and the build sends the shape
          to MMQ; real = reaches MMQ and some routing makes the read leave the allocation
  src1_q8_1, ids branch:                         all    reach     real

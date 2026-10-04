@@ -77,12 +77,76 @@ stock, all runs were correct.
 here makes one guarded allocation per buffer per process, so the fix does not touch them. The `MMQ_*` line count per
 log is 1 everywhere else.
 
+## After the review on #450
+
+### CDNA3, RDNA4 and GCN: counted vs reachable (modelled)
+
+The review asked whether CDNA3's counted shapes are reachable. `mmq-gfx1151-reach.cu --arch` runs the same sweep
+with each device's dispatch, cut from the source. These are modelled, not measured: there is no such hardware here.
+
+| arch | widest-tile rule: counted | reach MMQ | realisable | why |
+|---|---|---|---|---|
+| gfx1151 (measured) | 25,384 | 2,648 | 2,616 | RDNA3 sends q2_K to hipBLAS unless ≥ 64 experts or ≤ 128 tokens |
+| RDNA4 (gfx1200) | 25,384 | 25,384 | 23,746 | RDNA4 takes MMQ for every type |
+| CDNA3 (gfx942) | 595,200 | 595,200 | 595,200 | takes MMQ for every type and picks `J` from tokens; all ten types short |
+| GCN (gfx906) | 297,600 | 297,600 | 297,600 | not a fork target; q5_0, q5_1, q2_K, q3_K and q5_K short |
+
+CDNA3's 595,200 is #448's 576,000 multi-expert shapes plus 19,200 one-expert ones, so the exposure is real there.
+Files: [gfx1200-reach.txt](gfx1200-reach.txt), [gfx942-reach.txt](gfx942-reach.txt), [gfx906-reach.txt](gfx906-reach.txt).
+
+### Repeated guarded calls, and the leaked address space
+
+[multi-call.txt](multi-call.txt) shows the MUL_MAT suite on `3070d927f`. Its hooks guard the dense branch, so it
+makes 175 guarded MMQ calls in one process.
+
+- 1305/1305 tests pass in 3 of 3 runs, with the fix and without it.
+- So the reuse defect needs more than repeated calls. It reproduced where a range is freed and reserved again inside
+  one computation with `hipMalloc` traffic between: the per-expert fallback, and `mmq-hip-vmm-reuse.hip`.
+- Peak virtual memory was 8.6–9.4 GiB with the fix and 8.5–8.9 GiB without. The leaked reservations do not show
+  above the suite's own allocations, and the HIP runtime reported nothing.
+
+## A guard against re-tightening
+
+#29953 touches no test, and the existing suite cannot see this class of bug. Three reasons:
+
+- the pool hides the read;
+- `test_mul_mat_id`'s uniform routing never leaves one column in a wide tile on RDNA3;
+- compute-sanitizer does not exist for ROCm.
+
+Two GPU-free checks close that, and both rest on the same fact: the read depends only on a config's `J` and
+`nthreads`.
+
+- **Per config, at run time:** `mmq-padding-invariant.cu` checks every config in all ten tables (2,597 configs,
+  about 10 ms). See [padding-invariant.txt](padding-invariant.txt); the output is identical on b11081 and `3070d927f`.
+  - It reproduces #448's per-shape verdicts.
+  - It adds the tables #448's sweep did not cover. The widest-tile rule is also short on GCN: 28 configs, by up to 7
+    blocks.
+  - Every shortfall it finds is launchable within the device's shared memory.
+  - It calls the table functions directly, so nvcc and hipcc evaluate it alike, with no gencode list.
+- **At compile time:** `mmq-padding-guard.cu` makes one `static_assert` per (table, type). It states the requirement
+  from the kernel's load-loop constants (`GGML_PAD(J*MMQ_TILE_Y_K, nthreads)` ints), independent of any padding rule.
+  [padding-guard.txt](padding-guard.txt), hipcc, on b11081 and on `3070d927f` alike:
+
+  | padding rule | build |
+  |---|---|
+  | padded tile of the launched config (#29953 now) | ok |
+  | `J` blocks (#29953 as first posted) | fails in all 10 tables |
+  | widest tile (903 before its amendment) | fails in cdna, gcn, rdna3_5, rdna4 |
+  | widest padded tile (903 as amended) | ok |
+
+  One assertion per table puts too much into one constant evaluation. That trips clang's
+  `-fconstexpr-steps` limit, and the failure reads like a real shortfall, so the guard asserts per (table, type).
+  nvcc is untested.
+
+The prototype carries its own copy of each rule. To guard the code that ships, the padding must be a helper that the
+allocation itself calls, and the guard must check that helper. That is the form drafted for compat 903.
+
 ## Files
 
 | file | what | from |
 |---|---|---|
 | [hipcc-check.txt](hipcc-check.txt) | hipcc vs nvcc check outputs, by sha256 | `mmq-rules-check.cu`, `mmq-jpad-cost.cu` |
-| [gfx1151-reach.txt](gfx1151-reach.txt) | the gfx1151 sweep with dispatch and routing; `--production` rows at the end | `mmq-gfx1151-reach.cu` |
+| [gfx1151-reach.txt](gfx1151-reach.txt) | the gfx1151 sweep with dispatch and routing; `--production` rows at the end | `mmq-gfx1151-reach.cu --production` |
 | [gfx1151-production.txt](gfx1151-production.txt) | production MoE tensors under each form of 903 | `mmq-gfx1151-prod.cu` |
 | [device.txt](device.txt) | HIP VMM support, granularity, limits; one deliberate fault | `mmq-hip-vmm-probe.hip` |
 | [vmm-reuse.txt](vmm-reuse.txt) | VMM range reuse, `keep` vs `free` | `mmq-hip-vmm-reuse.hip` |
@@ -90,6 +154,10 @@ log is 1 everywhere else.
 | [route.tsv](route.tsv), [route.md](route.md) | hand-routed cases × 4 forms × 3 modes × 2 runs, b11081 | `mmq-rocm-route.sh`, `mmq-route.cpp` |
 | [head-cases.tsv](head-cases.tsv), [head-cases.md](head-cases.md) | the cases on llama.cpp#29953 at `3070d927f` | `mmq-rocm-cases.sh` |
 | [head-route.tsv](head-route.tsv), [head-route.md](head-route.md) | the hand-routed cases on `3070d927f` | `mmq-rocm-route.sh` |
+| [gfx1200-reach.txt](gfx1200-reach.txt), [gfx942-reach.txt](gfx942-reach.txt), [gfx906-reach.txt](gfx906-reach.txt) | the same sweep for RDNA4, CDNA3, GCN (modelled) | `mmq-gfx1151-reach.cu --arch` |
+| [multi-call.txt](multi-call.txt) | 175 guarded calls in one process, pre-fix vs fixed header | `test-backend-ops -o MUL_MAT` |
+| [padding-invariant.txt](padding-invariant.txt) | every config of all ten tables against four rules | `mmq-padding-invariant.cu` |
+| [padding-guard.txt](padding-guard.txt) | the compile-time guard under four rules, two trees | `mmq-padding-guard.cu` |
 
 ## Reproduce
 
