@@ -1,0 +1,4 @@
+J_pad in blocks of 144 bytes: old rule = get_J_max(512), new rule = widest padded tile
+arch      fb  type      old    new  extra B
+gfx1151   0   q2_K       80     86      864
+(only rows where the two rules differ)

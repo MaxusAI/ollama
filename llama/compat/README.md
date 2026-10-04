@@ -164,6 +164,12 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
       needs 85 blocks against the widest tile's 80), which matters because the
       ROCm host serves gfx1151. Measurements:
       `docs/maxusai/upstream-mmq-29953-material.md`.
+  - **What the amendment costs.** Across five architectures and ten quantization
+    types, the two rules differ in exactly one combination: gfx1151,
+    non-fallback, q2_K, where `J_pad` goes from 80 to 86 blocks - 864 bytes more
+    per call. Everywhere else both give 128 blocks, so the amendment is free.
+    `docs/maxusai/tasks/mmq-jpad-cost.cu` prints the comparison;
+    `tasks/mmq-successor-results/jpad-cost.txt` is its output.
   - **At the next pin move.** From the first llama.cpp pin that contains
     `dd266785c`, the ids branch's context line reads `ne12`, and from the first
     that contains #29953 there is no `get_J_max()` call left to replace - pad

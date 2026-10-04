@@ -197,6 +197,10 @@ which is the third reason this bug is hard to hit on purpose, after the pool and
 - **Cost:** on sm_120 `nbytes_pad_y` is at most 18,432 bytes of src1 padding, 512 bytes of `ids_dst` and, for
   native FP4, 512 bytes of scales per call -- the same order as #29953's own padding, and less than what both
   branches reserved before #24127.
+  - Against the plain widest-tile rule the amendment is free almost everywhere: across the five architectures and
+    ten types checked, the two differ in **exactly one** combination -- gfx1151, non-fallback, q2_K, where the
+    padding goes from 80 to 86 blocks, 864 bytes more per call. Everywhere else both give 128 blocks.
+    [tasks/mmq-jpad-cost.cu](tasks/mmq-jpad-cost.cu) prints it.
 
 An equivalent standalone change against master, for a tree without #29953, is
 [tasks/mmq-fix-amended.patch](tasks/mmq-fix-amended.patch): it takes the maximum padded tile over every config
