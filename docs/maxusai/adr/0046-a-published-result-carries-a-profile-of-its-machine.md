@@ -1,8 +1,8 @@
 # ADR 0046: a published result carries a profile of the machine it ran on
 
-- **Status:** proposed 2026-10-01. Awaiting the maintainer. Enforced, as far as anything enforces it,
-  by [SPEC H26](../spec/vision-harness-reuse.md). The procedure that captures it is the
-  `vision-campaign` skill.
+- **Status:** accepted 2026-10-04 by the maintainer; proposed 2026-10-01 in #428. Enforced, as far as
+  anything enforces it, by [SPEC H26](../spec/vision-harness-reuse.md). The procedure that captures it
+  is the `vision-campaign` skill.
 - **Date:** 2026-10-01
 - **Deciders:** MaxusAI fork maintainers
 
