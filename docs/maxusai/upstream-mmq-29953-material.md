@@ -300,7 +300,11 @@ this as an intermittent crash rather than a test failure.
 - **Compat 903 needs the same amendment.** As merged in #448 it pads by the widest tile, which covers every
   NVIDIA shape checked but is short by up to 5 blocks in 25,384 gfx1151 shapes (q2_K and q3_K, where `J = 80`
   with `nthreads = 256` needs 85 blocks and the widest tile gives 80). The ROCm host serves gfx1151, so this is
-  not hypothetical for the fork even though it is not a shape production's models reach.
+  not hypothetical for the fork even though it is not a shape production's models reach. Amended on 2026-10-05.
+  - **The gfx1151 column is modelled, not measured**, and that is asked of the ROCm host in
+    MaxusAI/ollama#449: those counts come from `nvcc` compiling the host-side AMD branch of
+    `ggml_cuda_mmq_get_config()`, so if hipcc resolves the config tables differently the shortfall could be
+    larger, smaller or absent. Until that comes back, treat the gfx1151 numbers here as a prediction.
 - **Nothing production serves is affected today.** Its MoE GGUFs use 8 of 128 experts (gemma4:26b-a4b), 8 of 256
   (qwen3.6:35b-a3b) and 6 of 128 plus a shared one (nemotron3:33b), all with `J = 128` at the image ubatch sizes
   it runs, where `T == J*B` and #29941's padding already covers src1. The `ids_dst` read happens on every MoE
