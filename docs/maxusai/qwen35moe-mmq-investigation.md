@@ -10,6 +10,15 @@ flattened row count `ne12 * n_expert_used`. In the MoE broadcast case `ne11 == 1
 `ggml_cuda_mmq_get_J_max()` returns 0, so the quantised buffer gets no tail padding while the
 kernel overruns it by up to a 512-row tile. Fixed in `llama/compat/903-fix-mmq-ids-padding.patch`.
 
+> **Update 2026-10-05.** 903 no longer carries the `ne12 * n_expert_used` line shown below.
+> - The tile is at most 128 columns wide, not 512.
+> - The line was short with one expert per token.
+> - Upstream's own fix, #29941 (`ne12`), is short below 128 tokens.
+>
+> 903 now pads every buffer that MMQ reads in whole tiles for the widest tile. See
+> [upstream-mmq-successor-material.md](upstream-mmq-successor-material.md). This document is the
+> record of how the original fault was found, and stays as it was.
+
 ## Symptom
 
 ```

@@ -128,19 +128,38 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   `docs/maxusai/vision-suite/synthetic-triggers/README.md`.
 
 - `903-fix-mmq-ids-padding.patch` - **not a compatibility shim** (see "Number
-  bands" below). Sizes the MMQ ids-path tail padding in
-  `ggml/src/ggml-cuda/mmq.cu` from the flattened row count
-  (`ne12*n_expert_used`) instead of `ne11`. Under MoE broadcast `ne11 == 1`, so
-  `ggml_cuda_mmq_get_J_max()` returns 0, `src1_q8_1` gets no tail padding at
-  all, and MMQ overruns the logical end by up to a 512-row tile — an illegal
-  memory access. Stock-ggml defect, not fork-specific; it surfaces under Ollama
-  because one value is passed as both `-b` and `-ub`, so a whole image arrives
-  in a single ubatch. See `docs/maxusai/qwen35moe-mmq-investigation.md` for the
-  diagnosis, `docs/maxusai/mmq-padding-regression-window.md` for the affected
-  build range (b9990 is the last clean build, b9992 the first defective one, so
-  this must not be backported to a lineage pinned at or below b9990 — there is
-  nothing there to fix and the patch will not apply), and
-  `docs/maxusai/upstream-mmq-ids-padding-issue.md` for the upstream report.
+  bands" below). In `ggml/src/ggml-cuda/mmq.cu`, pads every buffer that MMQ
+  reads in whole tiles for the widest tile that has a config,
+  `ggml_cuda_mmq_get_J_max(type, fallback, cc, 512)`, which is 128 on NVIDIA.
+  That covers `src1_q8_1` in both branches, `ids_dst`, and NVFP4's `src1_scale`.
+  - **Why.** A tile loads `J` columns with no bound, so the last tile can read up
+    to `J - 1` columns past the data. For MUL_MAT_ID, the last expert's last tile
+    may hold a single row. `mul_mat_q_switch_J` rounds the batch up to `J`, while
+    `get_J_max()` of the batch rounds down, so padding derived from the batch
+    falls short for some shapes. Before #24127 (b9992), both branches padded by
+    the widest tile.
+  - **The fault it was written for** (2026-08-13). Under MoE broadcast,
+    `ne11 == 1`, so upstream's `get_J_max(ne11)` returned 0. `src1_q8_1` then got
+    no padding, and MMQ read up to a 128-column tile past it: an illegal memory
+    access. It surfaces under Ollama because one value is passed as both `-b` and
+    `-ub`, so a whole image arrives in a single ubatch.
+  - **History.** Until 2026-10-05, 903 padded `get_J_max(ne12*n_expert_used)`,
+    the line of llama.cpp#27044.
+    - Upstream merged #29941 (`get_J_max(ne12)`, `dd266785c`) instead. That line
+      is still short below 128 tokens: master aborts on a test case.
+    - #27044's line was short with one expert per token, and padded no `ids_dst`.
+    - The maintainer switched 903 to the widest-tile rule on 2026-10-05. The
+      measurements are in `docs/maxusai/upstream-mmq-successor-material.md`.
+  - **At the next pin move.** From the first llama.cpp pin that contains
+    `dd266785c`, the ids branch's context line reads `ne12`. Re-cut the hunk
+    against it; the change stays the same.
+  - **References.**
+    - `docs/maxusai/qwen35moe-mmq-investigation.md`: the original diagnosis.
+    - `docs/maxusai/mmq-padding-regression-window.md`: the affected build range.
+      b9990 is the last clean build and b9992 the first defective one, so this
+      must not be backported to a lineage pinned at or below b9990. There is
+      nothing to fix there, and the patch will not apply.
+    - `docs/maxusai/upstream-mmq-ids-padding-issue.md`: the upstream report.
 - `908-revert-fattn-mma-gemma4-tiling.patch` - **not a compatibility shim**
   (see "Number bands" below). Reverts the device half of llama.cpp
   `ce8caa6e6` ("CUDA: tune FA for Gemma 4 on Ampere or newer", in b11081):

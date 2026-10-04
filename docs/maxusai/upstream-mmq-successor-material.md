@@ -188,12 +188,15 @@ replaces this paragraph._
 
 ## For the fork
 
-- **Compat 903 carries #27044's line.** The maintainer decided on 2026-10-04 to keep it (#447). This file adds
-  three facts for that decision:
+- **Compat 903 is this change since 2026-10-05,** on the maintainer's word. Before that, it carried #27044's line.
+  It is the same change as `tasks/mmq-successor-fix.patch`, cut against b11081, whose ids branch still reads
+  `ne11`. It is marked `MAXUSAI (compat 903)`.
+- **The facts behind the switch:** three gaps in #27044's line.
   - The line is short with one expert per token, and on gfx1151 with 2 or 3 experts at 5 to 7 tokens. Neither case is
     a model production serves. Its MoE GGUFs use 8 of 128 experts (gemma4:26b-a4b), 8 of 256 (qwen3.6:35b-a3b) and 6
     of 128 plus a shared one (nemotron3:33b), read from their GGUF headers.
   - It does not pad `ids_dst`. That read happens in every MoE model, production's included, but it lands in the
     pool's next allocations, `expert_bounds` and then src1, so it cannot fault.
   - It does not pad the NVFP4 scales. Production's NVFP4 models run on MLX, not on this path.
-- **Re-cutting 903 as the successor's change** would close all of these. The choice is the maintainer's.
+- **Verification for the fork:** the full compat series, with the new 903, applies to a clean b11081. The run of
+  b11081 with the series and the ten test cases is pending; see "Results".
