@@ -1,5 +1,10 @@
 // DEBUG ONLY, never for upstream or for a shipped build.
 //
+// b11081 form: mmq-debug-alloc.cuh as of bfc3fe487, ported to the fork's llama.cpp pin (b11081 has no prec_src1)
+// and to HIP. mmq-variant-b11081.py installs it as mmq-debug-alloc.cuh. The gfx1151 runs in
+// mmq-successor-results/rocm-gfx1151/ were taken with this file before mmq_dbg_free kept its VA reservation on
+// HIP; every one of them makes a single guarded allocation per buffer, so that change does not touch them.
+//
 // MMQ's MUL_MAT_ID path takes its src1 and ids_dst buffers from ggml's CUDA memory pool. The pool hands out
 // suballocations of a much larger mapping, so a read a little past the end of either buffer lands in memory the
 // process has already mapped: it neither faults nor shows up under compute-sanitizer, which only knows the pool's
@@ -16,7 +21,7 @@
 // crash. The buffer's last byte sits at the last byte of the mapping, so the read has nowhere to land.
 //
 // Either mode takes an optional suffix naming one buffer, so a fault can be attributed: `guard:ids_dst`,
-// `guard:src1`, `guard:src1_scale`, `exact:ids_dst`, ... Without a suffix all three are instrumented.
+// `guard:src1`, `exact:ids_dst`, `exact:src1`. Without a suffix both buffers are instrumented.
 
 #pragma once
 
@@ -27,12 +32,17 @@
 #include <cstring>
 #include <cstdio>
 
+#if defined(GGML_USE_HIP) && !defined(CU_MEM_ALLOC_GRANULARITY_MINIMUM)
+// vendors/hip.h maps the VMM driver API to hipMem* but not these two
+#define CU_MEM_ALLOC_GRANULARITY_MINIMUM hipMemAllocationGranularityMinimum
+#endif
+
 enum mmq_dbg_mode { MMQ_DBG_OFF = 0, MMQ_DBG_EXACT = 1, MMQ_DBG_GUARD = 2 };
-enum mmq_dbg_buf_id { MMQ_DBG_IDS_DST = 1, MMQ_DBG_SRC1 = 2, MMQ_DBG_SRC1_SCALE = 4 };
+enum mmq_dbg_buf_id { MMQ_DBG_IDS_DST = 1, MMQ_DBG_SRC1 = 2 };
 
 struct mmq_dbg_cfg {
     mmq_dbg_mode mode = MMQ_DBG_OFF;
-    int          bufs = MMQ_DBG_IDS_DST | MMQ_DBG_SRC1 | MMQ_DBG_SRC1_SCALE;
+    int          bufs = MMQ_DBG_IDS_DST | MMQ_DBG_SRC1;
 };
 
 static mmq_dbg_cfg mmq_dbg_cfg_init() {
@@ -51,10 +61,8 @@ static mmq_dbg_cfg mmq_dbg_cfg_init() {
             c.bufs = MMQ_DBG_IDS_DST;
         } else if (strcmp(which, "src1") == 0) {
             c.bufs = MMQ_DBG_SRC1;
-        } else if (strcmp(which, "src1_scale") == 0) {
-            c.bufs = MMQ_DBG_SRC1_SCALE;   // native-FP4 y scales, read per whole tile by the stream-k fixup
         } else {
-            fprintf(stderr, "MMQ_DEBUG_ALLOC: expected ids_dst, src1 or src1_scale after ':', got '%s'\n", which);
+            fprintf(stderr, "MMQ_DEBUG_ALLOC: expected ids_dst or src1 after ':', got '%s'\n", which);
             exit(1);
         }
     }
@@ -98,18 +106,12 @@ static mmq_dbg_buf mmq_dbg_alloc(const mmq_dbg_mode mode, const size_t size, con
         return b;
     }
 
-    // HIP: vendors/hip.h already maps the cuMem* calls, but cuCtxGetDevice has no mapping, the granularity
-    // enumerator is spelled differently, and hipDeviceptr_t is void * so b.base needs a cast to do arithmetic on.
-    // Verified on gfx1151 / ROCm 7.2.1, where VMM is supported and the granularity is 4 KiB against 2 MiB on
-    // sm_120 (MaxusAI/ollama#449).
-#ifdef GGML_USE_HIP
-    const int dev = ggml_cuda_get_device();
-    const auto gran_flag = hipMemAllocationGranularityMinimum;
-#else
     CUdevice dev;
+#if defined(GGML_USE_HIP)
+    dev = ggml_cuda_get_device();
+#else
     CU_CHECK(cuCtxGetDevice(&dev));
-    const auto gran_flag = CU_MEM_ALLOC_GRANULARITY_MINIMUM;
-#endif // GGML_USE_HIP
+#endif
 
     CUmemAllocationProp prop = {};
     prop.type          = CU_MEM_ALLOCATION_TYPE_PINNED;
@@ -117,7 +119,7 @@ static mmq_dbg_buf mmq_dbg_alloc(const mmq_dbg_mode mode, const size_t size, con
     prop.location.id   = dev;
 
     size_t gran = 0;
-    CU_CHECK(cuMemGetAllocationGranularity(&gran, &prop, gran_flag));
+    CU_CHECK(cuMemGetAllocationGranularity(&gran, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
 
     b.msize = ((size + gran - 1) / gran) * gran;
     b.rsize = b.msize + gran; // the extra granule is reserved so nothing else can map there, and left unmapped
@@ -151,20 +153,19 @@ static void mmq_dbg_free(mmq_dbg_buf & b) {
 #if defined(GGML_USE_HIP)
         // Keep the reservation: on gfx1151 (ROCm 7.2.1) a VA range that is freed and reserved again reads and
         // writes the wrong memory -- copies and kernels disagree, and writes land in other allocations
-        // (measured: MaxusAI/ollama#449, mmq-hip-vmm-reuse.hip). Never reusing a VA avoids it; this leaks
-        // address space, not memory.
+        // (measured: MaxusAI/ollama#449). Never reusing a VA avoids it; this leaks address space, not memory.
         GGML_UNUSED(b.rsize);
 #else
         CU_CHECK(cuMemAddressFree(b.base, b.rsize));
-#endif // defined(GGML_USE_HIP)
+#endif
     }
     b = mmq_dbg_buf();
 }
 
 // Stands in for ggml_cuda_pool_alloc<T> at the call sites, so the surrounding code is untouched.
 template <typename T> struct mmq_dbg_ptr {
-    T * ptr = nullptr;              // the dense branch passes src1_q8_1 as .ptr
-    T * get() const { return ptr; } // the ids branch as .get()
+    T * p = nullptr;
+    T * get() const { return p; }
 };
 
 // MMQ_DEBUG_PRINT=1: one line per MUL_MAT_ID call with the shape, the tile width the launch is about to pick, and
@@ -192,23 +193,20 @@ static int mmq_src1_need_blocks(const int J, const int nthreads) {
     return (int) ((bytes + sizeof(block_q8_1_mmq) - 1) / sizeof(block_q8_1_mmq)) - 1;
 }
 
-// ids_dst_n < 0 means the dense branch, which has no ids_dst.
 static void mmq_dbg_report(
-        const char * branch,
-        const ggml_type type, const bool fallback, const ggml_prec prec_src1, const int cc, const size_t smpbo,
+        const ggml_type type, const bool fallback, const int cc, const size_t smpbo,
         const int64_t ne11, const int64_t ne12, const int64_t n_expert_used, const int64_t ne02,
         const size_t pad_bytes, const int64_t ids_dst_n, const int64_t ids_dst_entries) {
     if (!mmq_dbg_print()) {
         return;
     }
 
-    const bool    dense     = ids_dst_n < 0;
-    const bool    rdna      = GGML_CUDA_CC_IS_RDNA3(cc) || GGML_CUDA_CC_IS_RDNA4(cc);
-    const int64_t ncols_opt = dense ? ne11 : (rdna ? (ne12*n_expert_used + ne02 - 1) / ne02 : ne12);
+    const bool rdna = GGML_CUDA_CC_IS_RDNA3(cc) || GGML_CUDA_CC_IS_RDNA4(cc);
+    const int64_t ncols_opt = rdna ? (ne12*n_expert_used + ne02 - 1) / ne02 : ne12;
 
     int J_launch = 0, ntiles_best = INT_MAX, nthreads = 0;
     for (int J = 8; J <= 128 && ntiles_best > 1; J += 8) {
-        const ggml_cuda_mmq_config c = ggml_cuda_mmq_get_config(type, J, fallback, cc, prec_src1);
+        const ggml_cuda_mmq_config c = ggml_cuda_mmq_get_config(type, J, fallback, cc);
         if (c.type == GGML_TYPE_COUNT || mmq_get_nbytes_shared(c, cc) > smpbo) {
             continue;
         }
@@ -221,26 +219,15 @@ static void mmq_dbg_report(
     }
 
     const int pad_blocks = (int) (pad_bytes / sizeof(block_q8_1_mmq));
-    int need_src1 = mmq_src1_need_blocks(J_launch, nthreads);
-    if (dense && J_launch > 0) {
-        // the dense branch's last tile holds ne11 - (ntiles - 1)*J columns, all but one of which is data
-        const int64_t ntiles = (ne11 + J_launch - 1) / J_launch;
-        need_src1 -= (int) (ne11 - (ntiles - 1)*J_launch - 1);
-    }
+    const int need_src1  = mmq_src1_need_blocks(J_launch, nthreads);
+    const int need_ids   = J_launch - 1; // the last expert's last tile can hold a single row
 
-    fprintf(stderr, "MMQ_%-5s %-5s fb=%d prec=%s ne11=%5ld ne12=%5ld n_used=%3ld ne02=%4ld | J=%3d nthreads=%3d"
-            " | src1 need=%3d pad=%3d %-7s",
-            branch, ggml_type_name(type), (int) fallback,
-            prec_src1 == GGML_PREC_Q4  ? "q4"  : prec_src1 == GGML_PREC_Q8        ? "q8" :
-            prec_src1 == GGML_PREC_F32 ? "f32" : prec_src1 == GGML_PREC_UNDEFINED ? "und" : "???",
+    fprintf(stderr,
+            "MMQ_ID %-5s fb=%d ne11=%4ld ne12=%5ld n_used=%3ld ne02=%4ld | J=%3d nthreads=%3d "
+            "| src1 need=%3d pad=%3d %-7s | ids_dst n=%7ld need=%3d pad=%3ld %-7s\n",
+            ggml_type_name(type), (int) fallback,
             (long) ne11, (long) ne12, (long) n_expert_used, (long) ne02, J_launch, nthreads,
-            need_src1, pad_blocks, pad_blocks >= need_src1 ? "covered" : "SHORT");
-    if (dense) {
-        fprintf(stderr, " | no ids_dst\n");
-    } else {
-        const int need_ids = J_launch - 1; // the last expert's last tile can hold a single row
-        fprintf(stderr, " | ids_dst n=%7ld need=%3d pad=%3ld %-7s\n",
-                (long) ids_dst_entries, need_ids, (long) (ids_dst_n - ids_dst_entries),
-                ids_dst_n - ids_dst_entries >= need_ids ? "covered" : "SHORT");
-    }
+            need_src1, pad_blocks, pad_blocks >= need_src1 ? "covered" : "SHORT",
+            (long) ids_dst_entries, need_ids, (long) (ids_dst_n - ids_dst_entries),
+            ids_dst_n - ids_dst_entries >= need_ids ? "covered" : "SHORT");
 }

@@ -1,0 +1,19 @@
+# Repeated guarded MMQ calls in one process, gfx1151 / ROCm 7.2.1, MMQ_DEBUG_ALLOC=guard:src1
+# test-backend-ops test -o MUL_MAT -b ROCm0 on llama.cpp#29953 at 3070d927f with #448's hooks (mmq-variant.py head --debug),
+# which guard the dense branch too. 'pre-fix' = mmq-debug-alloc.cuh freeing each reservation; 'fixed' = keeping it on HIP.
+# VmPeak is /proc/<pid>/status sampled every 0.2 s: it includes the suite's own buffers, so it bounds, not isolates, the leak.
+
+prefix   run 1: 175 guarded calls, 1305/1305 tests passed, 0 wrong results, 0 illegal accesses, exit 0, VmPeak 8550 MiB
+prefix   run 2: 175 guarded calls, 1305/1305 tests passed, 0 wrong results, 0 illegal accesses, exit 0, VmPeak 8629 MiB
+prefix   run 3: 175 guarded calls, 1305/1305 tests passed, 0 wrong results, 0 illegal accesses, exit 0, VmPeak 8876 MiB
+fixed    run 1: 175 guarded calls, 1305/1305 tests passed, 0 wrong results, 0 illegal accesses, exit 0, VmPeak 9442 MiB
+fixed    run 2: 175 guarded calls, 1305/1305 tests passed, 0 wrong results, 0 illegal accesses, exit 0, VmPeak 8612 MiB
+fixed    run 3: 175 guarded calls, 1305/1305 tests passed, 0 wrong results, 0 illegal accesses, exit 0, VmPeak 8830 MiB
+control  run 1:   0 guarded calls, 1305/1305 tests passed (MMQ_DEBUG_ALLOC unset; 175 dense MMQ calls)
+
+# The MUL_MAT_ID suite in one process on b11081 (hooks on the ids branch only) makes 1 guarded call on gfx1151:
+# its cases go to MMVQ, MMF or hipBLAS here. 941/941 tests passed pre-fix, 941/941 tests passed fixed.
+
+# So the pre-fix defect needs more than repeated calls: it reproduced where a reservation is freed and reserved
+# again inside one computation with hipMalloc traffic between (the per-expert fallback, 0 of 5 runs correct; and
+# mmq-hip-vmm-reuse.hip), not across independent test cases.
