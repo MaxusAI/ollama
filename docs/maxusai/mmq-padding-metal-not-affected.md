@@ -5,7 +5,15 @@ Asked while reviewing [#448](https://github.com/MaxusAI/ollama/pull/448): the MM
 need testing too?
 
 **No, and there is nothing to ask the Metal host.** Metal's `MUL_MAT_ID` is unaffected, and not by luck — it
-bounds its tile indices where MMQ does not. Read from llama.cpp `b11081`, the fork's pin.
+bounds its tile indices where MMQ does not.
+
+> [!NOTE]
+> **Which tree.** The reading was done on llama.cpp `dd266785c` (upstream master, the tree this work had open),
+> then re-verified against **`b11081` (`161755f2`), the fork's pin** — `mul_mm.metal` and `mul_mv.metal` differ
+> between the two. All line numbers below are b11081's. The quoted `kernel_mul_mm_id` block was checked by
+> diffing it against the pin rather than grepping its lines: it is `mul_mm.metal:542–560` verbatim, with the
+> `il0`/`il` lines (556–558) elided where marked and the clamp comment at 552. The first version of this file
+> cited master's line numbers while claiming to have read the pin; corrected on review by the Metal host (#452).
 
 ## The defect needs three things, and Metal has none of them
 
@@ -77,9 +85,9 @@ on the allocation being large enough — and it is why Metal needs no padding ru
 But the quantized kernels it dispatches tile src0 rows unconditionally and guard only the write:
 
 ```c
-        for (short row = 0; row < nr0; row++) {              // mul_mv.metal:1572, unconditional
-...
-    for (int row = 0; row < nr0 && first_row + row < args.ne0; ++row) {   // :1610, only the write is guarded
+        for (short row = 0; row < nr0; row++) {              // mul_mv.metal:1569, unconditional
+    [...]
+    for (int row = 0; row < nr0 && first_row + row < args.ne0; ++row) {   // :1607, only the write is guarded
 ```
 
 That is MMQ's shape -- a whole-tile load with the write guarded -- but on src0 rather than on a padded buffer, so
@@ -116,6 +124,10 @@ The Metal host read the same pin and confirmed the conclusion, with two correcti
   actually got` does not appear in `mul_mm.metal`, and the block elided the `il0`/`il` lines without a marker,
   while the test plan asserted the quotes were verbatim. Annotation removed, elision marked, and the test plan
   reworded to say what was actually checked.
+- **The `mul_mv.metal` line numbers were master's, not the pin's**, because the reading was done on
+  `dd266785c` while the file claimed `b11081`: the loops are at 1569 and 1607 at the pin, not 1572 and 1610,
+  and the two files differ. Corrected, with the provenance now stated at the top. Everything else they checked
+  at b11081 matched, and the quoted block is verbatim there.
 
 They also verified, independently: the three extras are sized as this file says and src1 is bound in place; the
 amax partials are dispatched as exactly `N_MM_NPART_AMAX` threadgroups (`ggml-metal-ops.cpp:2746`), the constant
