@@ -12,6 +12,13 @@
 #   5. one blackwell config at 192 threads-> must FAIL by the guard naming ONLY blackwell: GGML_PAD is a bit mask
 #                                            that assumes a power-of-two granularity, the tables only assert
 #                                            nthreads % 32 == 0, and the guard's exact arithmetic sees the gap
+#   5b. one rdna3_5 config at 160 threads -> must FAIL by the guard naming ONLY rdna3_5. Not 192: rdna3_5's first
+#                                            256-thread line has J = 64, and 64*36 ints is a multiple of 192, so the
+#                                            bit mask happens to round right there (found by the ROCm host, #455)
+#
+# The guard's outer check is an explicitly instantiated class inheriting every per-type guard, not a static_assert
+# on a fold: under clang a failed per-type assertion made that outer expression non-constant and added one error
+# per failing table, worded like a constant-evaluation limit. The ROCm host's variant (#455, #456).
 # nvcc's front end stops at 100 errors by default, which cut mutation 3's table list to the first five tables;
 # --error_limit lifts that so every table that fails is named.
 # Usage: mmq-29953-guard-verify.sh   (from its own directory, with a llama.cpp clone at ./llama.cpp that has
@@ -67,6 +74,7 @@ build "1-head-unpatched" ok || ok=0
 git apply "$PATCH" || { echo "FAIL: the patch does not apply to $HEAD29953"; exit 1; }
 echo "patch applies to a pristine $HEAD29953"
 cp "$CU" "$OUT/mmq.cu.patched"; cp "$CUH" "$OUT/mmq.cuh.patched"; cp "$BW" "$OUT/blackwell.orig"
+R35=ggml/src/ggml-cuda/mmq-config-rdna3-5.cuh; cp "$R35" "$OUT/rdna3-5.orig"
 build "2-head-with-guard" ok || ok=0
 
 swap() { # <file> <old> <new>: exact one-occurrence string swap, so a mutation cannot fail for a typo of mine
@@ -95,6 +103,12 @@ swap "$BW" "$first" "${first/256,/192,}"
 echo "mutation 5 rewrote: $first -> ${first/256,/192,}"
 build "5-blackwell-config-at-192-threads" fail "blackwell" || ok=0
 cp "$OUT/blackwell.orig" "$BW"
+
+first=$(grep -m1 -E '^ *CASE\(GGML_TYPE_[A-Z0-9_]+, *256,' "$R35")
+swap "$R35" "$first" "${first/256,/160,}"
+echo "mutation 5b rewrote: $first -> ${first/256,/160,}"
+build "5b-rdna3_5-config-at-160-threads" fail "rdna3_5" || ok=0
+cp "$OUT/rdna3-5.orig" "$R35"
 
 sed -i 's/^#    define GGML_CUDA_MMQ_Y_TILE_GUARD_ON$/\/\/ guard disabled for timing/; s/^#        define GGML_CUDA_MMQ_Y_TILE_GUARD_ON$/\/\/ guard disabled for timing/' "$CU"
 build "6-guard-compiled-out" ok || ok=0

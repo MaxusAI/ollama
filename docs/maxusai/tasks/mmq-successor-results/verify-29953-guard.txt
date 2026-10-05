@@ -1,13 +1,16 @@
-host load at start (1/5/15 min): 7.73 12.80 17.77, 32 cores
-1-head-unpatched                   rc=0   ok   want=ok   as-expected     8.1s
+host load at start (1/5/15 min): 38.78 35.94 28.60, 32 cores
+1-head-unpatched                   rc=0   ok   want=ok   as-expected    13.5s
 patch applies to a pristine 3070d927f6c172242d56a2c1fb897e838e7b2632
-2-head-with-guard                  rc=0   ok   want=ok   as-expected    11.2s
-3-helper-shrunk-to-J-blocks        rc=2   fail want=fail as-expected     3.0s
+2-head-with-guard                  rc=0   ok   want=ok   as-expected    19.1s
+3-helper-shrunk-to-J-blocks        rc=2   fail want=fail as-expected     5.0s
     errors=220, from the guard=220, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
-4-helper-rounded-to-one-warp       rc=2   fail want=fail as-expected     3.0s
+4-helper-rounded-to-one-warp       rc=2   fail want=fail as-expected     5.0s
     errors=220, from the guard=220, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
 mutation 5 rewrote:     CASE(GGML_TYPE_MXFP4, 256, 1, 128,   8, GGML_CUDA_MMQ_SRAM_LAYOUT_FP4, MMQ_ITER_K_FP4, true, true); ->     CASE(GGML_TYPE_MXFP4, 192, 1, 128,   8, GGML_CUDA_MMQ_SRAM_LAYOUT_FP4, MMQ_ITER_K_FP4, true, true);
-5-blackwell-config-at-192-threads  rc=2   fail want=fail as-expected     4.0s
+5-blackwell-config-at-192-threads  rc=2   fail want=fail as-expected     6.1s
     errors=1, from the guard=1, tables named: blackwell
-6-guard-compiled-out               rc=0   ok   want=ok   as-expected     7.9s
-VERIFY29953GUARD COMPLETE 2026-10-05T02:33:16Z all_as_expected=1
+mutation 5b rewrote:     CASE(GGML_TYPE_Q1_0, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true); ->     CASE(GGML_TYPE_Q1_0, 160, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true);
+5b-rdna3_5-config-at-160-threads   rc=2   fail want=fail as-expected     6.0s
+    errors=1, from the guard=1, tables named: rdna3_5
+6-guard-compiled-out               rc=0   ok   want=ok   as-expected    14.2s
+VERIFY29953GUARD COMPLETE 2026-10-05T04:51:06Z all_as_expected=1
