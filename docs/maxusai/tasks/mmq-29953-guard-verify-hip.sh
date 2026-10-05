@@ -10,16 +10,20 @@
 #       rdna3_5 config can be made short with 192 threads: only J = 8, 56, 72 and 120 can, and rdna3_5 uses none.
 #   5b. the same config at 160 threads                    -> must FAIL by the guard, naming ONLY rdna3_5: GGML_PAD's
 #       bit mask gives 9216 B, and the load loop reads 15*160 ints = 9600 B
+#   5c. blackwell's first 256-thread config at 192 threads -> must FAIL by the guard, naming ONLY blackwell: the nvcc
+#       script's build 5 (J = 8: the bit mask gives 1280 B, the load reads 2*192 ints = 1536 B). The host pass checks
+#       every table whatever the offload target, so hipcc must catch an NVIDIA table too
 #   6.  the guard compiled out                            -> must compile (timing); its object code is compared with
 #       build 2's, to show the guard adds none
 # clang stops at 20 errors by default, which would name only the first tables; -ferror-limit=0 lifts it.
 #
-# Under clang, the patch as published reports ONE failing type per table, and then a knock-on error from the outer
-# static_assert(ggml_cuda_mmq_y_tile_all_<table>(...) > 0) at the same line: "static assertion expression is not an
-# integral constant expression" -- the same words clang uses when it hits -fconstexpr-steps. The scoring below counts
-# the knock-on as not the guard's, as the nvcc script does. VARIANT=instantiate replaces the function template and that
-# outer static_assert with an explicitly instantiated class that inherits every per-type guard, so nothing outside
-# the per-type assertions is constant-evaluated; clang then reports every failing (table, type) once, and nothing else.
+# The guard as #455 first published it ends in an outer static_assert(ggml_cuda_mmq_y_tile_all_<table>(...) > 0).
+# Under clang that form reports ONE failing type per table, and then a knock-on error from the outer static_assert at
+# the same line: "static assertion expression is not an integral constant expression" -- the same words clang uses
+# when it hits -fconstexpr-steps. The scoring below counts the knock-on as not the guard's, as the nvcc script does.
+# VARIANT=instantiate replaces the function template and that outer static_assert with an explicitly instantiated
+# class that inherits every per-type guard, so nothing outside the per-type assertions is constant-evaluated; clang
+# then reports every failing (table, type) once, and nothing else. A patch that already has that form needs no VARIANT.
 #
 # Usage: mmq-29953-guard-verify-hip.sh <llama.cpp clone that has 3070d927f> [cmake|hipcc]
 #   cmake (default): the compile command CMake generates for mmq.cu (GGML_HIP=ON, gfx1151, Release), run directly,
@@ -29,7 +33,7 @@
 # REPEATS=N also times builds 2 and 6, interleaved, N times each. VARIANT=instantiate applies the variant above on top
 # of the patch. Results go to ./verify-29953-guard-hip-<mode>[-<variant>].
 set -u
-[ $# -ge 1 ] || { sed -n '2,34p' "$0"; exit 2; }
+[ $# -ge 1 ] || { sed -n '2,38p' "$0"; exit 2; }
 LC=$(realpath "$1"); MODE=${2:-cmake}
 HERE=$(cd "$(dirname "$0")" && pwd)
 PATCH=${PATCH:-$HERE/mmq-29953-y-tile-guard.patch}
@@ -49,6 +53,7 @@ git -C "$LC" worktree add --quiet --detach "$WT" "$HEAD29953" || exit 1
 trap 'git -C "$LC" worktree remove --force "$WT" 2>/dev/null' EXIT
 cd "$WT" || exit 1
 CU=ggml/src/ggml-cuda/mmq.cu; CUH=ggml/src/ggml-cuda/mmq.cuh; R35=ggml/src/ggml-cuda/mmq-config-rdna3-5.cuh
+BW=ggml/src/ggml-cuda/mmq-config-blackwell.cuh
 
 if [ "$MODE" = cmake ]; then
     cmake -S "$WT" -B "$OUT/build" -G Ninja -DGGML_HIP=ON -DGPU_TARGETS=gfx1151 -DCMAKE_BUILD_TYPE=Release \
@@ -124,13 +129,17 @@ ok=1
 build "1-head-unpatched" ok || ok=0
 
 git apply "$PATCH" || { echo "FAIL: the patch does not apply to $HEAD29953"; exit 1; }
-echo "patch applies to a pristine $HEAD29953"
+echo "patch applies to a pristine $HEAD29953 (patch blob $(git hash-object "$PATCH"))"
 if [ "$VARIANT" = instantiate ]; then
     python3 - "$CU" <<'PY' || exit 1
 import sys
 p = sys.argv[1]; s = open(p).read()
 head = "    template <int... ts> static constexpr size_t ggml_cuda_mmq_y_tile_all_##TABLE("
 tail = 'static_assert(ggml_cuda_mmq_y_tile_all_##TABLE(std::make_integer_sequence<int, GGML_TYPE_COUNT>()) > 0, "");'
+done = "    template struct ggml_cuda_mmq_y_tile_guards_##TABLE<std::make_integer_sequence<int, GGML_TYPE_COUNT>>;"
+if s.count(head) == 0 and s.count(tail) == 0 and "template struct ggml_cuda_mmq_y_tile_guards_##TABLE<" in s:
+    print("variant 'instantiate': the patch already has it, nothing to apply")
+    sys.exit(0)
 if s.count(head) != 1 or s.count(tail) != 1:
     sys.exit("variant anchors found %d and %d times, expected once each" % (s.count(head), s.count(tail)))
 a = s.index(head); b = s.index(tail) + len(tail)
@@ -138,15 +147,16 @@ new = [
     "    template <typename> struct ggml_cuda_mmq_y_tile_guards_##TABLE;",
     "    template <int... ts> struct ggml_cuda_mmq_y_tile_guards_##TABLE<std::integer_sequence<int, ts...>>",
     "        : ggml_cuda_mmq_y_tile_guard_##TABLE<ts>... {};",
-    "    template struct ggml_cuda_mmq_y_tile_guards_##TABLE<std::make_integer_sequence<int, GGML_TYPE_COUNT>>;",
+    done,
 ]
 new = "\n".join([l.ljust(120) + "\\" for l in new[:-1]] + new[-1:])
 open(p, "w").write(s[:a] + new + s[b:])
+print("variant 'instantiate' applied")
 PY
-    echo "variant 'instantiate' applied: the guard's tail is now"
+    echo "the guard's tail is now"
     grep -A3 -F '    template <typename> struct ggml_cuda_mmq_y_tile_guards_##TABLE;' "$CU" | sed 's/ *\\$//; s/^/    /'
 fi
-cp "$CU" "$OUT/mmq.cu.patched"; cp "$CUH" "$OUT/mmq.cuh.patched"; cp "$R35" "$OUT/rdna3-5.orig"
+cp "$CU" "$OUT/mmq.cu.patched"; cp "$CUH" "$OUT/mmq.cuh.patched"; cp "$R35" "$OUT/rdna3-5.orig"; cp "$BW" "$OUT/blackwell.orig"
 build "2-head-with-guard" ok || ok=0
 cp "$OUT/mmq.o" "$OUT/mmq-2.o" 2>/dev/null
 
@@ -170,6 +180,12 @@ swap "$R35" "$first" "${first/256,/160,}"
 echo "mutation 5b rewrote: $first -> ${first/256,/160,}"
 build "5b-rdna3_5-config-at-160-threads" fail "rdna3_5" || ok=0
 cp "$OUT/rdna3-5.orig" "$R35"
+
+firstbw=$(grep -m1 -E '^ *CASE\(GGML_TYPE_[A-Z0-9_]+, *256,' "$BW")
+swap "$BW" "$firstbw" "${firstbw/256,/192,}"
+echo "mutation 5c rewrote: $firstbw -> ${firstbw/256,/192,}"
+build "5c-blackwell-config-at-192-threads" fail "blackwell" || ok=0
+cp "$OUT/blackwell.orig" "$BW"
 
 sed 's/^#    define GGML_CUDA_MMQ_Y_TILE_GUARD_ON$/\/\/ guard disabled for timing/; s/^#        define GGML_CUDA_MMQ_Y_TILE_GUARD_ON$/\/\/ guard disabled for timing/' \
     "$OUT/mmq.cu.patched" > "$OUT/mmq.cu.unguarded"
