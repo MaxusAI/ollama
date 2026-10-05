@@ -141,6 +141,33 @@ Two GPU-free checks close that, and both rest on the same fact: the read depends
 The prototype carries its own copy of each rule. To guard the code that ships, the padding must be a helper that the
 allocation itself calls, and the guard must check that helper. That is the form drafted for compat 903.
 
+## #455: the #29953 guard under hipcc
+
+#455 asked whether `mmq-29953-y-tile-guard.patch` compiles, and fires, under hipcc as it does under nvcc. The patch
+is compat 903's guard, rebuilt for llama.cpp#29953's head. [verify-29953-guard.txt](verify-29953-guard.txt) holds
+the six builds of `mmq.cu` from `mmq-29953-guard-verify-hip.sh`, with ROCm 7.2.1 for gfx1151:
+
+| build | nvcc, sm_120 (#454) | hipcc, the patch as published | hipcc, `VARIANT=instantiate` |
+|---|---|---|---|
+| 1, 2, 6: head; with the guard; guard compiled out | ok | ok | ok |
+| 3: helper shrunk to `J` blocks | 220 guard errors, 10 tables | 10 guard + 10 knock-on errors, 10 tables | 220 guard errors, 10 tables |
+| 4: helper rounded to one warp | 220 guard errors, 10 tables | 10 guard + 10 knock-on errors, 10 tables | 220 guard errors, 10 tables |
+| 5: one config at a non-power-of-two `nthreads` | blackwell at 192: 1 guard error | rdna3_5 at 192: ok; at 160: 1 guard + 1 knock-on error | rdna3_5 at 192: ok; at 160: 1 guard error |
+
+- **The guard works under hipcc.** It fails the build in exactly the tables nvcc names, and only in the host pass.
+  CMake's own compile command and the minimal `hipcc` command agree on every build.
+- **Clang adds a knock-on error.** It reports one failing type per table, and then the outer
+  `static_assert(ggml_cuda_mmq_y_tile_all_<table>(...) > 0)` fails with "static assertion expression is not an
+  integral constant expression". Clang prints the same words when it hits `-fconstexpr-steps`, so a reader cannot tell
+  the two apart without the notes. `VARIANT=instantiate` drops the outer `static_assert`: an explicitly instantiated
+  class inherits every per-type guard. Clang then reports each failing (table, type) once, as nvcc does. nvcc has not
+  compiled the variant.
+- **#455's mutation 5 cannot fire on rdna3_5.** Its first 256-thread config has `J = 64`, and 64 × 36 ints is
+  exactly 12 × 192. At 192 threads, `GGML_PAD`'s bit mask is short only for `J` = 8, 56, 72 and 120, and rdna3_5 uses
+  multiples of 16. At 160 threads the same config is short: 9216 B against 9600 B.
+- **The guard costs 0.8 s of compile time and no code.** `mmq.cu` compiles in 2.88 s with it and 2.05 s without
+  (median of five, interleaved). The object is byte-identical with the guard on and off, and with the variant.
+
 ## Files
 
 | file | what | from |
@@ -158,6 +185,7 @@ allocation itself calls, and the guard must check that helper. That is the form 
 | [multi-call.txt](multi-call.txt) | 175 guarded calls in one process, pre-fix vs fixed header | `test-backend-ops -o MUL_MAT` |
 | [padding-invariant.txt](padding-invariant.txt) | every config of all ten tables against four rules | `mmq-padding-invariant.cu` |
 | [padding-guard.txt](padding-guard.txt) | the compile-time guard under four rules, two trees | `mmq-padding-guard.cu` |
+| [verify-29953-guard.txt](verify-29953-guard.txt) | #29953's guard: six builds of `mmq.cu`, as published and as a variant | `mmq-29953-guard-verify-hip.sh` |
 
 ## Reproduce
 
@@ -179,6 +207,10 @@ $T/mmq-rocm-table.py out/cases/results.tsv
 # llama.cpp#29953's head as fetched
 $T/mmq-rocm-build.sh --head <llama.cpp at 3070d927f> out-head
 VARIANTS=head REPS=2 $T/mmq-rocm-cases.sh out-head && VARIANTS=head REPS=2 $T/mmq-rocm-route.sh out-head
+# #29953's guard: six builds of mmq.cu, GPU-free (about a minute each run)
+REPEATS=5 $T/mmq-29953-guard-verify-hip.sh <llama.cpp clone with 3070d927f> cmake
+$T/mmq-29953-guard-verify-hip.sh <llama.cpp clone with 3070d927f> hipcc
+REPEATS=5 VARIANT=instantiate $T/mmq-29953-guard-verify-hip.sh <llama.cpp clone with 3070d927f> cmake
 ```
 
 The head runs above also passed `CASES=` with `dense321` appended to the twelve.

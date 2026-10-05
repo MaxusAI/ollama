@@ -1,0 +1,123 @@
+# MaxusAI/ollama#455: does llama.cpp#29953's y-tile guard compile, and fire, under hipcc?
+# mmq-29953-guard-verify-hip.sh on llama.cpp 3070d927f with mmq-29953-y-tile-guard.patch: mmq.cu compiled for gfx1151
+# with -ferror-limit=0 and no ccache, each build scored by why it failed. Four runs: the patch as published and
+# VARIANT=instantiate, each with CMake's own compile command and with the minimal hipcc command. Host: amd-server, the
+# same host and toolchain as host-profile_mmq-successor-gfx1151.json (#450).
+#
+# Build 5 differs from the nvcc script's on purpose. #455 asked for rdna3_5's first 256-thread config at 192 threads.
+# That config has J = 64, and 64*36 ints = 12*192, so GGML_PAD's bit mask happens to round correctly: there is
+# nothing to catch. At 192 threads the bit mask is short only for J = 8, 56, 72 and 120, and rdna3_5 uses J = 16 to
+# 128 in steps of 16, so no rdna3_5 config can fire at 192. Build 5a is #455's mutation and must compile; build 5b
+# moves the same config to 160 threads, where the bit mask gives 9216 B and the load reads 15*160 ints = 9600 B.
+
+== 1. the patch as published, CMake's compile command, five interleaved timing repeats
+host load at start (1/5/15 min): 0.28 0.42 0.27, 32 cores
+ROCm 7.2.1, HIP version: 7.2.53211-e1a6bc5663, AMD clang version 22.0.0git (https://github.com/RadeonOpenCompute/llvm-project roc-7.2.1 26084 f58b06dce1f9c15707c5f808fd002e18c2accf7e)
+1-head-unpatched                     rc=0   ok   want=ok   as-expected     2.06s
+patch applies to a pristine 3070d927f6c172242d56a2c1fb897e838e7b2632
+2-head-with-guard                    rc=0   ok   want=ok   as-expected     2.89s
+3-helper-shrunk-to-J-blocks          rc=1   fail want=fail WRONG-REASON    1.36s
+    errors=20, from the guard=10, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
+4-helper-rounded-to-one-warp         rc=1   fail want=fail WRONG-REASON    1.36s
+    errors=20, from the guard=10, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
+mutation 5a rewrote:     CASE(GGML_TYPE_Q1_0, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true); ->     CASE(GGML_TYPE_Q1_0, 192, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true);
+5a-rdna3_5-config-at-192-threads     rc=0   ok   want=ok   as-expected     2.88s
+mutation 5b rewrote:     CASE(GGML_TYPE_Q1_0, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true); ->     CASE(GGML_TYPE_Q1_0, 160, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true);
+5b-rdna3_5-config-at-160-threads     rc=1   fail want=fail WRONG-REASON    2.11s
+    errors=2, from the guard=1, tables named: rdna3_5
+6-guard-compiled-out                 rc=0   ok   want=ok   as-expected     2.05s
+object code, build 2 vs build 6 (guard on vs off): byte-identical, 166400 B
+timing, 5 interleaved repeats: with the guard 2.88 2.89 2.87 2.86 2.88 s (median 2.88), without 2.05 2.07 2.05 2.04 2.05 s (median 2.05)
+VERIFY29953GUARD-HIP COMPLETE 2026-10-05T04:04:36Z mode=cmake variant=none all_as_expected=0
+
+== 2. the patch as published, minimal hipcc
+host load at start (1/5/15 min): 0.63 0.50 0.30, 32 cores
+ROCm 7.2.1, HIP version: 7.2.53211-e1a6bc5663, AMD clang version 22.0.0git (https://github.com/RadeonOpenCompute/llvm-project roc-7.2.1 26084 f58b06dce1f9c15707c5f808fd002e18c2accf7e)
+1-head-unpatched                     rc=0   ok   want=ok   as-expected     1.99s
+patch applies to a pristine 3070d927f6c172242d56a2c1fb897e838e7b2632
+2-head-with-guard                    rc=0   ok   want=ok   as-expected     2.78s
+3-helper-shrunk-to-J-blocks          rc=1   fail want=fail WRONG-REASON    1.30s
+    errors=20, from the guard=10, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
+4-helper-rounded-to-one-warp         rc=1   fail want=fail WRONG-REASON    1.29s
+    errors=20, from the guard=10, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
+mutation 5a rewrote:     CASE(GGML_TYPE_Q1_0, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true); ->     CASE(GGML_TYPE_Q1_0, 192, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true);
+5a-rdna3_5-config-at-192-threads     rc=0   ok   want=ok   as-expected     2.79s
+mutation 5b rewrote:     CASE(GGML_TYPE_Q1_0, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true); ->     CASE(GGML_TYPE_Q1_0, 160, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true);
+5b-rdna3_5-config-at-160-threads     rc=1   fail want=fail WRONG-REASON    2.03s
+    errors=2, from the guard=1, tables named: rdna3_5
+6-guard-compiled-out                 rc=0   ok   want=ok   as-expected     1.98s
+object code, build 2 vs build 6 (guard on vs off): byte-identical, 165312 B
+VERIFY29953GUARD-HIP COMPLETE 2026-10-05T04:04:51Z mode=hipcc variant=none all_as_expected=0
+
+Builds 3, 4 and 5b fail for the right reason, but score WRONG-REASON: clang reports one failing type per table, then a
+knock-on error at the same line. The first pair from build 3; every failing table gives the same pair:
+    ggml/src/ggml-cuda/mmq.cu:530:1: error: static assertion failed due to requirement 'ggml_cuda_mmq_y_tile_ok_pascal_older(42)': MMQ: the y tile helper is smaller than the y load for a config in the pascal_older table
+    ggml/src/ggml-cuda/mmq.cu:530:1: error: static assertion expression is not an integral constant expression
+The knock-on is the outer static_assert(ggml_cuda_mmq_y_tile_all_<table>(...) > 0, ""): once a per-type assertion
+fails, that function's instantiation is invalid, so the call is not a constant expression. In runs 1 and 2, all 42
+knock-on errors sit on a line where the guard failed, and no log has a "maximum step limit" note. But the words are
+the ones clang prints when it hits -fconstexpr-steps.
+
+VARIANT=instantiate replaces the function template and the outer static_assert
+    template <int... ts> static constexpr size_t ggml_cuda_mmq_y_tile_all_##TABLE(std::integer_sequence<int, ts...>) {
+        return (sizeof(ggml_cuda_mmq_y_tile_guard_##TABLE<ts>) + ... + 0);
+    }
+    static_assert(ggml_cuda_mmq_y_tile_all_##TABLE(std::make_integer_sequence<int, GGML_TYPE_COUNT>()) > 0, "");
+with an explicitly instantiated class that inherits every per-type guard, so only the per-type assertions are
+constant-evaluated.
+
+== 3. VARIANT=instantiate, CMake's compile command, five interleaved timing repeats
+host load at start (1/5/15 min): 0.72 0.52 0.31, 32 cores
+ROCm 7.2.1, HIP version: 7.2.53211-e1a6bc5663, AMD clang version 22.0.0git (https://github.com/RadeonOpenCompute/llvm-project roc-7.2.1 26084 f58b06dce1f9c15707c5f808fd002e18c2accf7e)
+1-head-unpatched                     rc=0   ok   want=ok   as-expected     2.06s
+patch applies to a pristine 3070d927f6c172242d56a2c1fb897e838e7b2632
+variant 'instantiate' applied: the guard's tail is now
+        template <typename> struct ggml_cuda_mmq_y_tile_guards_##TABLE;
+        template <int... ts> struct ggml_cuda_mmq_y_tile_guards_##TABLE<std::integer_sequence<int, ts...>>
+            : ggml_cuda_mmq_y_tile_guard_##TABLE<ts>... {};
+        template struct ggml_cuda_mmq_y_tile_guards_##TABLE<std::make_integer_sequence<int, GGML_TYPE_COUNT>>;
+2-head-with-guard                    rc=0   ok   want=ok   as-expected     2.89s
+3-helper-shrunk-to-J-blocks          rc=1   fail want=fail as-expected     1.85s
+    errors=220, from the guard=220, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
+4-helper-rounded-to-one-warp         rc=1   fail want=fail as-expected     1.85s
+    errors=220, from the guard=220, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
+mutation 5a rewrote:     CASE(GGML_TYPE_Q1_0, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true); ->     CASE(GGML_TYPE_Q1_0, 192, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true);
+5a-rdna3_5-config-at-192-threads     rc=0   ok   want=ok   as-expected     2.88s
+mutation 5b rewrote:     CASE(GGML_TYPE_Q1_0, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true); ->     CASE(GGML_TYPE_Q1_0, 160, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true);
+5b-rdna3_5-config-at-160-threads     rc=1   fail want=fail as-expected     2.23s
+    errors=1, from the guard=1, tables named: rdna3_5
+6-guard-compiled-out                 rc=0   ok   want=ok   as-expected     2.05s
+object code, build 2 vs build 6 (guard on vs off): byte-identical, 166424 B
+timing, 5 interleaved repeats: with the guard 2.87 2.86 2.85 2.91 2.86 s (median 2.86), without 2.07 2.06 2.06 2.05 2.06 s (median 2.06)
+VERIFY29953GUARD-HIP COMPLETE 2026-10-05T04:05:34Z mode=cmake variant=instantiate all_as_expected=1
+
+== 4. VARIANT=instantiate, minimal hipcc
+host load at start (1/5/15 min): 0.99 0.62 0.36, 32 cores
+ROCm 7.2.1, HIP version: 7.2.53211-e1a6bc5663, AMD clang version 22.0.0git (https://github.com/RadeonOpenCompute/llvm-project roc-7.2.1 26084 f58b06dce1f9c15707c5f808fd002e18c2accf7e)
+1-head-unpatched                     rc=0   ok   want=ok   as-expected     1.97s
+patch applies to a pristine 3070d927f6c172242d56a2c1fb897e838e7b2632
+variant 'instantiate' applied: the guard's tail is now
+        template <typename> struct ggml_cuda_mmq_y_tile_guards_##TABLE;
+        template <int... ts> struct ggml_cuda_mmq_y_tile_guards_##TABLE<std::integer_sequence<int, ts...>>
+            : ggml_cuda_mmq_y_tile_guard_##TABLE<ts>... {};
+        template struct ggml_cuda_mmq_y_tile_guards_##TABLE<std::make_integer_sequence<int, GGML_TYPE_COUNT>>;
+2-head-with-guard                    rc=0   ok   want=ok   as-expected     2.84s
+3-helper-shrunk-to-J-blocks          rc=1   fail want=fail as-expected     1.78s
+    errors=220, from the guard=220, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
+4-helper-rounded-to-one-warp         rc=1   fail want=fail as-expected     1.77s
+    errors=220, from the guard=220, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
+mutation 5a rewrote:     CASE(GGML_TYPE_Q1_0, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true); ->     CASE(GGML_TYPE_Q1_0, 192, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true);
+5a-rdna3_5-config-at-192-threads     rc=0   ok   want=ok   as-expected     2.81s
+mutation 5b rewrote:     CASE(GGML_TYPE_Q1_0, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true); ->     CASE(GGML_TYPE_Q1_0, 160, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true);
+5b-rdna3_5-config-at-160-threads     rc=1   fail want=fail as-expected     2.09s
+    errors=1, from the guard=1, tables named: rdna3_5
+6-guard-compiled-out                 rc=0   ok   want=ok   as-expected     1.98s
+object code, build 2 vs build 6 (guard on vs off): byte-identical, 165336 B
+VERIFY29953GUARD-HIP COMPLETE 2026-10-05T04:05:49Z mode=hipcc variant=instantiate all_as_expected=1
+
+== object code across runs
+The patch as published vs VARIANT=instantiate, build 2, both compiled in one worktree to one output name with run 1's
+CMake command: byte-identical, 166400 B. Objects from different runs are not, because each run has its own worktree
+path: a -instantiate run's is 12 characters longer, which adds 24 B to .rodata.str1.1 (two __FILE__ strings; 166424
+and 165336 B above) and changes __hip_cuid_*, which clang hashes from the file path and the command line. Their host
+disassembly is identical.
