@@ -2322,6 +2322,21 @@ image_max_pixels = 2580480       # 1120 * 48^2
 # a llama-server line in the same log window, from a GGUF gemma4, which logs
 # exactly these budgets. A tool returning nothing is not evidence that nothing
 # exists. A tool returning something is not evidence of where it came from.
+#
+# READ FROM BEHAVIOUR, 2026-10-04: 0.35.0-dynres-15-ga657392 on an H100, with the MLX
+# limit at 48 GiB.
+# - measure_ladder.py read this ladder again: 1102 at all five geometries, with
+#   prefix == text_only == 19.
+# - Pinning image_min_tokens = image_max_tokens through preflight's own client gave
+#   68/122/266/529/1102 image tokens at pins of 70/140/280/560/1120, the same at
+#   1024x576 and 2048x1152. With no pin it gave 1102.
+# - Pins of 35 and 69 read as 70, and pins of 1121 and 2240 as 1120. So the runner
+#   clamps to budget_min_tokens and budget_max_tokens.
+# - probe_mlx_image_budget.py agrees: KNOB LIVE.
+# budgets_observed stays false, because no load log shows these values, and that is
+# what the flag records. The readings are in
+# ../bench-runs/vision-campaign-2026-10-04-h100-sm90.mlx-gemma4-budgets.json
+# (../../vision-campaign-2026-10-04-h100-sm90.md, §5).
 scaling = "flat"
 ladder_tolerance = 2
 ladder = [1102, 1102, 1102, 1102, 1102]

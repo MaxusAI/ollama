@@ -20,10 +20,10 @@ Upstream [v0.35.0](https://github.com/ollama/ollama/releases/tag/v0.35.0) (tag `
 | 2, docs and paths | **nothing to re-point**: the `transfer/` move is upstream's own, and no fork file names `x/transfer`. `check_source_paths.py` is clean |
 | 3, the patch series | **not applicable**: llama.cpp `b11081`, MLX `59d600b5` and MLX-C are all identical to `main` |
 | no-GPU harness gates | **green**: `test_verdicts.py` 196 OK, `test_summarizers.py`, `test_rescore.py` (1 skipped, the optional corpus test, as in CI), `test_mlx_test_gate.py` |
-| 4, image | **CUDA: not built**. The fold moves no native input, so the release image is a Go-only swap onto a deployed payload ("Gate 4" below). **gfx1151: built in full** (2026-09-30), `maxusai-ollama:0.34.4-dynres-41-gfedbe05-rocm7-gfx1151`. Its GPU code is production's, byte for byte, and 805 adds 64 bytes of host code ([Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-30)). **Apple Silicon: Go-only** (2026-10-01), `0.35.0-dynres-0-g043f441` at the tag, on production's payload byte for byte ([Gates 4–6 on Apple Silicon](#gates-46-on-apple-silicon-2026-10-01)) |
-| 5, preflight | **CUDA: not run**. Interim builds resolve on every surface; a `v0.35.0-dynres` tag resolves on none until each host widens its profile ("Preflight profiles" below). **gfx1151: PASS=27 SKIP=5** on the fold image, equal to production's own run in every measured value. `rocm7-0-34-4-dynres` now admits `0.35.0`. **Apple Silicon: PASS=23 SKIP=16** on the release build, equal to the deployed build's run in every measured value except two drafted `think_format` rows, which vary between production's own runs. `mlx-metal-0-34-4` now admits `0.35.0` |
-| 6, campaigns | **CUDA: not run.** GPU0 is reserved, and the gate-4 argument covers the native side. The Go side is upstream's new code plus the fork's delta, carried line for line. **gfx1151: done** (2026-10-01). Think off, all 4,902 scored cells, all 140 answers and all 200 OCRBench answers equal production's, byte for byte. Think on, no model loses a finish, and qwen3.6 and gemma4:26b are byte-identical. The other differences are sampling draws or the two-pass flow's slot race, which production's own image shows. **Apple Silicon: done** (2026-10-01). Think off, all 196 answers and all 200 OCRBench answers equal the deployed build's, byte for byte. Think on did not run: on Metal, gemma4's long drafted thinking does not repeat byte for byte |
-| tag and deploy | **tagged** `v0.35.0-dynres` on `043f441a7` (2026-10-01). gfx1151 deployed it the same day ([#427](https://github.com/MaxusAI/ollama/pull/427#issuecomment-5930629034)). Apple Silicon deployed it at 23:45 AEST ([The deploy on Apple Silicon](#the-deploy-on-apple-silicon)) |
+| 4, image | **CUDA: not built**. The fold moves no native input, so the release image is a Go-only swap onto a deployed payload ("Gate 4" below). **gfx1151: built in full** (2026-09-30), `maxusai-ollama:0.34.4-dynres-41-gfedbe05-rocm7-gfx1151`. Its GPU code is production's, byte for byte, and 805 adds 64 bytes of host code ([Gates 4–6 on gfx1151](#gates-46-on-gfx1151-2026-09-30)). **Apple Silicon: Go-only** (2026-10-01), `0.35.0-dynres-0-g043f441` at the tag, on production's payload byte for byte ([Gates 4–6 on Apple Silicon](#gates-46-on-apple-silicon-2026-10-01)). **H100 (sm_90): Go-only** (2026-10-03), `0.35.0-dynres-15-ga657392`, a build of `main`, on production's payload ([Gates 4–6 on the H100](#gates-46-on-the-h100-sm_90-2026-10-03-and-04)) |
+| 5, preflight | **CUDA: not run**. Interim builds resolve on every surface; a `v0.35.0-dynres` tag resolves on none until each host widens its profile ("Preflight profiles" below). **gfx1151: PASS=27 SKIP=5** on the fold image, equal to production's own run in every measured value. `rocm7-0-34-4-dynres` now admits `0.35.0`. **Apple Silicon: PASS=23 SKIP=16** on the release build, equal to the deployed build's run in every measured value except two drafted `think_format` rows, which vary between production's own runs. `mlx-metal-0-34-4` now admits `0.35.0`. **H100: PASS=14 SKIP=15** on production, after a canary that repeated production's 0.34.4 run in every measured value; `cuda-dynres-903` and `mlx-cuda` now admit `0.35.0` (#444) |
+| 6, campaigns | **CUDA: not run.** GPU0 is reserved, and the gate-4 argument covers the native side. The Go side is upstream's new code plus the fork's delta, carried line for line. **gfx1151: done** (2026-10-01). Think off, all 4,902 scored cells, all 140 answers and all 200 OCRBench answers equal production's, byte for byte. Think on, no model loses a finish, and qwen3.6 and gemma4:26b are byte-identical. The other differences are sampling draws or the two-pass flow's slot race, which production's own image shows. **Apple Silicon: done** (2026-10-01). Think off, all 196 answers and all 200 OCRBench answers equal the deployed build's, byte for byte. Think on did not run: on Metal, gemma4's long drafted thinking does not repeat byte for byte. **H100: done** (2026-10-04). Think off, all 84 GGUF arms and all 3,000 GGUF OCRBench answers equal 0.34.4's, byte for byte; MLX moves 71 of 140 arms, where 0.34.4's own repeat moved 68. Think on, no GGUF case loops, and the two tags 0.34.4 ran think-on finish every case ([the 2026-10-04 campaign](../vision-campaign-2026-10-04-h100-sm90.md)) |
+| tag and deploy | **tagged** `v0.35.0-dynres` on `043f441a7` (2026-10-01). gfx1151 deployed it the same day ([#427](https://github.com/MaxusAI/ollama/pull/427#issuecomment-5930629034)). Apple Silicon deployed it at 23:45 AEST ([The deploy on Apple Silicon](#the-deploy-on-apple-silicon)). The H100 deployed `0.35.0-dynres-15-ga657392`, a build of `main` past the tag, on 2026-10-03 ([The deploy on the H100](#the-deploy-on-the-h100)) |
 
 ## What v0.35.0 changes for the fork
 
@@ -108,8 +108,8 @@ These are resolved with the harness's own `resolve_profile`:
 
 | surface | interim build (`0.34.4-dynres-N-g…`) | after a `v0.35.0-dynres` tag (`0.35.0-dynres-0-g…`) |
 |---|---|---|
-| cuda | `cuda-dynres-903` | **none**: the pattern admits `0.3[234]` |
-| mlx-cuda | `mlx-cuda` | **none**: the same pattern |
+| cuda | `cuda-dynres-903` | `cuda-dynres-903`, widened by the H100 after its run (2026-10-03, #444) |
+| mlx-cuda | `mlx-cuda` | `mlx-cuda`, widened with it |
 | rocm7 | `rocm7-0-34-4-dynres` | `rocm7-0-34-4-dynres`, widened by gfx1151 after its run (2026-09-30) |
 | mlx-metal | `mlx-metal-0-34-4` | `mlx-metal-0-34-4`, widened by the Metal host for its run (2026-10-01) |
 
@@ -117,7 +117,8 @@ The payload does not move, so ADR 0032 says to widen each profile rather than cu
 folds did for CUDA. The fold's own commits edit no profile. Each host widens its own after its own run:
 - gfx1151 widened `rocm7-0-34-4-dynres` on 2026-09-30 ([The rocm7 profile, widened](#the-rocm7-profile-widened)).
 - The Metal host widened `mlx-metal-0-34-4` on 2026-10-01 ([The mlx-metal profile, widened](#the-mlx-metal-profile-widened)).
-- On CUDA that waits until GPU0 is free.
+- The H100 widened `cuda-dynres-903` and `mlx-cuda` on 2026-10-03, after its own runs (#444). The CUDA host's own
+  runs still wait until GPU0 is free.
 
 ## The one failing test
 
@@ -690,3 +691,52 @@ On the maintainer's word, production on `:11435` has served `0.35.0-dynres-0-g04
   The two rows that differ are the drafted `think_format` rows again. The run record is
   `runs/preflight-mlx-metal-0350-prod-g043f441.json`, beside a host profile captured just after it.
 - **Rollback:** stop the job, copy the archived 0.34.4 binary back, and start it. The payload is the same.
+
+## Gates 4–6 on the H100 (sm_90, 2026-10-03 and 04)
+
+**Host.** A GCP `a3-highgpu-1g` VM: one H100 SXM5 80GB (sm_90), collab label `gcp-a3-highgpu-1g/cuda`.
+- **It serves natively,** through a systemd service on `:11434`, not from a container.
+- **It is a second CUDA host,** beside the sm_120 host this record otherwise means by "CUDA". It ran these gates on
+  its own schedule.
+
+### Gate 4: a Go-only build on production's payload
+
+`0.35.0-dynres-15-ga657392` is `main` at `a657392`, 15 commits past the tag.
+- **It is built natively, with the release flags:** `-trimpath -buildmode=pie`, `server.mode=release`.
+- **It runs on the payload production has served since 0.34.4's deploy on 2026-09-30:** llama.cpp `161755f29` with
+  908, and MLX `59d600b`.
+- **Like every host's payload, this one predates 805** (Gate 4 above).
+
+### Gate 5: preflight
+
+These are #444's runs. That PR widened both CUDA profiles after them, and `expectations.toml` has the detail.
+- **cuda, a canary of the build:** it repeated production's 0.34.4 run in 26 of the 29 rows both runs have, every
+  measured value included.
+  - The version row names the build.
+  - The two payload pins were the other two rows: the harness could not read them on a native Linux host.
+    #444 fixed that.
+- **cuda, production after the deploy:** it ran as root once the harness read `/proc/<pid>/exe`. It read both pins
+  from the served payload and passed: 14 passed, 15 skipped (`runs/preflight-cuda-0350-h100-prod-root-ga657392.json`).
+- **mlx-cuda, a canary:** it repeated production's 2026-10-01 run in 20 of 21 rows, every measured value included.
+
+### Gate 6: think off, OCRBench and think on
+
+[The 2026-10-04 campaign](../vision-campaign-2026-10-04-h100-sm90.md) ran 2026-09-30's campaign again. It used a
+second server of the build and sent the same request.
+- **GGUF think off:** all 84 arms of the three tags equal 0.34.4's, byte for byte, in both of 0.34.4's runs.
+- **MLX think off:** 71 of 140 arms differ from 0.34.4's, where 0.34.4's own repeat moved 68.
+- **OCRBench:** the three GGUF arms give all 3,000 answers byte for byte. Every score repeats but
+  qwen3.6:35b-a3b-nvfp4's, 877 against 878 ([ocrbench-h100.md](../ocrbench-h100.md#2026-10-04-0350-with-the-prompt-cache-off)).
+- **Think on:** no case loops on the three GGUF tags, and the two tags 0.34.4 ran think-on finish every case. The
+  MLX loops are gemma4:26b-nvfp4's known `multi_3img_anchored` and two others.
+- **908 on Hopper:** without 908, 4 of 27 gemma4:26b-a4b cases loop; with it, 1. The register's condition is not
+  met here either.
+
+### The deploy on the H100
+
+On the maintainer's word, production on `:11434` has served `0.35.0-dynres-15-ga657392` since 11:28 UTC on
+2026-10-03.
+- **The binary and the unit's description changed.** The payload and the environment did not, and the 0.34.4
+  binary is kept beside the new one.
+- **Verified** by the post-deploy preflight above, on production itself.
+- **Rollback:** stop the service, copy the 0.34.4 binary back, and start it. The payload is the same.

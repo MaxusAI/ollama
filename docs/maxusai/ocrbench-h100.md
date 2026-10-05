@@ -6,8 +6,9 @@ llama.cpp with the GGUF `q4_K_M`, once through mlx-cuda with `nvfp4`. It is the 
 1000-item OCRBench run on CUDA and the first on sm_90. On 2026-10-01 the same build on the
 same machine ran the same test against the other six tags of the
 [2026-09-30 vision campaign](vision-campaign-2026-09-30-h100-sm90.md), and against
-`gemma4:31b-it-q8_0` and `gemma4:31b-it-bf16` to complete the GGUF ladder. The entry point for
-every OCRBench number is [ocrbench.md](ocrbench.md).
+`gemma4:31b-it-q8_0` and `gemma4:31b-it-bf16` to complete the GGUF ladder. On 2026-10-04 the
+eight campaign tags ran again on `0.35.0-dynres-15-ga657392`, with llama-server's prompt cache
+off. The entry point for every OCRBench number is [ocrbench.md](ocrbench.md).
 
 ## 2026-09-30: gemma4:31b on both engines
 
@@ -236,6 +237,111 @@ hosts: sm_120 scored them 170 and 171, ROCm 169 and 169.
 - **The split cost nothing visible.** `bf16` scores the most of the three and is the fastest,
   2.0 s per item against 2.3 and 2.4, over the same 1122-token prefill.
 
+## 2026-10-04: 0.35.0, with the prompt cache off
+
+The same eight tags ran on the same machine, on `0.35.0-dynres-15-ga657392`.
+- **The build** is the one the H100's production service has run since 2026-10-03: a Go-only build on 0.34.4's
+  payload.
+- **The server** was a second server of that build on `127.0.0.1:11535`, run as the login user, one model at a
+  time.
+- **The harness** is `main` at `f566becf4`, which sends `prompt_cache_ram: 0` (#442), so llama-server's prompt
+  cache was off for the GGUF arms.
+- **Wall clock:** 2026-10-04 14:57 → 17:14, the arms in 2026-10-01's order.
+
+`summarize_extbench.py --paired --timing`, verbatim:
+
+| model | scored | errors | empty | correct | accuracy | think | endpoint |
+|---|---|---|---|---|---|---|---|
+| `gemma4:31b-it-q4_K_M` | 1000 | 0 | 0 | 825 | **0.825** | false | generate |
+| `gemma4:31b-nvfp4` | 1000 | 0 | 0 | 832 | **0.832** | false | generate |
+| `gemma4:26b-nvfp4` | 1000 | 0 | 0 | 818 | **0.818** | false | generate |
+| `gemma4:12b-nvfp4` | 1000 | 0 | 0 | 706 | **0.706** | false | generate |
+| `qwen3.8:27b-nvfp4` | 1000 | 0 | 0 | 867 | **0.867** | false | generate |
+| `qwen3.6:35b-a3b-nvfp4` | 1000 | 0 | 0 | 877 | **0.877** | false | generate |
+| `qwen3.8:27b-q4_K_M` | 1000 | 0 | 0 | 857 | **0.857** | false | generate |
+| `nemotron3:33b-q8` | 1000 | 0 | 0 | 879 | **0.879** | false | generate |
+
+ocrbench — `echo840/OCRBench` [test], rows 0..1000.
+
+host: http://127.0.0.1:11535 · build: 0.35.0-dynres-15-ga657392 · prompt_cache_ram: 0
+
+| pair | both ✓ | both ✗ | A only | B only | McNemar exact p |
+|---|---|---|---|---|---|
+| h0350-gemma4-31b-it-q4_K_M vs h0350-gemma4-31b-nvfp4 | 815 | 158 | 10 | 17 | 0.248 |
+| h0350-gemma4-31b-it-q4_K_M vs h0350-gemma4-26b-nvfp4 | 789 | 146 | 36 | 29 | 0.457 |
+| h0350-gemma4-31b-it-q4_K_M vs h0350-gemma4-12b-nvfp4 | 683 | 152 | 142 | 23 | 0.000 |
+| h0350-gemma4-31b-it-q4_K_M vs h0350-qwen3.8-27b-nvfp4 | 752 | 60 | 73 | 115 | 0.003 |
+| h0350-gemma4-31b-it-q4_K_M vs h0350-qwen3.6-35b-a3b-nvfp4 | 758 | 56 | 67 | 119 | 0.000 |
+| h0350-gemma4-31b-it-q4_K_M vs h0350-qwen3.8-27b-q4_K_M | 762 | 80 | 63 | 95 | 0.013 |
+| h0350-gemma4-31b-it-q4_K_M vs h0350-nemotron3-33b-q8 | 773 | 69 | 52 | 106 | 0.000 |
+| h0350-gemma4-31b-nvfp4 vs h0350-gemma4-26b-nvfp4 | 791 | 141 | 41 | 27 | 0.114 |
+| h0350-gemma4-31b-nvfp4 vs h0350-gemma4-12b-nvfp4 | 682 | 144 | 150 | 24 | 0.000 |
+| h0350-gemma4-31b-nvfp4 vs h0350-qwen3.8-27b-nvfp4 | 760 | 61 | 72 | 107 | 0.011 |
+| h0350-gemma4-31b-nvfp4 vs h0350-qwen3.6-35b-a3b-nvfp4 | 764 | 55 | 68 | 113 | 0.001 |
+| h0350-gemma4-31b-nvfp4 vs h0350-qwen3.8-27b-q4_K_M | 768 | 79 | 64 | 89 | 0.052 |
+| h0350-gemma4-31b-nvfp4 vs h0350-nemotron3-33b-q8 | 779 | 68 | 53 | 100 | 0.000 |
+| h0350-gemma4-26b-nvfp4 vs h0350-gemma4-12b-nvfp4 | 684 | 160 | 134 | 22 | 0.000 |
+| h0350-gemma4-26b-nvfp4 vs h0350-qwen3.8-27b-nvfp4 | 755 | 70 | 63 | 112 | 0.000 |
+| h0350-gemma4-26b-nvfp4 vs h0350-qwen3.6-35b-a3b-nvfp4 | 756 | 61 | 62 | 121 | 0.000 |
+| h0350-gemma4-26b-nvfp4 vs h0350-qwen3.8-27b-q4_K_M | 761 | 86 | 57 | 96 | 0.002 |
+| h0350-gemma4-26b-nvfp4 vs h0350-nemotron3-33b-q8 | 774 | 77 | 44 | 105 | 0.000 |
+| h0350-gemma4-12b-nvfp4 vs h0350-qwen3.8-27b-nvfp4 | 667 | 94 | 39 | 200 | 0.000 |
+| h0350-gemma4-12b-nvfp4 vs h0350-qwen3.6-35b-a3b-nvfp4 | 672 | 89 | 34 | 205 | 0.000 |
+| h0350-gemma4-12b-nvfp4 vs h0350-qwen3.8-27b-q4_K_M | 677 | 114 | 29 | 180 | 0.000 |
+| h0350-gemma4-12b-nvfp4 vs h0350-nemotron3-33b-q8 | 672 | 87 | 34 | 207 | 0.000 |
+| h0350-qwen3.8-27b-nvfp4 vs h0350-qwen3.6-35b-a3b-nvfp4 | 819 | 75 | 48 | 58 | 0.382 |
+| h0350-qwen3.8-27b-nvfp4 vs h0350-qwen3.8-27b-q4_K_M | 806 | 82 | 61 | 51 | 0.395 |
+| h0350-qwen3.8-27b-nvfp4 vs h0350-nemotron3-33b-q8 | 805 | 59 | 62 | 74 | 0.346 |
+| h0350-qwen3.6-35b-a3b-nvfp4 vs h0350-qwen3.8-27b-q4_K_M | 801 | 67 | 76 | 56 | 0.098 |
+| h0350-qwen3.6-35b-a3b-nvfp4 vs h0350-nemotron3-33b-q8 | 826 | 70 | 51 | 53 | 0.922 |
+| h0350-qwen3.8-27b-q4_K_M vs h0350-nemotron3-33b-q8 | 800 | 64 | 57 | 79 | 0.071 |
+
+| arm | accuracy | ±1 s.e. | mean s/item | median | mean prompt_eval |
+|---|---|---|---|---|---|
+| h0350-gemma4-31b-it-q4_K_M | 0.825 | 0.012 | 1.8 | 1.8 | 1122 |
+| h0350-gemma4-31b-nvfp4 | 0.832 | 0.012 | 1.2 | 1.1 | 1122 |
+| h0350-gemma4-26b-nvfp4 | 0.818 | 0.012 | 1.4 | 1.3 | 1122 |
+| h0350-gemma4-12b-nvfp4 | 0.706 | 0.014 | 0.6 | 0.5 | 1122 |
+| h0350-qwen3.8-27b-nvfp4 | 0.867 | 0.011 | 0.9 | 0.5 | 863 |
+| h0350-qwen3.6-35b-a3b-nvfp4 | 0.877 | 0.010 | 0.9 | 0.3 | 863 |
+| h0350-qwen3.8-27b-q4_K_M | 0.857 | 0.011 | 1.1 | 0.9 | 1345 |
+| h0350-nemotron3-33b-q8 | 0.879 | 0.010 | 0.3 | 0.2 | 725 |
+
+### What it says
+
+**0.35.0 scores what 0.34.4 scored.** Seven of the eight arms score exactly 2026-10-01's, and
+`qwen3.6:35b-a3b-nvfp4` scores 877 against 878. The two runs side by side, item by item (the
+snippet under "Files and reproducing"):
+
+| arm | items that changed verdict | answers that changed | s per item, 10-04 against 10-01 |
+|---|---|---|---|
+| gemma4:12b-nvfp4 | 8 (4 each way) | 47 | 0.57 against 0.58 |
+| gemma4:26b-nvfp4 | 4 (2 each way) | 36 | 1.35 against 1.36 |
+| gemma4:31b-nvfp4 | 4 (2 each way) | 21 | 1.20 against 1.24 |
+| qwen3.8:27b-nvfp4 | 2 (1 each way) | 15 | 0.92 against 0.97 |
+| qwen3.6:35b-a3b-nvfp4 | 11 (5 right, 6 wrong) | 33 | 0.89 against 0.90 |
+| gemma4:31b-it-q4_K_M | 0 | 0 | 1.79 against 2.26 |
+| qwen3.8:27b-q4_K_M | 0 | 0 | 1.11 against 1.21 |
+| nemotron3:33b-q8 | 0 | 0 | 0.34 against 0.34 |
+
+- **The three GGUF arms answer every item with the same string.** llama.cpp repeats itself
+  exactly on this host, and 0.35.0 sends it the same requests.
+- **The MLX arms move a handful of items, both ways.** There is no MLX OCRBench repeat on this
+  host to set them against. In the campaign's think-off cells, 0.34.4's two MLX runs differ from
+  each other as much as either differs from 0.35.0
+  ([the 2026-10-04 campaign, §1](vision-campaign-2026-10-04-h100-sm90.md#1-think-off-eight-tags-0350-equals-0344)).
+
+**The GGUF arms are faster, by what the prompt cache cost them.**
+- **gemma4:31b-it-q4_K_M takes 21 % less time per item, and qwen3.8:27b-q4_K_M 8 % less.**
+  [llama-server-prompt-cache.md](llama-server-prompt-cache.md)'s A/B measured 19–22 % and
+  4.5–10.6 % for these two tags.
+- **nemotron3:33b-q8 takes 0.34 s either way.** The A/B measured 0.334 against 0.283 s on OCRBench.
+  At extbench's 0.1 s resolution, neither difference is resolved.
+- **The build and the serving process are ruled out for gemma4:31b's prefill**
+  ([the campaign's §4](vision-campaign-2026-10-04-h100-sm90.md#4-gemma431b-it-q4_k_ms-prefill-neither-the-build-the-prompt-cache-nor-the-service-path)).
+- **The MLX arms have no llama-server cache.** Their largest move is qwen3.8:27b-nvfp4's, 0.92 s
+  against 0.97.
+
 ## Setup
 
 | setting | value |
@@ -260,6 +366,15 @@ The machine's full profile, in the `host-profile/1` format, is
 `host-profile_h100-sm90-2026-10-01.json` for the 2026-10-01 queue. The two differ only in when
 they were collected and in Docker's patch version.
 
+The 2026-10-04 arms change four settings:
+- **the build:** `0.35.0-dynres-15-ga657392`, on the same payload;
+- **the server:** a second server of that build on `127.0.0.1:11535`;
+- **the harness:** `main` at `f566becf4`, which sends `prompt_cache_ram: 0`;
+- **the host profile:** `host-profile_h100-sm90-2026-10-04.json`, collected after the queue. It differs from
+  2026-10-01's in Docker's patch version, the Ollama version and one field the probe did not read.
+
+Every other row of the table holds, `SLEEP=0` included.
+
 ## Model identity (ADR 0038)
 
 | tag | local manifest digest |
@@ -282,7 +397,8 @@ ROCm ladder measured (`sha256:6316f062…`, [ocrbench-gemma4-quant-ladder.md](oc
 the tag moved between the two pulls, so the GGUF rows compare artifacts as well as hosts.
 The other six campaign tags are the manifests [the campaign](vision-campaign-2026-09-30-h100-sm90.md)
 measured. `q8_0` and `bf16` were pulled during the 2026-10-01 queue, before their arms, and are
-the manifests both the sm_120 ladder and the ROCm ladder measured.
+the manifests both the sm_120 ladder and the ROCm ladder measured. The 2026-10-04 arms ran the
+same eight manifests as 2026-10-01's.
 
 ## Files and reproducing
 
@@ -301,6 +417,25 @@ python3 summarize_extbench.py --dir bench-runs/ocrbench --paired --timing --cate
   h100-qwen3.8-27b-nvfp4 h100-qwen3.6-35b-a3b-nvfp4 h100-qwen3.8-27b-q4_K_M h100-nemotron3-33b-q8
 python3 summarize_extbench.py --dir bench-runs/ocrbench --paired --timing --categories ocrbench \
   h100-gemma4-31b-it-q4_K_M h100-gemma4-31b-it-q8_0 h100-gemma4-31b-it-bf16
+python3 summarize_extbench.py --dir bench-runs/ocrbench --paired --timing ocrbench \
+  h0350-gemma4-31b-it-q4_K_M h0350-gemma4-31b-nvfp4 h0350-gemma4-26b-nvfp4 h0350-gemma4-12b-nvfp4 \
+  h0350-qwen3.8-27b-nvfp4 h0350-qwen3.6-35b-a3b-nvfp4 h0350-qwen3.8-27b-q4_K_M h0350-nemotron3-33b-q8
+```
+
+The 2026-10-04 arms are `ext_h0350-<tag>_ocrbench.json`, beside their own host profile. One table
+cannot hold them and 2026-10-01's, because a mix of builds renders the MIXED banner (ADR 0012
+convention 10). The item-by-item table comes from this, in the same directory:
+
+```python
+import json, statistics as st
+for m in ["gemma4-12b-nvfp4", "gemma4-26b-nvfp4", "gemma4-31b-nvfp4", "qwen3.8-27b-nvfp4", "qwen3.6-35b-a3b-nvfp4",
+          "gemma4-31b-it-q4_K_M", "qwen3.8-27b-q4_K_M", "nemotron3-33b-q8"]:
+    new, old = ({r["i"]: r for r in json.load(open(f"bench-runs/ocrbench/ext_{p}-{m}_ocrbench.json"))["records"]}
+                for p in ("h0350", "h100"))
+    up = sum(new[i]["ok"] and not old[i]["ok"] for i in new)
+    down = sum(old[i]["ok"] and not new[i]["ok"] for i in new)
+    print(m, up, down, sum(new[i]["pred"] != old[i]["pred"] for i in new),
+          round(st.mean(r["secs"] for r in new.values()), 2), round(st.mean(r["secs"] for r in old.values()), 2))
 ```
 
 Each arm is the command in [ocrbench.md](ocrbench.md#the-test) with `LIMIT=1000`. The slice's

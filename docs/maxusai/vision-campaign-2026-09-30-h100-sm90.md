@@ -164,7 +164,10 @@ Everything not listed here came back identical:
   1421 to 1740 tok/s, and took its s/req from 4.8 to 4.6.
   - **Each rate is one request's,** the scene cell's. That request's prefill took 1185 ms in the
     campaign and 968 ms here, while its decode rate moved by under 1 tok/s.
-  - **This document does not explain the 217 ms.**
+  - **This document does not explain the 217 ms.** On 2026-10-04 every configuration measured 768–789 ms for
+    that prefill: this build with the cache on, 0.35.0 with it on and off, and production's service. So neither the
+    build, the prompt cache nor the serving path explains it
+    ([the 2026-10-04 campaign, §4](vision-campaign-2026-10-04-h100-sm90.md#4-gemma431b-it-q4_k_ms-prefill-neither-the-build-the-prompt-cache-nor-the-service-path)).
 - **`qwen3.6:35b-a3b-nvfp4` answered in 537 tokens instead of 534,** the only answer length to
   move.
 

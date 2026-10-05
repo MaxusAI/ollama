@@ -1,0 +1,181 @@
+{
+ "meta": {
+  "purpose": "gemma4:31b-nvfp4 image budgets on MLX-CUDA, read from the runner's behaviour: the MLX runner logs no budget line (expectations.toml, budgets_observed = false)",
+  "server_version": "0.35.0-dynres-15-ga657392",
+  "host": "http://127.0.0.1:11535",
+  "environment": "production's, plus OLLAMA_MLX_MEMORY_LIMIT=51539607552 (48 GiB), as the 2026-08-17 mlx-cuda measurements ran",
+  "host_profile": "vision-campaign-2026-10-04-h100-sm90.host-profile.json",
+  "measured_on": "2026-10-04 17:14 UTC (measure_ladder, pinned_sweep); 2026-10-05 (pinned_bounds, probe_mlx_image_budget)",
+  "pinned": "image_min_tokens = image_max_tokens = the pin, through preflight's probes.Ollama.generate with probes.PROBE_PROMPT and probes.ladder_image_b64; image_tokens = prompt_eval_count minus the same prompt's text-only prompt_eval_count"
+ },
+ "measure_ladder": {
+  "host": "http://127.0.0.1:11535",
+  "model": "gemma4:31b-nvfp4",
+  "profile": "mlx-cuda",
+  "arch": "gemma4",
+  "prefix": 19,
+  "text_only": 19,
+  "sizes": [
+   "256x144",
+   "512x288",
+   "1024x576",
+   "2048x1152",
+   "3072x1728"
+  ],
+  "ladder": [
+   1102,
+   1102,
+   1102,
+   1102,
+   1102
+  ],
+  "stride": 48,
+  "budgets": null
+ },
+ "pinned_sweep": {
+  "model": "gemma4:31b-nvfp4",
+  "host": "http://127.0.0.1:11535",
+  "server_version": "0.35.0-dynres-15-ga657392",
+  "text_prompt_eval_count": 19,
+  "rows": [
+   {
+    "size": "1024x576",
+    "pinned": null,
+    "prompt_eval_count": 1121,
+    "image_tokens": 1102
+   },
+   {
+    "size": "1024x576",
+    "pinned": 70,
+    "prompt_eval_count": 87,
+    "image_tokens": 68
+   },
+   {
+    "size": "1024x576",
+    "pinned": 140,
+    "prompt_eval_count": 141,
+    "image_tokens": 122
+   },
+   {
+    "size": "1024x576",
+    "pinned": 280,
+    "prompt_eval_count": 285,
+    "image_tokens": 266
+   },
+   {
+    "size": "1024x576",
+    "pinned": 560,
+    "prompt_eval_count": 548,
+    "image_tokens": 529
+   },
+   {
+    "size": "1024x576",
+    "pinned": 1120,
+    "prompt_eval_count": 1121,
+    "image_tokens": 1102
+   },
+   {
+    "size": "2048x1152",
+    "pinned": null,
+    "prompt_eval_count": 1121,
+    "image_tokens": 1102
+   },
+   {
+    "size": "2048x1152",
+    "pinned": 70,
+    "prompt_eval_count": 87,
+    "image_tokens": 68
+   },
+   {
+    "size": "2048x1152",
+    "pinned": 140,
+    "prompt_eval_count": 141,
+    "image_tokens": 122
+   },
+   {
+    "size": "2048x1152",
+    "pinned": 280,
+    "prompt_eval_count": 285,
+    "image_tokens": 266
+   },
+   {
+    "size": "2048x1152",
+    "pinned": 560,
+    "prompt_eval_count": 548,
+    "image_tokens": 529
+   },
+   {
+    "size": "2048x1152",
+    "pinned": 1120,
+    "prompt_eval_count": 1121,
+    "image_tokens": 1102
+   }
+  ]
+ },
+ "pinned_bounds": {
+  "model": "gemma4:31b-nvfp4",
+  "host": "http://127.0.0.1:11535",
+  "server_version": "0.35.0-dynres-15-ga657392",
+  "text_prompt_eval_count": 19,
+  "rows": [
+   {
+    "size": "1024x576",
+    "pinned": 35,
+    "prompt_eval_count": 87,
+    "image_tokens": 68
+   },
+   {
+    "size": "1024x576",
+    "pinned": 69,
+    "prompt_eval_count": 87,
+    "image_tokens": 68
+   },
+   {
+    "size": "1024x576",
+    "pinned": 1121,
+    "prompt_eval_count": 1121,
+    "image_tokens": 1102
+   },
+   {
+    "size": "1024x576",
+    "pinned": 2240,
+    "prompt_eval_count": 1121,
+    "image_tokens": 1102
+   },
+   {
+    "size": "2048x1152",
+    "pinned": 35,
+    "prompt_eval_count": 87,
+    "image_tokens": 68
+   },
+   {
+    "size": "2048x1152",
+    "pinned": 69,
+    "prompt_eval_count": 87,
+    "image_tokens": 68
+   },
+   {
+    "size": "2048x1152",
+    "pinned": 1121,
+    "prompt_eval_count": 1121,
+    "image_tokens": 1102
+   },
+   {
+    "size": "2048x1152",
+    "pinned": 2240,
+    "prompt_eval_count": 1121,
+    "image_tokens": 1102
+   }
+  ]
+ },
+ "probe_mlx_image_budget": [
+  "[h100-0350] model=gemma4:31b-nvfp4 image=2048x1152.png",
+  "   default: prompt_eval_count=1122  (9.3s, includes cold start)",
+  "      1120: prompt_eval_count=1122  (0.3s)",
+  "       560: prompt_eval_count=549  (0.7s)",
+  "       280: prompt_eval_count=286  (0.5s)",
+  "       140: prompt_eval_count=142  (0.4s)",
+  "        70: prompt_eval_count=88  (0.3s)",
+  "RESULT [h100-0350] readings=[('default', 1122), ('1120', 1122), ('560', 549), ('280', 286), ('140', 142), ('70', 88)] distinct=5 verdict=KNOB LIVE"
+ ]
+}
