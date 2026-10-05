@@ -3,7 +3,8 @@
 Three sessions ran OCRBench against gemma4:31b on 2026-09-18/19 — mlx-metal, ROCm/GGUF
 and CUDA (both engines) — and each wrote its own harness notes. A fourth ran the full
 1000-item set on an H100 (sm_90), on both engines, on 2026-09-30, then on 2026-10-01 against
-the rest of the vision fleet and gemma4:31b's GGUF ladder. This is the shared
+the rest of the vision fleet and gemma4:31b's GGUF ladder, and on 2026-10-04 ran the fleet again
+on 0.35.0 with the prompt cache off. This is the shared
 entry point: what the test is, how a run is produced, how a result is reported, and where
 every number lives. The per-host detail stays in its own document.
 
@@ -116,9 +117,13 @@ comparable within a slice, never across.
 | 200, rows 0–200 | ROCm GGUF | `gemma4:31b-it-q8_0` | 169 / 200 | 0.845 |
 | 200, rows 0–200 | ROCm GGUF | `gemma4:31b-it-bf16` | 169 / 200 | 0.845 |
 
+The H100 rows are 0.34.4's. On 2026-10-04 the eight campaign tags ran again on 0.35.0, with the
+prompt cache off. Every score repeats but `qwen3.6:35b-a3b-nvfp4`'s, which is 877
+([ocrbench-h100.md](ocrbench-h100.md#2026-10-04-0350-with-the-prompt-cache-off)).
+
 Seconds per item are not comparable across those rows either: CUDA sm_120 runs the GGUF
 arms at about 5.0 s, the H100 at 2.0–2.4 s, and ROCm/gfx1151 at 7.7–8.3 s, on different silicon
-with a different batch.
+with a different batch. With the prompt cache off, the H100's `q4_K_M` takes 1.8 s.
 **ADR 0036's batch floor is a per-host fact, not a property of the build**: the same commit
 asks for 2048 on both, gets it on CUDA and is refused it on gfx1151, so read the logged
 `num_batch` rather than assuming the floor applied.
