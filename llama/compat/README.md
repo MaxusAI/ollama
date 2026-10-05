@@ -180,13 +180,35 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
     sufficient because `floor(T/B) >= ceil(T/B) - 1`, the requirement.
     `docs/maxusai/tasks/mmq-jpad-cost.cu` prints the comparison;
     `tasks/mmq-successor-results/jpad-cost.txt` is its output.
+  - **The guard.** The rule lives in `ggml_cuda_mmq_get_J_pad()` in
+    `mmq.cuh`, which the allocation calls. A compile-time guard at the end of
+    `mmq.cu` checks that same function against every config of all ten config
+    tables, one `static_assert` per (table, type). The guard states the
+    requirement from the kernel's load loop, not from the padding helpers.
+    - **What fails the build:** a change that re-tightens the padding, or a
+      config that outgrows it. It fails on every architecture at once, with no
+      GPU. Measured with hipcc on gfx1151: re-tightening the rule to the widest
+      tile fails in cdna, gcn, rdna3_5 and rdna4, and so does shrinking
+      `ggml_cuda_mmq_get_nbytes_y_tile()` to J blocks.
+    - **Cost:** about 1.6 s on `mmq.cu`, host pass only, once per build.
+    - **HIP needs `__HIP_DEVICE_COMPILE__`.** `vendors/hip.h` defines
+      `__CUDA_ARCH__` in every HIP pass, so testing `__CUDA_ARCH__` there
+      compiles the guard out silently. The first draft did exactly that and
+      passed both mutations.
+    - **Limits:** it cannot see the call sites, so the allocations must keep
+      using `J_pad`. nvcc has not built it yet.
+    - **Behaviour is unchanged:** on gfx1151 the device reports the same `J`,
+      `nthreads`, `need` and `pad` as the amended 903 for every hand-routed
+      shape, and the twelve cases pass.
   - **At the next pin move.** From the first llama.cpp pin that contains
     `dd266785c`, the ids branch's context line reads `ne12`, and from the first
     that contains #29953 there is no `get_J_max()` call left to replace - pad
     by the padded tile of the `J_best` that PR already computes
     (`docs/maxusai/tasks/mmq-amend-29953.patch` is that form). Re-cut the hunk
-    against the new context; the rule stays the same. Check the series on a
-    checkout before building.
+    against the new context; the rule stays the same. Keep the guard: point
+    `ggml_cuda_mmq_get_J_pad()`, or a helper the new allocation calls, at the
+    rule the pin ships, so that a later upstream re-tightening fails the build
+    here. Check the series on a checkout before building.
   - **References.**
     - `docs/maxusai/qwen35moe-mmq-investigation.md`: the original diagnosis.
     - `docs/maxusai/mmq-padding-regression-window.md`: the affected build range.
