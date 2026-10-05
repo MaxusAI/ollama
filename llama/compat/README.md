@@ -196,19 +196,29 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
       compiles the guard out silently. The first draft did exactly that and
       passed both mutations.
     - **Limits:** it cannot see the call sites, so the allocations must keep
-      using `J_pad`. nvcc has not built it yet.
+      using `J_pad`.
+    - **nvcc agrees with hipcc.** Built with nvcc 12.8 for sm_120 before the
+      merge: it compiles, and both mutations fail by `static_assert` in the
+      same four tables.
     - **Behaviour is unchanged:** on gfx1151 the device reports the same `J`,
       `nthreads`, `need` and `pad` as the amended 903 for every hand-routed
       shape, and the twelve cases pass.
   - **At the next pin move.** From the first llama.cpp pin that contains
-    `dd266785c`, the ids branch's context line reads `ne12`, and from the first
-    that contains #29953 there is no `get_J_max()` call left to replace - pad
-    by the padded tile of the `J_best` that PR already computes
-    (`docs/maxusai/tasks/mmq-amend-29953.patch` is that form). Re-cut the hunk
-    against the new context; the rule stays the same. Keep the guard: point
-    `ggml_cuda_mmq_get_J_pad()`, or a helper the new allocation calls, at the
-    rule the pin ships, so that a later upstream re-tightening fails the build
-    here. Check the series on a checkout before building.
+    `dd266785c`, the ids branch's context line reads `ne12`: re-cut the hunk
+    against the new context; the rule stays the same.
+    - **From the first pin that contains llama.cpp#29953**, 903's padding is
+      redundant if #29953 merged as its head `3070d927f` did: that pads src1 by
+      the launched config's padded tile and `ids_dst` by `J_best - 1`, which is
+      measured clean on sm_120, sm_75, GB10 and gfx1151. Retire the padding by
+      the gate under "For the fork" in
+      `docs/maxusai/upstream-mmq-29953-material.md`. If it merged in another
+      form, re-run that file's exact-head passes against what merged first.
+    - **Keep the guard** unless upstream has taken one: re-cut 903 as
+      guard-only, one helper for the y tile and a `static_assert` against the
+      load loop, so that a later upstream change that shrinks the padding fails
+      the build here. `docs/maxusai/tasks/mmq-29953-y-tile-guard.patch` is that
+      form on #29953's head, verified with nvcc.
+    - Check the series on a checkout before building.
   - **References.**
     - `docs/maxusai/qwen35moe-mmq-investigation.md`: the original diagnosis.
     - `docs/maxusai/mmq-padding-regression-window.md`: the affected build range.

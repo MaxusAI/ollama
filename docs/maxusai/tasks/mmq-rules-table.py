@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Render mmq-rules-gpu.sh's results.tsv as one markdown table per mode (ADR 0012: tables come from the generator).
 
-    mmq-rules-table.py results.tsv [results.tsv ...]
+    mmq-rules-table.py [--summary] results.tsv [results.tsv ...]
 
 A cell reads "p/n" for the runs that passed of the runs made. A mode run under compute-sanitizer also carries its
 error count, "E=<n>"; "abort" means the process died instead of finishing the case.
+
+--summary prints one row per (rule, mode) instead: cases, runs, runs passed, runs that aborted, and the memcheck
+errors summed over the runs made under the sanitizer.
 """
 import collections
 import csv
@@ -21,20 +24,24 @@ MODE_LABEL = {
 VARIANT_LABEL = {
     "ne11":      "ne11 (#24127)",
     "ne12":      "ne12 (#29941, master)",
-    "p29953":    "#29953",
+    "p29953":    "#29953 as published",
     "p27044":    "ne12*n_expert_used (#27044)",
     "successor": "widest tile (#448)",
     "s448p":     "widest padded tile (#448 amended)",
     "p29953fix": "#29953 + amendment",
+    "head29953": "#29953 head (`3070d927f`)",
 }
-VARIANT_ORDER = ["ne11", "ne12", "p29953", "p27044", "successor", "s448p", "p29953fix"]
+VARIANT_ORDER = ["ne11", "ne12", "p29953", "p27044", "successor", "s448p", "p29953fix", "head29953"]
 
 
 def main():
-    if len(sys.argv) < 2:
+    args = sys.argv[1:]
+    summary = "--summary" in args
+    paths = [a for a in args if a != "--summary"]
+    if not paths:
         sys.exit(__doc__)
     rows = []
-    for path in sys.argv[1:]:
+    for path in paths:
         with open(path) as f:
             rows += [r for r in csv.DictReader(f, delimiter="\t") if r.get("case")]
 
@@ -61,6 +68,21 @@ def main():
         if npass < len(rs) and any(r["illegal_access"] not in ("", "0") for r in rs):
             out += " abort"
         return out
+
+    if summary:
+        print("| rule | mode | cases | runs | passed | aborted | memcheck errors |")
+        print("|---|---|---|---|---|---|---|")
+        for v in variants:
+            for m in modes:
+                rs = [r for r in rows if r["variant"] == v and r["mode"] == m]
+                if not rs:
+                    continue
+                aborted = sum(r["illegal_access"] not in ("", "0") for r in rs)
+                errs = [int(r["memcheck_errors"]) for r in rs if r["memcheck_errors"]]
+                print("| %s | %s | %d | %d | %d | %d | %s |" % (
+                    VARIANT_LABEL[v], m, len({r["case"] for r in rs}), len(rs),
+                    sum(r["passed"] == "1" for r in rs), aborted, sum(errs) if errs else "-"))
+        return
 
     for m in modes:
         print("### %s\n" % MODE_LABEL[m])

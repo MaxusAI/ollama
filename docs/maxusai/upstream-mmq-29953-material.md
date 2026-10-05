@@ -3,7 +3,9 @@
 Companion to [upstream-mmq-successor-material.md](upstream-mmq-successor-material.md). That file was written
 against master `dd266785c` (#29941 merged) and argued for padding by the widest tile. This file supersedes its
 arithmetic: **the required src1 padding is larger than every rule proposed so far assumed, including ours**, and
-#29953 is the right shape of fix but still short in two places.
+#29953 as first published was the right shape of fix but short in two places. **Its head, `3070d927f`, fixes
+both** -- see the Conclusion below. Elsewhere in this file, "#29953" without "head" means the published version,
+`5bd8b0013`.
 
 > [!IMPORTANT]
 > **This is raw material, not text to post.** ggml-org/llama.cpp prohibits AI-written posts (bug reports, pull
@@ -12,7 +14,37 @@ arithmetic: **the required src1 padding is larger than every rule proposed so fa
 > the checks, the harness) is AI-generated, which the project allows **with disclosure**: fill in the template's
 > `AI usage disclosure:` line.
 
-## Upstream got there first: #29953 now carries both amendments (2026-10-05, 18:55Z)
+## Conclusion
+
+**#29953's head, `3070d927f`, is correct, and nothing about its correctness is owed upstream.** It chooses
+`J_best` once, on the host, before allocating; launches exactly that tile (`mul_mat_q_switch_J` now switches on
+`args.J_best`); pads src1 by that config's padded y tile, `GGML_PAD(J_best*sizeof(block_q8_1_mmq),
+nthreads*sizeof(int))` bytes, which is the load loop's own extent; and pads `ids_dst` by `J_best - 1`. The padding
+is computed from the config that is launched, so no shape can outgrow it.
+
+Measured on the exact head, on four architectures:
+
+| where | by | how | result |
+|---|---|---|---|
+| sm_120, RTX PRO 6000 Blackwell | this host | 13 cases x stock, three guard-page modes and exact-size memcheck, the published #29953 alongside as the positive control | **190/190 runs pass**, no abort, 0 memcheck errors; the control fails in every mode it ran in |
+| sm_75, RTX 2080 Ti | this host | `ids16` and `dense321` x stock and two guard-page modes, same control | **18/18**; the control aborts every run that can fault |
+| GB10, sm_121a | hclsys, on #29953 | exact-size `cudaMalloc` per buffer under memcheck `--padding 65536`: 16 routing seeds at `n = 100`, a sweep of 48 shapes at 2 seeds, and `test-backend-ops` | 0 errors: 16/16 seeds, where the published version failed 10/16; 96/96 runs; 2291/2291 |
+| gfx1151, Radeon 8060S | the ROCm host, #449 | the twelve cases and the hand-routed shapes, the device reporting the head's padding | 72/72 and 36/36 runs |
+
+hclsys tested `20c31408`, and all of `ggml/src/ggml-cuda` is byte-identical between that and the head, so it is the
+head's result. The CPU sweep with the head's rule added is covered on all ten architectures, by construction (see
+the note under "Ten architectures"). Details: "The exact head, measured".
+
+**What upstream still lacks is a guard.** The head computes the y tile's size twice -- in
+`mmq_get_nbytes_shared()` and in its new padding line, spelled differently -- and those two drifting apart is what
+this bug was. On the stock pool nothing would notice it happen again. "A guard upstream could take" has a patch on
+the head (+70/-9 lines): one helper for both, and a compile-time check over all ten config tables, verified with
+nvcc. Whether to offer it is the maintainer's call.
+
+**For the fork: keep compat 903 until the pin includes #29953**, then retire its padding by the gate under "For
+the fork" and keep the guard.
+
+## Upstream got there first: #29953's head carries both amendments (pushed 2026-10-04 18:54Z)
 
 **Everything below about src1 and `ids_dst` is now fixed upstream, found independently.** On #29953, `hclsys`
 reported from a GB10 (sm_121a, CUDA 13.0) exactly the two gaps this file was written about, with the same
@@ -30,6 +62,10 @@ The author pushed both the same day. At head `3070d927f` ("CUDA: fix MMQ out-of-
 `J_best-1` bound for `ids_dst` where ours used `J_best`. **So there is nothing to send upstream about those two,
 and `mmq-amend-29953.patch` is of historical interest only.** Our independent arrival at the same formula, from a
 different direction (the CPU sweep rather than a seed sweep), is a cross-check on both.
+
+hclsys's re-test was of `20c31408`, not of the head. The head is a squash of `5bd8b001` and `20c31408` onto
+`dd266785`, and all of `ggml/src/ggml-cuda` is byte-identical between `20c31408` and `3070d927f` (checked
+2026-10-05), so their GB10 result is the head's result.
 
 ### RETRACTED: the NVFP4 y scales are not read out of bounds
 
@@ -72,7 +108,9 @@ nothing goes past the buffer. Rather than guess at the reconciliation, the claim
 anywhere. There is therefore **nothing outstanding for upstream from this work**: #29953's head fixes src1 and
 `ids_dst`, and the third buffer turned out not to need it.
 
-## Where it stands (2026-10-05)
+## Where it stood: #29953 as published (`5bd8b0013`)
+
+Kept as the record of what the published version did. Its head fixes both gaps below.
 
 - **#29953** ("CUDA: fix MMQ ncols rounding direction for alloc", head `5bd8b0013`, base `46847e615`) moves the
   tile-size choice ahead of the allocation and pads by exactly the `J_best` it is about to launch, so the two can
@@ -134,10 +172,11 @@ The padding each rule gives src1, as the argument of `ggml_cuda_mmq_get_J_max()`
 |---|---|---|---|
 | #24127 (b9992 .. `dd266785c^`) | `get_J_max(ne11)` -- 0 for broadcast gate/up | no | no |
 | #29941 (master, `dd266785c`) | `get_J_max(ne12)` | no | no |
-| #29953 | the launched `J_best`, in blocks | no | no |
-| #27044 (our compat 903 until now) | `get_J_max(ne12*n_expert_used)` | no | no |
+| #29953 as published (`5bd8b0013`) | the launched `J_best`, in blocks | no | no |
+| #27044 (the fork's 903 before #448) | `get_J_max(ne12*n_expert_used)` | no | no |
 | #448 as published | `get_J_max(type, fallback, cc, 512)` -- the widest tile | yes | yes |
-| **#448 amended** (recommended) | the widest **padded** tile, `max_J ceil(T/B)` | yes | yes |
+| **#448 amended** (the fork's 903 now) | the widest **padded** tile, `max_J ceil(T/B)` | yes | yes |
+| **#29953 head** (`3070d927f`) | the launched config's padded tile, `T` bytes | yes, `J_best - 1` | no, and none needed (retracted above) |
 
 ## The CPU check: every rule, 4.7 million shapes
 
@@ -161,7 +200,7 @@ Shapes left short, from [tasks/mmq-successor-results/check-rules.txt](tasks/mmq-
 |---|---|---|---|---|
 | #24127 (`ne11`) | 162,672 (worst 127) | 4,554,640 (worst 127) | all 4,717,328 (worst 127) | 705 (worst 9) |
 | #29941 (`ne12`) | 11,410 (worst 63) | 365,300 (worst 63) | all 4,717,328 | - |
-| **#29953** | **76,640 (worst 6)** | **1,531,586 (worst 6)** | **all 4,717,328** | **90 (worst 5)** |
+| **#29953 as published** | **76,640 (worst 6)** | **1,531,586 (worst 6)** | **all 4,717,328** | **90 (worst 5)** |
 | #27044 | 11,410 (worst 63) | 29,944 (worst 17) | all 4,717,328 | - |
 | #448 as published | 128 (worst 5), gfx1151 q2_K only | 25,256 (worst 5), gfx1151 q2_K only | covered | 45 (worst 5), gfx1151 only |
 | **#448 amended** | covered | covered | covered | covered |
@@ -178,8 +217,9 @@ Shapes left short, from [tasks/mmq-successor-results/check-rules.txt](tasks/mmq-
 >    row all along and the earlier text said two types anyway.
 
 "worst" is blocks (or `int32` entries for `ids_dst`) past the allocation. Per-architecture counts are in the
-program's output; on sm_120 #29953 is short in 4,488 one-expert and 134,640 multi-expert shapes. gfx1151's column
-comes from the host-side config tables as nvcc compiles them, not from a measurement on AMD hardware.
+program's output; on sm_120 #29953 as published is short in 4,488 one-expert and 134,640 multi-expert shapes.
+gfx1151's column comes from the host-side config tables as nvcc compiles them, not from a measurement on AMD
+hardware.
 
 A count here is **shapes where the rule can be short**, not shapes that fault. The check asks the question a
 padding rule has to answer -- is the allocation large enough for the worst routing this shape admits, one row in
@@ -187,8 +227,10 @@ the last non-empty expert's last tile -- and `ne12*n_expert_used` rows over `ne0
 Whether a particular run reads past depends on its routing, on where the pool put the buffer, and on what the
 pool mapped after it.
 
-Note the direction of the trade: #29953 is short in **more** shapes than #29941 but by **less** -- at most 6
-blocks instead of 63 -- because it fixes the rounding and leaves only the padded-tile term.
+The head's rule is not in this five-architecture run; it is in the ten-architecture run below, covered.
+
+Note the direction of the trade: #29953 as published is short in **more** shapes than #29941 but by **less** --
+at most 6 blocks instead of 63 -- because it fixes the rounding and leaves only the padded-tile term.
 
 ## Ten architectures: the amended rule is sufficient by construction
 
@@ -204,10 +246,22 @@ ids-branch shapes ([tasks/mmq-successor-results/check-rules-wide.txt](tasks/mmq-
 | rule | src1, >=2 experts/token | worst | short on which architectures |
 |---|---|---|---|
 | #29941 (`ne12`), master | 1,255,564 | 63 blocks | all ten |
-| #29953 at `3070d927f` | 3,520,756 | **12 blocks** | all ten |
-| #27044, main's 903 | 635,468 | 17 blocks | all ten |
+| #29953 as published (`5bd8b0013`) | 3,520,756 | **12 blocks** | all ten |
+| #27044, the fork's 903 before #448 | 635,468 | 17 blocks | all ten |
 | #448 as published | 626,512 | **7 blocks** | **gfx1151 25,256, CDNA3 576,000, RDNA4 25,256; zero on all seven NVIDIA** |
 | **#448 amended** | **covered** | - | none |
+| **#29953 head (`3070d927f`)** | **covered** | - | none |
+
+> [!NOTE]
+> **Corrected 2026-10-05.** This table used to label the published row "#29953 at `3070d927f`". The checker's
+> #29953 rule is the published one -- pad by the launched `J_best` in blocks -- and the head's rule was not in it
+> at all. Read literally, the old label said upstream's current fix is short in 3.5 million shapes, which is
+> false. The head's rule (the launched config's padded tile, and `J_best - 1` for `ids_dst`) is now in
+> [tasks/mmq-rules-check.cu](tasks/mmq-rules-check.cu) and is covered in all four tallies on all ten
+> architectures: 9,431,816 ids-branch shapes and 203,200 dense ones. Built against `dd266785c` and against
+> `3070d927f` itself, the check prints byte-identical output; the config tables are the same files in both. That is by construction -- its padding is
+> the load loop's own extent for the launched config -- so the sweep shows the model agrees, not that the head
+> is right; the measurements in the Conclusion are the evidence for that.
 
 **This widens the case for the amendment well beyond gfx1151.** `nthreads` is 512 on CDNA, not 256, so the
 padded tile is larger: the worst case is CDNA3, q4_0, non-fallback, `J = 64` with `nthreads = 512`, where
@@ -264,14 +318,15 @@ the last non-empty expert holding well under one tile, so its last tile reads pa
 
 Run it three ways. The results below are from this host; the full matrix is under "Results".
 
-| `MMQ_DEBUG_ALLOC` | what it exposes | `ne11` | `ne12` | #29953 | #27044 | #448 |
+| `MMQ_DEBUG_ALLOC` | what it exposes | `ne11` | `ne12` | #29953 as published | #27044 | #448 |
 |---|---|---|---|---|---|---|
 | unset (stock pool) | nothing -- the pool hides both | pass | pass | pass | pass | pass |
 | `guard:src1` | the padded-tile term | abort | abort | **abort** | pass | pass |
 | `guard:ids_dst` | the unpadded `ids_dst` | abort | abort | **abort** | abort | pass |
 
 `#27044` passes `guard:src1` here only because `get_J_max(ne12*n_expert_used) = get_J_max(256) = 128`, far more
-than the 21 blocks this shape needs; it is short elsewhere (see the CPU check).
+than the 21 blocks this shape needs; it is short elsewhere (see the CPU check). At #29953's head both guarded
+rows pass: see "The exact head, measured".
 
 **Why this shape.** `need` is the worst case over all routings. What a given case actually reads past the data
 is `ceil(T/B) - r` blocks, where `r` is the last non-empty expert's row count, so the worst case needs `r = 1`.
@@ -284,10 +339,10 @@ Whether a case can realise it is set by the mean rows per expert, `ne12*n_expert
 | `t100` | 800 | 256 | 3.1 | 112 | sometimes |
 | `ids64` | 6,400 | 256 | 25.0 | 112 | no: reads about 89 blocks past, which `ne12`'s 96 covers |
 
-So `ids16` is the case to hand over: one row per expert, every run, and a 5-block shortfall against #29953 rather
-than one. `ids64` is the control that shows the routing matters -- it passes `guard:src1` under every rule but
-`ne11`. An over-read is a function of the routing as well as the shape, which is the third reason this bug is
-hard to hit on purpose, after the pool and the fixup buffer.
+So `ids16` is the case to hand over: one row per expert, every run, and a 5-block shortfall against the published
+#29953 rather than one. `ids64` is the control that shows the routing matters -- it passes `guard:src1` under
+every rule but `ne11`. An over-read is a function of the routing as well as the shape, which is the third reason
+this bug is hard to hit on purpose, after the pool and the fixup buffer.
 
 ## The amendment
 
@@ -299,7 +354,8 @@ hard to hit on purpose, after the pool and the fixup buffer.
   instead of `J_best * sizeof(block_q8_1_mmq)`, in both branches. It is the expression
   `mmq_get_nbytes_shared()` already uses for the tile the load copies into.
 - `ids_dst` gets `J_best` more entries.
-- For NVFP4 with native FP4, `src1_scale` gets `J_best` more entries in both branches: the stream-k fixup
+- **Retracted, see the top of this file** -- kept so the patch can be read: for NVFP4 with native FP4,
+  `src1_scale` gets `J_best` more entries in both branches: the stream-k fixup
   write-back is called as `write_back(..., y_scale, I, I, J)`, so it reads `y_scale[j]` for all `J` columns of
   its tile. Found by reading the code; the GPU runs here use the q8_1 path, since an sm_120 build without `120a`
   has no native FP4.
@@ -336,7 +392,8 @@ padding. That is a refactor of the amendment, not a different fix: `mmq_get_nbyt
 `nbs_ids + nbs_x + GGML_PAD(nbs_y, config.nthreads*sizeof(int))` with `nbs_y = config.J*sizeof(block_q8_1_mmq)`,
 so the helper returns the identical value. **It is not what the measurements here were taken with** -- they used
 the 8-line form, which keeps `mmq.cuh` untouched -- so it is a suggestion for the maintainer to weigh, not a
-tested change.
+tested change. **Since built and verified against the head**, with a compile-time check added: see "A guard
+upstream could take".
 
 ## A second architecture, and the dense branch (sm_75)
 
@@ -411,20 +468,31 @@ this as an intermittent crash rather than a test failure.
 
 ## Reproduce
 
-- **CPU only, nvcc and no GPU**, from a llama.cpp checkout at `dd266785c` or later:
-  `tasks/build-check.sh <checkout> tasks/mmq-rules-check.cu ./mmq-rules-check && ./mmq-rules-check`.
-  The exit code is non-zero only if the amended rule leaves a shape short. `--design` lists shapes where only
+- **CPU only, nvcc and no GPU**, from a llama.cpp checkout at `dd266785c` or later, #29953's head included:
+  `tasks/build-check.sh <checkout> tasks/mmq-rules-check.cu mmq-rules-check && <checkout>/mmq-rules-check`.
+  The check carries its own copy of `ggml_cuda_mmq_get_J_max()`, which #29953 deletes; built against
+  `dd266785c` and against `3070d927f`, it prints output byte-identical to the build that used the library's
+  copy -- every rule's counts over all 9.4 million shapes.
+  `build-check.sh` compiles from inside the checkout, so a relative output path lands there. The exit code is
+  non-zero only if 903's rule or #29953's head leaves a shape short. `--design` lists shapes where only
   `ids_dst` is short.
 - **GPU:** `tasks/mmq-rules-gpu.sh <llama.cpp checkout at dd266785c> [out dir]`. It applies the test cases,
   builds each rule twice (with and without the debug allocator) via
   [tasks/mmq-variant.py](tasks/mmq-variant.py), and runs every case stock, under `guard:ids_dst`, under
   `guard:src1`, and under memcheck with exact-size allocations. It is resumable.
-- **The shortest path for a reviewer**, on any NVIDIA GPU:
-  1. apply `tasks/mmq-tests.patch` to #29953's branch,
-  2. apply `tasks/mmq-variant.py`'s debug allocator (`mmq-variant.py <checkout> p29953 --debug`),
-  3. `MMQ_DEBUG_ALLOC=guard:src1 test-backend-ops test -o MUL_MAT_ID -b CUDA0 -p 'type_a=q4_0,type_b=f32,n_mats=256,n_used=16,b=0,m=640,n=16,k=2560,'`
-     -> illegal memory access,
-  4. apply `tasks/mmq-amend-29953.patch` and run it again -> passes. Then repeat with `guard:ids_dst`.
+- **The shortest path for a reviewer**, on any NVIDIA GPU, from a `dd266785c` checkout with
+  `tasks/mmq-tests.patch` applied:
+  1. `mmq-variant.py <checkout> p29953 --debug` -- #29953 as published, plus the debug allocator -- and build
+     `test-backend-ops`;
+  2. `MMQ_DEBUG_ALLOC=guard:src1 test-backend-ops test -o MUL_MAT_ID -b CUDA0 -p 'type_a=q4_0,type_b=f32,n_mats=256,n_used=16,b=0,m=640,n=16,k=2560,'`
+     -> illegal memory access;
+  3. `mmq-variant.py <checkout> head29953 --debug` -- #29953's head, byte-identical to `3070d927f` plus the
+     allocator -- rebuild, and run it again -> passes. Then repeat both with `guard:ids_dst`.
+
+  [tasks/mmq-rules-head29953.sh](tasks/mmq-rules-head29953.sh) runs this and the rest of "The exact head,
+  measured".
+- **The guard**, no GPU: [tasks/mmq-29953-guard-verify.sh](tasks/mmq-29953-guard-verify.sh), next to a
+  llama.cpp clone that has `3070d927f`.
 
 ## Measured on gfx1151 (MaxusAI/ollama#449)
 
@@ -460,18 +528,151 @@ Full reply on the issue; build was a Ryzen AI Max+ 395 / Radeon 8060S, ROCm 7.2.
   main's rule. Its MoE experts are q4_K/q6_K/q8_0 (`qwen3.6:35b-a3b`, `qwen3-vl:30b-a3b`), q4_K/q5_0/q8_0
   (`gemma4:26b-a4b`) and q5_0/q8_0 (`nemotron3:33b`), read from that host's GGUF headers.
 
+## The exact head, measured
+
+`3070d927f` itself, not an equivalent. On a `dd266785c` checkout, `mmq-variant.py`'s `head29953` swaps in the
+head's `mmq.cu` and `mmq.cuh` -- the only two files the head commit touches -- after checking that the checkout is
+the head's parent and that the commit touches nothing else; without `--debug` the result is byte-identical to
+`3070d927f`. Same harness as "Results", run by
+[tasks/mmq-rules-head29953.sh](tasks/mmq-rules-head29953.sh), with the published #29953 alongside as the positive
+control: a clean head means something only where the same harness shows the published version failing. The
+controls for the combined guard, `guard:ids_dst` and memcheck were a second pass,
+[tasks/mmq-rules-head29953-controls.sh](tasks/mmq-rules-head29953-controls.sh).
+
+Totals, from `mmq-rules-table.py --summary` ("aborted" is a process that died; memcheck errors are summed over the
+runs made under the sanitizer):
+
+**sm_120**, RTX PRO 6000 Blackwell, CUDA 12.8, every case in [tasks/mmq-tests.patch](tasks/mmq-tests.patch):
+
+| rule | mode | cases | runs | passed | aborted | memcheck errors |
+|---|---|---|---|---|---|---|
+| #29953 as published | exact | 2 | 2 | 0 | 0 | 13183 |
+| #29953 as published | guard | 2 | 6 | 0 | 6 | - |
+| #29953 as published | guard_ids_dst | 2 | 6 | 0 | 6 | - |
+| #29953 as published | guard_src1 | 3 | 30 | 12 | 18 | - |
+| #29953 head (`3070d927f`) | stock | 13 | 39 | 39 | 0 | - |
+| #29953 head (`3070d927f`) | exact | 13 | 13 | 13 | 0 | 0 |
+| #29953 head (`3070d927f`) | guard | 13 | 39 | 39 | 0 | - |
+| #29953 head (`3070d927f`) | guard_ids_dst | 13 | 39 | 39 | 0 | - |
+| #29953 head (`3070d927f`) | guard_src1 | 13 | 60 | 60 | 0 | - |
+
+**sm_75**, RTX 2080 Ti, CUDA 12.8: `ids16`, and `dense321`, the plain `MUL_MAT` that the published version
+regressed against master:
+
+| rule | mode | cases | runs | passed | aborted | memcheck errors |
+|---|---|---|---|---|---|---|
+| #29953 as published | guard_ids_dst | 2 | 6 | 3 | 3 | - |
+| #29953 as published | guard_src1 | 2 | 6 | 0 | 6 | - |
+| #29953 head (`3070d927f`) | stock | 2 | 6 | 6 | 0 | - |
+| #29953 head (`3070d927f`) | guard_ids_dst | 2 | 6 | 6 | 0 | - |
+| #29953 head (`3070d927f`) | guard_src1 | 2 | 6 | 6 | 0 | - |
+
+- **The head passes everything**: 190 runs on sm_120 across 13 cases and five modes, and 18 on sm_75, with no
+  abort and no memcheck error.
+- **The control fails in every mode, on both cards**: `ids16` aborts in every guarded run of the published
+  version; under memcheck `one113` reports 12,885 errors and `ids16` 298; `dense321` aborts 3/3 under
+  `guard:src1` on sm_75. The three sm_75 control runs that pass are `dense321` under `guard:ids_dst`, which has
+  no `ids_dst` to guard.
+- **The one-block cases are a rate, as before**: under `guard:src1` the published version aborted `j100_b1` 3
+  times in 10 and `j100_b0` 5 times in 10 (4 and 1 in the earlier run), the head 0 in 10 on both.
+- Per-case tables: [matrix-head29953-sm120.md](tasks/mmq-successor-results/matrix-head29953-sm120.md) and
+  [matrix-head29953-sm75.md](tasks/mmq-successor-results/matrix-head29953-sm75.md), raw rows beside them.
+
+## A guard upstream could take
+
+The head's fix is right, but it leaves the y tile computed twice: `mmq_get_nbytes_shared()` sizes the
+shared-memory tile with `GGML_PAD(nbs_y, config.nthreads*sizeof(int))`, and `ggml_cuda_mul_mat_q` sizes the global
+src1 padding with its own ceiling-division expression. Those two drifting apart is what this bug was, and nothing
+would see it happen again: on the stock pool the over-read lands in mapped memory and `test-backend-ops` passes.
+
+[tasks/mmq-29953-y-tile-guard.patch](tasks/mmq-29953-y-tile-guard.patch) applies to `3070d927f` (70 lines added,
+9 removed, `mmq.cu` and `mmq.cuh`):
+
+- **One helper.** `ggml_cuda_mmq_get_nbytes_y_tile(config)` in `mmq.cuh` returns
+  `GGML_PAD(config.J*sizeof(block_q8_1_mmq), config.nthreads*sizeof(int))`. `mmq_get_nbytes_shared()` calls it
+  for its y term, and the selection loop carries `nbytes_y_tile_best` out instead of `nthreads_best`, so the
+  padding *is* the tile. **No runtime value changes:** every config table uses 128, 256 or 512 threads, where
+  `GGML_PAD` and the head's division agree.
+- **A compile-time check.** For every config table and type, the helper must cover the load loop's extent,
+  written from the loop with exact ceiling division -- `ceil(J*MMQ_TILE_Y_K / nthreads) * nthreads` ints -- not
+  from the helper or from `GGML_PAD`. One `static_assert` per (table, type), host pass only: the structure of
+  the fork's compat 903 guard (#451), which the ROCm host verified under hipcc.
+
+Verified with nvcc 12.8 for sm_120 by [tasks/mmq-29953-guard-verify.sh](tasks/mmq-29953-guard-verify.sh), which
+scores each build by why it failed -- every error must be the guard's and the tables it names must be the expected
+ones -- not just by its exit code
+([tasks/mmq-successor-results/verify-29953-guard.txt](tasks/mmq-successor-results/verify-29953-guard.txt)):
+
+```
+host load at start (1/5/15 min): 7.73 12.80 17.77, 32 cores
+1-head-unpatched                   rc=0   ok   want=ok   as-expected     8.1s
+patch applies to a pristine 3070d927f6c172242d56a2c1fb897e838e7b2632
+2-head-with-guard                  rc=0   ok   want=ok   as-expected    11.2s
+3-helper-shrunk-to-J-blocks        rc=2   fail want=fail as-expected     3.0s
+    errors=220, from the guard=220, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
+4-helper-rounded-to-one-warp       rc=2   fail want=fail as-expected     3.0s
+    errors=220, from the guard=220, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
+mutation 5 rewrote:     CASE(GGML_TYPE_MXFP4, 256, 1, 128,   8, GGML_CUDA_MMQ_SRAM_LAYOUT_FP4, MMQ_ITER_K_FP4, true, true); ->     CASE(GGML_TYPE_MXFP4, 192, 1, 128,   8, GGML_CUDA_MMQ_SRAM_LAYOUT_FP4, MMQ_ITER_K_FP4, true, true);
+5-blackwell-config-at-192-threads  rc=2   fail want=fail as-expected     4.0s
+    errors=1, from the guard=1, tables named: blackwell
+6-guard-compiled-out               rc=0   ok   want=ok   as-expected     7.9s
+VERIFY29953GUARD COMPLETE 2026-10-05T02:33:16Z all_as_expected=1
+```
+
+- **3** puts the published #29953's padding, `J` blocks, back into the helper: every table fails, 220 (table,
+  type) pairs, and nothing else does.
+- **4** is a plausible wrong simplification, rounding to one warp's ints: the same.
+- **5** is what the exact arithmetic is for. `GGML_PAD` is a bit mask that is only right for power-of-two
+  granularities, the config tables only assert `nthreads % 32 == 0`, and the kernel places `tile_x` with the
+  same `GGML_PAD`. A 192-thread config would compile today and mis-size the tile; with the guard, the build fails
+  and names that table only.
+- **Cost:** about 3 s per compile of `mmq.cu`, paid once per build because the guard runs in the host pass only,
+  however many architectures are targeted: a median of 11.1 s with it against 8.2 s compiled out, over five
+  interleaved repeats at a load of 7-8 on 32 cores
+  ([tasks/mmq-29953-guard-timing.sh](tasks/mmq-29953-guard-timing.sh),
+  [output](tasks/mmq-successor-results/guard-timing.txt)). A single build is too noisy to quote: two one-off
+  runs gave 9.8 against 8.9 s and 11.2 against 7.9 s.
+- nvcc's front end stops at 100 errors by default, which on the first run cut mutation 3's list to the first five
+  tables; the script passes `-Xcudafe --error_limit=100000` so every failing table is named.
+
+**Limits.** Only nvcc was run here: the HIP and MUSA branches are untested on this host. HIP keys off
+`__HIP_DEVICE_COMPILE__` because `vendors/hip.h` defines `__CUDA_ARCH__` in every HIP pass -- the trap the ROCm
+host caught in #451's first draft -- and MUSA is excluded, as in 903, because nothing here builds it. The guard
+cannot see call sites: a later change that pads src1 by something other than the helper would pass it. `ids_dst`
+needs no guard of this kind; its `J_best - 1` depends on nothing but `J`.
+
+**This is material, not a submission.** Whether to offer it upstream is the maintainer's call, and anything posted
+to ggml-org is written by hand.
+
 ## For the fork
 
-- **Compat 903 needs the same amendment.** As merged in #448 it pads by the widest tile, which covers every
-  NVIDIA shape checked but is short by up to 5 blocks in 25,384 gfx1151 shapes (q2_K and q3_K, where `J = 80`
-  with `nthreads = 256` needs 85 blocks and the widest tile gives 80). The ROCm host serves gfx1151, so this is
-  not hypothetical for the fork even though it is not a shape production's models reach. Amended on 2026-10-05.
-  - **The gfx1151 column is modelled, not measured**, and that is asked of the ROCm host in
-    MaxusAI/ollama#449: those counts come from `nvcc` compiling the host-side AMD branch of
-    `ggml_cuda_mmq_get_config()`, so if hipcc resolves the config tables differently the shortfall could be
-    larger, smaller or absent. Until that comes back, treat the gfx1151 numbers here as a prediction.
+- **Compat 903 stays as merged in #451** -- the widest padded tile, one helper for the y tile, and the
+  compile-time guard -- until the pin includes #29953. It is not replaced by a backport of #29953:
+  - the pin, b11081, predates the `prec_src1` refactor (`mmq.cuh` differs from #29953's base `dd266785c` by 230
+    changed lines), so a backport would be an adaptation, not upstream's code, and would still be dropped or
+    re-cut at the pin move;
+  - #29953 is not merged (open, review required, last changed 2026-10-04 18:55Z) and can still change;
+  - 903 is measured on sm_120 and gfx1151 and guarded at compile time, and the head has no guard;
+  - nothing is waiting on it: even v0.35.1's pin, b11232, predates #29941.
+- **The two fixes agree on what matters.** Both pad src1 by a padded y tile and both pad `ids_dst`. 903 pads for
+  the widest tile any launch could pick, the head for the tile it launches, so 903 reserves up to 16 KiB more src1
+  per call on sm_120 (18,432 bytes against the head's 2,048 at `J = 8`) and a few hundred bytes more `ids_dst`.
+- **Retiring 903**, at the first pin move that includes #29953's merge commit:
+  1. the patch series, without 903, applies to the new pin with plain `git apply`;
+  2. the head's rule is covered in `mmq-rules-check.cu` built against the new pin with `build-check.sh` (it
+     already builds against #29953's head unchanged: it carries its own copy of the `get_J_max()` that #29953
+     deletes);
+  3. `ids16` under `guard:src1` and `guard:ids_dst` on sm_120, and `dense321` under `guard:src1` on sm_75, pass
+     on the new pin, with the padding set back to `J_best` blocks as the positive control in the same harness
+     (`mmq-variant.py`'s anchors will need moving with the pin);
+
+  then 903's padding goes. **The guard stays**, re-cut guard-only, unless upstream has taken one -- that was
+  already the compat README's plan, and [tasks/mmq-29953-y-tile-guard.patch](tasks/mmq-29953-y-tile-guard.patch)
+  is its form on the head. If #29953 changes before it merges, re-run "The exact head, measured" against what
+  merged.
+- **gfx1151 is measured, not modelled** (#449): the widest-tile rule's gap reproduced, aborting 6/6, and the
+  amended rule fixed it, passing 6/6, every passing run matching the CPU backend.
 - **Nothing production serves is affected today.** Its MoE GGUFs use 8 of 128 experts (gemma4:26b-a4b), 8 of 256
   (qwen3.6:35b-a3b) and 6 of 128 plus a shared one (nemotron3:33b), all with `J = 128` at the image ubatch sizes
   it runs, where `T == J*B` and #29941's padding already covers src1. The `ids_dst` read happens on every MoE
   call but lands in `expert_bounds`.
-- **Re-cutting 903 against the amendment is the maintainer's call.**

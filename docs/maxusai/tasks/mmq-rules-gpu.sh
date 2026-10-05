@@ -34,6 +34,7 @@ MODES=${MODES:-stock guard guard_ids_dst guard_src1 memcheck exact}
 # One build directory per CUDA_ARCH, or the two architectures clobber each other's objects.
 BUILD_DIR=${BUILD_DIR:-build-mmq-successor}
 VARIANTS=${VARIANTS:-ne11 ne12 p27044 successor p29953}
+BUILD_KINDS=${BUILD_KINDS:-stock debug}   # a pass that only runs guarded modes needs only the debug build
 # CMake hands nvcc the toolkit's include directory, but a search path from a shell profile (CPATH and friends) is
 # searched first, and one naming another toolkit mixes headers: CUDA 12.1's crt/host_config.h refuses gcc 13.
 unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
@@ -59,7 +60,7 @@ cmake -S . -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -D
 
 # p29953 is the only variant that edits mmq.cuh, so every MMQ instance rebuilds for it. Build it last and the
 # other eight builds only recompile mmq.cu.
-for v in $VARIANTS; do for e in stock debug; do
+for v in $VARIANTS; do for e in $BUILD_KINDS; do
     [ -x "$OUT/bin/test-backend-ops-$v-$e" ] && continue
     git checkout --quiet -- "$F" "$H"
     python3 "$HERE/mmq-variant.py" . "$v" $([ $e = debug ] && echo --debug) > /dev/null || exit 1

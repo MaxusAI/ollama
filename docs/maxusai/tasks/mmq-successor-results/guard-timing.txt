@@ -1,0 +1,8 @@
+host load at start (1/5/15 min): 6.96 11.67 17.05, 32 cores
+rep 1: guard on 11.09s, off 8.15s
+rep 2: guard on 10.91s, off 8.27s
+rep 3: guard on 10.90s, off 7.86s
+rep 4: guard on 11.26s, off 8.59s
+rep 5: guard on 11.90s, off 7.95s
+median: guard on 11.09s, off 8.15s, over 5 interleaved reps
+host load at end (1/5/15 min): 8.10 10.59 16.12

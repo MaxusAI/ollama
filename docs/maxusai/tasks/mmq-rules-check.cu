@@ -20,22 +20,27 @@
 // memory, the first with the fewest tiles for ncols_opt. That loop is replicated below because it sits in a
 // template that queries the device; everything else is llama.cpp's own code.
 //
-// The rules, as the argument of ggml_cuda_mmq_get_J_max() unless stated:
+// The rules, as the argument of get_J_max() unless stated:
 //   #24127    : ne11                   (1 for broadcast gate/up, n_expert_used otherwise), b9992 .. dd266785c^
 //   #29941    : ne12                   master, merged as dd266785c
-//   #29953    : the launched J itself  (padding moved next to the tile-size choice, so the two cannot disagree)
-//   #27044    : ne12*n_expert_used     our compat 903 until now
+//   #29953    : the launched J itself  (padding moved next to the tile-size choice, so the two cannot disagree);
+//               this is #29953 AS PUBLISHED (5bd8b0013), not its head
+//   #27044    : ne12*n_expert_used     the fork's compat 903 before #448
 //   #448      : the widest tile that has a config, get_J_max(type, fallback, cc, 512)
 //   #448+pad  : the widest padded tile, max over J of GGML_PAD(J*block, nthreads_J*4)/block
+//   #29953 head (3070d927f): src1 by the launched config's padded tile, GGML_PAD(J*block, nthreads*4) BYTES, and
+//               ids_dst by J - 1 entries. Sufficient by construction -- it is the load loop's own extent for the
+//               config that is launched -- so the sweep checks that this model agrees, not that the head is right.
 //
 // Build from the root of a llama.cpp checkout, with the CUDA toolkit's nvcc. It never touches a GPU:
 //   nvcc -Wno-deprecated-gpu-targets -std=c++17 -I. -Iggml/include -Iggml/src -Iggml/src/ggml-cuda \
 //        mmq-rules-check.cu -o mmq-rules-check -lcublas -lcuda
 // It calls ggml_cuda_mmq_get_config() in its four-argument form, which exists at the fork's pin b11081 and is
-// master's signature with prec_src1 defaulted, so the same source builds against either.
+// master's signature with prec_src1 defaulted, and it carries its own copy of ggml_cuda_mmq_get_J_max(), which
+// llama.cpp#29953 deletes. So the same source builds against b11081, dd266785c and #29953's head.
 //   ./mmq-rules-check            the whole sweep
 //   ./mmq-rules-check --design   shapes for test_mul_mat_id where only ids_dst is short
-// The exit code is non-zero if the last rule leaves a shape short.
+// The exit code is non-zero if #448 amended (the fork's 903) or #29953's head leaves a shape short.
 #include "ggml/src/ggml-cuda/mmq.cuh"
 #include "ggml/src/ggml-cuda/mmvq.cuh"   // MMVQ_MAX_BATCH_SIZE
 #include <climits>
@@ -48,6 +53,19 @@ int ggml_cuda_get_device() { return 0; }  // never reached: nothing below querie
 extern "C" void ggml_abort(const char *, int, const char *, ...) { abort(); }
 
 static const size_t BLOCK = sizeof(block_q8_1_mmq);
+
+// ggml_cuda_mmq_get_J_max() as it is at dd266785c (mmq.cuh), verbatim but for the name. The older rules are
+// defined by it, and #29953 deletes it, so the check keeps a copy rather than depend on the checkout having one.
+static int get_J_max(const ggml_type type, const bool fallback, const int cc, const int64_t ne11) {
+    int ret = std::min(ne11, int64_t(512));
+    ret -= ret % 8;
+    for (;ret > 0; ret -= 8) {
+        if (ggml_cuda_mmq_get_config(type, ret, fallback, cc).type != GGML_TYPE_COUNT) {
+            return ret;
+        }
+    }
+    return ret;
+}
 
 // The largest MUL_MAT_ID batch MMVQ takes (mmvq.cu, get_mmvq_mmid_max_batch*; defined outside its header, so
 // replicated for the ten types checked). A larger batch goes to MMQ.
@@ -93,7 +111,7 @@ static void launched(ggml_type t, bool fb, int cc, size_t smpbo, int64_t ncols_o
 
 // #448 as written: the widest tile that has a config, in blocks. And amended: the widest padded tile.
 static void widest(ggml_type t, bool fb, int cc, int * J_out, int * pad_out) {
-    *J_out = ggml_cuda_mmq_get_J_max(t, fb, cc, 512);
+    *J_out = get_J_max(t, fb, cc, 512);
     size_t widest_bytes = 0;
     for (int J = 8; J <= 128; J += 8) {
         const ggml_cuda_mmq_config c = ggml_cuda_mmq_get_config(t, J, fb, cc);
@@ -135,10 +153,17 @@ struct tally {
     }
 };
 
-enum { R24127, R29941, R29953, R27044, R448, R448P, NR };
+enum { R24127, R29941, R29953, R27044, R448, R448P, R29953H, NR };
 static const char * const RN[NR] = {
-    "#24127 (ne11)", "#29941 (ne12), master", "#29953 (the launched tile)",
-    "#27044 (ne12*n_expert_used)", "#448 (widest tile)", "#448 amended (widest padded tile)"};
+    "#24127 (ne11)", "#29941 (ne12), master", "#29953 as published (launched tile)",
+    "#27044 (ne12*n_expert_used)", "#448 (widest tile)", "#448 amended (widest padded tile)",
+    "#29953 head (launched padded tile)"};
+
+// The head pads src1 by GGML_PAD(J*block, nthreads*4) BYTES. Scored as floor(bytes/block) blocks, which
+// under-counts it by less than a block and is still >= the requirement (floor(T/B) >= ceil(T/B) - 1).
+static int head_pad(int J, int nthreads) {
+    return J == 0 ? 0 : (int) (GGML_PAD(J*BLOCK, nthreads*sizeof(int)) / BLOCK);
+}
 
 struct arch { const char * name; int cc; size_t smpbo; };
 // smpbo is the opt-in shared memory per block; on HIP ggml uses sharedMemPerBlock, 64 KiB on these parts.
@@ -183,10 +208,10 @@ static void design(int cc, size_t smpbo, const char * arch_name) {
             if (J == 0) continue;
             const int need = src1_need(J, nth);
             const int p[5] = {
-                ggml_cuda_mmq_get_J_max(t, fb, cc, n_used),      // b = false, so ne11 = n_used
-                ggml_cuda_mmq_get_J_max(t, fb, cc, ne12),
+                get_J_max(t, fb, cc, n_used),      // b = false, so ne11 = n_used
+                get_J_max(t, fb, cc, ne12),
                 J,
-                ggml_cuda_mmq_get_J_max(t, fb, cc, ne12*n_used),
+                get_J_max(t, fb, cc, ne12*n_used),
                 J_wide,
             };
             bool all_ok = true;
@@ -236,18 +261,19 @@ int main(int argc, char ** argv) {
                 if (bcast && n_used == 1) continue;   // one expert per token has nothing to broadcast
                 ++ids_shapes;
                 const int pad[NR] = {
-                    ggml_cuda_mmq_get_J_max(t, fb, a.cc, bcast ? 1 : n_used),
-                    ggml_cuda_mmq_get_J_max(t, fb, a.cc, ne12),
+                    get_J_max(t, fb, a.cc, bcast ? 1 : n_used),
+                    get_J_max(t, fb, a.cc, ne12),
                     J,
-                    ggml_cuda_mmq_get_J_max(t, fb, a.cc, ne12*n_used),
+                    get_J_max(t, fb, a.cc, ne12*n_used),
                     J_wide,
                     pad_wide_amended,
+                    head_pad(J, nth),
                 };
                 const int u = n_used == 1 ? 0 : 1;
                 for (int r = 0; r < NR; ++r) {
                     ids_src1[r][u].add(need_src1 - pad[r], a.name, TN[ti], fb, ne12, n_used, ne02, J, nth, pad[r]);
-                    // only #448 pads ids_dst, by the same count as src1
-                    const int dst_pad = (r == R448 || r == R448P) ? pad[r] : 0;
+                    // #448 pads ids_dst by the same count as src1, #29953's head by J - 1; nothing else pads it
+                    const int dst_pad = (r == R448 || r == R448P) ? pad[r] : r == R29953H ? J - 1 : 0;
                     ids_dst[r][u].add(need_ids - dst_pad, a.name, TN[ti], fb, ne12, n_used, ne02, J, nth, dst_pad);
                 }
             }
@@ -263,8 +289,8 @@ int main(int argc, char ** argv) {
             const int64_t last = ne11 - ((ne11 + J - 1) / J - 1) * J;
             const int need = src1_need(J, nth) - (int) (last - 1);
             const int pad[NR] = {
-                ggml_cuda_mmq_get_J_max(t, fb, a.cc, ne11), ggml_cuda_mmq_get_J_max(t, fb, a.cc, ne11), J,
-                ggml_cuda_mmq_get_J_max(t, fb, a.cc, ne11), J_wide, pad_wide_amended,
+                get_J_max(t, fb, a.cc, ne11), get_J_max(t, fb, a.cc, ne11), J,
+                get_J_max(t, fb, a.cc, ne11), J_wide, pad_wide_amended, head_pad(J, nth),
             };
             for (int r = 0; r < NR; ++r) dense[r].add(need - pad[r], a.name, TN[ti], fb, ne11, 0, 0, J, nth, pad[r]);
         }
@@ -289,10 +315,14 @@ int main(int argc, char ** argv) {
     printf("dense branch: %ld shapes (same archs, types and fallbacks x every MMQ batch up to 1024 columns)\n",
            dense_shapes);
     for (int r = 0; r < NR; ++r) {
-        if (r == R24127 || r == R29953 || r == R448 || r == R448P) dense[r].print(RN[r], "blocks");
+        if (r == R24127 || r == R29953 || r == R448 || r == R448P || r == R29953H) dense[r].print(RN[r], "blocks");
     }
 
-    const bool ok = ids_src1[R448P][0].n == 0 && ids_src1[R448P][1].n == 0
-                 && ids_dst[R448P][0].n == 0 && ids_dst[R448P][1].n == 0 && dense[R448P].n == 0;
+    // non-zero if either fix this work stands behind -- the fork's 903 or upstream's head -- leaves a shape short
+    bool ok = true;
+    for (int r : {R448P, R29953H}) {
+        ok = ok && ids_src1[r][0].n == 0 && ids_src1[r][1].n == 0 && ids_dst[r][0].n == 0 && ids_dst[r][1].n == 0
+                && dense[r].n == 0;
+    }
     return ok ? 0 : 1;
 }
