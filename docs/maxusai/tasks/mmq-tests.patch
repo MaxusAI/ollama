@@ -1,48 +1,60 @@
 diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
-index 507fda75..32c9ceb8 100644
+index 507fda75..bc150abe 100644
 --- a/tests/test-backend-ops.cpp
 +++ b/tests/test-backend-ops.cpp
-@@ -10441,6 +10441,13 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+@@ -10441,6 +10441,15 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
      test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_F16, GGML_TYPE_F32, 4, 2, false, 8, 16, 64, 1.0f, 64));
  
      test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q4_0, GGML_TYPE_F32, 576, 512, 576, {1,1}, {1,1}));
 +
-+    // MMQ's dense branch reads a padded y tile too, so the same shortfall exists without MUL_MAT_ID. On sm_75,
-+    // q2_K at 321 columns with ne01 % 128 == 0 launches J = 80 with 256 threads: the tile load copies
-+    // GGML_PAD(80*144, 1024) = 12288 bytes = 86 blocks, and 321 columns leave one in the last of five tiles, so
-+    // 85 blocks are past the data against #29953's 80 and master's get_J_max(321) = 80. The CPU check finds no
-+    // such shape on sm_86, sm_89 or sm_120.
++    // MMQ's dense branch reads a padded y tile too, so the tail over-read exists without MUL_MAT_ID. On sm_75,
++    // q2_K at 321 columns (ne01 % 128 == 0) launches J = 80 with 256 threads -- J = 96..128 need more than its
++    // 64 KiB of shared memory -- and a tile's y load copies GGML_PAD(80*144, 1024) = 12288 bytes. 321 columns
++    // leave one in the last of five tiles, so the load reads 12144 bytes past the data: 85 blocks of padding.
++    // dd266785c pads get_J_max(321) = 128 blocks (it does not filter by shared memory), #29953 as first
++    // published padded the launched 80 and faulted, and #29953's head pads the launched tile, 12288 bytes.
++    // Of the NVIDIA architectures checked, only sm_75 has a dense shape like this.
 +    test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q2_K, GGML_TYPE_F32, 512, 321, 1024, {1,1}, {1,1}));
      test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q4_0, GGML_TYPE_F32, 1, 2048, 8192, {1,  1}, {1, 1}));
      for (ggml_type type_a : all_types) {
          test_cases.emplace_back(new test_mul_mat(type_a, GGML_TYPE_F32, 1, 64, 256, {1,  1}, {1, 1}));
-@@ -10529,6 +10536,32 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+@@ -10529,6 +10538,42 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
      }
      test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_0, GGML_TYPE_F32, 32, 2, false, 2880, 32, 2880));
  
-+    // MMQ MUL_MAT_ID src1 tail padding (#27044, #29847). The last expert's last tile loads J columns from its
-+    // first row whatever its row count, so the padding must cover the widest tile the launch can pick, not
-+    // get_J_max() of the batch: that rounds down, while the launch rounds J up.
++    // MMQ MUL_MAT_ID tail padding (#27044, #29847, #29941, #29953). A tile's y load copies its whole padded
++    // shared-memory tile, GGML_PAD(J*144, nthreads*4) bytes, from its first column, and it loads J ids_dst
++    // entries, whatever the expert's row count; the last expert's last tile can hold a single row. So src1 needs
++    // that tile less one block of padding, and ids_dst J - 1 entries, for the J the launch picks. dd266785c padded
++    // get_J_max() of the batch, which rounds down while the launch rounds J up; #29953 picks J once and pads for
++    // it. Run these with an allocation that ends at its data (exact-size, or a guard page after it): on the
++    // stock pool the over-read usually lands in memory the pool has already mapped, and a short rule passes.
 +    for (bool b : {false, true}) {
 +        // #29847: 508 tokens; a fault without padding
 +        test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_0, GGML_TYPE_F32, 512, 10, b, 640, 508, 2560));
-+        // 100 tokens: J = 112 on sm_120 (no config at 104), get_J_max(100) = 96
++        // 100 tokens: J = 112 on sm_120 (no config at 104), and the padded tile needs 113 blocks: dd266785c pads
++        // get_J_max(100) = 96, #29953 as first published 112 -- one block short, which only some routings reach
 +        test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_0, GGML_TYPE_F32, 512, 10, b, 640, 100, 2560));
-+        // 120 tokens, fallback configs: J = 128, get_J_max(120) = 64. Run alone, src1 ends 3456 bytes before the
-+        // end of the pool's mapping and no stream-k fixup buffer follows it, so an over-read faults
++        // 120 tokens, fallback configs: J = 128 against dd266785c's get_J_max(120) = 64. Run alone, src1 ends 3456
++        // bytes before the end of the pool's mapping and no stream-k fixup buffer follows it, so with dd266785c
++        // the over-read faults even on the stock pool
 +        test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32, 256, 10, b, 576, 120, 1536));
 +    }
-+    // one expert per token: ne12*n_expert_used == ne12, J = 128, get_J_max(113) = 64
++    // one expert per token: ne12*n_expert_used == ne12, so J = 128 while dd266785c pads get_J_max(113) = 64
 +    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32,  64,  1, false, 576, 113, 16384));
 +    // #27044's shapes: 2040 tokens (the fault it was opened for), and 65 and 100 tokens of the same model
 +    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32, 256,  8, true, 512, 2040, 2048));
 +    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32, 256,  8, true, 576,   65, 2048));
 +    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32, 256,  8, true, 512,  100, 2048));
 +
-+    // ids_dst only: every padding rule proposed so far, including #29953's, gives src1 enough room here
-+    // (get_J_max(ne11) = get_J_max(ne12) = J), so the only buffer that can be read past is ids_dst, which a tile
-+    // also loads J entries of without a bound. 256 experts over 16 and 100 tokens leave the last non-empty expert
-+    // holding well under one tile, so its last tile reads past ids_dst's ne12*n_expert_used entries.
++    // ids16: get_J_max(ne11) = get_J_max(ne12) = J = 16 here, on sm_120 and sm_75, so dd266785c and #29953 as
++    // first published both pad src1 by exactly J blocks, and that is not enough. With one row per expert on
++    // average, the last non-empty expert's last tile holds a single row, and its padded y load,
++    // GGML_PAD(16*144, 1024) = 3072 bytes, runs 21 blocks past src1's data, 5 more than J; it also reads 15
++    // entries past ids_dst. Deterministic for both buffers.
++    // ids64: J = 112 with about 25 rows per expert, so the read past src1 is about 89 blocks, inside dd266785c's
++    // get_J_max(100) = 96, while ids_dst is still read past: the routing, not only the shape, decides which
++    // buffer a rule leaves short.
 +    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_0, GGML_TYPE_F32, 256, 16, false, 640,  16, 2560));
 +    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_0, GGML_TYPE_F32, 256, 64, false, 640, 100, 2560));
 +
