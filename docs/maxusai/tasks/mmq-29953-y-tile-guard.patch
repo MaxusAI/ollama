@@ -1,0 +1,129 @@
+diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
+index 027a7e60..6923d84a 100644
+--- a/ggml/src/ggml-cuda/mmq.cu
++++ b/ggml/src/ggml-cuda/mmq.cu
+@@ -4,6 +4,7 @@
+ #include "mmid.cuh"
+ 
+ #include <cstdint>
++#include <utility>
+ 
+ static void ggml_cuda_mul_mat_q_switch_type(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream, const ggml_prec prec_src1) {
+     switch (args.type_x) {
+@@ -187,8 +188,8 @@ void ggml_cuda_mul_mat_q(
+     const size_t y_block_size       = use_native_fp4 ? sizeof(block_fp4_mmq) : sizeof(block_q8_1_mmq);
+     const size_t y_values_per_block = use_native_fp4 ? QK_FP4_MMQ            : QK8_1_MMQ;
+ 
+-    int J_best        = 0;
+-    int nthreads_best = 0;
++    int    J_best             = 0;
++    size_t nbytes_y_tile_best = 0;
+     {
+         int64_t ncols_opt = ne11;
+         if (ids) {
+@@ -218,7 +219,7 @@ void ggml_cuda_mul_mat_q(
+ 
+             if (ntiles_x < ntiles_J_best) {
+                 J_best = J;
+-                nthreads_best = config.nthreads;
++                nbytes_y_tile_best = ggml_cuda_mmq_get_nbytes_y_tile(config);
+                 ntiles_J_best = ntiles_x;
+             }
+         }
+@@ -226,10 +227,9 @@ void ggml_cuda_mul_mat_q(
+     GGML_ASSERT(J_best > 0);
+ 
+     // A tile of size J can read in at most J - 1 extra columns.
+-    // For simplicity, round up the padding of a full tile to a multiple of the number of bytes that nthreads can load in parallel.
+-    const size_t src1_load_chunk_size = nthreads_best * sizeof(int);
+-    const size_t src1_q8_1_padding = ((J_best * sizeof(block_q8_1_mmq) + src1_load_chunk_size - 1) / src1_load_chunk_size)
+-        * src1_load_chunk_size;
++    // Its y load copies the whole padded shared-memory y tile, so pad by that tile: the same helper sizes it in
++    // mmq_get_nbytes_shared(), so the padding cannot drift from what the kernel reads.
++    const size_t src1_q8_1_padding = nbytes_y_tile_best;
+ 
+     if (!ids) {
+         const size_t nbytes_src1_q8_1 = ne13*ne12 * ne11*ne10_padded * y_block_size/y_values_per_block + src1_q8_1_padding;
+@@ -486,3 +486,58 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t
+ 
+     return (!GGML_CUDA_CC_IS_CDNA(cc)) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;
+ }
++
++// Compile-time guard on the y tile: for every config table and type, ggml_cuda_mmq_get_nbytes_y_tile() -- which
++// sizes both the shared-memory y tile and the global src1 padding -- must cover the y load in
++// mul_mat_q_process_tile, which runs l0 over [0, J*MMQ_TILE_Y_K) in steps of nthreads ints with no bound on l.
++// The requirement is written from that loop with exact ceiling division, not from the helper or GGML_PAD, so a
++// change to either side that makes them disagree fails the build for every architecture's table at once, with no
++// GPU. One static_assert per (table, type) keeps each constant evaluation small. HIP keys off
++// __HIP_DEVICE_COMPILE__ because vendors/hip.h defines __CUDA_ARCH__ in every HIP pass, host included.
++#if defined(GGML_USE_HIP)
++#    if !defined(__HIP_DEVICE_COMPILE__)
++#        define GGML_CUDA_MMQ_Y_TILE_GUARD_ON
++#    endif
++#elif !defined(GGML_USE_MUSA) && !defined(__CUDA_ARCH__)
++#    define GGML_CUDA_MMQ_Y_TILE_GUARD_ON
++#endif
++#ifdef GGML_CUDA_MMQ_Y_TILE_GUARD_ON
++#define GGML_CUDA_MMQ_Y_TILE_GUARD(TABLE)                                                                               \
++    static constexpr bool ggml_cuda_mmq_y_tile_ok_##TABLE(const int t) {                                                \
++        for (int fb = 0; fb < 2; ++fb) {                                                                                \
++            for (int J = 8; J <= 128; J += 8) {                                                                         \
++                const ggml_cuda_mmq_config c = ggml_cuda_mmq_get_config_##TABLE((ggml_type) t, J, fb);                  \
++                if (c.type == GGML_TYPE_COUNT) {                                                                        \
++                    continue;                                                                                           \
++                }                                                                                                       \
++                const size_t y_load = size_t((c.J*MMQ_TILE_Y_K + c.nthreads - 1) / c.nthreads) * c.nthreads * sizeof(int); \
++                if (ggml_cuda_mmq_get_nbytes_y_tile(c) < y_load) {                                                      \
++                    return false;                                                                                       \
++                }                                                                                                       \
++            }                                                                                                           \
++        }                                                                                                               \
++        return true;                                                                                                    \
++    }                                                                                                                   \
++    template <int t> struct ggml_cuda_mmq_y_tile_guard_##TABLE {                                                        \
++        static_assert(ggml_cuda_mmq_y_tile_ok_##TABLE(t),                                                               \
++            "MMQ: the y tile helper is smaller than the y load for a config in the " #TABLE " table");                 \
++    };                                                                                                                  \
++    template <int... ts> static constexpr size_t ggml_cuda_mmq_y_tile_all_##TABLE(std::integer_sequence<int, ts...>) {  \
++        return (sizeof(ggml_cuda_mmq_y_tile_guard_##TABLE<ts>) + ... + 0);                                              \
++    }                                                                                                                   \
++    static_assert(ggml_cuda_mmq_y_tile_all_##TABLE(std::make_integer_sequence<int, GGML_TYPE_COUNT>()) > 0, "");
++
++GGML_CUDA_MMQ_Y_TILE_GUARD(pascal_older)
++GGML_CUDA_MMQ_Y_TILE_GUARD(pascal_dp4a)
++GGML_CUDA_MMQ_Y_TILE_GUARD(ampere)
++GGML_CUDA_MMQ_Y_TILE_GUARD(blackwell)
++GGML_CUDA_MMQ_Y_TILE_GUARD(gcn)
++GGML_CUDA_MMQ_Y_TILE_GUARD(cdna)
++GGML_CUDA_MMQ_Y_TILE_GUARD(rdna2)
++GGML_CUDA_MMQ_Y_TILE_GUARD(rdna3)
++GGML_CUDA_MMQ_Y_TILE_GUARD(rdna3_5)
++GGML_CUDA_MMQ_Y_TILE_GUARD(rdna4)
++
++#undef GGML_CUDA_MMQ_Y_TILE_GUARD
++#undef GGML_CUDA_MMQ_Y_TILE_GUARD_ON
++#endif // GGML_CUDA_MMQ_Y_TILE_GUARD_ON
+diff --git a/ggml/src/ggml-cuda/mmq.cuh b/ggml/src/ggml-cuda/mmq.cuh
+index 198aab4b..9f18c068 100644
+--- a/ggml/src/ggml-cuda/mmq.cuh
++++ b/ggml/src/ggml-cuda/mmq.cuh
+@@ -1388,11 +1388,17 @@ struct mmq_args {
+     int J_best; // Tile width in ne11(dense)/ne12(MoE) direction to use for optimal performance.
+ };
+ 
++// The bytes of src1 that one tile's y load copies, starting at the tile's first column. The load in
++// mul_mat_q_process_tile runs to the next multiple of nthreads ints with no bound on the column count, so it fills
++// the whole shared-memory y tile. One expression sizes that tile here and the global src1 padding in mmq.cu.
++static constexpr __host__ __device__ size_t ggml_cuda_mmq_get_nbytes_y_tile(const ggml_cuda_mmq_config & config) {
++    return GGML_PAD(config.J*sizeof(block_q8_1_mmq), config.nthreads*sizeof(int));
++}
++
+ static size_t mmq_get_nbytes_shared(const ggml_cuda_mmq_config & config, const int cc) {
+     const size_t nbs_ids = config.J*sizeof(int);
+     const size_t nbs_x = ggml_cuda_mmq_get_nbytes_shared_x(config, cc);
+-    const size_t nbs_y = config.J * (sizeof(block_q8_1_mmq));
+-    return nbs_ids + nbs_x + GGML_PAD(nbs_y, config.nthreads*sizeof(int));
++    return nbs_ids + nbs_x + ggml_cuda_mmq_get_nbytes_y_tile(config);
+ }
+ 
+ template <ggml_type type, int J, bool fallback, ggml_prec prec_src1 = GGML_PREC_Q8>

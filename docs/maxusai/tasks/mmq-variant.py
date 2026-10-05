@@ -15,6 +15,9 @@ The checkout must be at dd266785c (#29941 merged) or a commit with the same mmq.
   p27044      get_J_max(ne12*n_expert_used): the line llama.cpp#27044 proposed, our compat 903 until now
   successor   #448 as published: both branches pad for the widest tile that has a config,
               get_J_max(type, fallback, cc, 512), and ids_dst and the NVFP4 src1_scale by the same count
+  head29953   llama.cpp#29953 at its head, 3070d927f, verbatim: mmq.cu and mmq.cuh replaced by the head's blobs.
+              The head commit touches only those two files and its parent is dd266785c, so on a dd266785c
+              checkout this is a tree byte-identical to 3070d927f (checked before writing, not assumed).
   s448p       #448 amended: pad for the widest *padded* tile instead. A tile's y load copies the whole padded
               shared-memory y tile from global memory, GGML_PAD(J*sizeof(block_q8_1_mmq), nthreads*sizeof(int))
               bytes, which is more than J blocks when nthreads*4 does not divide J*144
@@ -34,6 +37,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+HEAD29953 = "3070d927f6c172242d56a2c1fb897e838e7b2632"
+MMQ_FILES = ["ggml/src/ggml-cuda/mmq.cu", "ggml/src/ggml-cuda/mmq.cuh"]
 
 IDS_LINE   = "        ggml_cuda_mmq_get_J_max(src0->type, fallback, cc, ne12) * sizeof(block_q8_1_mmq);"
 DENSE_LINE = "            ggml_cuda_mmq_get_J_max(src0->type, fallback, cc, ne11) * sizeof(block_q8_1_mmq);"
@@ -96,6 +101,17 @@ def variant(src, path, v):
     s = open(path).read()
     if v == "ne12":
         return s
+    if v == "head29953":
+        git = lambda *a: subprocess.run(["git", *a], cwd=src, check=True, capture_output=True).stdout
+        parent = git("rev-parse", HEAD29953 + "^").decode().strip()
+        if git("rev-parse", "HEAD").decode().strip() != parent:
+            sys.exit("head29953 needs a checkout at the head's parent %s" % parent[:9])
+        touched = sorted(git("diff", "--name-only", parent, HEAD29953).decode().split())
+        if touched != sorted(MMQ_FILES):
+            sys.exit("the head commit touches %s, not just mmq.cu/mmq.cuh" % touched)
+        for rel in MMQ_FILES:
+            open(os.path.join(src, rel), "wb").write(git("show", HEAD29953 + ":" + rel))
+        return open(path).read()
     if v == "head":
         return s      # the PR's own head as fetched: already pads the tile and ids_dst, but not the y scales
     if v == "headyscale":
