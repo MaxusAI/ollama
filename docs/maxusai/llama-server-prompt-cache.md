@@ -308,6 +308,17 @@ extbench records each request to 0.1 s, so a difference under about 0.05 s per r
    `finetext_probe.py` reused that runner, no request updated the cache, and all 28 blocks
    recorded `req_prompt_cache_ram: 0`.
 
+**Measured again on 2026-10-04, on the campaign suite and OCRBench**
+([the 2026-10-04 campaign, §4](vision-campaign-2026-10-04-h100-sm90.md#4-gemma431b-it-q4_k_ms-prefill-neither-the-build-the-prompt-cache-nor-the-service-path)).
+- **The suite's prefill timings leave the update out, as "What to do with it" says.** Nine gemma4:31b-it-q4_K_M
+  think-off cells ran in rotating rounds: three with the cache off, three with it on, and three on 0.34.4 with it
+  on. Their median prefill per request was 770–866 ms in every arm.
+- **The cache shows in the time per cell.** A cell took 134–139 s with the cache on and 130 s with it off.
+- **The answers are the same in all nine cells.**
+- **OCRBench on 0.35.0 with the cache off** took 21 % less time per item than 2026-10-01's run with it on, for
+  gemma4:31b-it-q4_K_M, and 8 % less for qwen3.8:27b-q4_K_M. Every answer of both arms is the same string
+  ([ocrbench-h100.md](ocrbench-h100.md#2026-10-04-0350-with-the-prompt-cache-off)).
+
 ## Reproducing
 
 The data is committed under `vision-suite/bench-runs/prompt-cache/`, with a host profile for
