@@ -1,0 +1,20 @@
+diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
+index 507fda75..b9d4159c 100644
+--- a/tests/test-backend-ops.cpp
++++ b/tests/test-backend-ops.cpp
+@@ -10222,6 +10222,15 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+     test_cases.emplace_back(new test_mul_mat_id_w4a8(GGML_TYPE_NVFP4, GGML_TYPE_F32, 4, 2, true,  64, 16, 256));
+     test_cases.emplace_back(new test_mul_mat_id_w4a4(GGML_TYPE_NVFP4, GGML_TYPE_F32, 8, 2, false, 32, 32, 256));
+     test_cases.emplace_back(new test_mul_mat_id_w4a4(GGML_TYPE_NVFP4, GGML_TYPE_F32, 4, 2, true,  64, 16, 256));
++
++    // Native-FP4 y scales. src1_scale holds one float per column; the stream-k FIXUP write-back is called as
++    // write_back(..., y_scale_tile, I, I, J), so j_max == J and it reads y_scale_tile[j] for the whole tile from
++    // y_scale + col_low + jt*J, up to J - 1 floats past the end for the last expert's last tile.
++    // The fixup kernel only runs when the tiles fill under 90% of the waves, so launch_mul_mat_q falls back to
++    // nsm blocks: 8 experts x 1 used x 9 tokens with m = 640 gives J = 16, I = 128, 40 tiles, 21% on 188 SMs.
++    test_cases.emplace_back(new test_mul_mat_id_w4a4(GGML_TYPE_NVFP4, GGML_TYPE_F32, 8, 1, false, 640, 9, 512));
++    // The same read with the tiles at 97%, so no fixup kernel and nothing reads y_scale unbounded: the control.
++    test_cases.emplace_back(new test_mul_mat_id_w4a4(GGML_TYPE_NVFP4, GGML_TYPE_F32, 256, 16, false, 640, 16, 512));
+     test_cases.emplace_back(new test_mul_mat_w4a8(GGML_TYPE_MXFP4, GGML_TYPE_F32, 32, 32, 256));
+     test_cases.emplace_back(new test_mul_mat_w4a8(GGML_TYPE_MXFP4, GGML_TYPE_F32, 64, 16, 512));
+     test_cases.emplace_back(new test_mul_mat_w4a4(GGML_TYPE_MXFP4, GGML_TYPE_F32, 32, 32, 256));

@@ -1,0 +1,17 @@
+cmn  common_param: system_info: n_threads = 16 (n_threads_batch = 16) / 32 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | AVX512 = 1 | LLAMAFILE = 1 | REPACK = 1 | CUDA : ARCHS = 1200 | USE_GRAPHS = 1 | FA_QUANTS = q4_0-q4_0,q8_0-q8_0,f16-f16,bf16-bf16 | BLACKWELL_NATIVE_FP4 = 1 | 
+llama_context: n_batch               = 2048
+llama_context: n_ubatch              = 2048
+get_dummy_batch: warmup with image size = 1472 x 1472
+get_dummy_batch: warmup with image size = 1472 x 1472
+time=2026-10-04T15:15:56.285Z level=INFO source=sched.go:759 msg="loaded runners" count=1
+decoding image batch 1/2, n_tokens_batch = 2048
+CUDA error: an illegal memory access was encountered
+/build/llama-server-cuda_v13/_deps/llama_cpp-src/ggml/src/ggml-cuda/ggml-cuda.cu:108: CUDA error
+/usr/lib/ollama/libllama.so.0(_ZN13llama_context14process_ubatchERK12llama_ubatch14llm_graph_typeP22llama_memory_context_iR11ggml_status+0x16e)[0x704480c292ae]
+/usr/lib/ollama/libllama.so.0(_ZN13llama_context6decodeERK11llama_batch+0x53d)[0x704480c30a8d]
+/usr/lib/ollama/libllama.so.0(llama_decode+0xb)[0x704480c31e4b]
+/usr/lib/ollama/libmtmd.so.0(mtmd_helper_decode_image_chunk+0x775)[0x704480efb955]
+/usr/lib/ollama/libllama-server-impl.so(_ZNSt17_Function_handlerIFvvEZZN19server_context_impl10pre_decodeEvENKUlR11server_slotE4_clES3_EUlvE0_E9_M_invokeERKSt9_Any_data+0xcf)[0x70448154f8cf]
+/usr/lib/ollama/libllama-server-impl.so(_ZZN19server_context_impl10pre_decodeEvENKUlR11server_slotE3_clES1_+0x4f6)[0x704481570266]
+/usr/lib/ollama/libllama-server-impl.so(_ZN19server_context_impl10pre_decodeEv+0x45c)[0x70448155c1dc]
+time=2026-10-04T15:17:05.100Z level=ERROR source=llama_server.go:1057 msg="llama-server terminated" error="signal: aborted (core dumped)" exit=unknown

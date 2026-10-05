@@ -1,0 +1,6 @@
+llama_context: n_batch               = 2048
+llama_context: n_ubatch              = 2048
+decoding image batch 1/2, n_tokens_batch = 2048
+image decoded (batch 1/2) in 75866 ms
+decoding image batch 2/2, n_tokens_batch = 2032
+image decoded (batch 2/2) in 565 ms

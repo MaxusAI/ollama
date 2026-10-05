@@ -1,18 +1,175 @@
 diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
-index 707437ea3..95ca04c1e 100644
+index b13b34ee9..0e74de297 100644
 --- a/ggml/src/ggml-cuda/mmq.cu
 +++ b/ggml/src/ggml-cuda/mmq.cu
-@@ -202,8 +202,12 @@ void ggml_cuda_mul_mat_q(
-         CUDA_CHECK(cudaGetLastError());
+@@ -4,6 +4,7 @@
+ #include "mmid.cuh"
+ 
+ #include <cstdint>
++#include <utility>
+ 
+ static void ggml_cuda_mul_mat_q_switch_type(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream) {
+     switch (args.type_x) {
+@@ -128,17 +129,30 @@ void ggml_cuda_mul_mat_q(
+ 
+     const bool fallback = ne01 % 128 != 0;
+ 
++    // MAXUSAI (compat 903): MMQ loads src1 and ids_dst in whole tiles of J columns, and the stream-k fixup path
++    // reads the NVFP4 y scales the same way, so the last tile can read past the data: for MUL_MAT_ID the last
++    // expert's last tile may hold a single row, at any batch size. A tile's y load is unbounded in l and copies
++    // the whole padded shared-memory y tile, GGML_PAD(J*sizeof(block_q8_1_mmq), nthreads*sizeof(int)) bytes --
++    // the same expression mmq_get_nbytes_shared() uses -- so J blocks is not enough either. mul_mat_q_switch_J
++    // rounds the batch up to J while get_J_max() of the batch rounds down, so pad for the widest padded tile any
++    // launch could pick. Upstream's #29941 (get_J_max(ne12)) is short below 128 tokens, #29953 (the launched J)
++    // is short by up to 6 blocks, and neither pads ids_dst at all. The rule is ggml_cuda_mmq_get_J_pad() in
++    // mmq.cuh, and the guard at the end of this file checks it against every config table at compile time.
++    const int64_t J_pad = ggml_cuda_mmq_get_J_pad([&](const int J) {
++        return ggml_cuda_mmq_get_config(src0->type, J, fallback, cc);
++    });
++
+     const bool use_native_fp4 = blackwell_mma_available(cc) && (src0->type == GGML_TYPE_MXFP4 || src0->type == GGML_TYPE_NVFP4);
+     const size_t y_block_size       = use_native_fp4 ? sizeof(block_fp4_mmq) : sizeof(block_q8_1_mmq);
+     const size_t y_values_per_block = use_native_fp4 ? QK_FP4_MMQ            : QK8_1_MMQ;
+ 
+     if (!ids) {
+         const size_t nbytes_src1_q8_1 = ne13*ne12 * ne11*ne10_padded * y_block_size/y_values_per_block +
+-            ggml_cuda_mmq_get_J_max(src0->type, fallback, cc, ne11) * sizeof(block_q8_1_mmq);
++            J_pad * sizeof(block_q8_1_mmq);
+         ggml_cuda_pool_alloc<char> src1_q8_1(ctx.pool(), nbytes_src1_q8_1);
+         ggml_cuda_pool_alloc<float> src1_scale(ctx.pool());
+         if (src0->type == GGML_TYPE_NVFP4 && use_native_fp4) {
+-            src1_scale.alloc(ne13*ne12*ne11);
++            src1_scale.alloc(ne13*ne12*ne11 + J_pad);
+         }
+ 
+         {
+@@ -185,7 +199,7 @@ void ggml_cuda_mul_mat_q(
+     GGML_ASSERT(ne1 == n_expert_used);
+ 
+     ggml_cuda_pool_alloc<int32_t> ids_src1(ctx.pool(), ne_get_rows);
+-    ggml_cuda_pool_alloc<int32_t> ids_dst(ctx.pool(), ne_get_rows);
++    ggml_cuda_pool_alloc<int32_t> ids_dst(ctx.pool(), ne_get_rows + J_pad);
+     ggml_cuda_pool_alloc<int32_t> expert_bounds(ctx.pool(), ne02 + 1);
+ 
+     // gate/up activations are broadcast across experts (ne11 == 1): quantize each token once and
+@@ -203,11 +217,11 @@ void ggml_cuda_mul_mat_q(
      }
  
-+    // MAXUSAI: the quantized buffer holds ne12*n_expert_used rows (ne11_flat below), not ne11.
-+    // Sizing the MMQ tail padding from ne11 under-allocates: in the broadcast case ne11 == 1,
-+    // get_J_max() returns 0 and the buffer gets NO padding at all, while the kernel overruns
-+    // the logical end by up to J_max rows.
      const size_t nbytes_src1_q8_1 = ne12*n_expert_used*ne10_padded * y_block_size/y_values_per_block +
 -        ggml_cuda_mmq_get_J_max(src0->type, fallback, cc, ne11) * sizeof(block_q8_1_mmq);
-+        ggml_cuda_mmq_get_J_max(src0->type, fallback, cc, ne12*n_expert_used) * sizeof(block_q8_1_mmq);
++        J_pad * sizeof(block_q8_1_mmq);
      ggml_cuda_pool_alloc<char> src1_q8_1(ctx.pool(), nbytes_src1_q8_1);
      ggml_cuda_pool_alloc<float> src1_scale(ctx.pool());
      if (src0->type == GGML_TYPE_NVFP4 && use_native_fp4) {
+-        src1_scale.alloc(ne12*n_expert_used);
++        src1_scale.alloc(ne12*n_expert_used + J_pad);
+     }
+ 
+     const int64_t ne11_flat = ne12*n_expert_used;
+@@ -391,3 +405,64 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t
+ 
+     return (!GGML_CUDA_CC_IS_CDNA(cc)) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;
+ }
++
++// MAXUSAI (compat 903): a compile-time guard on the src1 tail padding. For every config table and ggml type it
++// requires that ggml_cuda_mmq_get_J_pad() -- the function the allocation above calls -- covers the y load of every
++// config of that table, so a change that re-tightens the padding, or a config that outgrows it, fails the build on
++// every architecture's table at once, with no GPU. The requirement is written from the kernel's load loop
++// (GGML_PAD(J*MMQ_TILE_Y_K, nthreads) ints from a tile's first column, one block of which is data), not from the
++// padding helpers, so it stays independent of them. One static_assert per (table, type) keeps each constant
++// evaluation well inside the compilers' step limits; it runs in the host pass only, once per build. HIP must key
++// off __HIP_DEVICE_COMPILE__: vendors/hip.h defines __CUDA_ARCH__ in every HIP pass, host included, so testing
++// __CUDA_ARCH__ there compiles the guard out silently. MUSA is left out: the fork does not build it.
++// It cannot see the call sites: the allocations above must keep using J_pad.
++#if defined(GGML_USE_HIP)
++#    if !defined(__HIP_DEVICE_COMPILE__)
++#        define GGML_CUDA_MMQ_PADDING_GUARD_ON
++#    endif
++#elif !defined(GGML_USE_MUSA) && !defined(__CUDA_ARCH__)
++#    define GGML_CUDA_MMQ_PADDING_GUARD_ON
++#endif
++#ifdef GGML_CUDA_MMQ_PADDING_GUARD_ON
++#define GGML_CUDA_MMQ_PADDING_GUARD(TABLE)                                                                              \
++    static constexpr bool ggml_cuda_mmq_padding_ok_##TABLE(const int t) {                                               \
++        for (int fb = 0; fb < 2; ++fb) {                                                                                \
++            const int64_t J_pad = ggml_cuda_mmq_get_J_pad([t, fb](const int J) {                                        \
++                return ggml_cuda_mmq_get_config_##TABLE((ggml_type) t, J, fb);                                          \
++            });                                                                                                         \
++            for (int J = 8; J <= 128; J += 8) {                                                                         \
++                const ggml_cuda_mmq_config c = ggml_cuda_mmq_get_config_##TABLE((ggml_type) t, J, fb);                  \
++                if (c.type == GGML_TYPE_COUNT) {                                                                        \
++                    continue;                                                                                           \
++                }                                                                                                       \
++                const size_t y_load = GGML_PAD(c.J*MMQ_TILE_Y_K, c.nthreads)*sizeof(int);                               \
++                if (size_t(J_pad)*sizeof(block_q8_1_mmq) + sizeof(block_q8_1_mmq) < y_load) {                          \
++                    return false;                                                                                       \
++                }                                                                                                       \
++            }                                                                                                           \
++        }                                                                                                               \
++        return true;                                                                                                    \
++    }                                                                                                                   \
++    template <int t> struct ggml_cuda_mmq_padding_guard_##TABLE {                                                       \
++        static_assert(ggml_cuda_mmq_padding_ok_##TABLE(t),                                                              \
++            "compat 903: MMQ src1 padding is short for a config in the " #TABLE " table");                              \
++    };                                                                                                                  \
++    template <int... ts> static constexpr size_t ggml_cuda_mmq_padding_all_##TABLE(std::integer_sequence<int, ts...>) { \
++        return (sizeof(ggml_cuda_mmq_padding_guard_##TABLE<ts>) + ... + 0);                                             \
++    }                                                                                                                   \
++    static_assert(ggml_cuda_mmq_padding_all_##TABLE(std::make_integer_sequence<int, GGML_TYPE_COUNT>()) > 0, "");
++
++GGML_CUDA_MMQ_PADDING_GUARD(pascal_older)
++GGML_CUDA_MMQ_PADDING_GUARD(pascal_dp4a)
++GGML_CUDA_MMQ_PADDING_GUARD(ampere)
++GGML_CUDA_MMQ_PADDING_GUARD(blackwell)
++GGML_CUDA_MMQ_PADDING_GUARD(gcn)
++GGML_CUDA_MMQ_PADDING_GUARD(cdna)
++GGML_CUDA_MMQ_PADDING_GUARD(rdna2)
++GGML_CUDA_MMQ_PADDING_GUARD(rdna3)
++GGML_CUDA_MMQ_PADDING_GUARD(rdna3_5)
++GGML_CUDA_MMQ_PADDING_GUARD(rdna4)
++
++#undef GGML_CUDA_MMQ_PADDING_GUARD
++#undef GGML_CUDA_MMQ_PADDING_GUARD_ON
++#endif // GGML_CUDA_MMQ_PADDING_GUARD_ON
+diff --git a/ggml/src/ggml-cuda/mmq.cuh b/ggml/src/ggml-cuda/mmq.cuh
+index 6923f3510..42d6aec29 100644
+--- a/ggml/src/ggml-cuda/mmq.cuh
++++ b/ggml/src/ggml-cuda/mmq.cuh
+@@ -1385,11 +1385,35 @@ struct mmq_args {
+     int64_t ncols_opt; // value to optimize the tile size against, launch grid still uses ncols_max
+ };
+ 
++// MAXUSAI (compat 903): the bytes of src1 one tile's y load copies, starting at the tile's first column. The load in
++// mul_mat_q_process_tile runs to the next multiple of nthreads ints with no bound on the column count, so it fills
++// the whole shared-memory y tile: one expression sizes that tile and the global padding below.
++static constexpr __host__ __device__ size_t ggml_cuda_mmq_get_nbytes_y_tile(const ggml_cuda_mmq_config & config) {
++    return GGML_PAD(config.J*sizeof(block_q8_1_mmq), config.nthreads*sizeof(int));
++}
++
+ static size_t mmq_get_nbytes_shared(const ggml_cuda_mmq_config & config, const int cc) {
+     const size_t nbs_ids = config.J*sizeof(int);
+     const size_t nbs_x = ggml_cuda_mmq_get_nbytes_shared_x(config, cc);
+-    const size_t nbs_y = config.J * (sizeof(block_q8_1_mmq));
+-    return nbs_ids + nbs_x + GGML_PAD(nbs_y, config.nthreads*sizeof(int));
++    return nbs_ids + nbs_x + ggml_cuda_mmq_get_nbytes_y_tile(config);
++}
++
++// MAXUSAI (compat 903): the src1 tail padding, in blocks of block_q8_1_mmq: the widest y tile of any config for one
++// (type, fallback). A launch's last tile may hold a single column -- for MUL_MAT_ID the last expert may hold a single
++// row, at any batch size -- and then reads its whole y tile less one block past the data, so padding for the widest
++// one covers every J a launch can pick. Floored: floor(T/B) blocks always cover the T - B bytes read.
++// get_config(J) supplies the configs: the device's dispatch at run time, one config table in mmq.cu's guard, which
++// is why this is generic rather than taking a cc.
++template <typename get_config_t>
++static constexpr int64_t ggml_cuda_mmq_get_J_pad(const get_config_t & get_config) {
++    size_t nbytes = 0;
++    for (int J = 8; J <= 128; J += 8) {
++        const ggml_cuda_mmq_config config = get_config(J);
++        if (config.type != GGML_TYPE_COUNT && ggml_cuda_mmq_get_nbytes_y_tile(config) > nbytes) {
++            nbytes = ggml_cuda_mmq_get_nbytes_y_tile(config);
++        }
++    }
++    return nbytes / sizeof(block_q8_1_mmq);
+ }
+ 
+ template <ggml_type type, int J, bool fallback>

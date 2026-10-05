@@ -128,19 +128,94 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   `docs/maxusai/vision-suite/synthetic-triggers/README.md`.
 
 - `903-fix-mmq-ids-padding.patch` - **not a compatibility shim** (see "Number
-  bands" below). Sizes the MMQ ids-path tail padding in
-  `ggml/src/ggml-cuda/mmq.cu` from the flattened row count
-  (`ne12*n_expert_used`) instead of `ne11`. Under MoE broadcast `ne11 == 1`, so
-  `ggml_cuda_mmq_get_J_max()` returns 0, `src1_q8_1` gets no tail padding at
-  all, and MMQ overruns the logical end by up to a 512-row tile — an illegal
-  memory access. Stock-ggml defect, not fork-specific; it surfaces under Ollama
-  because one value is passed as both `-b` and `-ub`, so a whole image arrives
-  in a single ubatch. See `docs/maxusai/qwen35moe-mmq-investigation.md` for the
-  diagnosis, `docs/maxusai/mmq-padding-regression-window.md` for the affected
-  build range (b9990 is the last clean build, b9992 the first defective one, so
-  this must not be backported to a lineage pinned at or below b9990 — there is
-  nothing there to fix and the patch will not apply), and
-  `docs/maxusai/upstream-mmq-ids-padding-issue.md` for the upstream report.
+  bands" below). In `ggml/src/ggml-cuda/mmq.cu`, pads every buffer that MMQ
+  reads in whole tiles for the widest **padded** tile any launch could pick,
+  `max over J of GGML_PAD(J*sizeof(block_q8_1_mmq), nthreads*sizeof(int))`.
+  That covers `src1_q8_1` in both branches, `ids_dst`, and NVFP4's `src1_scale`.
+  - **Why.** A tile loads `J` columns with no bound, so the last tile can read
+    past the data. For MUL_MAT_ID, the last expert's last tile may hold a single
+    row, at any batch size. `mul_mat_q_switch_J` rounds the batch up to `J`,
+    while `get_J_max()` of the batch rounds down, so padding derived from the
+    batch falls short for some shapes. Before #24127 (b9992), both branches
+    padded by the widest tile.
+  - **Why the *padded* tile and not `J` blocks.** The y load is
+    `for (l0 = 0; l0 < J*MMQ_TILE_Y_K; l0 += nthreads) tile_y[l0+tid] = by0[l0+tid];`
+    with no bound on `l`, so it copies the whole padded shared-memory y tile,
+    `GGML_PAD(J*sizeof(block_q8_1_mmq), nthreads*sizeof(int))` bytes - the same
+    expression `mmq_get_nbytes_shared()` uses. That exceeds `J` blocks whenever
+    `nthreads*4` does not divide `J*144`: on sm_120 `J = 16` needs 21 blocks and
+    `J = 112` needs 113. Only `J = 128` happens to equal `J - 1`.
+  - **The fault it was written for** (2026-08-13). Under MoE broadcast,
+    `ne11 == 1`, so upstream's `get_J_max(ne11)` returned 0. `src1_q8_1` then got
+    no padding, and MMQ read up to a 128-column tile past it: an illegal memory
+    access. It surfaces under Ollama because one value is passed as both `-b` and
+    `-ub`, so a whole image arrives in a single ubatch.
+  - **History.** Until 2026-10-05, 903 padded `get_J_max(ne12*n_expert_used)`,
+    the line of llama.cpp#27044.
+    - Upstream merged #29941 (`get_J_max(ne12)`, `dd266785c`) instead. That line
+      is still short below 128 tokens: master aborts on a test case.
+    - #27044's line was short with one expert per token, and padded no `ids_dst`.
+    - The maintainer switched 903 to the widest-tile rule on 2026-10-05. The
+      measurements are in `docs/maxusai/upstream-mmq-successor-material.md`.
+    - **Amended the same day** to the widest *padded* tile, after llama.cpp#29953
+      (the fixup to #29941) was reproduced and the requirement turned out to be
+      larger than `J - 1`. The plain widest-tile rule was short by up to 5 blocks
+      in 25,384 gfx1151 shapes (**q2_K only**, non-fallback, where `J = 80` with
+      `nthreads = 256` needs 85 blocks against the widest tile's 80), which
+      matters because the ROCm host serves gfx1151.
+    - **Confirmed on gfx1151 hardware**, MaxusAI/ollama#449: hipcc's tables are
+      byte-identical to nvcc's, and under a guard page the widest-tile form
+      aborts while the amended form passes. Of the 25,384 counted shapes, 2,648
+      can reach MMQ on that device and 2,616 have a routing that reads past the
+      allocation - q2_K on RDNA3 only takes MMQ with >= 64 experts or <= 128
+      tokens. `test_mul_mat_id` cannot produce the gap, because its routing is
+      uniform and `J = 80` needs about 65 rows per expert; the ROCm host built
+      the routing by hand. Measurements:
+      `docs/maxusai/upstream-mmq-29953-material.md`.
+  - **What the amendment costs.** Across five architectures and ten quantization
+    types, the two rules differ in exactly one combination: gfx1151,
+    non-fallback, q2_K, where `J_pad` goes from 80 to 85 blocks - **720 bytes**
+    more per call. Everywhere else both give 128 blocks, so the amendment is
+    free. The patch floors `nbytes_pad_y / sizeof(block_q8_1_mmq)`, which is
+    sufficient because `floor(T/B) >= ceil(T/B) - 1`, the requirement.
+    `docs/maxusai/tasks/mmq-jpad-cost.cu` prints the comparison;
+    `tasks/mmq-successor-results/jpad-cost.txt` is its output.
+  - **The guard.** The rule lives in `ggml_cuda_mmq_get_J_pad()` in
+    `mmq.cuh`, which the allocation calls. A compile-time guard at the end of
+    `mmq.cu` checks that same function against every config of all ten config
+    tables, one `static_assert` per (table, type). The guard states the
+    requirement from the kernel's load loop, not from the padding helpers.
+    - **What fails the build:** a change that re-tightens the padding, or a
+      config that outgrows it. It fails on every architecture at once, with no
+      GPU. Measured with hipcc on gfx1151: re-tightening the rule to the widest
+      tile fails in cdna, gcn, rdna3_5 and rdna4, and so does shrinking
+      `ggml_cuda_mmq_get_nbytes_y_tile()` to J blocks.
+    - **Cost:** about 1.6 s on `mmq.cu`, host pass only, once per build.
+    - **HIP needs `__HIP_DEVICE_COMPILE__`.** `vendors/hip.h` defines
+      `__CUDA_ARCH__` in every HIP pass, so testing `__CUDA_ARCH__` there
+      compiles the guard out silently. The first draft did exactly that and
+      passed both mutations.
+    - **Limits:** it cannot see the call sites, so the allocations must keep
+      using `J_pad`. nvcc has not built it yet.
+    - **Behaviour is unchanged:** on gfx1151 the device reports the same `J`,
+      `nthreads`, `need` and `pad` as the amended 903 for every hand-routed
+      shape, and the twelve cases pass.
+  - **At the next pin move.** From the first llama.cpp pin that contains
+    `dd266785c`, the ids branch's context line reads `ne12`, and from the first
+    that contains #29953 there is no `get_J_max()` call left to replace - pad
+    by the padded tile of the `J_best` that PR already computes
+    (`docs/maxusai/tasks/mmq-amend-29953.patch` is that form). Re-cut the hunk
+    against the new context; the rule stays the same. Keep the guard: point
+    `ggml_cuda_mmq_get_J_pad()`, or a helper the new allocation calls, at the
+    rule the pin ships, so that a later upstream re-tightening fails the build
+    here. Check the series on a checkout before building.
+  - **References.**
+    - `docs/maxusai/qwen35moe-mmq-investigation.md`: the original diagnosis.
+    - `docs/maxusai/mmq-padding-regression-window.md`: the affected build range.
+      b9990 is the last clean build and b9992 the first defective one, so this
+      must not be backported to a lineage pinned at or below b9990. There is
+      nothing to fix there, and the patch will not apply.
+    - `docs/maxusai/upstream-mmq-ids-padding-issue.md`: the upstream report.
 - `908-revert-fattn-mma-gemma4-tiling.patch` - **not a compatibility shim**
   (see "Number bands" below). Reverts the device half of llama.cpp
   `ce8caa6e6` ("CUDA: tune FA for Gemma 4 on Ampere or newer", in b11081):

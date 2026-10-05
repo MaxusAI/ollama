@@ -1,0 +1,19 @@
+# mmq-rules-check.cu and mmq-jpad-cost.cu built with hipcc instead of nvcc, as MaxusAI/ollama#449 asked
+# HIP version: 7.2.53211-e1a6bc5663, AMD clang version 22.0.0git
+#
+# from a llama.cpp checkout at b11081 (161755f29) and at dd266785c, with this tree's two .cu files copied in:
+#   hipcc -std=c++17 -DGGML_USE_HIP --offload-arch=gfx1151 -I. -Iggml/include -Iggml/src -Iggml/src/ggml-cuda mmq-rules-check.cu -o mmq-rules-check
+#   hipcc ... mmq-jpad-cost.cu -o mmq-jpad-cost        (same flags)
+#   ./mmq-rules-check > check-rules-hipcc-<tree>.txt; echo $?    -> 0 on both trees
+#   ./mmq-jpad-cost  > jpad-cost-hipcc-<tree>.txt
+#
+# sha256 of every output. Identical hashes = byte-identical files: hipcc resolves the host-side config tables,
+# including gfx1151's, exactly as nvcc does, on both trees. The hipcc outputs are therefore not committed again.
+
+nvcc   0ab68b5e9ce3435a8f679a0e33fb5330243c267c73a3b3ace091ad2740a02fa9  check-rules.txt
+nvcc   0ab68b5e9ce3435a8f679a0e33fb5330243c267c73a3b3ace091ad2740a02fa9  check-rules-b11081.txt
+nvcc   5b569d3653413b14a4840d9541246a04b45da56bbee80ee1c3d74f356d0adbf0  jpad-cost.txt
+hipcc  0ab68b5e9ce3435a8f679a0e33fb5330243c267c73a3b3ace091ad2740a02fa9  check-rules-hipcc-b11081.txt
+hipcc  0ab68b5e9ce3435a8f679a0e33fb5330243c267c73a3b3ace091ad2740a02fa9  check-rules-hipcc-dd266785c.txt
+hipcc  5b569d3653413b14a4840d9541246a04b45da56bbee80ee1c3d74f356d0adbf0  jpad-cost-hipcc-b11081.txt
+hipcc  5b569d3653413b14a4840d9541246a04b45da56bbee80ee1c3d74f356d0adbf0  jpad-cost-hipcc-dd266785c.txt

@@ -1,0 +1,12 @@
+# docs/maxusai/tasks/mmq-padding-guard.cu: which config tables fail the build under each padding rule
+# HIP version: 7.2.53211-e1a6bc5663, hipcc -std=c++17 -DGGML_USE_HIP --offload-arch=gfx1151 -c
+# 'step-limit' counts constexpr evaluations that hit clang's step limit (a false failure); 0 everywhere here
+
+b11081 (161755f29)             rule 0  padded tile of launched J          build ok     fails in: none (step-limit 0, 2.91s)
+b11081 (161755f29)             rule 1  J blocks (re-tightened)            build FAILS  fails in: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4 (step-limit 0, 0.59s)
+b11081 (161755f29)             rule 2  widest tile (903 before)           build FAILS  fails in: cdna gcn rdna3_5 rdna4 (step-limit 0, 1.93s)
+b11081 (161755f29)             rule 3  widest padded tile (903 amended)   build ok     fails in: none (step-limit 0, 4.53s)
+llama.cpp#29953 at 3070d927f   rule 0  padded tile of launched J          build ok     fails in: none (step-limit 0, 2.89s)
+llama.cpp#29953 at 3070d927f   rule 1  J blocks (re-tightened)            build FAILS  fails in: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4 (step-limit 0, 0.59s)
+llama.cpp#29953 at 3070d927f   rule 2  widest tile (903 before)           build FAILS  fails in: cdna gcn rdna3_5 rdna4 (step-limit 0, 1.93s)
+llama.cpp#29953 at 3070d927f   rule 3  widest padded tile (903 amended)   build ok     fails in: none (step-limit 0, 4.56s)

@@ -1,0 +1,38 @@
+# Unmodified master dd266785c + mmq-successor-tests.patch (nvcc 12.8, CUDA 12.1 runtime via /usr/local/cuda; shared libs; sm_120).
+# test-backend-ops test -o MUL_MAT_ID -b CUDA0 -p <case>, stock pool, no sanitizer, one process per run, 2026-10-04.
+# e67_* rows: the first candidate, MUL_MAT_ID(q4_K, 128 experts, 6 used, 576 rows, 67 tokens, k=4608), run before it was replaced by e120 in the test list; a stream-k fixup buffer follows its src1 on 188 SMs.
+e120_b0_r1	abort: illegal memory access
+e120_b0_r2	abort: illegal memory access
+e120_b0_r3	abort: illegal memory access
+e120_b0_r4	abort: illegal memory access
+e120_b0_r5	abort: illegal memory access
+e120_b1_r1	abort: illegal memory access
+e120_b1_r2	abort: illegal memory access
+e120_b1_r3	abort: illegal memory access
+e120_b1_r4	abort: illegal memory access
+e120_b1_r5	abort: illegal memory access
+p29847_b0_r1	pass
+p29847_b0_r2	pass
+p29847_b0_r3	pass
+p29847_b0_r4	pass
+p29847_b0_r5	pass
+j100_b0_r1	pass
+j100_b0_r2	pass
+j100_b0_r3	pass
+j100_b0_r4	pass
+j100_b0_r5	pass
+e67_b0_r1	pass
+e67_b0_r2	pass
+e67_b0_r3	pass
+e67_b0_r4	pass
+e67_b0_r5	pass
+e67_b1_r1	pass
+e67_b1_r2	pass
+e67_b1_r3	pass
+e67_b1_r4	pass
+e67_b1_r5	pass
+one113_r1	pass
+one113_r2	pass
+one113_r3	pass
+one113_r4	pass
+one113_r5	pass

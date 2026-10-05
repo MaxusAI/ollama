@@ -1,0 +1,30 @@
+diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
+index 507fda75..6e953751 100644
+--- a/tests/test-backend-ops.cpp
++++ b/tests/test-backend-ops.cpp
+@@ -10529,6 +10529,25 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+     }
+     test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_0, GGML_TYPE_F32, 32, 2, false, 2880, 32, 2880));
+ 
++    // MMQ MUL_MAT_ID src1 tail padding (#27044, #29847). The last expert's last tile loads J columns from its
++    // first row whatever its row count, so the padding must cover the widest tile the launch can pick, not
++    // get_J_max() of the batch: that rounds down, while the launch rounds J up.
++    for (bool b : {false, true}) {
++        // #29847: 508 tokens; a fault without padding
++        test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_0, GGML_TYPE_F32, 512, 10, b, 640, 508, 2560));
++        // 100 tokens: J = 112 on sm_120 (no config at 104), get_J_max(100) = 96
++        test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_0, GGML_TYPE_F32, 512, 10, b, 640, 100, 2560));
++        // 120 tokens, fallback configs: J = 128, get_J_max(120) = 64. Run alone, src1 ends 3456 bytes before the
++        // end of the pool's mapping and no stream-k fixup buffer follows it, so an over-read faults
++        test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32, 256, 10, b, 576, 120, 1536));
++    }
++    // one expert per token: ne12*n_expert_used == ne12, J = 128, get_J_max(113) = 64
++    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32,  64,  1, false, 576, 113, 16384));
++    // #27044's shapes: 2040 tokens (the fault it was opened for), and 65 and 100 tokens of the same model
++    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32, 256,  8, true, 512, 2040, 2048));
++    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32, 256,  8, true, 576,   65, 2048));
++    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_Q4_K, GGML_TYPE_F32, 256,  8, true, 512,  100, 2048));
++
+     // multiple blocks per row: exercises the block-stride loop and the
+     // per-expert base offset, which k == 256 alone leaves untested
+     test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_TQ1_0, GGML_TYPE_F32, 28, 10, false, 1024, 1, 4096));
