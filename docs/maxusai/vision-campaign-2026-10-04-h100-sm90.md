@@ -8,9 +8,9 @@ One host, one build. The machine is [2026-09-30's](vision-campaign-2026-09-30-h1
   deploy of 2026-09-30:
   - llama.cpp `161755f29` (b11081), with production's compat patches, 908 among them;
   - MLX `59d600b`.
-- **The server:** every cell but one ran on a second server of that build, on `127.0.0.1:11535`. It ran as the
-  login user and restarted cold before every cell through `RESTART_CMD`, so production kept serving. One cell
-  ran on production's own service (§4).
+- **The server:** every cell but one ran on a second server on `127.0.0.1:11535`, of this build except where
+  §4 says otherwise. It ran as the login user and restarted cold before every cell through `RESTART_CMD`, so
+  production kept serving. One cell ran on production's own service (§4).
 - **The harness** is `main` at `f566becf4`, which sends `prompt_cache_ram: 0` (#442).
 - **Wall clock:** 2026-10-04 05:45 → 19:35, plus one cell at 22:12. Every invocation finished with `rc=0`.
 
@@ -23,8 +23,8 @@ One host, one build. The machine is [2026-09-30's](vision-campaign-2026-09-30-h1
    is descoped by policy.
 3. **Does Hopper need 908?** §3 runs [the retirement register's](retirement-register.md) test for compat
    patch 908 twice.
-4. **Why did `gemma4:31b-it-q4_K_M`'s prefill move between 2026-09-30 and 2026-10-01?** That was §4 of
-   2026-09-30's document. §4 here answers it.
+4. **Did the build, the prompt cache or the serving path move `gemma4:31b-it-q4_K_M`'s prefill?** 2026-09-30's
+   document left its drift unexplained (its §4). §4 here rules all three out.
 5. **Does MLX-CUDA honour gemma4's image budgets?** That was never observed before
    ([expectations.toml](vision-suite/preflight/expectations.toml), `[expect.mlx-cuda.gemma4]`). §5 measures it.
 
