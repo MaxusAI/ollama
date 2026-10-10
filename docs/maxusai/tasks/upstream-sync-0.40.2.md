@@ -12,7 +12,7 @@ of `main` at `5273e495f` (#459), which carries the v0.35.0 fold.
 - v0.35.1 is not folded on its own. Its pins (llama.cpp b11232, MLX `64ea011c`) are already superseded, so a separate
   0.35.1 fold would measure a payload nobody serves.
 
-## Status (2026-10-10, 22:55 AEST)
+## Status (2026-10-11, 01:10 AEST)
 
 | gate | state |
 |---|---|
@@ -22,7 +22,7 @@ of `main` at `5273e495f` (#459), which carries the v0.35.0 fold.
 | no-GPU harness gates | **green**: `test_verdicts.py` 238 OK, `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
 | 4, image | **built on Metal**: `0.35.0-dynres-27-g948ef3a` (an interim stamp: no `v0.40.2-dynres` tag yet), with llama-server at `631109b34` (b11351). `CLEAN_DEPS=1`, 3 min 40 s. A full native build: this fold cannot be a Go-only swap |
 | 5, preflight | **Metal: PASS=23 SKIP=16** on the interim build, against the new `mlx-metal-0-40-2` ("Gate 5 on Apple Silicon" below). CUDA and ROCm: not run. Every profile needs a new measurement, because both payloads move (ADR 0032) |
-| 6, campaigns | **Metal: running** (the seven think-off cells and OCRBench rows 0–199, against production's own v0.35.0 runs). The native gate, the GGUF conversion and rollback, and the smoke all pass. CUDA and ROCm: each host's call |
+| 6, campaigns | **Metal: done** ("Gate 6 on Apple Silicon" below). OCRBench rows 0–199 are 200/200 byte-identical, and five of the seven think-off cells are 28/28 byte-identical. Both qwen MLX cells moved, attributed to upstream's MLX tokenizer fix. CUDA and ROCm: each host's call |
 | tag and deploy | not cut, not deployed |
 
 ## Native inputs
@@ -58,8 +58,10 @@ Each item here is a question for the fold, not yet an answer.
     convert each model on its first load, add up to that much on disk, and change the file llama-server loads.
   - GGUF baselines taken on a converted model are new measurements.
 - **The MLX tokenizer now matches the original tokenizers' semantics** (`195f4cdca`, +2,180/−495). This covers
-  pretokenizer order, split behaviour, Unicode boundaries, added-token normalization and ranked BPE merges. MLX
-  token counts may move, and a moved count is a finding to measure, not to wave through.
+  pretokenizer order, split behaviour, Unicode boundaries, added-token normalization and ranked BPE merges.
+  **Measured: it fixes qwen on MLX.** Production's tokenizer matches 33 of upstream's 47 qwen reference cases, the
+  fold's matches 47 of 47, and the qwen think-off answers move accordingly ("What moved the qwen cells" below). The
+  preflight ladders do not move.
 - **Slow first request after GPU idle** (`cf6c9de62`, upstream #18744). The MLX runner now sets
   `MLX_METAL_RESIDENCY_REFRESH_INTERVAL_MS=1000` unless the environment sets it. Fork campaigns wait for 15 idle
   minutes before measuring, so whether their first cells paid this cost is worth checking. Not yet measured.
@@ -192,6 +194,57 @@ expectation recorded for these arches.
 | think+format, two-pass, on the converted GGUF (`gemma4:31b-it-q4_K_M`) | content parses as JSON; llama-server loads the converted blob |
 | an image on the converted GGUF | `prompt_eval_count` 573 and a correct description, so the projector survived the conversion |
 | System One on `qwen3.6:35b-a3b-q4_K_M` | 400, "does not support decision", as upstream intends since v0.35.1 |
+
+### Gate 6 on Apple Silicon
+
+This is what the v0.35.0 leg ran against the build production serves (`r0350fold_1`, `ocrk0350fold_c0`): the same
+suite tree, driver, order and settings, with every request gated. No request overlapped production. Both payloads
+moved, so byte equality was a finding here, not the bar.
+
+**OCRBench v1, rows 0–199, gemma4:31b-nvfp4:**
+- 174/200 correct on both builds;
+- **200/200 predictions byte-identical**, with identical prompt and answer token counts.
+
+**The seven think-off cells** (`drv/cmp_thinkoff_0402.py`; A is production's 0.35.0, B the fold):
+
+| cell | answers identical | A: contract, hits, mean IoU | B: contract, hits, mean IoU |
+|---|---|---|---|
+| gemma4:12b-nvfp4 | 28/28 | 16/20, 96/120, 0.767 | the same |
+| gemma4:26b-nvfp4 | 28/28 | 12/20, 72/120, 0.583 | the same |
+| gemma4:31b-nvfp4 | 28/28 | 19/20, 114/120, 0.886 | the same |
+| qwen3.6:35b-a3b-nvfp4 | **2/28** | 16/20, 99/120, 0.794 | **14/20, 92/120, 0.703** |
+| qwen3.8:27b-nvfp4 | **8/28** | 19/20, 114/120, 0.936 | 19/20, 114/120, 0.937 |
+| gemma4:31b-it-q4_K_M (converted GGUF) | 28/28 | 16/20, 97/120, 0.738 | the same |
+| qwen3.6:35b-a3b-q4_K_M (converted GGUF) | 28/28 | 14/20, 89/120, 0.691 | the same |
+
+Valid JSON is 189/189 on both builds.
+- **The GGUF path did not move.** That is across llama.cpp b11081 → b11351 and the conversion to a llamacpp child.
+- **Neither did gemma4 on MLX**, across MLX 59d600b5 → a59cc231.
+
+**qwen3.6's quality change is two cases.** `bboxm_free_anc_named` and `bboxm_free_anc_pos` let the model choose its
+box dialect. The fold's answers carry near-identical coordinates but declare `"bbox_type": "real"` where 0.35.0
+declared `"norm1000"`. Read as pixels, the boxes score 1 of 6 hits at IoU 0.044, against 6 of 6 at 0.967. Two other
+cases gained hits: `bbox_contract` 0 → 1 and `bbox_contract_real_1img` 0 → 2.
+
+### What moved the qwen cells: the MLX tokenizer fix, not MLX
+
+**The attribution run** used a hybrid stage: the fold's binary on production's MLX payload (engine init
+`0.32.2-65-g59d600b`), running the same qwen3.6 cell (`attr-0402.sh`, tagged `r0402hyb_1`). Its answers equal the
+fold's, **28/28**, and production's in 2/28. So the MLX move does not change these answers. The Go side does.
+
+**The tokenizer is the Go-side change, and the fold's is the correct one.** Upstream rewrote the MLX tokenizer to
+match the publishers' tokenizers (#18779, `195f4cdca`). Its `TestTokenizerReference` holds 47 qwen cases with the IDs
+Hugging Face's tokenizers produce. Run with the qwen3.6 tokenizer from this store:
+- production's v0.35.0 tokenizer matches **33/47**;
+- the fold's matches **47/47**.
+
+The 14 misses include runs of spaces before digits and punctuation, indented JSON (`{\n  "a": 12}`), NFC
+normalization and combining marks. That is the shape of these prompts: seven qwen3.6 prompts change length by one or
+two tokens. On v0.35.0, qwen on MLX has been reading prompts tokenized differently from how it was trained. The fold
+fixes that, and the two dialect cases are near-ties that now land the other way.
+
+gemma4's tokenizer does not take this path, and its cells did not move. qwen's GGUF cells tokenize in llama.cpp,
+and they did not move either.
 
 ## Who does what
 
