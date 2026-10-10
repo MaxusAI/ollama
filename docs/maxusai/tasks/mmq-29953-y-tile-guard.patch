@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
-index 027a7e60..6923d84a 100644
+index 027a7e60..fcfaa3c4 100644
 --- a/ggml/src/ggml-cuda/mmq.cu
 +++ b/ggml/src/ggml-cuda/mmq.cu
 @@ -4,6 +4,7 @@
@@ -84,10 +84,10 @@ index 027a7e60..6923d84a 100644
 +        static_assert(ggml_cuda_mmq_y_tile_ok_##TABLE(t),                                                               \
 +            "MMQ: the y tile helper is smaller than the y load for a config in the " #TABLE " table");                 \
 +    };                                                                                                                  \
-+    template <int... ts> static constexpr size_t ggml_cuda_mmq_y_tile_all_##TABLE(std::integer_sequence<int, ts...>) {  \
-+        return (sizeof(ggml_cuda_mmq_y_tile_guard_##TABLE<ts>) + ... + 0);                                              \
-+    }                                                                                                                   \
-+    static_assert(ggml_cuda_mmq_y_tile_all_##TABLE(std::make_integer_sequence<int, GGML_TYPE_COUNT>()) > 0, "");
++    template <typename> struct ggml_cuda_mmq_y_tile_guards_##TABLE;                                                     \
++    template <int... ts> struct ggml_cuda_mmq_y_tile_guards_##TABLE<std::integer_sequence<int, ts...>>                  \
++        : ggml_cuda_mmq_y_tile_guard_##TABLE<ts>... {};                                                                 \
++    template struct ggml_cuda_mmq_y_tile_guards_##TABLE<std::make_integer_sequence<int, GGML_TYPE_COUNT>>;
 +
 +GGML_CUDA_MMQ_Y_TILE_GUARD(pascal_older)
 +GGML_CUDA_MMQ_Y_TILE_GUARD(pascal_dp4a)
