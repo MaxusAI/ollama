@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
-index b13b34ee9..0e74de297 100644
+index 3e1721b..109c21b 100644
 --- a/ggml/src/ggml-cuda/mmq.cu
 +++ b/ggml/src/ggml-cuda/mmq.cu
 @@ -4,6 +4,7 @@
@@ -8,11 +8,11 @@ index b13b34ee9..0e74de297 100644
  #include <cstdint>
 +#include <utility>
  
- static void ggml_cuda_mul_mat_q_switch_type(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream) {
+ static void ggml_cuda_mul_mat_q_switch_type(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream, const ggml_prec prec_src1) {
      switch (args.type_x) {
-@@ -128,17 +129,30 @@ void ggml_cuda_mul_mat_q(
+@@ -180,17 +181,32 @@ void ggml_cuda_mul_mat_q(
  
-     const bool fallback = ne01 % 128 != 0;
+     const ggml_prec prec_src1 = ggml_cuda_mmq_get_prec_src1(src0, dst, cc);
  
 +    // MAXUSAI (compat 903): MMQ loads src1 and ids_dst in whole tiles of J columns, and the stream-k fixup path
 +    // reads the NVFP4 y scales the same way, so the last tile can read past the data: for MUL_MAT_ID the last
@@ -23,11 +23,13 @@ index b13b34ee9..0e74de297 100644
 +    // launch could pick. Upstream's #29941 (get_J_max(ne12)) is short below 128 tokens, #29953 (the launched J)
 +    // is short by up to 6 blocks, and neither pads ids_dst at all. The rule is ggml_cuda_mmq_get_J_pad() in
 +    // mmq.cuh, and the guard at the end of this file checks it against every config table at compile time.
++    // The configs are looked up at this launch's src1 precision: on Blackwell, NVFP4 and MXFP4 use the ampere
++    // table unless src1 is Q4 (b11351), so a lookup at the default precision could size from the wrong table.
 +    const int64_t J_pad = ggml_cuda_mmq_get_J_pad([&](const int J) {
-+        return ggml_cuda_mmq_get_config(src0->type, J, fallback, cc);
++        return ggml_cuda_mmq_get_config(src0->type, J, fallback, cc, prec_src1);
 +    });
 +
-     const bool use_native_fp4 = blackwell_mma_available(cc) && (src0->type == GGML_TYPE_MXFP4 || src0->type == GGML_TYPE_NVFP4);
+     const bool use_native_fp4 = prec_src1 == GGML_PREC_Q4;
      const size_t y_block_size       = use_native_fp4 ? sizeof(block_fp4_mmq) : sizeof(block_q8_1_mmq);
      const size_t y_values_per_block = use_native_fp4 ? QK_FP4_MMQ            : QK8_1_MMQ;
  
@@ -43,7 +45,7 @@ index b13b34ee9..0e74de297 100644
          }
  
          {
-@@ -185,7 +199,7 @@ void ggml_cuda_mul_mat_q(
+@@ -237,7 +253,7 @@ void ggml_cuda_mul_mat_q(
      GGML_ASSERT(ne1 == n_expert_used);
  
      ggml_cuda_pool_alloc<int32_t> ids_src1(ctx.pool(), ne_get_rows);
@@ -52,7 +54,7 @@ index b13b34ee9..0e74de297 100644
      ggml_cuda_pool_alloc<int32_t> expert_bounds(ctx.pool(), ne02 + 1);
  
      // gate/up activations are broadcast across experts (ne11 == 1): quantize each token once and
-@@ -203,11 +217,11 @@ void ggml_cuda_mul_mat_q(
+@@ -255,11 +271,11 @@ void ggml_cuda_mul_mat_q(
      }
  
      const size_t nbytes_src1_q8_1 = ne12*n_expert_used*ne10_padded * y_block_size/y_values_per_block +
@@ -66,7 +68,7 @@ index b13b34ee9..0e74de297 100644
      }
  
      const int64_t ne11_flat = ne12*n_expert_used;
-@@ -391,3 +405,64 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t
+@@ -448,3 +464,64 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t
  
      return (!GGML_CUDA_CC_IS_CDNA(cc)) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;
  }
@@ -132,10 +134,10 @@ index b13b34ee9..0e74de297 100644
 +#undef GGML_CUDA_MMQ_PADDING_GUARD_ON
 +#endif // GGML_CUDA_MMQ_PADDING_GUARD_ON
 diff --git a/ggml/src/ggml-cuda/mmq.cuh b/ggml/src/ggml-cuda/mmq.cuh
-index 6923f3510..42d6aec29 100644
+index 0cd31d9..2781926 100644
 --- a/ggml/src/ggml-cuda/mmq.cuh
 +++ b/ggml/src/ggml-cuda/mmq.cuh
-@@ -1385,11 +1385,35 @@ struct mmq_args {
+@@ -1393,11 +1393,35 @@ struct mmq_args {
      int64_t ncols_opt; // value to optimize the tile size against, launch grid still uses ncols_max
  };
  
@@ -172,4 +174,4 @@ index 6923f3510..42d6aec29 100644
 +    return nbytes / sizeof(block_q8_1_mmq);
  }
  
- template <ggml_type type, int J, bool fallback>
+ template <ggml_type type, int J, bool fallback, ggml_prec prec_src1 = GGML_PREC_Q8>

@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/fattn.cu b/ggml/src/ggml-cuda/fattn.cu
-index 7098c8b4c..9d333cda7 100644
+index bb34e01..a667411 100644
 --- a/ggml/src/ggml-cuda/fattn.cu
 +++ b/ggml/src/ggml-cuda/fattn.cu
 @@ -5,6 +5,8 @@
@@ -10,8 +10,8 @@ index 7098c8b4c..9d333cda7 100644
 +
  #if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
  // one list per group of ncols1 queries: a column is selected if any query of the group can see it
- __launch_bounds__(256, 1)
-@@ -526,7 +528,41 @@ static bool ggml_cuda_fattn_kv_type_supported(const ggml_type type) {
+ template <int ncols1, bool oob>
+@@ -538,7 +540,41 @@ static bool ggml_cuda_fattn_kv_type_supported(const ggml_type type) {
      }
  }
  
