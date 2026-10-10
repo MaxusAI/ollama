@@ -1761,6 +1761,61 @@ class TestMlxMetalProfileAdmitsTheV0350Fold(unittest.TestCase):
         """llama.cpp's compat patches, 805 included, do not apply to MLX."""
         self.assertEqual(self.exp["profiles"][self.PROFILE]["patchset"], [])
 
+
+class TestMlxMetalProfileForTheV0402Fold(unittest.TestCase):
+    """ADR 0011 on Apple Silicon. The v0.40.2 fold (#460) moves BOTH native inputs: MLX 59d600b5 -> a59cc231 and
+    llama.cpp b11081 -> b11351. So it gets its own profile, mlx-metal-0-40-2, rather than a widened 0-34-4.
+
+    The new profile admits the v0.40.2-dynres tag's lineage only. 0-34-4 keeps production's 0.35.0 build and must not
+    admit 0.40.2: that payload is not its own. The fold's interim builds stamp 0.35.0-dynres-N, which 0-34-4 admits and
+    whose pins they fail; they were validated with a campaign copy of this file, not by widening either pattern.
+    """
+
+    PROFILE = "mlx-metal-0-40-2"
+    ADMIT = (
+        "0.40.2-dynres-0-gabcdef0",    # the fold's tag stamp
+        "0.40.2-dynres-5-g0123456",    # a build after that tag
+    )
+    REJECT = (
+        "0.35.0-dynres-0-g043f441",          # production's build: mlx-metal-0-34-4's
+        "0.35.0-dynres-27-g948ef3a",         # the fold's interim stamp: not admitted by widening
+        "0.40.1-dynres-0-gabcdef0",          # an upstream release this fold passed through
+        "0.40.2-dynres-0-gabcdef0-dirty",    # a dirty tree describes nothing
+        "0.40.2-dynres.1-0-gabcdef0",        # a point tag is a new deploy: widen deliberately
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_profile_admits_the_v0402_lineage(self):
+        pat = re.compile(self.exp["profiles"][self.PROFILE]["version_pattern"])
+        for stamp in self.ADMIT:
+            self.assertRegex(stamp, pat, f"{self.PROFILE} must admit {stamp}")
+
+    def test_profile_refuses_other_payloads_and_the_interim_stamp(self):
+        pat = re.compile(self.exp["profiles"][self.PROFILE]["version_pattern"])
+        for stamp in self.REJECT:
+            self.assertNotRegex(stamp, pat, f"{self.PROFILE} must reject {stamp}")
+
+    def test_the_previous_profile_does_not_claim_v0402(self):
+        pat = re.compile(self.exp["profiles"]["mlx-metal-0-34-4"]["version_pattern"])
+        for stamp in self.ADMIT:
+            self.assertNotRegex(stamp, pat, f"mlx-metal-0-34-4 must not admit {stamp}")
+
+    def test_the_tag_stamp_resolves_to_this_profile_through_preflight(self):
+        import preflight
+        pid, _ = preflight.resolve_profile(self.exp, "mlx-metal", "0.40.2-dynres-0-gabcdef0")
+        self.assertEqual(pid, self.PROFILE)
+
+    def test_the_pins_name_the_fold_payload(self):
+        prof = self.exp["profiles"][self.PROFILE]
+        self.assertEqual(prof["mlx_build"], "a59cc23190f1e26fabcba8693607bb4c34b2ac2b")
+        self.assertEqual(prof["llama_cpp_build"], "631109b34")
+        self.assertEqual(prof["patchset"], [])
+
+
 class TestReleaseMatrixTensorColumn(unittest.TestCase):
     """A gate nothing renders is a gate nobody reads. release_matrix.py is the
     fold's headline artifact, and a check absent from GROUPS is simply not in
