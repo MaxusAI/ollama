@@ -1,7 +1,7 @@
 # TASK: 903 becomes llama.cpp#29953 plus the guard, at b11351 (for the CUDA and ROCm hosts)
 
-Handed over by the Metal host on 2026-10-11. **Nothing in this change has been compiled or run.** The Metal host has
-no nvcc or hipcc. The CUDA host and the ROCm host do the verification below, and either may take the branch over.
+Handed over by the Metal host on 2026-10-11. **The patch has not been compiled.** The Metal host has no nvcc or hipcc.
+The CPU padding sweep has been run, natively (item 2 below). The CUDA host and the ROCm host do the verification below, and either may take the branch over.
 
 ## Why now
 
@@ -40,8 +40,17 @@ b11351, 908 after this one.
 ## Asked of the CUDA host (sm_120, sm_75)
 
 1. **The build:** build the payload at this branch. The guard's `static_assert`s must pass.
-2. **The CPU sweep:** `docs/maxusai/tasks/mmq-rules-check.cu` with `build-check.sh`, against b11351 with the series
-   applied. It must exit 0. #29953's head rule is already in it, and the source carries its own `get_J_max()` copy.
+2. **The CPU sweep: done on the Metal host, natively.** The CUDA host need not run it.
+   - **How:** `tasks/mmq-rules-check-native.py` builds the unmodified `mmq-rules-check.cu` with Apple clang, through
+     `tasks/mmq-native-shim.py`, which copies the host-only definitions out of the tree verbatim.
+   - **Equivalence:** on llama.cpp `dd266785c` its output is byte-identical to the nvcc build's
+     `check-rules-wide.txt`. b11351's ten config tables are byte-identical to `dd266785c`'s.
+   - **Result:** on b11351 with this series, both shipped rules are covered in all 9,431,816 MUL_MAT_ID shapes and
+     203,200 dense shapes, on ten architectures (`mmq-successor-results/check-rules-native-b11351-series.txt`).
+   - **What that proves, and what it does not:** both shipped rules are sufficient by construction in the sweep's
+     model, so this shows the model agrees with them. It is not evidence about the code. The guard below is: it
+     checks what `mmq.cu` allocates with, and it runs in the build.
+   - **Optional:** the nvcc build of the sweep on b11351, for a second equivalence point.
 3. **The retirement gate**, from "For the fork" in `upstream-mmq-29953-material.md`, on this branch:
    - `ids16` under `guard:src1` and `guard:ids_dst` on sm_120;
    - `dense321` under `guard:src1` on sm_75;
