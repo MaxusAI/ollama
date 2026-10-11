@@ -102,12 +102,11 @@ Keeping the 128×128 grid through the compat layer and interpolating from it wou
 
 - Defaults **256 / 3328** (the model's native bounds).
 - The shared `ImageMinTokens`/`ImageMaxTokens` options arrive as the gemma4-shaped
-  DefaultOptions values when the caller left them alone; those exact values are treated
-  as unset for this arch. The sentinel is `api.DefaultImageMin/MaxTokens` themselves, so
-  it moves with the gemma4 default — **70 / 1120** today (ADR 0008; 40/1120 before
-  ADR 0007). Consequence: **explicitly requesting the current gemma4 defaults on
-  nemotron is not expressible** — pick an adjacent value (71, 1119, 1121…). Any other
-  value passes through; min clamps down to max.
+  DefaultOptions values when the caller left them alone. Since ADR 0048 the server sends a
+  bound neither the request nor the Modelfile set as 0, and only `<= 0` reads as unset
+  for this arch: an explicit **70 / 1120** (gemma4's defaults) is honoured like any other
+  value. Before ADR 0048 those exact values were a sentinel for "unset", and requesting
+  them on nemotron was not expressible. Min clamps down to max.
 - Values above 3328 are passed through, but exceed the model's training distribution —
   the reference never produces more than 13,312 patches. Don't raise the ceiling; only
   lower it (e.g. to trade detail for context on busy hosts, via a Modelfile
@@ -129,14 +128,14 @@ For `modelArch == "nemotron_h_omni"` on a payload carrying the 002 patch:
 |---|---|
 | flags | `visionServerArgs()` always passes `--image-min-tokens` / `--image-max-tokens` |
 | defaults | **256 / 3328** (= the model's 1024/13312 pre-merge patch bounds ÷ 4) |
-| option resolution | `ImageMinTokens`/`ImageMaxTokens` ≤ 0 **or exactly equal to the gemma4-shaped DefaultOptions values (`api.DefaultImageMin/MaxTokens`, 70/1120 today)** are treated as unset; min clamps down to max; both are **Runner** options — changing either reloads the runner, but only when it changes the *resolved* flags (`llm.ResolvedImageTokenBudget`), so naming 256/3328 explicitly no longer reloads against an unset request |
+| option resolution | `ImageMinTokens`/`ImageMaxTokens` ≤ 0 are treated as unset (the server sends an unset bound as 0, ADR 0048; before it, a value exactly equal to the gemma4-shaped DefaultOptions values, 70/1120, was also read as unset); min clamps down to max; both are **Runner** options — changing either reloads the runner, but only when it changes the *resolved* flags (`llm.ResolvedImageTokenBudget`), so naming 256/3328 explicitly no longer reloads against an unset request |
 | per-image cost | `round(w/32) × round(h/32)` post-resize grid cells **+ 2** marker tokens (`<img>`/`</img>`), where the resize maps the image, aspect-preserved, into 262,144…3,407,872 px; small images are **upscaled** to the floor |
 | bounds | floor 256, ceiling 3,328 visual tokens; the 32px floor-alignment lands most shapes slightly under the ceiling (3000×2000 → 3,290), which is exact only when scaled dims hit multiples of 32 (2048×1664 → 3,328) |
 | ceiling caveat | the pixel budget is enforced before the per-dimension 32px minimum clamp, so **degenerate aspect ratios (≈100:1 and beyond) can exceed it** — e.g. a 4,000,000×1 input targets ~118 MPx and would exhaust memory. Inherited `dyn_size`-family behavior (qwen/kimivl/dots_ocr share it; nemotron was previously immune only because it squashed everything to 512²). Reject absurd-aspect images upstream of Ollama |
 | warmup | load-time warmup probes the ceiling (`warmup_image_size` ≈ 1846) |
 | unpatched payload | flags are parsed by llama-server but never consumed: exactly 256 tokens/image, no markers, letterboxed — byte-identical to today |
 | audio | unaffected (compat force-sets `clip.has_audio_encoder=false`) |
-| not expressible | an explicit request of exactly 40 or 1120 (collides with the DefaultOptions sentinels; a `hasOption`-style check at the routes layer could lift this if it ever matters) |
+| ~~not expressible~~ | lifted by ADR 0048: the routes layer's `hasOption` check tells an explicit 70/1120 from an unset budget, as this row anticipated |
 | ceiling clamp | `image_max_tokens` > 3328 clamps down to 3328 — the trained maximum, and a guard against the int32 pixel-math overflow at ≥ 2,097,152 in `set_limit_image_tokens` |
 
 Regression tests: `TestVisionServerArgs/nemotron_h_omni_*` in

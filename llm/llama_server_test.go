@@ -1632,14 +1632,13 @@ func TestVisionServerArgs(t *testing.T) {
 			want: []string{"--image-min-tokens", "256", "--image-max-tokens", "3328"},
 		},
 		{
-			// The gemma4-shaped DefaultOptions values (70/1120 today) mean
-			// "untouched" and must map to the nemotron-native bounds, not be
-			// forwarded literally. Asserted through the constants, so the case
-			// keeps holding when an ADR moves the gemma4 default again.
-			name: "nemotron_h_omni DefaultOptions values treated as unset",
+			// Unset reaches the runner as 0 (server/routes.go), so gemma4's
+			// 70/1120 is an explicit request here like any other value and is
+			// forwarded; it no longer stands for "untouched".
+			name: "nemotron_h_omni explicit 70/1120 honoured",
 			arch: "nemotron_h_omni",
 			opts: api.Options{Runner: api.Runner{ImageMinTokens: api.DefaultImageMinTokens, ImageMaxTokens: api.DefaultImageMaxTokens}},
-			want: []string{"--image-min-tokens", "256", "--image-max-tokens", "3328"},
+			want: []string{"--image-min-tokens", "70", "--image-max-tokens", "1120"},
 		},
 		{
 			name: "nemotron_h_omni custom budget",
@@ -1655,17 +1654,17 @@ func TestVisionServerArgs(t *testing.T) {
 		},
 		{
 			// The production-realistic shape: a Modelfile sets only one param, so the
-			// other arrives at its DefaultOptions sentinel and must be substituted
-			// per-field, not only when both are sentinels.
-			name: "nemotron_h_omni max explicit, min at sentinel",
+			// other arrives unset (0) and must be substituted per-field, not only
+			// when both are unset.
+			name: "nemotron_h_omni max explicit, min unset",
 			arch: "nemotron_h_omni",
-			opts: api.Options{Runner: api.Runner{ImageMinTokens: api.DefaultImageMinTokens, ImageMaxTokens: 2048}},
+			opts: api.Options{Runner: api.Runner{ImageMinTokens: 0, ImageMaxTokens: 2048}},
 			want: []string{"--image-min-tokens", "256", "--image-max-tokens", "2048"},
 		},
 		{
-			name: "nemotron_h_omni min explicit, max at sentinel",
+			name: "nemotron_h_omni min explicit, max unset",
 			arch: "nemotron_h_omni",
-			opts: api.Options{Runner: api.Runner{ImageMinTokens: 1024, ImageMaxTokens: api.DefaultImageMaxTokens}},
+			opts: api.Options{Runner: api.Runner{ImageMinTokens: 1024, ImageMaxTokens: 0}},
 			want: []string{"--image-min-tokens", "1024", "--image-max-tokens", "3328"},
 		},
 		{
@@ -1681,7 +1680,7 @@ func TestVisionServerArgs(t *testing.T) {
 			// ceiling lands on 3328/3328.
 			name: "nemotron_h_omni min above substituted ceiling",
 			arch: "nemotron_h_omni",
-			opts: api.Options{Runner: api.Runner{ImageMinTokens: 3500, ImageMaxTokens: api.DefaultImageMaxTokens}},
+			opts: api.Options{Runner: api.Runner{ImageMinTokens: 3500, ImageMaxTokens: 0}},
 			want: []string{"--image-min-tokens", "3328", "--image-max-tokens", "3328"},
 		},
 		{
@@ -1843,11 +1842,11 @@ func TestMaxImageTokens(t *testing.T) {
 			want: 3330,
 		},
 		{
-			// The gemma4-shaped DefaultOptions sentinels mean "untouched".
-			name: "nemotron_h_omni DefaultOptions values treated as unset",
+			// An explicit 1120 is a ceiling like any other (unset is 0).
+			name: "nemotron_h_omni explicit 1120 honoured",
 			arch: "nemotron_h_omni",
 			opts: api.Options{Runner: api.Runner{ImageMinTokens: api.DefaultImageMinTokens, ImageMaxTokens: api.DefaultImageMaxTokens}},
-			want: 3330,
+			want: 1122,
 		},
 		{
 			name: "nemotron_h_omni custom ceiling",
@@ -4496,12 +4495,19 @@ func TestResolvedImageTokenBudget(t *testing.T) {
 			wantMin: api.DefaultImageMinTokens, wantMax: api.DefaultImageMaxTokens, wantDerived: true,
 		},
 		{
-			// The sentinel means "untouched" here, so it must resolve to the
-			// same bounds an explicit 256/3328 does — that equality is what
-			// keeps the scheduler from reloading for identical flags.
-			name: "nemotron sentinel resolves to native bounds",
-			arch: "nemotron_h_omni", opts: sentinel,
+			// Unset (0) must resolve to the same bounds an explicit 256/3328
+			// does -- that equality is what keeps the scheduler from reloading
+			// for identical flags.
+			name: "nemotron unset resolves to native bounds",
+			arch: "nemotron_h_omni", opts: api.Options{},
 			wantMin: 256, wantMax: 3328, wantDerived: true,
+		},
+		{
+			// gemma4's 70/1120 is an explicit request on nemotron, and a
+			// different launch than unset, so the scheduler reloads for it.
+			name: "nemotron explicit 70/1120 is its own budget",
+			arch: "nemotron_h_omni", opts: sentinel,
+			wantMin: 70, wantMax: 1120, wantDerived: true,
 		},
 		{
 			name:    "nemotron explicit native bounds resolve identically",

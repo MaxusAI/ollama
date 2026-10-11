@@ -137,8 +137,15 @@ func (s *Server) modelOptionsWithEmbeddingBatchDefault(model *Model, requestOpts
 	// an unset draft_num_predict from the default. Track that while we still
 	// have the raw model/request option maps.
 	draftNumPredictSet := hasOption(requestOpts, "draft_num_predict")
+	// The same holds for the image-token budget: DefaultOptions carries
+	// gemma4's 70/1120 ladder, so an unset budget and an explicit 70 or 1120
+	// would reach the runners as the same values.
+	imageMinSet := hasOption(requestOpts, "image_min_tokens")
+	imageMaxSet := hasOption(requestOpts, "image_max_tokens")
 	if model != nil {
 		draftNumPredictSet = draftNumPredictSet || hasOption(model.Options, "draft_num_predict")
+		imageMinSet = imageMinSet || hasOption(model.Options, "image_min_tokens")
+		imageMaxSet = imageMaxSet || hasOption(model.Options, "image_max_tokens")
 		if err := opts.FromMap(model.GenerationDefaults); err != nil {
 			return api.Options{}, err
 		}
@@ -158,6 +165,21 @@ func (s *Server) modelOptionsWithEmbeddingBatchDefault(model *Model, requestOpts
 
 	if model != nil && model.DraftPath == "" && !draftNumPredictSet {
 		opts.DraftNumPredict = 0
+	}
+
+	// An unset budget reaches the runner as 0, "the model's own": every
+	// resolver reads <= 0 that way (gemma4's own bounds are 70/1120, so
+	// nothing changes for it). An explicit value -- 70 and 1120 included --
+	// is then honoured on the models whose own bounds differ (nemotron_h on
+	// both paths; muse-glimmer and qwen3.5 on MLX), which before could not
+	// be asked for exactly gemma4's values.
+	if model != nil {
+		if !imageMinSet {
+			opts.ImageMinTokens = 0
+		}
+		if !imageMaxSet {
+			opts.ImageMaxTokens = 0
+		}
 	}
 
 	return opts, nil
