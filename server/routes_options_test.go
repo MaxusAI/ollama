@@ -272,6 +272,30 @@ func TestModelOptionsDraftNumPredictDefault(t *testing.T) {
 			requestOpts: map[string]any{"draft_num_predict": float64(0)},
 			want:        0,
 		},
+		// MLX drafters ship inside the model and pick their depth adaptively, so
+		// an unset value must stay distinguishable from a request's 0 (off).
+		{
+			name:  "MLX: unset leaves the runner's adaptive depth",
+			model: &Model{Config: model.ConfigV2{ModelFormat: "safetensors"}},
+			want:  -1,
+		},
+		{
+			name:        "MLX: request 0 turns drafting off",
+			model:       &Model{Config: model.ConfigV2{ModelFormat: "safetensors"}},
+			requestOpts: map[string]any{"draft_num_predict": float64(0)},
+			want:        0,
+		},
+		{
+			name:        "MLX: request caps the depth",
+			model:       &Model{Config: model.ConfigV2{ModelFormat: "safetensors"}},
+			requestOpts: map[string]any{"draft_num_predict": float64(6)},
+			want:        6,
+		},
+		{
+			name:  "MLX: a Modelfile value is a cap too",
+			model: &Model{Config: model.ConfigV2{ModelFormat: "safetensors"}, Options: map[string]any{"draft_num_predict": float64(15)}},
+			want:  15,
+		},
 	}
 
 	for _, tt := range tests {
