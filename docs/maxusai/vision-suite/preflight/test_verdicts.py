@@ -1816,6 +1816,48 @@ class TestMlxMetalProfileForTheV0402Fold(unittest.TestCase):
         self.assertEqual(prof["patchset"], [])
 
 
+class TestMetalProfileForTheV0402Fold(unittest.TestCase):
+    """The llama.cpp half of Apple Silicon on the v0.40.2 payload. Before metal-0-40-2, `--platform metal` exited 2
+    on production's 0.40.2-dynres build while mlx-metal-0-40-2 resolved: one binary, two stacks, one gated. The GGUF
+    profile admits the same lineage as its MLX sibling and pins the same llama.cpp payload, and lists only the arch
+    measured on it (muse-glimmer, #463)."""
+
+    PROFILE = "metal-0-40-2"
+    ADMIT = ("0.40.2-dynres-0-g5623192", "0.40.2-dynres-5-g0123456")
+    REJECT = ("0.35.0-dynres-0-g043f441", "0.32.14-maxusai-abcdef0", "0.40.2-dynres-0-gabcdef0-dirty",
+              "0.40.2-dynres.1-0-gabcdef0")
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_profile_admits_the_v0402_lineage_and_nothing_else(self):
+        pat = re.compile(self.exp["profiles"][self.PROFILE]["version_pattern"])
+        for stamp in self.ADMIT:
+            self.assertRegex(stamp, pat, f"{self.PROFILE} must admit {stamp}")
+        for stamp in self.REJECT:
+            self.assertNotRegex(stamp, pat, f"{self.PROFILE} must reject {stamp}")
+
+    def test_the_tag_stamp_resolves_to_this_profile_on_the_metal_platform(self):
+        import preflight
+        pid, _ = preflight.resolve_profile(self.exp, "metal", "0.40.2-dynres-0-g5623192")
+        self.assertEqual(pid, self.PROFILE)
+
+    def test_it_pins_the_payload_its_mlx_sibling_pins(self):
+        mine, mlx = self.exp["profiles"][self.PROFILE], self.exp["profiles"]["mlx-metal-0-40-2"]
+        self.assertEqual(mine["llama_cpp_build"], mlx["llama_cpp_build"])
+        self.assertEqual(mine["version_pattern"], mlx["version_pattern"])
+
+    def test_glimmer_measures_the_same_on_both_runners(self):
+        # One sizing algorithm on both paths (mlxrunner/model/glimmer/media.go and llama.cpp's muse-glimmer
+        # projector): if a payload move ever splits these rows, that is a finding, not a typo to align.
+        gguf = self.exp["expect"][self.PROFILE]["muse-glimmer"]
+        mlx = self.exp["expect"]["mlx-metal-0-40-2"]["muse-glimmer"]
+        for key in ("ladder", "patch_stride", "budget_min_tokens", "budget_max_tokens"):
+            self.assertEqual(gguf[key], mlx[key], key)
+
+
 class TestReleaseMatrixTensorColumn(unittest.TestCase):
     """A gate nothing renders is a gate nobody reads. release_matrix.py is the
     fold's headline artifact, and a check absent from GROUPS is simply not in
