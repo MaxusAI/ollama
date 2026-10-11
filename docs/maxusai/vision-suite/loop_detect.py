@@ -79,7 +79,7 @@ class Loop:
 class _Stream:
     # buf holds only the last `keep` chars (the search region); total counts every char seen. Deltas wait in
     # `pending` and are joined at each check: appending to a str attribute copies the whole buffer per chunk.
-    __slots__ = ("name", "buf", "pending", "total", "checked", "last_tok", "run")
+    __slots__ = ("buf", "checked", "last_tok", "name", "pending", "run", "total")
 
     def __init__(self, name):
         self.name, self.buf, self.pending, self.total = name, "", [], 0
