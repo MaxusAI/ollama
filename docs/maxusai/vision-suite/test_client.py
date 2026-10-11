@@ -587,6 +587,43 @@ class TestLoopDetect(unittest.TestCase):
         self.assertEqual(sec.capped_arms(fh.name), ["case_b"])
 
 
+class TestBufferedLoop(unittest.TestCase):
+    """The server can hold a reply back and send it in the final chunk -- glimmer's parser does for a reply with no
+    message header (the #464 path) -- so nothing streams until the generation ends. The loop is then judged on the
+    final text: a length-capped reply that loops is the same verdict, a finished one that repeats is not a loop."""
+
+    def setUp(self):
+        self._env = os.environ.get("LOOP_DETECT")
+        os.environ["LOOP_DETECT"] = "1"
+
+    def tearDown(self):
+        if self._env is None:
+            os.environ.pop("LOOP_DETECT", None)
+        else:
+            os.environ["LOOP_DETECT"] = self._env
+
+    LOOPING = '{"x1": 70, "y1": 147, "x2": 210, "y2": 336, "label": "ANCHOR", "bbox_type": "norm1000", ' * 40
+
+    def _one_final(self, reason):
+        cap = StreamCapture([], final={"done_reason": reason, "eval_count": 2200, "eval_duration": 9 * 10**9})
+        cap.lines[-1]["message"]["content"] = self.LOOPING
+        return cap
+
+    def test_a_capped_buffered_loop_is_the_verdict(self):
+        with self._one_final("length"):
+            r = client.generate("http://h", "M", "p", ["IMG"])
+        self.assertEqual(r["done_reason"], "loop")
+        self.assertEqual(r["failure_mode"], "loop detected:content")
+        self.assertEqual(r["_loop"]["server_done_reason"], "length")
+        self.assertEqual(r["eval_count"], 2200, "the server's own metrics are kept when it sent them")
+        self.assertEqual(r["response"], self.LOOPING)
+
+    def test_a_finished_reply_that_repeats_is_not_a_loop(self):
+        with self._one_final("stop"):
+            r = client.generate("http://h", "M", "p", ["IMG"])
+        self.assertEqual(r["done_reason"], "stop")
+        self.assertNotIn("failure_mode", r)
+
 class TestLoopFields(unittest.TestCase):
     """client.loop_fields is the one derivation both producers stamp onto a block (as metrics_block is)."""
 

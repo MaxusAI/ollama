@@ -200,6 +200,15 @@ def _read_stream(resp, ep, tmo):
             content.append(co)
         if chunk.get("done"):
             final = chunk
+            # The final chunk can carry text the server held back -- glimmer's parser does for a reply with no
+            # message header, so nothing streamed before it. Judge it too; a loop in a reply the server cut at
+            # num_predict is the same verdict as one caught mid-stream, with the server's own metrics kept.
+            # A reply that FINISHED is not a loop, however repetitive.
+            loop = det.feed(thinking=th, content=co)
+            if loop and final.get("done_reason") == "length":
+                final["done_reason"] = "loop"
+                final["failure_mode"] = loop.failure_mode()
+                final["_loop"] = dict(loop.record(), loop_chunks=chunks + 1, server_done_reason="length")
             break
         chunks += 1
         loop = det.feed(thinking=th, content=co)

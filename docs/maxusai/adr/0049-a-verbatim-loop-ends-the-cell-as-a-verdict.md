@@ -36,13 +36,19 @@ that would have finished given more budget, so ending it early loses nothing and
    - `done_reason` is `"loop"`, and `failure_mode` is `"loop detected:<kind>"`.
    - The loop's fields: kind, stream, period, repeats, chars at detection, snippet, parameters.
    - `eval_count` is the number of streamed chunks, and the durations are None (the server sent no final metrics).
-3. **A loop is a verdict, not an error and not a cap.**
+3. **A loop the server held back is judged at the end.** A server can send a reply in its final chunk: glimmer's
+   parser holds back a reply that never writes its message header (the #464 path), so on the release build its
+   format + think-off loops stream nothing until the generation ends. The final chunk is fed to the detector too.
+   A loop in a reply the server stopped at `num_predict` becomes the same verdict, with the server's own metrics
+   kept and `server_done_reason: "length"` recorded. A reply that finished is never a loop, however repetitive.
+   Such a loop is labelled, not cut early: that needs the server to stream.
+4. **A loop is a verdict, not an error and not a cap.**
    - The suite scores the partial output as it scores a capped answer.
    - `arm_done` treats the block as finished, so it is not re-run on resume.
    - `capped_arms` does not climb for it.
-4. **Every streamed block says so.** `client.loop_fields` stamps `stream: true` and the `loop_detect` parameters,
+5. **Every streamed block says so.** `client.loop_fields` stamps `stream: true` and the `loop_detect` parameters,
    plus the loop's fields when it fires, on vision_suite and finetext_probe blocks alike.
-5. **Off by default.** A campaign that turns it on mixes nothing: every block carries the stamp.
+6. **Off by default.** A campaign that turns it on mixes nothing: every block carries the stamp.
 
 ## Validation
 
