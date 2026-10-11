@@ -151,7 +151,7 @@ func gemma4IsSliding(cfg *config, i int) bool {
 	if len(cfg.text.LayerTypes) > 0 && i < len(cfg.text.LayerTypes) {
 		return cfg.text.LayerTypes[i] == "sliding_attention"
 	}
-	pattern := cfg.text.SlidingWindowPattern
+	pattern := int(cfg.text.SlidingWindowPattern)
 	if pattern <= 0 && len(cfg.text.LayerTypes) == 0 {
 		pattern = 5
 	}
@@ -356,7 +356,7 @@ func cohere2MoeRule(cfg *config, numCtx int) (Estimate, bool) {
 	if window <= 0 {
 		window = 4096
 	}
-	slidingPattern := cfg.text.SlidingWindowPattern
+	slidingPattern := int(cfg.text.SlidingWindowPattern)
 	if slidingPattern <= 0 {
 		slidingPattern = 4
 	}

@@ -28,6 +28,7 @@ package kvsize
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -60,6 +61,9 @@ type Estimate struct {
 	// Known is false when no rule matched the target architecture. Every byte
 	// field is then zero and the caller must not refuse a load on it.
 	Known bool
+	// Err is why config.json could not be read, when that is why Known is
+	// false; Arch is then empty, since nothing was read to dispatch on.
+	Err error
 	// Arch is the target architecture the estimate dispatched on.
 	Arch string
 	// DraftArch is the draft architecture, empty when the model ships no
@@ -101,7 +105,7 @@ func Model(config, draft []byte, numCtx int) Estimate {
 
 	cfg, err := parse(config)
 	if err != nil {
-		return Estimate{NumCtx: numCtx}
+		return Estimate{NumCtx: numCtx, Err: err}
 	}
 
 	rule, arch := lookup(targetRules, cfg)
@@ -249,11 +253,11 @@ type textConfig struct {
 	SlidingWindow     int      `json:"sliding_window"`
 
 	// gemma4
-	GlobalHeadDim          int  `json:"global_head_dim"`
-	NumGlobalKeyValueHeads int  `json:"num_global_key_value_heads"`
-	AttentionKEqV          bool `json:"attention_k_eq_v"`
-	NumKVSharedLayers      int  `json:"num_kv_shared_layers"`
-	SlidingWindowPattern   int  `json:"sliding_window_pattern"`
+	GlobalHeadDim          int                  `json:"global_head_dim"`
+	NumGlobalKeyValueHeads int                  `json:"num_global_key_value_heads"`
+	AttentionKEqV          bool                 `json:"attention_k_eq_v"`
+	NumKVSharedLayers      int                  `json:"num_kv_shared_layers"`
+	SlidingWindowPattern   slidingWindowPattern `json:"sliding_window_pattern"`
 
 	// cohere2_moe
 	PrefixDenseSlidingWindowPattern int `json:"prefix_dense_sliding_window_pattern"`
@@ -285,6 +289,27 @@ type textConfig struct {
 	// glm4_moe_lite (MLA)
 	KVLoraRank    int `json:"kv_lora_rank"`
 	QKRopeHeadDim int `json:"qk_rope_head_dim"`
+}
+
+// slidingWindowPattern is gemma4's sliding_window_pattern, an integer period
+// (every Nth layer is global). muse-glimmer writes a per-position list of
+// windows instead ([2048,2048,2048,0]) and its model reads layer_types, never
+// this field; the list form reads as 0 (unset) rather than failing the whole
+// config, which priced glimmer as weights only.
+type slidingWindowPattern int
+
+func (p *slidingWindowPattern) UnmarshalJSON(data []byte) error {
+	var n int
+	if err := json.Unmarshal(data, &n); err == nil {
+		*p = slidingWindowPattern(n)
+		return nil
+	}
+	var list []json.RawMessage
+	if err := json.Unmarshal(data, &list); err != nil {
+		return fmt.Errorf("sliding_window_pattern: want an integer or a list, got %s", data)
+	}
+	*p = 0
+	return nil
 }
 
 func parse(data []byte) (*config, error) {
