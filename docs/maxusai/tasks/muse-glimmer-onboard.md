@@ -1,7 +1,7 @@
 # TASK: onboard Meta's muse-glimmer on Metal (MLX and GGUF, with and without its DFlash drafter)
 
-Opened by the Metal host on 2026-10-11, while the maintainer pulls the tags. Status: **prepared, not run.** Nothing below
-has touched a GPU yet; the no-GPU gates have run (section "Phase 0").
+Opened by the Metal host on 2026-10-11, while the maintainer pulls the tags. Status: **running.** Phases 0-2 are done;
+phases 3-5 are in progress. Interim results, and the fixes they produced, are in "Interim results" below.
 
 ## The model, as the registry has it
 
@@ -38,7 +38,7 @@ The fork carries upstream's glimmer support unchanged, except for MLX image budg
 draft-under-grammar knob, and the ADR 0039 scale identity in the DFlash drafter.
 
 - **Thinking:** think accepts `false`, `"low"`, `"medium"`, `"high"` and `"max"`. Omitted or `true` means `"high"`
-  (`model/renderers/glimmer.go:66-77`). Any other value is a 400 (`api/types.go:1255`). `false` renders
+  (`model/renderers/glimmer.go:66-77`). Any other string falls back to that default with no error (upstream #18473, `model/renderers/thinking.go:30-45`); the 400 in `api/types.go:1255` applies only to models without thinking metadata. `false` renders
   "Reasoning strength: none." and the parser drops any thinking that is produced anyway.
 - **Images, both runners:** aspect-preserving grid, never upscaled, capped at 4096 tokens.
   - MLX: `mlxrunner/model/glimmer/media.go:21,125`.
@@ -91,7 +91,7 @@ Each check below is PASS/FAIL against a known right answer:
 - `text_think_off`: 17 × 23 = 391, with no thinking.
 - `think_levels`: false, low, medium, high, max and omitted, on the bat-and-ball question (0.05). There must be
   thinking exactly when it is not `false`. It records tokens to finish at each level, uncapped (num_predict 24576).
-- `think_invalid_level`: "extreme" must return 400.
+- `think_unknown_level`: "extreme" falls back to the default ("high"), as upstream #18473 specifies: 200, with thinking.
 - `tools_round_trip`: think off and default. It must call `get_weather(city=Paris)` and then use the tool's 18 °C.
 - `format_schema`: think off and default. The output must be valid JSON for the schema, with thinking exactly when
   on (TWO_PASS=1).
@@ -141,6 +141,59 @@ The commands were:
 - `./mlxrunner/model/glimmer -run 'TestParseConfig|TestParseOfficialHFConfig|TestValidateTokenizerEOS|TestComputeImageSize|TestPrepareMedia'`
 
 `step-inventory.sh` runs once the pulls finish.
+
+## Interim results, 2026-10-11
+
+### Phases 0-2
+- **Phase 0:** all eight tags match the registry and their blobs are complete, and every `-dflash` tag carries its drafter.
+- **Phase 1:** the smoke probe ran on every tag. Every check passed except one: `format` with thinking off, which the
+  four GGUF tags failed on the release build (`{...}<|eot|>`). It found five issues, four of them now fixed in drafts:
+
+| # | finding | PR |
+|---|---|---|
+| 1 | `format` + `think: false` bound the grammar before glimmer's message header, in single pass and two-pass alike | #464 |
+| 2 | `draft_num_predict` ignored on MLX | #465 |
+| 3 | MLX admission priced glimmer as weights only (kvsize could not parse its config) | #466 |
+| 4 | `image_max_tokens: 1120` read as unset on MLX, so 4096 | #468 (ADR 0048) |
+| 5 | MLX does not enforce `num_ctx` on prompt length (upstream ollama#18125, intentional upstream) | open question |
+
+- **Phase 2:** both runners measured the same ladder, `[47, 182, 779, 2995, 4082]` (#467).
+
+### Against gemma4:31b, thinking off (phase 3, in progress)
+glimmer's cells are this campaign's (`rgl_`), on the release build. gemma4's are the v0.40.2 fold's gate 6
+(`r0402fold_`). Both used the same suite, thinking off, `num_ctx` 16384, `num_predict` 2200, greedy. 23 of 27 cases had
+byte-identical prompts and images (`prompt_sha`, `images_sha`). The four `bboxm_*_pos` cases ask each family for its
+own box format and are not in this table. `summarize_head_to_head.py`, as printed:
+
+| test | metric | rgl_1_muse-glimmer_30b-nvfp4_thinkfalse | r0402fold_1_gemma4_31b-nvfp4_thinkfalse | rgl_1_muse-glimmer_30b_thinkfalse | r0402fold_1_gemma4_31b-it-q4_K_M_thinkfalse |
+|---|---|---|---|---|---|
+| scene | bbox IoU | 0.827 (16384) | 0.962 (16384) | 0.711 (16384) | 0.964 (16384) |
+| scene | labels / serial | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ | 6/6, ✅ |
+| document | items / qty+price / total / invoice | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ | 5/5, 5/5, ✅, ✅ |
+| document | name_bbox IoU | 0.774 (16384) | 0.750 (16384) | 0.819 (16384) | 0.751 (16384) |
+| fine text | 22/16/12/9/7 px | 4/4/4/4/0 (16384) | 4/4/4/3/3 (16384) | 0/0/0/0/0 (16384) | 4/4/4/4/3 (16384) |
+| multi (3 img) | q1 / q2 / q4-bbox / chart | capped (131072) | ✅ ✅ ✅ 5/5 (16384) | ❌ ❌ ❌ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| multi (3 img, anchored) | q1 / q2 / q4-bbox / chart | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) | ✅ ✅ ✅ 5/5 (16384) |
+| throughput | gen tok/s | 20 | 19 | 23 | 12 |
+| throughput | prefill tok/s | 5138 | 1649 | 4915 | 2089 |
+| latency | s/req (unique image) | 18.4 | 30.0 | 16.4 | 45.5 |
+| latency | req/h (serial) | 196 | 120 | 220 | 79 |
+
+Provenance (from score files): host(s) http://127.0.0.1:11436, http://127.0.0.1:11437 · build(s) 0.35.0-dynres-27-g948ef3a, 0.40.2-dynres-0-g5623192 ⚠ MIXED — columns are not one campaign
+
+**Reading it:**
+- **Document extraction:** a tie, and glimmer boxes the document's names slightly better.
+- **Scene boxes:** glimmer's clear weakness so far, at 0.83 (MLX) and 0.71 (GGUF) against gemma4's 0.96.
+- **Fine text on MLX:** glimmer reads 9 px, which gemma4 misses, but nothing at 7 px.
+- **Speed:** glimmer is much faster to first answer, with about 3x the prefill rate and 18 s against 30 s per request on MLX. These are single runs (n=1): a lead for phase 5, not a result.
+
+**Not glimmer's own score:** several of glimmer's cells take the format + think-off path that #464 fixes.
+- **GGUF fine text:** the reply was `{"codes": []}<|eot|>`, an empty answer forced by the grammar binding before the header.
+- **MLX `multi_3img`:** the model wrote its header inside the JSON and then degenerated.
+- **What to compare instead:** the think-off suite re-run on #464's build (`rglfix_`) gives the comparison to read against gemma4. It is queued behind phases 3-5.
+
+**Columns:** the generator flags them as MIXED. gemma4's cells ran on the fold's interim build (`0.35.0-dynres-27-g948ef3a`, the
+fold's tree), glimmer's on the release build.
 
 ## Changes in this branch
 
