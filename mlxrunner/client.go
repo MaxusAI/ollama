@@ -581,11 +581,18 @@ func (c *Client) admit(systemInfo ml.SystemInfo, gpus []ml.DeviceInfo, requireFu
 	numCtx := int(c.softContextLength.Load())
 	need, kv, headroom, est := c.needFor(weights, numCtx)
 	if !est.Known {
-		// No cache rule for this architecture. Fall back to exactly what
-		// admission did before the estimator existed rather than guessing: a
-		// wrong estimate refuses loads that would have served.
-		slog.Warn("MLX admission is pricing weights only: no KV rule for this architecture",
-			"architecture", est.Arch, "model", c.modelName, "num_ctx", numCtx)
+		// No cache rule for this architecture, or a config.json the estimator
+		// cannot read. Fall back to exactly what admission did before the
+		// estimator existed rather than guessing: a wrong estimate refuses
+		// loads that would have served. Say which, since an unreadable config
+		// has no architecture to name.
+		if est.Err != nil {
+			slog.Warn("MLX admission is pricing weights only: config.json does not parse",
+				"model", c.modelName, "num_ctx", numCtx, "error", est.Err)
+		} else {
+			slog.Warn("MLX admission is pricing weights only: no KV rule for this architecture",
+				"architecture", est.Arch, "model", c.modelName, "num_ctx", numCtx)
+		}
 	}
 
 	// An automatic rung was never asked for: it is Ollama's VRAM-tier default
