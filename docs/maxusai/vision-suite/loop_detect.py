@@ -1,7 +1,8 @@
 """Loop detection for streamed model output: a repeating thinking trace, a repeating answer, or a run of one token.
 
-Stdlib only, so the same file serves this vision suite, ai-invoice-to-xero's ollama_toolkit and the structured-docs
-backend (one implementation, three copies kept identical; see ADR 0049).
+Stdlib only, so one file serves three codebases, kept byte-identical: MaxusAI/ollama's vision suite
+(docs/maxusai/vision-suite/loop_detect.py, ADR 0049), ai-invoice-to-xero's ollama_toolkit
+(packages/ollama_toolkit/loop_detect.py) and maxusai-structured-docs-backend's repair client.
 
 A greedy (temperature 0) decode that starts repeating itself verbatim does not recover: the same context produces the
 same continuation. Waiting for num_predict, or climbing a context ladder after the length stop, spends the rest of the
