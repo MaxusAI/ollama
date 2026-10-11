@@ -1845,6 +1845,7 @@ def main():
         # so this is copied only when the server actually said something.
         if r.get("done_reason"):
             sc["done_reason"] = r["done_reason"]
+        sc.update(client.loop_fields(r))
         sc.update(sc_chars)
         # SPEC C13: a conformance rate is scoped to the geometry it was measured
         # at and MUST be quoted with it. Recorded on the cell for the same

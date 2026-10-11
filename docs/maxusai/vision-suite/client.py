@@ -31,6 +31,7 @@ import time
 import urllib.error
 import urllib.request
 
+import loop_detect
 from sampling import sampling_for
 
 DIR = os.path.dirname(os.path.abspath(__file__))
@@ -161,6 +162,69 @@ def context_error(e, num_predict, num_ctx):
     return RuntimeError(f"HTTP {e.code}: {body[:200]}")
 
 
+def loop_detect_on():
+    """LOOP_DETECT=1 streams every request through loop_detect.LoopDetector (ADR 0049). Off by default: a stream
+    and a single response measure the same generation, but a campaign that turns detection on must say so (it is
+    stamped as _stream / _loop_detect on every block), and a cancelled loop is a different record from a capped one."""
+    return os.environ.get("LOOP_DETECT", "") in ("1", "true", "on", "yes")
+
+
+def _read_stream(resp, ep, tmo):
+    """Read a streamed /api/chat or /api/generate response into the shape stream:false returns, feeding a
+    LoopDetector as it goes.
+
+    A loop is a VERDICT, not an error: the connection is closed (which cancels the generation server-side) and the
+    partial output comes back as a finished response with done_reason "loop" and failure_mode
+    "loop detected:<kind>", so the suite scores what was produced, as it scores a capped answer. Finished, it is
+    neither re-run on resume (arm_done) nor escalated (capped_arms): the same greedy decode loops identically at
+    every rung. The server never sent its final metrics, so eval_count is the number of streamed chunks (one per
+    token on both runners) and the durations are None. A whole generation that outlasts tmo raises the
+    blown-budget timeout, as a stream:false read did."""
+    det = loop_detect.LoopDetector()
+    thinking, content, final, chunks = [], [], None, 0
+    t0 = time.monotonic()
+    for raw in resp:
+        if not raw.strip():
+            continue
+        chunk = json.loads(raw)
+        if chunk.get("error"):
+            raise RuntimeError(f"stream error: {chunk['error']}")
+        if ep == "chat":
+            msg = chunk.get("message") or {}
+            th, co = msg.get("thinking") or "", msg.get("content") or ""
+        else:
+            th, co = chunk.get("thinking") or "", chunk.get("response") or ""
+        if th:
+            thinking.append(th)
+        if co:
+            content.append(co)
+        if chunk.get("done"):
+            final = chunk
+            break
+        chunks += 1
+        loop = det.feed(thinking=th, content=co)
+        if loop:
+            resp.close()
+            final = {"done": True, "done_reason": "loop", "failure_mode": loop.failure_mode(),
+                     "eval_count": chunks, "eval_duration": None, "prompt_eval_count": None,
+                     "prompt_eval_duration": None, "total_duration": None, "load_duration": None,
+                     "_loop": dict(loop.record(), loop_chunks=chunks)}
+            break
+        if time.monotonic() - t0 > tmo:
+            resp.close()
+            raise TimeoutError()
+    if final is None:
+        raise ConnectionError("stream ended without a final chunk")
+    th, co = "".join(thinking), "".join(content)
+    if ep == "chat":
+        final["message"] = dict(final.get("message") or {}, role="assistant", content=co, thinking=th)
+    else:
+        final["response"], final["thinking"] = co, th
+    final["_stream"] = True
+    final["_loop_detect"] = dict(det.params)
+    return final
+
+
 def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
              fmt="json", extra_opts=None, endpoint_override=None,
              think=None, apply_sampling=True, timeout=None,
@@ -244,7 +308,8 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
     if extra_opts:
         opts.update(extra_opts)
 
-    payload = {"model": model, "stream": False, "options": opts}
+    stream = loop_detect_on()
+    payload = {"model": model, "stream": stream, "options": opts}
     # raw skips the chat template on /api/generate. token_split.py's --server
     # mode counts prompt_eval_count of bare text, and a template wrapper would
     # add tokens that belong to the template, not the text. Inert unless set
@@ -328,7 +393,8 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
         req = urllib.request.Request(url, data=body,
                                      headers={"Content-Type": "application/json"})
         try:
-            r = json.load(urllib.request.urlopen(req, timeout=tmo))
+            resp = urllib.request.urlopen(req, timeout=tmo)
+            r = _read_stream(resp, ep, tmo) if stream else json.load(resp)
             break
         except urllib.error.HTTPError as e:
             if e.code in (502, 503, 504) and attempt < len(RETRY_BACKOFF):
@@ -449,6 +515,21 @@ def capture_stamps(r, model, tag, powermode=None, cold_start=None):
     if "_prompt_cache_ram" in r:
         st["req_prompt_cache_ram"] = r["_prompt_cache_ram"]
     return st
+
+
+def loop_fields(r):
+    """Loop-detection capture for a block, identical for every producer (ADR 0049). A streamed request records that
+    detection ran and with which parameters, so a block measured with it is never mistaken for one without; a loop
+    adds its verdict (failure_mode "loop detected:<kind>") and the loop's own fields. A stream:false request adds
+    nothing, so older blocks and LOOP_DETECT-off campaigns keep their shape."""
+    f = {}
+    if r.get("_stream"):
+        f["stream"] = True
+        f["loop_detect"] = r.get("_loop_detect")
+    if r.get("failure_mode"):
+        f["failure_mode"] = r["failure_mode"]
+        f.update(r.get("_loop") or {})
+    return f
 
 
 def metrics_block(r):
