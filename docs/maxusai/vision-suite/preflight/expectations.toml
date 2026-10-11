@@ -731,7 +731,7 @@ expect_patch_marker = 1
 # built and taken, which is what the field claims. The A/B ratio (2.20x dense,
 # 1.69x MoE on b11081) is 0-34-4's number, not this payload's.
 expect_metal_tensor_api = true
-arches = ["gemma4", "gemma4_unified", "qwen35moe", "qwen35"]
+arches = ["gemma4", "gemma4_unified", "qwen35moe", "qwen35", "muse-glimmer"]
 notes = """
 Successor to mlx-metal-0-34-4 after the v0.40.2 fold (#460).
 Every ladder below was re-measured on 0.35.0-dynres-27-g948ef3a (948ef3aab, the
@@ -753,6 +753,10 @@ APFS clone of production's (#460). The four arches below are MLX safetensors and
 are not converted; the clone does not change what they load.
 aspect_ladder and the think_format probes are carried from 0-34-4 unchanged and
 run live on every preflight.
+MUSE-GLIMMER (added 2026-10-11, #463) is MEASURED, not carried: a new arch on this
+payload, its ladder taken by measure_ladder.py on production's own release build
+(0.40.2-dynres-0-g5623192) on :11437. It has no aspect_ladder and no pinned row:
+neither was measured, and both checks skip when the field is absent.
 """
 
 [profiles.metal-0-32-14]
@@ -772,6 +776,36 @@ Successor to the 0.32.5 `metal` profile. Ladders RE-MEASURED on b10434, not
 carried over; both reproduce their 0.32.5 values exactly, which is the result
 rather than the method. Which stack serves is decided by the model tag —
 q4_K_M/q8 route to llama-server even when OLLAMA_MODELS points at the MLX store.
+"""
+
+[profiles.metal-0-40-2]
+platform = "metal"
+# The GGUF/Metal half of Apple Silicon on the v0.40.2 payload (llama.cpp b11351,
+# 631109b34). Like metal-0-32-14 before it, the llama.cpp path had no profile for
+# the build production serves: --platform metal exited 2 on 0.40.2-dynres while
+# mlx-metal-0-40-2 resolved. Same binary, same host, one stack gated and the other
+# not. The payload is the one mlx-metal-0-40-2 pins, so its version pattern and
+# llama_cpp_build are the same.
+version_pattern = '^0\.40\.2-dynres-\d+-g[0-9a-f]{7,40}$'
+llama_cpp_build = "631109b34"
+# The compat series as llama/compat applies it to b11351 (#460): every patch
+# applies to the source tree; 903 and 908 touch CUDA files only, which a Metal
+# payload does not compile. Reported in the run's meta, not asserted per patch.
+patchset = ["001", "002", "004", "005", "801", "802", "805", "903", "908"]
+reference_image = "native macOS build — no container"
+expect_patch_marker = 1
+arches = ["muse-glimmer"]
+notes = """
+Opened 2026-10-11 for muse-glimmer's GGUF tags (#463), the first arch measured on
+the llama.cpp path at 0.40.2. Only what was measured is listed: gemma4 and
+qwen35moe GGUF rows on this payload have not been taken and are not carried from
+metal-0-32-14 (a payload move is a new measurement, ADR 0011).
+muse-glimmer's ladder below is byte-identical to its mlx-metal-0-40-2 row: both
+runners size a glimmer image with the same aspect-preserving 28-pixel grid capped
+at 4096 tokens (mlxrunner/model/glimmer/media.go; llama.cpp clip.cpp
+PROJECTOR_TYPE_MUSE_GLIMMER). The fork passes glimmer no --image-*-tokens flags
+(custom_bounds = []), so the budget is llama.cpp's own 1..4096, read from the
+load_hparams line.
 """
 
 [profiles.mlx-cuda]
@@ -2509,6 +2543,34 @@ require_nonempty_thinking = true
 # ~4x headroom and an empty response here means the fix regressed, not that the
 # budget is short.
 
+
+[expect.metal-0-40-2.muse-glimmer]
+status = "measured"
+measured_on = "2026-10-11"
+model = "muse-glimmer:30b"
+patch_stride = 28
+budget_min_tokens = 1
+budget_max_tokens = 4096
+image_min_pixels = 784
+image_max_pixels = 3211264
+custom_bounds = []   # only these are set by our flags
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 59, text_only == 59; measured with image_prefix (B8), not text_baseline
+ladder = [47, 182, 779, 2995, 4082]
+
+[expect.metal-0-40-2.muse-glimmer.think_format]
+# As the MLX row's. Think on, so this path is not the one #464 fixes (format with
+# thinking OFF leaked <|eot|> on GGUF); with thinking on both builds return clean
+# JSON.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
 [expect.mlx-metal-0-32-14.gemma4.think_format]
 num_predict = 4000
 require_nonempty_response = true
@@ -3200,6 +3262,40 @@ require_nonempty_thinking = true
 [expect.mlx-metal-0-40-2.qwen35.think_format]
 # Carried from mlx-metal-0-34-4 unchanged, and run live against the fold's
 # default flow (single pass; OLLAMA_FORMAT_TWO_PASS=1 restores two-pass).
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.mlx-metal-0-40-2.muse-glimmer]
+status = "measured"
+measured_on = "2026-10-11"
+model = "muse-glimmer:30b-nvfp4"
+patch_stride = 28
+# Not observable: the native MLX path emits no load_hparams line. These are the Go
+# sizing constants the ladder exercises -- mlxrunner/model/glimmer/media.go:
+# maxImageTokens = 4096, and computeImageSize never upscales, so one token is the
+# floor -- and they equal what llama.cpp logs for the same model's GGUF
+# (metal-0-40-2). patch_stride = vision_patch_size 14 x vision_downsample_factor 2.
+budgets_observed = false
+budget_min_tokens = 1
+budget_max_tokens = 4096
+image_min_pixels = 784
+image_max_pixels = 3211264
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 59, text_only == 59; measured with image_prefix (B8), not text_baseline
+ladder = [47, 182, 779, 2995, 4082]
+
+[expect.mlx-metal-0-40-2.muse-glimmer.think_format]
+# The family's schema and allowance. glimmer's default level is "high"; measured
+# 2026-10-11 it closes its thinking well inside 4000 (about 1100 chars of thinking
+# on the smoke's schema), under production's OLLAMA_FORMAT_TWO_PASS=1 and in
+# single pass alike.
 schema.type = "object"
 schema.required = ["facts"]
 schema.properties.facts.type = "array"
