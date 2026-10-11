@@ -368,3 +368,89 @@ func TestGenerateThinkFormatLength(t *testing.T) {
 	}
 	checkPassedThroughMetrics(t, resp.Metrics)
 }
+
+// TestThinkFormatGlimmerThinkingOff pins a format request with thinking off on
+// glimmer in BOTH modes. Glimmer's response never starts in content -- the
+// prompt ends at "<|start|>assistant" and the model writes a recipient and
+// <|message|> first, often after a to=self message it writes anyway -- so the
+// format must wait for that header in single pass and in the two-pass rollback
+// alike. Two-pass has no thinking pass to defer with thinking off, so it sends
+// the same one call with the same closings; before it did, OLLAMA_FORMAT_TWO_PASS=1
+// bound the format from the first token and muse-glimmer:30b returned
+// `{...}<|eot|>`. Every output shape must come back as the bare JSON.
+func TestThinkFormatGlimmerThinkingOff(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stream := false
+	off := &api.ThinkValue{Value: false}
+	closings := []string{" to=user<|message|>", "<|start|>assistant<|message|>"}
+	const answer = `{"answer":"42"}`
+	outputs := map[string]string{
+		"header":                ` to=user<|message|>` + answer + `<|eot|>`,
+		"thinks anyway":         ` to=self<|message|>Check the facts.<|eom|><|start|>assistant to=user<|message|>` + answer + `<|eot|>`,
+		"thinks, no recipient":  ` to=self<|message|>Check the facts.<|eom|><|start|>assistant<|message|>` + answer + `<|eot|>`,
+		"no header (fumbled)":   answer + `<|eot|>`,
+		"no header, end of msg": answer + `<|eom|>`,
+	}
+
+	for _, mode := range []struct{ name, env string }{{"single pass", ""}, {"two pass", "1"}} {
+		for shape, output := range outputs {
+			t.Run(mode.name+"/chat/"+shape, func(t *testing.T) {
+				t.Setenv("OLLAMA_FORMAT_TWO_PASS", mode.env)
+				mock := &mockRunner{}
+				s := setupImplicitThinkingModel(t, mock, "glimmer-off-chat", "glimmer")
+				requests := recordCompletions(mock, llm.DoneReasonStop, output)
+				w := createRequest(t, s.ChatHandler, api.ChatRequest{
+					Model:    "glimmer-off-chat",
+					Messages: []api.Message{{Role: "user", Content: "Answer in JSON."}},
+					Think:    off,
+					Format:   thinkFormatSchema,
+					Stream:   &stream,
+				})
+				if w.Code != http.StatusOK {
+					t.Fatalf("status %d: %s", w.Code, w.Body.String())
+				}
+				checkOneFormattedCall(t, requests(), closings)
+				var resp api.ChatResponse
+				if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+					t.Fatal(err)
+				}
+				if resp.Message.Content != answer {
+					t.Errorf("content = %q, want %q", resp.Message.Content, answer)
+				}
+				if resp.Message.Thinking != "" {
+					t.Errorf("thinking = %q, want none with thinking off", resp.Message.Thinking)
+				}
+				checkPassedThroughMetrics(t, resp.Metrics)
+			})
+
+			t.Run(mode.name+"/generate/"+shape, func(t *testing.T) {
+				t.Setenv("OLLAMA_FORMAT_TWO_PASS", mode.env)
+				mock := &mockRunner{}
+				s := setupImplicitThinkingModel(t, mock, "glimmer-off-gen", "glimmer")
+				requests := recordCompletions(mock, llm.DoneReasonStop, output)
+				w := createRequest(t, s.GenerateHandler, api.GenerateRequest{
+					Model:  "glimmer-off-gen",
+					Prompt: "Answer in JSON.",
+					Think:  off,
+					Format: thinkFormatSchema,
+					Stream: &stream,
+				})
+				if w.Code != http.StatusOK {
+					t.Fatalf("status %d: %s", w.Code, w.Body.String())
+				}
+				checkOneFormattedCall(t, requests(), closings)
+				var resp api.GenerateResponse
+				if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+					t.Fatal(err)
+				}
+				if resp.Response != answer {
+					t.Errorf("response = %q, want %q", resp.Response, answer)
+				}
+				if resp.Thinking != "" {
+					t.Errorf("thinking = %q, want none with thinking off", resp.Thinking)
+				}
+				checkPassedThroughMetrics(t, resp.Metrics)
+			})
+		}
+	}
+}
