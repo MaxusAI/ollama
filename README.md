@@ -171,6 +171,24 @@ decision and its measurements live (`docs/maxusai/`). The
 | **bounding-box protocol** | requests pin **norm-1000** and carry a self-calibrating anchor, so the model's internal resize cannot contaminate coordinates: **111 of 112** cells convert cleanly across 14 geometries × 4 models × 2 think modes. A protocol and its measurements, not a runtime change | ADR 0027/0030 |
 | **fork identity** | builds stamped `<upstream>-dynres-<n>-g<sha>`, a tag per fold, release notes carrying the generated matrix | ADR 0032 |
 
+### Request options, and what each does to the runner
+
+Set per request (`options` on `/api/chat` and `/api/generate`) or per model (a Modelfile `PARAMETER`, or the
+params a tag ships); the request wins. On the llama.cpp runner each is a launch flag, so a value that changes how
+llama-server would start reloads the model. The MLX scheduler reloads only on `num_ctx`.
+
+| option | from | llama.cpp (GGUF) | MLX | reloads |
+|---|---|---|---|---|
+| `num_ctx` | upstream | `-c` | the KV the admission prices | yes, both |
+| `image_min_tokens`, `image_max_tokens` | fork | `--image-min-tokens` / `--image-max-tokens` for gemma4 (filled and snapped to its 70–1120 ladder) and nemotron_h_omni; the qwen VL family always gets a minimum of 1024; every other arch ignores them, muse-glimmer included (its projector caps an image at 4096) | per request: gemma4, qwen3.5 and nemotron_h honour both; muse-glimmer honours the maximum only, and reads 1120 (the default) as unset, so 4096 | GGUF: when the resolved flags change |
+| `kv_cache_type` | fork | `--cache-type-k` / `--cache-type-v`; a `K/V` pair sets them apart | not read | GGUF: yes |
+| `prompt_cache_ram` | fork | `--cache-ram` in MiB; `0` turns llama.cpp's 8192 MiB host-RAM prompt cache off | not read | GGUF: yes |
+| `draft_num_predict` | upstream | `--spec-draft-n-max` when the model has a drafter (a separate draft defaults to 4; muse-glimmer's `-dflash` tags ship 3); `0` turns drafting off | not read: the runner drafts whenever the model carries a drafter, at a depth it adapts itself | GGUF: yes |
+
+Server-wide, with no per-request form: `OLLAMA_FORMAT_TWO_PASS`, `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR`,
+`OLLAMA_KV_CACHE_TYPE` (the default `kv_cache_type`) and `OLLAMA_MLX_MEMORY_LIMIT`. Production's values are in the
+banner above.
+
 ### MLX runtime — experimental, and slower on CUDA
 
 It works. Models load, stay resident and generate correct output on both
