@@ -2608,10 +2608,11 @@ func TestSchedNeedsReloadImageTokenBudget(t *testing.T) {
 	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
-	// The image-token bounds are shared options carrying gemma4's defaults, so
-	// an arch that substitutes its own native bounds for the sentinel launches
-	// identical flags whether the caller left them alone or named them. Only a
-	// budget that changes the flags may reload the runner.
+	// The loaded runner left its budget unset, which the server sends as 0/0
+	// (modelOptionsWithEmbeddingBatchDefault). An arch resolves 0 to its own
+	// native bounds, so a request that names those bounds launches identical
+	// flags and must not reload; only a budget that changes the flags may --
+	// gemma4's 70/1120 included, which on nemotron is now a budget of its own.
 	for _, tc := range []struct {
 		name       string
 		family     string
@@ -2620,10 +2621,16 @@ func TestSchedNeedsReloadImageTokenBudget(t *testing.T) {
 		wantReload bool
 	}{
 		{
-			name:   "nemotron explicit native bounds match the unset sentinel",
+			name:   "nemotron explicit native bounds match an unset load",
 			family: "nemotron_h_omni",
 			minTok: 256, maxTok: 3328,
 			wantReload: false,
+		},
+		{
+			name:   "nemotron explicit 70/1120 is a different launch and reloads",
+			family: "nemotron_h_omni",
+			minTok: api.DefaultImageMinTokens, maxTok: api.DefaultImageMaxTokens,
+			wantReload: true,
 		},
 		{
 			name:   "nemotron genuinely different ceiling reloads",
@@ -2652,6 +2659,7 @@ func TestSchedNeedsReloadImageTokenBudget(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			do := api.DefaultOptions()
+			do.ImageMinTokens, do.ImageMaxTokens = 0, 0 // an unset load, as the server sends it
 			runner := &runnerRef{
 				model:       &Model{Config: model.ConfigV2{ModelFamily: tc.family}},
 				Options:     &do,

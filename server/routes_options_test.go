@@ -3,6 +3,7 @@ package server
 import (
 	"testing"
 
+	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/llm"
 	"github.com/ollama/ollama/types/model"
 )
@@ -315,6 +316,41 @@ func TestUsesAutomaticNumBatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := usesAutomaticNumBatch(&Model{Options: tt.modelOpts}, tt.requestOpts); got != tt.want {
 				t.Fatalf("usesAutomaticNumBatch = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestModelOptionsImageBudgetUnsetIsZero: api.DefaultOptions carries gemma4's
+// 70/1120 ladder, so before this an unset image budget and an explicit 70 or
+// 1120 reached the runners as the same values, and the runners whose own
+// bounds differ (nemotron_h on both paths, muse-glimmer and qwen3.5 on MLX)
+// had to read 70/1120 as "unset". An explicit 1120 was therefore not
+// expressible there: muse-glimmer:30b-nvfp4 sized a 2048x2048 image at 4096
+// tokens under image_max_tokens=1120, and at 1091 under 1119 or 1121
+// (2026-10-11). Unset now reaches the runners as 0, which every resolver
+// already reads as "the model's own", and any explicit value is honoured.
+func TestModelOptionsImageBudgetUnsetIsZero(t *testing.T) {
+	for _, tt := range []struct {
+		name             string
+		model            *Model
+		requestOpts      map[string]any
+		wantMin, wantMax int
+	}{
+		{name: "unset reaches the runner as the model's own", model: &Model{}, wantMin: 0, wantMax: 0},
+		{name: "an explicit 1120 is kept", model: &Model{}, requestOpts: map[string]any{"image_max_tokens": float64(1120)}, wantMin: 0, wantMax: 1120},
+		{name: "an explicit 70 is kept", model: &Model{}, requestOpts: map[string]any{"image_min_tokens": float64(70)}, wantMin: 70, wantMax: 0},
+		{name: "a Modelfile value counts as set", model: &Model{Options: map[string]any{"image_max_tokens": float64(560)}}, wantMin: 0, wantMax: 560},
+		{name: "the request overrides the Modelfile", model: &Model{Options: map[string]any{"image_max_tokens": float64(560)}}, requestOpts: map[string]any{"image_max_tokens": float64(1120)}, wantMin: 0, wantMax: 1120},
+		{name: "no model: the api defaults stand", model: nil, wantMin: api.DefaultImageMinTokens, wantMax: api.DefaultImageMaxTokens},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := (&Server{}).modelOptions(tt.model, tt.requestOpts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if opts.ImageMinTokens != tt.wantMin || opts.ImageMaxTokens != tt.wantMax {
+				t.Fatalf("image budget = %d/%d, want %d/%d", opts.ImageMinTokens, opts.ImageMaxTokens, tt.wantMin, tt.wantMax)
 			}
 		})
 	}
