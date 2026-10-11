@@ -454,3 +454,119 @@ func TestThinkFormatGlimmerThinkingOff(t *testing.T) {
 		}
 	}
 }
+
+// TestThinkFormatGlimmerTwoPassThinkingOn pins pass two of the two-pass
+// rollback on glimmer with thinking on. Pass one is cut at the first content;
+// the server re-renders the thinking as a to=self message, and that prompt
+// ends at "<|start|>assistant" like any glimmer prompt. Pass two binds the
+// format from its first token, so the header has to be in the prompt: without
+// it the model cannot write " to=user<|message|>", and 30b-mxfp8 (MLX, release
+// 0.40.2, OLLAMA_FORMAT_TWO_PASS=1) answered 6 of 14 suite cases with the prompt
+// echoed as JSON ({"user": "You are a ...), 3 of them looping. Harmony has the
+// same prefill for the same reason.
+func TestThinkFormatGlimmerTwoPassThinkingOn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("OLLAMA_FORMAT_TWO_PASS", "1")
+	stream := false
+	const answer = `{"answer":"42"}`
+	passOne := []string{" to=self<|message|>Check the facts.<|eom|><|start|>assistant to=user<|message|>", `{"ans`}
+	passTwo := []string{answer + "<|eot|>"}
+
+	record := func(mock *mockRunner) func() []llm.CompletionRequest {
+		var (
+			mu       sync.Mutex
+			requests []llm.CompletionRequest
+		)
+		mock.CompletionFn = func(ctx context.Context, r llm.CompletionRequest, fn func(llm.CompletionResponse)) error {
+			mu.Lock()
+			requests = append(requests, r)
+			n := len(requests)
+			mu.Unlock()
+			chunks := passOne
+			if n > 1 {
+				chunks = passTwo
+			}
+			for _, c := range chunks {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				fn(llm.CompletionResponse{Content: c})
+			}
+			final := thinkFormatMetrics
+			final.Done, final.DoneReason = true, llm.DoneReasonStop
+			fn(final)
+			return nil
+		}
+		return func() []llm.CompletionRequest {
+			mu.Lock()
+			defer mu.Unlock()
+			return slices.Clone(requests)
+		}
+	}
+	checkPassTwo := func(t *testing.T, requests []llm.CompletionRequest) {
+		t.Helper()
+		if len(requests) != 2 {
+			t.Fatalf("got %d completion calls, want 2 (pass one unconstrained, pass two formatted)", len(requests))
+		}
+		if requests[0].Format != nil {
+			t.Errorf("pass one Format = %s, want none", requests[0].Format)
+		}
+		if got := string(requests[1].Format); got != string(thinkFormatSchema) {
+			t.Errorf("pass two Format = %s, want %s", got, thinkFormatSchema)
+		}
+		if !strings.HasSuffix(requests[1].Prompt, "<|start|>assistant to=user<|message|>") &&
+			!strings.HasSuffix(requests[1].Prompt, " to=user<|message|>") {
+			t.Errorf("pass two prompt ends %q, want the answer's header \" to=user<|message|>\"",
+				requests[1].Prompt[max(0, len(requests[1].Prompt)-60):])
+		}
+	}
+
+	t.Run("chat", func(t *testing.T) {
+		mock := &mockRunner{}
+		s := setupImplicitThinkingModel(t, mock, "glimmer-on-chat", "glimmer")
+		requests := record(mock)
+		w := createRequest(t, s.ChatHandler, api.ChatRequest{
+			Model:    "glimmer-on-chat",
+			Messages: []api.Message{{Role: "user", Content: "Answer in JSON."}},
+			Format:   thinkFormatSchema,
+			Stream:   &stream,
+		})
+		if w.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", w.Code, w.Body.String())
+		}
+		checkPassTwo(t, requests())
+		var resp api.ChatResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.Message.Content != answer {
+			t.Errorf("content = %q, want %q", resp.Message.Content, answer)
+		}
+		if resp.Message.Thinking != "Check the facts." {
+			t.Errorf("thinking = %q, want pass one's to=self message", resp.Message.Thinking)
+		}
+	})
+
+	t.Run("generate", func(t *testing.T) {
+		mock := &mockRunner{}
+		s := setupImplicitThinkingModel(t, mock, "glimmer-on-gen", "glimmer")
+		requests := record(mock)
+		w := createRequest(t, s.GenerateHandler, api.GenerateRequest{
+			Model:  "glimmer-on-gen",
+			Prompt: "Answer in JSON.",
+			Format: thinkFormatSchema,
+			Stream: &stream,
+		})
+		if w.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", w.Code, w.Body.String())
+		}
+		checkPassTwo(t, requests())
+		var resp api.GenerateResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.Response != answer {
+			t.Errorf("response = %q, want %q", resp.Response, answer)
+		}
+	})
+}

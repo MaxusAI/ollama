@@ -1099,12 +1099,9 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 						ch <- gin.H{"error": err.Error()}
 						return
 					}
-					// force constraining by terminating the thinking header; the
-					// harmony renderer cannot otherwise disambiguate between
-					// continuing to think and answering now.
-					if shouldUseHarmony(m) || (builtinParser != nil && m.Config.Parser == "harmony") {
-						prompt += "<|end|><|start|>assistant<|channel|>final<|message|>"
-					}
+					// force constraining by opening the answer's header; see
+					// formatContinuationHeader.
+					prompt += formatContinuationHeader(m, builtinParser)
 					contextPrompt = prompt
 					sb.Reset()
 				}
@@ -3196,6 +3193,27 @@ func thinkingCloseForRequest(twoPass, forceImmediate bool, builtinParser parsers
 	return thinkingCloseForCompletion(builtinParser, thinkTagParser)
 }
 
+// formatContinuationHeader is what two-pass appends to pass two's prompt
+// before it binds the format from the first token. A model whose answer opens
+// with a header the format cannot express needs that header in the prompt:
+//   - harmony: the re-rendered thinking cannot say whether the model continues
+//     thinking or answers, so the prompt closes it and opens the final channel.
+//   - glimmer: the prompt ends at "<|start|>assistant" (as every glimmer prompt
+//     does) and the answer opens with " to=user<|message|>". Without it pass two
+//     wrote JSON where the recipient goes: muse-glimmer:30b-mxfp8 echoed the
+//     prompt as {"user": "You are a ..."} in 6 of 14 vision-suite cases.
+//
+// Every other model's re-rendered prompt already ends where the answer starts.
+func formatContinuationHeader(m *Model, builtinParser parsers.Parser) string {
+	if shouldUseHarmony(m) || (builtinParser != nil && m.Config.Parser == "harmony") {
+		return "<|end|><|start|>assistant<|channel|>final<|message|>"
+	}
+	if _, ok := builtinParser.(*parsers.GlimmerParser); ok {
+		return " to=user<|message|>"
+	}
+	return ""
+}
+
 func thinkingCloseForCompletion(builtinParser parsers.Parser, thinkTagParser *thinkingparser.Parser) []string {
 	if builtinParser != nil {
 		return builtinParser.ThinkingClose()
@@ -4022,13 +4040,10 @@ func (s *Server) ChatHandler(c *gin.Context) {
 					ch <- gin.H{"error": err.Error()}
 					return
 				}
-				// force constraining by terminating thinking header, the parser is already at this state
-				// when the last message is thinking, the rendered for gpt-oss cannot disambiguate between having the
-				// model continue thinking or ending thinking and outputting the final message.
+				// force constraining by opening the answer's header, the parser is already at this state;
+				// see formatContinuationHeader.
 				// TODO(parthsareen): consider adding prefill disambiguation logic to the renderer for structured outputs.
-				if shouldUseHarmony(m) || (builtinParser != nil && m.Config.Parser == "harmony") {
-					prompt += "<|end|><|start|>assistant<|channel|>final<|message|>"
-				}
+				prompt += formatContinuationHeader(m, builtinParser)
 
 				// The continuation re-submits the thinking as prompt. If that
 				// no longer fits the context window, there is no room to
