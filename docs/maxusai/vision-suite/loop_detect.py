@@ -28,6 +28,7 @@ whole buffer on every chunk.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 THINKING = "thinking"
 CONTENT = "content"
@@ -49,12 +50,12 @@ class Loop:
     period: int  # chars per repetition (block loops) or 0 (token-run)
     repeats: int  # copies seen (block) or run length (token-run)
     snippet: str  # one period of the loop (or the repeated chunk), truncated for logs
-    params: dict = field(default_factory=dict)
+    params: dict[str, int] = field(default_factory=dict)
 
     def failure_mode(self) -> str:
         return f"loop detected:{self.kind}"
 
-    def record(self) -> dict:
+    def record(self) -> dict[str, Any]:
         """Flat fields for a result record: everything a reader needs to see the loop without the stream."""
         return {
             "loop": self.failure_mode(),
@@ -81,11 +82,13 @@ class _Stream:
     # `pending` and are joined at each check: appending to a str attribute copies the whole buffer per chunk.
     __slots__ = ("buf", "checked", "last_tok", "name", "pending", "run", "total")
 
-    def __init__(self, name):
-        self.name, self.buf, self.pending, self.total = name, "", [], 0
-        self.checked, self.last_tok, self.run = 0, None, 0
+    def __init__(self, name: str) -> None:
+        self.name, self.buf, self.total = name, "", 0
+        self.pending: list[str] = []
+        self.checked, self.run = 0, 0
+        self.last_tok: str | None = None
 
-    def text(self, keep):
+    def text(self, keep: int) -> str:
         if self.pending:
             self.buf = (self.buf + "".join(self.pending))[-keep:]
             self.pending = []
@@ -97,13 +100,13 @@ class LoopDetector:
 
     def __init__(
         self,
-        window=LOOP_CHECK_WINDOW,
-        min_length=LOOP_MIN_LENGTH,
-        min_repeats=MIN_REPEATS,
-        token_run=TOKEN_RUN_LEN,
-        check_every=CHECK_EVERY,
-        lookback=LOOKBACK,
-    ):
+        window: int = LOOP_CHECK_WINDOW,
+        min_length: int = LOOP_MIN_LENGTH,
+        min_repeats: int = MIN_REPEATS,
+        token_run: int = TOKEN_RUN_LEN,
+        check_every: int = CHECK_EVERY,
+        lookback: int = LOOKBACK,
+    ) -> None:
         if min_length < window or min_repeats < 2 or token_run < 2 or lookback < window * min_repeats:
             raise ValueError(
                 "loop_detect: need min_length >= window, min_repeats >= 2, token_run >= 2 and "
@@ -119,16 +122,16 @@ class LoopDetector:
             "lookback": lookback,
         }
         self._streams = {THINKING: _Stream(THINKING), CONTENT: _Stream(CONTENT)}
-        self.loop = None
+        self.loop: Loop | None = None
 
-    def feed(self, thinking: str = "", content: str = ""):
+    def feed(self, thinking: str = "", content: str = "") -> Loop | None:
         if self.loop is None and thinking:
             self.loop = self._add(self._streams[THINKING], thinking)
         if self.loop is None and content:
             self.loop = self._add(self._streams[CONTENT], content)
         return self.loop
 
-    def _add(self, s: _Stream, delta: str):
+    def _add(self, s: _Stream, delta: str) -> Loop | None:
         tok = delta.strip()
         if tok == s.last_tok:
             s.run += 1
@@ -143,7 +146,7 @@ class LoopDetector:
         s.checked = s.total
         return self._block(s)
 
-    def _block(self, s: _Stream):
+    def _block(self, s: _Stream) -> Loop | None:
         buf = s.text(self.lookback)
         n, w = len(buf), self.window
         tail = buf[n - w :]
@@ -159,6 +162,7 @@ class LoopDetector:
                 nearest = pos
             copies += 1
             end = pos + w - 1
+        assert nearest is not None  # min_repeats >= 2, so the loop above found at least one copy
         period = (n - w) - nearest
         return Loop(
             s.name, s.name, s.total, period, copies, buf[n - period :] if period <= w else buf[n - w :], self.params
@@ -187,7 +191,7 @@ def dedup_thinking(thinking: str) -> str:
     complete earlier window in a hash table, so the scan is linear.
     """
     w = LOOP_CHECK_WINDOW
-    seen = {}
+    seen: dict[str, int] = {}
     for i in range(w, len(thinking) - w + 1):
         j = i - w
         seen.setdefault(thinking[j : j + w], j)  # windows wholly inside thinking[:i]
