@@ -64,6 +64,97 @@ func TestGlimmerParserSuppressesThinking(t *testing.T) {
 	}
 }
 
+// TestGlimmerThinkingCloseBoundsContent checks that a format, which applies
+// after the first ThinkingClose string in the generated text, applies to
+// exactly the content the parser returns. With thinking off the model still
+// writes its message header first; a format binding before that header puts
+// the header inside the formatted value, and the parser drops everything up
+// to <|message|>, so a JSON reply lost its first field.
+//
+// Upstream ollama/ollama#18687 (open, a4380a56d), taken as written.
+func TestGlimmerThinkingCloseBoundsContent(t *testing.T) {
+	const content = `{"thoughts":"file the bar","intent":"file"}`
+	for _, tt := range []struct {
+		name   string
+		think  *api.ThinkValue
+		prefix string
+	}{
+		{name: "thinking off", think: &api.ThinkValue{Value: false}, prefix: ` to=user<|message|>`},
+		{name: "thinking off, the model thinks anyway", think: &api.ThinkValue{Value: false}, prefix: ` to=self<|message|>Check the facts.<|eom|><|start|>assistant to=user<|message|>`},
+		{name: "thinking off, thinks, then no recipient", think: &api.ThinkValue{Value: false}, prefix: ` to=self<|message|>Check the facts.<|eom|><|start|>assistant<|message|>`},
+		{name: "thinking on", think: nil, prefix: ` to=self<|message|>Check the facts.<|eom|><|start|>assistant to=user<|message|>`},
+		{name: "thinking on, no recipient", think: &api.ThinkValue{Value: "low"}, prefix: ` to=self<|message|>Check the facts.<|eom|><|start|>assistant<|message|>`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &GlimmerParser{}
+			p.Init(nil, nil, tt.think)
+			raw := tt.prefix + content + `<|eot|>`
+
+			// With no closing string, the format binds from the first token.
+			end := -1
+			closings := p.ThinkingClose()
+			if len(closings) == 0 {
+				end = 0
+			}
+			for _, closing := range closings {
+				if i := strings.Index(raw, closing); i >= 0 && (end < 0 || i+len(closing) < end) {
+					end = i + len(closing)
+				}
+			}
+			if end != len(tt.prefix) {
+				t.Fatalf("format would bind at %d of %q, want %d (where the content starts)", end, raw, len(tt.prefix))
+			}
+
+			got, _, _, err := p.Add(raw, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != content {
+				t.Fatalf("content = %q, want %q", got, content)
+			}
+		})
+	}
+}
+
+// TestGlimmerParserHeaderlessEndTagsAreNotContent covers a response that never
+// writes a message header, which the parser returns as content when it ends.
+// That happens when a format binds from the first token -- every format request
+// with thinking off before the closings above, and still any request whose
+// format reaches the runner without them. <|eot|> and <|eom|> are message
+// boundaries, never text: measured on muse-glimmer:30b (Q4_K_M, llama.cpp),
+// think false + a JSON schema returned `{...}<|eot|>`, which no client parses.
+func TestGlimmerParserHeaderlessEndTagsAreNotContent(t *testing.T) {
+	const content = `{"city":"Paris","population_millions":2.2}`
+	for _, tt := range []struct {
+		name  string
+		think *api.ThinkValue
+		end   string
+	}{
+		{name: "thinking off, end of turn", think: &api.ThinkValue{Value: false}, end: "<|eot|>"},
+		{name: "thinking off, end of message", think: &api.ThinkValue{Value: false}, end: "<|eom|>"},
+		{name: "thinking on, end of turn", think: nil, end: "<|eot|>"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := content + tt.end
+			for split := 0; split <= len(raw); split++ {
+				p := &GlimmerParser{}
+				p.Init(nil, nil, tt.think)
+				a, _, _, err := p.Add(raw[:split], false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				b, _, _, err := p.Add(raw[split:], true)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := a + b; got != content {
+					t.Fatalf("split at %d: content = %q, want %q", split, got, content)
+				}
+			}
+		})
+	}
+}
+
 func TestGlimmerParserStreamingATEMAtEveryBoundary(t *testing.T) {
 	tool := glimmerTestTool("get_weather", map[string]api.ToolProperty{
 		"city": {Type: api.PropertyType{"string"}},
