@@ -71,8 +71,11 @@ string ::=
     "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F]) # escapes
   )* "\""
 number ::= ("-"? ([0-9] | [1-9] [0-9]*)) ("." [0-9]+)? ([eE] [-+]? [0-9]+)?
-# Optional space: by convention, applied in this grammar after literal chars when allowed
-ws ::= ([ \t\n] ws)?
+# Optional space: by convention, applied in this grammar after literal chars when allowed.
+# Bounded as llama.cpp bounds it for a JSON schema (json-schema-to-grammar's SPACE_RULE): nothing,
+# one space, or one or two newlines and up to 20 spaces or tabs. Unbounded, a model that
+# degenerates into whitespace runs to num_predict or to llama-server's 100-repeat abort.
+ws ::= (" " | "\n"{1,2} [ \t]{0,20})?
 `
 
 // DefaultEmbeddingNumBatch is the default NumBatch used for embedding models

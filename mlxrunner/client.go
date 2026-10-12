@@ -208,9 +208,13 @@ func (c *Client) Close() error {
 // were lost this way — four to the token cap and two to a 900-second timeout — while
 // other documents of the same kind and size decoded in under a minute.
 //
-// 32 is well above any indentation a model would emit (a newline plus ten levels of
-// two-space indent is 21 characters) and far below a stall, which runs to thousands.
-const maxWhitespaceRun = 32
+// 22 is the longest run llama.cpp allows for a JSON schema on the GGUF path (two
+// newlines and 20 spaces or tabs), so both runners bound whitespace alike; it still
+// fits a newline and ten levels of two-space indent (21 characters) and is far below
+// a stall, which runs to thousands. It was 32 until 2026-10-12, when muse-glimmer
+// answering after its message header in single pass padded the first and last slot
+// of every object to the bound (ADR 0035).
+const maxWhitespaceRun = 22
 
 // requestGrammar returns the structural tag the runner decodes under: the
 // API's format as a json_schema tag, with the whitespace between tokens

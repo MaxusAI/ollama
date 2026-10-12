@@ -68,3 +68,22 @@ per document, and does not touch the schema it wraps.
   documents that were lost is the confirmation, and it has not been done.
 - Nothing changes for the GGUF path, which passes the schema to llama-server and
   is bounded by llama.cpp's own converter.
+
+## Amendment 2026-10-12: 22, the GGUF run, and both bounds checked by a matcher
+
+**What moved it.** muse-glimmer on MLX in single pass (`OLLAMA_FORMAT_TWO_PASS=0`), answering after its message header, padded the first and last slot of every object to the bound. `format_schema` on `30b-nvfp4` returned `{` + 33 spaces, the value, about 23 spaces and `}` (#463, #464). The bound held: stock 0.40.2 has no bound and filled all 16384 tokens with whitespace (FAIL). The cost of the padding was the bound itself.
+
+**Decision, amended:**
+- **MLX:** `max_whitespace_cnt` is **22**. That is the longest run llama.cpp allows for a JSON schema: `SPACE_RULE`, two newlines and 20 spaces or tabs. Both runners now bound whitespace alike. A newline plus ten levels of two-space indent (21 characters) still fits.
+- **GGUF, `format: "json"`:** the GGUF path is not wholly bounded. A schema goes to llama-server's converter, which is bounded. But `format: "json"` uses the fork's own grammar (`grammarJSON`, `llm/llama_server.go`), and its `ws ::= ([ \t\n] ws)?` was unbounded. It is now `ws ::= (" " | "\n"{1,2} [ \t]{0,20})?`: llama.cpp's rule, written as an optional group, because xgrammar's parser rejects a leading empty alternative. Placement is unchanged: whitespace still follows literal characters only.
+- **Not taken: patching xgrammar to llama.cpp's exact rule.** On MLX that would cut glimmer's padding to one space per slot. It costs a native patch on every xgrammar bump, and it moves every MLX format request's mask. xgrammar v0.2.7 hardcodes `any_whitespace=true` for structural-tag `json_schema` elements (`cpp/structural_tag.cc`), so only the count can be set. Revisit if xgrammar adds a whitespace-rule option (mlc-ai/xgrammar#837 is open).
+
+**Verification, amended:**
+- `TestRequestGrammarWhitespaceRunMatchesLlamaCpp` drives `requestGrammar`'s tag through xgrammar one byte at a time, for a plain format, a format after thinking, and `"json"` after a header. It checks that 22 spaces are accepted, 23 refused, and two newlines plus 20 spaces accepted.
+- `TestGrammarJSONBoundsWhitespace` does the same for `grammarJSON`, through xgrammar's grammar parser. llama.cpp's engine has no Go entry point.
+- Both fail on the old grammars. They run wherever the MLX payload is built and skip elsewhere. The "not yet verified end to end" above still holds for MLX documents; the real-model check of this amendment is the GGUF and MLX A/B on the branch's PR.
+
+**Upstream:**
+- ollama/ollama has no bound on MLX. ollama/ollama#18567 (a whitespace runaway) was closed as standard behaviour.
+- ollama/ollama#18569 (a cap of 32) was closed untested.
+- The fork's bound has not been offered upstream.
