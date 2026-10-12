@@ -664,7 +664,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 		// the real chat handler, but doing this as a stopgap to get renderer
 		// support for generate
 		if values.Messages != nil && values.Suffix == "" && req.Template == "" {
-			genTruncate := (req.Truncate == nil || *req.Truncate) && !m.IsMLX()
+			genTruncate := promptTruncation(req.Truncate, m, r)
 			if m.HasChatTemplate && chatModeForModel(m) == chatExecutionModeNative {
 				nativeReq, err := prepareNativeChatRequest(c.Request.Context(), m, r, opts, llm.ChatRequest{
 					Messages:    values.Messages,
@@ -802,7 +802,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 		generateMsgs != nil && (builtinParser != nil || thinkTagParser != nil) &&
 		slices.Contains(m.Capabilities(), model.CapabilityThinking)
 
-	truncate := req.Truncate == nil || *req.Truncate
+	truncate := promptTruncation(req.Truncate, m, r)
 	promptOpts := optionsForPrompt(opts, r)
 
 	ch := make(chan any)
@@ -3207,6 +3207,25 @@ func optionsForPrompt(opts *api.Options, runner llm.LlamaServer) *api.Options {
 	return opts
 }
 
+// promptTruncation reports whether a prompt that does not fit the runner's
+// context may be cut to fit: oldest messages first, then by the runner.
+//
+// llama-server always may, unless the request turns truncate off. An MLX
+// runner may only when it enforces an explicit num_ctx, and then exactly as
+// llama-server does. On the automatic rung it serves up to the model's
+// maximum and refuses beyond it, as upstream does, so nothing is cut against
+// a rung that is only advisory (ADR 0050).
+func promptTruncation(truncate *bool, m *Model, r llm.LlamaServer) bool {
+	if truncate != nil && !*truncate {
+		return false
+	}
+	if m.IsMLX() {
+		enforcer, ok := r.(interface{ EnforcesContextLength() bool })
+		return ok && enforcer.EnforcesContextLength()
+	}
+	return true
+}
+
 type chatExecutionMode int
 
 const (
@@ -3595,10 +3614,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 		}
 	}
 
-	truncate := req.Truncate == nil || *req.Truncate
-	if m.IsMLX() {
-		truncate = false
-	}
+	truncate := promptTruncation(req.Truncate, m, r)
 	promptOpts := optionsForPrompt(opts, r)
 	// passOneIdx is the window this prompt settled on. The ADR 0004 second
 	// pass pins itself to it so the continuation cannot silently see less

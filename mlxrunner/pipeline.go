@@ -73,8 +73,9 @@ func (r *Runner) Prepare(request *Request) (err error) {
 		return errors.New("empty prompt")
 	}
 
-	if len(tokens) >= r.contextLength {
-		return fmt.Errorf("input length (%d tokens) exceeds the model's maximum context length (%d tokens)", len(tokens), r.contextLength)
+	window := promptWindow{length: r.contextLength, numCtx: r.numCtx > 0, addBOS: r.Tokenizer.AddBOS()}
+	if tokens, err = window.fit(tokens, len(items) > 0, request.CompletionRequest); err != nil {
+		return err
 	}
 
 	// Refuse at admission rather than OOM mid-prefill (ADR 0014).
@@ -93,6 +94,59 @@ func (r *Runner) Prepare(request *Request) (err error) {
 	request.Tokens = tokens
 	request.MediaItems = items
 	return nil
+}
+
+// promptWindow is the context window Prepare holds a prompt to.
+type promptWindow struct {
+	length int  // tokens the runner serves (contextLength)
+	numCtx bool // length is an explicit num_ctx, not the model's maximum
+	addBOS bool // the tokenizer prepends BOS, which num_keep does not count
+}
+
+// fit returns the prompt cut to the window, or an error naming both lengths.
+//
+// Under an explicit num_ctx it does what llama-server's path does
+// (llm completionPromptForRequest): with truncate and shift on and no media,
+// keep the first num_keep tokens (plus BOS), drop from just after them, and
+// stop at llm.ContextShiftPromptLimit so generation keeps half the window.
+// Where that path would not truncate, the prompt is refused. Without an
+// explicit num_ctx the window is the model's maximum and an over-long prompt
+// is refused, as upstream does (ADR 0050).
+func (w promptWindow) fit(tokens []int32, media bool, req CompletionRequest) ([]int32, error) {
+	if len(tokens) < w.length {
+		return tokens, nil
+	}
+	if !w.numCtx {
+		return nil, fmt.Errorf("input length (%d tokens) exceeds the model's maximum context length (%d tokens)", len(tokens), w.length)
+	}
+
+	over := fmt.Sprintf("input length (%d tokens) exceeds the context length (%d tokens) set by num_ctx", len(tokens), w.length)
+	switch {
+	case media:
+		return nil, fmt.Errorf("%s; a prompt with images cannot be truncated, so shorten it or raise num_ctx", over)
+	case !req.Truncate:
+		return nil, fmt.Errorf("%s and truncate is off; shorten the prompt or raise num_ctx", over)
+	case !req.Shift:
+		return nil, fmt.Errorf("%s and shift is off; shorten the prompt or raise num_ctx", over)
+	}
+
+	keep := req.Options.NumKeep
+	if keep < 0 {
+		keep = len(tokens)
+	}
+	if w.addBOS {
+		keep++
+	}
+	keep = min(keep, w.length-1)
+
+	limit := llm.ContextShiftPromptLimit(w.length, keep)
+	discard := len(tokens) - limit
+	truncated := make([]int32, 0, limit)
+	truncated = append(truncated, tokens[:keep]...)
+	truncated = append(truncated, tokens[keep+discard:]...)
+
+	slog.Warn("truncating input prompt", "limit", limit, "prompt", len(tokens), "keep", keep, "new", len(truncated))
+	return truncated, nil
 }
 
 // The runner serializes requests today so we just use a fixed slot ID.
