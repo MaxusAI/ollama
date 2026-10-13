@@ -132,6 +132,7 @@ ARG PARALLEL
 COPY LLAMA_CPP_VERSION .
 COPY llama/server llama/server
 COPY llama/compat llama/compat
+COPY llama/clef llama/clef
 COPY cmake cmake
 # The source cache is locked only while it is copied, so the CPU and ROCm stages still
 # compile in parallel.
@@ -161,6 +162,7 @@ ENV CC=clang CXX=clang++
 COPY LLAMA_CPP_VERSION .
 COPY llama/server llama/server
 COPY llama/compat llama/compat
+COPY llama/clef llama/clef
 COPY cmake cmake
 RUN --mount=type=cache,id=ollama-llama-cpp-src,target=/var/cache/llama-cpp,sharing=locked \
     stage-llama-cpp "build/llama-server-${ROCM_VARIANT}"
