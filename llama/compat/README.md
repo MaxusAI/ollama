@@ -217,7 +217,7 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
       guard-only, one helper for the y tile and a `static_assert` against the
       load loop, so that a later upstream change that shrinks the padding fails
       the build here. `docs/maxusai/tasks/mmq-29953-y-tile-guard.patch` is that
-      form on #29953's head, verified with nvcc.
+      form on #29953's head, verified with nvcc and hipcc.
     - Check the series on a checkout before building.
   - **References.**
     - `docs/maxusai/qwen35moe-mmq-investigation.md`: the original diagnosis.
