@@ -128,10 +128,15 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   `docs/maxusai/vision-suite/synthetic-triggers/README.md`.
 
 - `903-fix-mmq-ids-padding.patch` - **not a compatibility shim** (see "Number
-  bands" below). In `ggml/src/ggml-cuda/mmq.cu`, pads every buffer that MMQ
-  reads in whole tiles for the widest **padded** tile any launch could pick,
-  `max over J of GGML_PAD(J*sizeof(block_q8_1_mmq), nthreads*sizeof(int))`.
-  That covers `src1_q8_1` in both branches, `ids_dst`, and NVFP4's `src1_scale`.
+  bands" below). Since 2026-10-13 (MaxusAI/ollama#462) it is upstream's fix,
+  llama.cpp#29953 as merged (`fc9ce6b9d`, 2026-10-08), backported to b11351, plus
+  a compile-time y-tile guard. In `ggml/src/ggml-cuda/mmq.cu`, the tile is chosen
+  once, at the launch's `prec_src1`, before allocating; `src1_q8_1` is then padded
+  by that config's padded y tile (`nbytes_y_tile_best`, from
+  `ggml_cuda_mmq_get_nbytes_y_tile()`) in both branches, and `ids_dst` by
+  `J_best - 1`. Seven of #29953's eight hunks apply as they are; the MoE branch's
+  allocation is adapted because b11351 predates #29941. The record is
+  `docs/maxusai/tasks/mmq-29953-backport-b11351.md`.
   - **Why.** A tile loads `J` columns with no bound, so the last tile can read
     past the data. For MUL_MAT_ID, the last expert's last tile may hold a single
     row, at any batch size. `mul_mat_q_switch_J` rounds the batch up to `J`,
@@ -172,7 +177,12 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
       uniform and `J = 80` needs about 65 rows per expert; the ROCm host built
       the routing by hand. Measurements:
       `docs/maxusai/upstream-mmq-29953-material.md`.
-  - **What the amendment costs.** Across five architectures and ten quantization
+    - **Replaced on 2026-10-13** by #29953 plus the guard (MaxusAI/ollama#462),
+      verified on sm_120a and sm_75 (nvcc 12.8) and gfx1151 (hipcc, ROCm 7.2.1).
+      The widest-padded-tile rule and its helper, `ggml_cuda_mmq_get_J_pad()`,
+      are gone. The two entries below describe that rule, as it shipped from
+      2026-10-05 to 2026-10-13.
+  - **What the 2026-10-05 amendment cost.** Across five architectures and ten quantization
     types, the two rules differ in exactly one combination: gfx1151,
     non-fallback, q2_K, where `J_pad` goes from 80 to 85 blocks - **720 bytes**
     more per call. Everywhere else both give 128 blocks, so the amendment is
@@ -180,44 +190,36 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
     sufficient because `floor(T/B) >= ceil(T/B) - 1`, the requirement.
     `docs/maxusai/tasks/mmq-jpad-cost.cu` prints the comparison;
     `tasks/mmq-successor-results/jpad-cost.txt` is its output.
-  - **The guard.** The rule lives in `ggml_cuda_mmq_get_J_pad()` in
-    `mmq.cuh`, which the allocation calls. A compile-time guard at the end of
-    `mmq.cu` checks that same function against every config of all ten config
-    tables, one `static_assert` per (table, type). The guard states the
-    requirement from the kernel's load loop, not from the padding helpers.
-    - **What fails the build:** a change that re-tightens the padding, or a
+  - **The guard.** One helper, `ggml_cuda_mmq_get_nbytes_y_tile()` in
+    `mmq.cuh`, sizes both the shared-memory y tile and the src1 padding. A
+    compile-time guard at the end of `mmq.cu` checks it against the y load
+    loop's extent for every config of all ten config tables: one explicitly
+    instantiated `static_assert` per (table, type), the ROCm host's variant
+    (MaxusAI/ollama#458). The guard states the requirement from the kernel's
+    load loop, not from the padding helpers.
+    - **What fails the build:** a change that shrinks the y-tile padding, or a
       config that outgrows it. It fails on every architecture at once, with no
-      GPU. Measured with hipcc on gfx1151: re-tightening the rule to the widest
-      tile fails in cdna, gcn, rdna3_5 and rdna4, and so does shrinking
-      `ggml_cuda_mmq_get_nbytes_y_tile()` to J blocks.
-    - **Cost:** about 1.6 s on `mmq.cu`, host pass only, once per build.
+      GPU. Verified for #462: shrinking the helper to `J` blocks fails with 220
+      errors, all from the guard, across all ten tables, on nvcc and on hipcc;
+      on hipcc a one-table mutation fails with one error naming only that table.
     - **HIP needs `__HIP_DEVICE_COMPILE__`.** `vendors/hip.h` defines
       `__CUDA_ARCH__` in every HIP pass, so testing `__CUDA_ARCH__` there
       compiles the guard out silently. The first draft did exactly that and
       passed both mutations.
     - **Limits:** it cannot see the call sites, so the allocations must keep
-      using `J_pad`.
-    - **nvcc agrees with hipcc.** Built with nvcc 12.8 for sm_120 before the
-      merge: it compiles, and both mutations fail by `static_assert` in the
-      same four tables.
-    - **Behaviour is unchanged:** on gfx1151 the device reports the same `J`,
-      `nthreads`, `need` and `pad` as the amended 903 for every hand-routed
-      shape, and the twelve cases pass.
+      using the helper.
+    - **Behaviour:** the retirement gate in
+      `docs/maxusai/upstream-mmq-29953-material.md` ("For the fork") passes
+      wherever its control faults, on sm_120a and sm_75 and on gfx1151 (117/117,
+      78 of them under guard pages), and #449's hand-routed gfx1151 shapes pass
+      96/96, 48 of them under a guard page, including the q2_K case the
+      widest-tile rule was 5 blocks short on.
   - **At the next pin move.** From the first llama.cpp pin that contains
-    `dd266785c`, the ids branch's context line reads `ne12`: re-cut the hunk
-    against the new context; the rule stays the same.
-    - **From the first pin that contains llama.cpp#29953**, 903's padding is
-      redundant if #29953 merged as its head `3070d927f` did: that pads src1 by
-      the launched config's padded tile and `ids_dst` by `J_best - 1`, which is
-      measured clean on sm_120, sm_75, GB10 and gfx1151. Retire the padding by
-      the gate under "For the fork" in
-      `docs/maxusai/upstream-mmq-29953-material.md`. If it merged in another
-      form, re-run that file's exact-head passes against what merged first.
+    #29953 (`fc9ce6b9d`), the backported hunks are upstream's own: drop them.
     - **Keep the guard** unless upstream has taken one: re-cut 903 as
-      guard-only, one helper for the y tile and a `static_assert` against the
-      load loop, so that a later upstream change that shrinks the padding fails
-      the build here. `docs/maxusai/tasks/mmq-29953-y-tile-guard.patch` is that
-      form on #29953's head, verified with nvcc and hipcc.
+      guard-only, the helper plus its `static_assert`s, so that a later upstream
+      change that shrinks the padding fails the build here.
+      `docs/maxusai/tasks/mmq-29953-y-tile-guard.patch` is that form (#458).
     - Check the series on a checkout before building.
   - **References.**
     - `docs/maxusai/qwen35moe-mmq-investigation.md`: the original diagnosis.
