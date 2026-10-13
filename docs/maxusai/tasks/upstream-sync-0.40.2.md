@@ -12,7 +12,7 @@ of `main` at `5273e495f` (#459), which carries the v0.35.0 fold.
 - v0.35.1 is not folded on its own. Its pins (llama.cpp b11232, MLX `64ea011c`) are already superseded, so a separate
   0.35.1 fold would measure a payload nobody serves.
 
-## Status (2026-10-11, 01:10 AEST)
+## Status (2026-10-11, 09:45 AEST)
 
 | gate | state |
 |---|---|
@@ -23,7 +23,7 @@ of `main` at `5273e495f` (#459), which carries the v0.35.0 fold.
 | 4, image | **built on Metal**: `0.35.0-dynres-27-g948ef3a` (an interim stamp: no `v0.40.2-dynres` tag yet), with llama-server at `631109b34` (b11351). `CLEAN_DEPS=1`, 3 min 40 s. A full native build: this fold cannot be a Go-only swap |
 | 5, preflight | **Metal: PASS=23 SKIP=16** on the interim build, against the new `mlx-metal-0-40-2` ("Gate 5 on Apple Silicon" below). CUDA and ROCm: not run. Every profile needs a new measurement, because both payloads move (ADR 0032) |
 | 6, campaigns | **Metal: done** ("Gate 6 on Apple Silicon" below). OCRBench rows 0–199 are 200/200 byte-identical, and five of the seven think-off cells are 28/28 byte-identical. Both qwen MLX cells moved, attributed to upstream's MLX tokenizer fix. CUDA and ROCm: each host's call |
-| tag and deploy | not cut, not deployed |
+| tag and deploy | **tagged** `v0.40.2-dynres` on `5623192cc` (the merge of #460, 2026-10-11). **Apple Silicon deployed it** at 09:29 AEST ("The deploy on Apple Silicon" below). CUDA and gfx1151: not deployed |
 
 ## Native inputs
 
@@ -245,6 +245,60 @@ fixes that, and the two dialect cases are near-ties that now land the other way.
 
 gemma4's tokenizer does not take this path, and its cells did not move. qwen's GGUF cells tokenize in llama.cpp,
 and they did not move either.
+
+### The deploy on Apple Silicon
+
+**The release build.** `0.40.2-dynres-0-g5623192` was built at the tag in a detached worktree, both halves, with
+`CLEAN_DEPS=1`. All ten patches applied, and llama-server reports `631109b34`. The code equals the validated fold
+build's, since `948ef3aab..5623192` touches only docs. The native libraries differ byte-wise from that build's, so
+the release was checked by behaviour, on its own stage, against the APFS clone:
+
+| check | result |
+|---|---|
+| preflight against the committed profile | PASS=23 SKIP=16, resolved by `mlx-metal-0-40-2` |
+| the two-pass smoke | pass |
+| the qwen3.6:35b-a3b-nvfp4 think-off cell, against the fold build's | 28/28 byte-identical (`r0402rel2_1`) |
+| every GGUF model in the store | all 15 answer text, and every vision model describes the test image |
+| rollback: 0.35.0 on the converted clone | every model answers, from its original |
+
+**One check had to be re-run, and why.** The first run of the release's qwen cell (`r0402rel_1`) matched the fold's
+in 16 of 28 answers. The 16 that matched are exactly the cases before a power-mode hold at 08:33. When the hold ends,
+the driver restarts the server cold, so the 12 cases after it ran without the warm prefix state the fold's run had
+at that point. Nothing drafted (no speculative-decode lines), and every prompt token count matched. Run again without
+a hold, the cell matched 28/28. So a hold mid-cell changes greedy answers on this model, and the two runs are not
+comparable.
+
+**GGUF on v0.40.2, all 15 models in the store.**
+- **Converted:** gemma4:26b-a4b-it-q4_K_M, gemma4:31b-it-q4_K_M, nemotron3:33b (bf16, q8, q4_K_M),
+  qwen3.6:35b-a3b (q4_K_M, q8_0). Each took 19–65 s.
+- **No conversion needed:** no migrator applies, so these run as they are. chandra (both), chandratables,
+  gemma4:12b-it-q4_K_M, olmocr2 (q4_K_M, q8_0, and `richardyoung/olmocr2:7b-q8`), qwen3.8:27b-q4_K_M.
+- **Conversion is silent when it does not apply.** `compatmigrate` returns without a log line, so a check must
+  look for a "starting local compat GGUF migration" line rather than wait for a downgrade anchor.
+
+**The swap**, production idle since 2026-10-01, single-purpose commands:
+1. `launchctl bootout`;
+2. `cp -p` the binary;
+3. `rsync -a --delete` the payload into the checkout's `build/lib/ollama`;
+4. `launchctl bootstrap`.
+
+The plist is unchanged; its backup is `com.maxusai.ollama-fork.plist.0.35.0-dynres-0-g043f441`.
+
+**After the swap:**
+- `/api/version` reports `0.40.2-dynres-0-g5623192`.
+- The process environment and the startup config carry `OLLAMA_FORMAT_TWO_PASS=1`, `OLLAMA_KV_CACHE_TYPE=f16`,
+  `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` and the production store.
+- Preflight on production, reading the log from the restart's `server config` line, gives PASS=23 SKIP=16.
+
+Production's own GGUF models convert on their first load from now on.
+
+**Rollback:**
+1. `launchctl bootout`;
+2. `cp -p ~/.ollama/binaries/ollama-0.35.0-dynres-0-g043f441` to the checkout's `ollama`;
+3. `rsync -a --delete ~/.ollama/binaries/payload-0.34.4-dynres-0-gb43ee8e/` to `build/lib/ollama/`;
+4. `launchctl bootstrap`.
+
+Converted models stay converted, and 0.35.0 loads their originals through the anchor.
 
 ## Who does what
 
