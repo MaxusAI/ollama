@@ -54,6 +54,8 @@ Two constraints shaped the work, neither obvious from upstream's interface:
    `image_max_tokens` is never silently ignored (ADR 0009). Each keeps its own
    ceiling: a value equal to the shared api default counts as unset, the
    convention `llm/llama_server.go` already applies for nemotron and qwen-VL.
+   **Superseded by [ADR 0048](0048-an-unset-image-budget-reaches-the-runner-as-zero.md):** unset now
+   arrives as 0, and an explicit shared default is honoured.
 4. **Bidirectional spans come from `b.Media`, and the opening chunk carries every
    one of them.** The `SeqOffsets[0] == 0` requirement is kept, because it is
    load-bearing rather than vestigial: the bidi path attends over the chunk's own

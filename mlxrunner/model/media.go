@@ -9,7 +9,6 @@ import (
 
 	_ "golang.org/x/image/webp"
 
-	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/mlx"
 )
 
@@ -106,27 +105,21 @@ type MediaBudgetModel interface {
 	PrepareMediaWithBudget(segments []Segment, imageMinTokens, imageMaxTokens int) (*PreparedRequest, error)
 }
 
-// ResolveImageBudget folds a request's image-token budget into a model's own,
-// using the convention llm/llama_server.go already applies for nemotron and
-// qwen-VL: a non-positive value, or one equal to the shared api default, counts
-// as unset and the model's own bound stands.
-//
-// The check against the default is the load-bearing half. api.DefaultOptions
-// always populates these fields with gemma4's ladder (ADR 0008), so every
-// request carries a budget whether or not the caller meant one. Without this,
-// a model that deliberately keeps a different ceiling — glimmer's 4096, chosen
-// because lowering it hurts OCR — would have gemma4's 1120 imposed on it by
-// every default request, silently discarding detail it was built to keep.
-//
-// The cost is that a caller cannot explicitly request exactly the shared default
-// on such a model; it resolves to the model's own. That is the right trade while
-// the defaults are one architecture's ladder rather than a neutral value.
+// ResolveImageBudget resolves a request's image-token budget against a model's
+// own bounds. A request value <= 0 is unset and takes the model's; anything
+// else is the caller's and wins. The server sends 0 for a budget neither the
+// request nor the Modelfile set (server/routes.go), so gemma4's 70/1120 -- the
+// api defaults -- no longer stand in for "unset": before, a model that keeps a
+// different ceiling (muse-glimmer's 4096, qwen3.5's, nemotron_h's) could not be
+// asked for exactly 1120, which resolved to its own 4096 (measured on
+// muse-glimmer:30b-nvfp4, 2026-10-11). Unset still keeps such a model's own
+// ceiling, which is what the sentinel protected.
 func ResolveImageBudget(reqMin, reqMax, modelMin, modelMax int) (minTok, maxTok int) {
 	minTok, maxTok = reqMin, reqMax
-	if minTok <= 0 || minTok == api.DefaultImageMinTokens {
+	if minTok <= 0 {
 		minTok = modelMin
 	}
-	if maxTok <= 0 || maxTok == api.DefaultImageMaxTokens {
+	if maxTok <= 0 {
 		maxTok = modelMax
 	}
 	return minTok, maxTok
