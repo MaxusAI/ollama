@@ -3443,3 +3443,375 @@ model = "qwen2.5vl:3b-q4_K_M"
 model = "qwen2.5vl:3b-q4_K_M"
 # Carried from rocm7-0-34-4-dynres, where the canary told the fork's f32 gate apart from f16 on gfx1151 (2026-09-28).
 # On 0.40.2 the model runs as its converted llamacpp child (store-0402); checked live by this profile's first run.
+
+[profiles.cuda-0-40-2]
+# The v0.40.2 fold (#460) moved both payload pins: llama.cpp b11081 -> b11351 (631109b34) and MLX
+# 59d600b5 -> a59cc231. A new profile, not a widened cuda-dynres-903 (ADR 0011, ADR 0032). The rows below are
+# cuda-dynres-903's, carried after measurement on this payload, not before:
+# - Measured on the release image sync-0.40.2-main (0.40.2-dynres-0-g5623192, a full build of the tag) on sm_120a,
+#   2026-10-13, in a canary with production's environment, against the 8TB store. v0.40.2 converts a legacy GGUF on
+#   its first load, so nemotron3:33b-q8 and gemma4:31b-it-q4_K_M were measured on their converted llamacpp
+#   children; qwen3.8:27b-q4_K_M starts no migration and ran as it is.
+# - measure_ladder.py: all three ladders are byte-identical to cuda-dynres-903's, with the same prefixes
+#   (nemotron_h_omni 19 / text-only 20, gemma4 19, qwen35 13) and budgets (262144/3407872, 161280/2580480,
+#   1048576/4194304 px).
+# - Preflight on the release image: FAIL=2 PASS=18 SKIP=9 (runs/preflight-cuda-0402-release-g5623192.json). The two
+#   failures are nemotron's, and are #480: on the converted child (nemotron_h_moe plus a nemotron_v2_vl projector)
+#   the build launched no image flags, so the pinned budget read 3328 -> 2306 and payload_proof found no load.
+#   #483 fixes it; on the release image with #483's binary (0.40.2-dynres-2-g19455c6, payload hash-identical) the
+#   nemotron rows pass: pinned 3328 -> 3270, payload_proof custom on max/min
+#   (runs/preflight-cuda-0402-pr483-nemotron-g19455c6.json). gfx1151 measured the same pair (#481).
+# - main-601b8a65 (0.40.2-dynres-10-g601b8a6, the full build of main 601b8a65c: #483 and #462's 903 in, and the code
+#   v0.40.2-dynres.1 restamps): all three ladders byte-identical again, and VERDICT PASS, PASS=20 SKIP=9
+#   (runs/preflight-cuda-0402-main-g601b8a6.json), nemotron pinned 3328 -> 3270.
+# - nemotron's row keeps no custom_bounds line, as cuda-dynres-903's: a `custom_bounds = []` would have passed
+#   payload_proof on that regression.
+# - 903 here is the tag's. Builds of main after #462 carry #462's 903 (#29953 as merged plus the y-tile guard)
+#   under the same label; it changes the MMQ src1/ids_dst padding, not image token accounting.
+version_pattern = '^0\.40\.2-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
+patchset = ["001", "002", "004", "005", "801", "802", "805", "903", "908"]
+llama_cpp_build = "631109b34"
+mlx_build = "a59cc23190f1e26fabcba8693607bb4c34b2ac2b"
+platform = "cuda"
+arches = ["nemotron_h_omni", "gemma4", "qwen35"]
+
+[expect.cuda-0-40-2.nemotron_h_omni]
+status = "measured"
+measured_on = "2026-10-13"
+model = "nemotron3:33b-q8"
+patch_stride = 32
+budget_min_tokens = 256
+budget_max_tokens = 3328
+image_min_pixels = 262144        # 256 * 32^2, read from the load log
+image_max_pixels = 3407872       # 3328 * 32^2, read from the load log
+scaling = "dynamic"
+ladder_tolerance = 2
+ladder = [266, 266, 578, 2306, 3270]
+# in-image prefix 19, text-only 20 -- the 1-token difference is why image_prefix()
+# is the correct subtrahend and text_baseline() is not (README, B8).
+
+[expect.cuda-0-40-2.nemotron_h_omni.pinned]
+size = "2048x1152"
+pin_tokens = 3328
+expect_tokens = 3270
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 2306
+control_tolerance = 4
+# Measured by pinning image_min_tokens AND image_max_tokens together, as
+# checks.py:335 does. Pinning only the max returns the unpinned 2306 and reads
+# as a 005 regression; it is a probe error. Cost a false alarm here.
+
+[expect.cuda-0-40-2.nemotron_h_omni.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.cuda-0-40-2.gemma4]
+status = "measured"
+measured_on = "2026-10-13"
+model = "gemma4:31b-it-q4_K_M"
+patch_stride = 48
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280        # 70 * 48^2, read from the load log
+image_max_pixels = 2580480       # 1120 * 48^2, read from the load log
+scaling = "flat"                 # 004 budget-fills; flat is correct, not a fault
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.cuda-0-40-2.gemma4.pinned]
+# Pinned BELOW the ceiling deliberately, for the reason the ROCm row records:
+# 004 budget-fills every image to the budget max, so pinning gemma4 at its own
+# 1120 ceiling delivers 1102 -- exactly what the unpinned control delivers.
+# That assertion would pass even if pinning were completely broken, which is
+# worse than no assertion at all. Measured here rather than assumed:
+#
+#   unpinned control            1102
+#   pinned  280  ->  266
+#   pinned  560  ->  529        far from the control; discriminates
+#   pinned 1120  -> 1102        equals the control; would NOT discriminate
+#
+# Measured 2026-08-29 on 0.33.2-dynres-5-g2b95b4a (CUDA, b10630 = d222767c7,
+# patchset 001/002/004/005/903 + the 801 diagnostic). The pin floors just UNDER
+# the request at every rung -- never over -- which is 005's guarantee: when the
+# min_pixels ceil would overshoot max_pixels, floor just under instead. Pre-005
+# the same class delivered 1170 against a 1120 pin.
+#
+# 529 is byte-identical to the ROCm row measured on b9888, so this sizing is
+# stable across both payloads and both backends -- but it was measured here, not
+# copied. Note --image-min-tokens is a no-op for this arch under 004; the max is
+# what drives the fill, so a "pin" here is really the max doing the work.
+size = "2048x1152"
+pin_tokens = 560
+expect_tokens = 529
+tolerance = 4
+
+[expect.cuda-0-40-2.gemma4.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = false
+
+[expect.cuda-0-40-2.qwen35]
+# Structurally unable to pin, not merely unmeasured. visionServerArgs is
+# arch-gated: the qwen family branch returns a FIXED --image-min-tokens and
+# never reads opts, so image_min_tokens/image_max_tokens are inert here.
+# Re-verified against llm/llama_server.go at 0.33.2-dynres-5-g2b95b4a
+# (2026-08-29). ROCm has carried this declaration since its baseline; CUDA
+# reported "not yet measured" instead, which is the one thing checks.py warns
+# against -- it sends someone to measure something that cannot move.
+pinned_not_applicable = """image_min_tokens/image_max_tokens are arch-gated to \
+gemma4 and nemotron_h_omni; qwen35's visionServerArgs branch ignores them."""
+status = "measured"
+measured_on = "2026-10-13"
+model = "qwen3.8:27b-q4_K_M"   # the GGUF, which routes to llama-server. The
+                               # sibling 27b-nvfp4 tag is the MLX export and
+                               # CANNOT be pulled here: the registry gates it on
+                               # the client's reported GOOS, so it anchors
+                               # [expect.mlx-metal.qwen35] instead.
+patch_stride = 32              # patch_size 16 * spatial_merge_size 2
+budget_min_tokens = 1024       # 1048576 / 32^2
+budget_max_tokens = 4096       # 4194304 / 32^2
+image_min_pixels = 1048576     # read from the load log, logged "(custom value)"
+image_max_pixels = 4194304     # read from the load log, NOT marked custom
+custom_bounds = ["min"]        # only the min is ours to set -- see below
+scaling = "dynamic"
+ladder_tolerance = 2
+ladder = [1034, 1034, 1034, 2306, 4082]
+
+# Qwen3.8 is the DENSE member of the qwen3_5 family; qwen3.6:35b-a3b is the MoE
+# sibling and llama.cpp draws the same line (LLM_ARCH_QWEN35 vs
+# LLM_ARCH_QWEN35MOE). Confirmed here rather than assumed: the load log prints
+# general.architecture = qwen35, head_count 24, embedding_length 5120, against
+# the MoE's 16 / 2048.
+#
+# These are NOT the numbers in [expect.mlx-metal.qwen35], and the
+# difference is the whole reason this row exists. Same model family, same stride
+# 32, but a different pixel window -- 1048576..4194304 here against the MLX
+# export's 65536..16777216 -- so the ladder diverges at both ends and agrees only
+# where neither clamp binds:
+#
+#   size        this row   MLX row   why
+#   256x144       1034        68     both clamp UP, to different floors
+#   512x288       1034       146       "
+#   1024x576      1034       578       "
+#   2048x1152     2306      2306     inside both windows: identical, as it must be
+#   3072x1728     4082      5186     both clamp DOWN, to different ceilings
+#
+# Copying the MLX row across would therefore have been wrong on four of five
+# rungs while looking plausible on the fifth.
+#
+# Every rung reproduces from the arithmetic, which is what makes this a
+# measurement rather than five recorded numbers: align each edge to 32, clamp
+# total pixels into the window, take (w/32)*(h/32), add the 2-marker allowance.
+# 256x144 upscales to 1376x768 -> 43*24+2 = 1034; 2048x1152 is untouched at
+# 64*36+2 = 2306; 3072x1728 downscales to 2720x1536 -> 85*48+2 = 4082. The first
+# three rungs are equal because all three are below the floor and land on the
+# same clamped geometry -- a floor, not a flat budget, so `scaling` is "dynamic".
+#
+# custom_bounds is ["min"] because only the min is ours to set. visionServerArgs
+# gives the whole qwen VL family -- qwen2vl, qwen25vl, qwen3vl, qwen3vlmoe,
+# qwen35, qwen35moe -- a single flag, `--image-min-tokens 1024`
+# (qwenVLImageMinTokens), and 1024 * 32^2 = 1048576 is exactly the custom min
+# above. The max is llama.cpp's own set_limit_image_tokens(8, 4096) ceiling,
+# which llm/llama_server.go states is "not tunable through --image-max-tokens"
+# (qwenVLImageMaxTokens = 4096, and 4096 * 32^2 = 4194304 is what the log shows,
+# unmarked). This differs from nemotron_h_omni and gemma4, whose cases pass both
+# flags and therefore mark both bounds.
+#
+# Found by this row failing. payload_proof asserted "(custom value)" on both
+# bounds, which no qwen build can satisfy, so the check now takes the expected
+# bounds from the arch instead of assuming. The values were never in question --
+# the ladder passed 5/5 in the same run.
+#
+# prefix == text_only == 13, so this arch has no B8 offset (nemotron has 1).
+#
+# Measured with probes.Ollama.image_prefix against 0.32.14-rc0-dynres-0-ga5d6590
+# on :11497, after a forced unload so the load_hparams block is this model's.
+# The first attempt read a stale log window and surfaced qwen35moe lines from an
+# earlier session; the values above come from a `--since 3m` window that names
+# qwen35.
+
+[expect.cuda-0-40-2.qwen35.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+# Measured: eval_count 330 against the 4000 allowance, 951 chars of thinking,
+# valid JSON. Nowhere near the num_predict trap, so the floor is not load-bearing
+# for this arch -- but it is kept at nemotron's 4000 rather than tightened,
+# because a think budget that fits today is not evidence about a longer prompt.
+
+# No [.pinned] block: the 005 defect was found on nemotron and this arch's
+# pinned-budget probe has not been measured. check_pinned_image_token_budget skips with that
+# reason rather than inventing a pass, exactly as gemma4 does above.
+
+[profiles.mlx-cuda-0-40-2]
+# The v0.40.2 fold (#460) moved the MLX pin 59d600b5 -> a59cc231 (engine init 0.32.3-53-ga59cc23). A new profile, not
+# a widened mlx-cuda (ADR 0011, ADR 0032); the two must share a version pattern with cuda-0-40-2, as their
+# predecessors did. The rows are mlx-cuda's, carried after measurement on this payload:
+# - Preflight on the release image sync-0.40.2-main (0.40.2-dynres-0-g5623192), sm_120a, 2026-10-13: PASS=11
+#   SKIP=18 (runs/preflight-mlx-cuda-0402-release-g5623192.json). All three token ladders pass 5/5 within +/-2, all
+#   three prefixes match, and mlx_payload_pin reads a59cc23 from the runner's engine-init line.
+# - measure_ladder.py: qwen35 (qwen3.8:27b-nvfp4) is byte-identical to mlx-cuda's on the release image. gemma4 and
+#   qwen35moe were refused admission there while production held a model on the shared GPU, and were measured on
+#   main's build, whose MLX payload is this one (#462 touched llama.cpp only): all three byte-identical, prefixes 19,
+#   13, 13.
+# - main-601b8a65 (0.40.2-dynres-10-g601b8a6, the full build of main 601b8a65c, which v0.40.2-dynres.1 restamps):
+#   PASS=11 SKIP=18 (runs/preflight-mlx-cuda-0402-main-g601b8a6.json).
+version_pattern = '^0\.40\.2-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
+mlx_build = "a59cc23190f1e26fabcba8693607bb4c34b2ac2b"
+platform = "mlx-cuda"
+reference_image = "maxusai/ollama:0.32.14-rc0-dynres-mlxfix"
+expect_patch_marker = 1
+arches = ["gemma4", "qwen35moe", "qwen35"]
+notes = """
+The runtime is no longer unexercised: gemma4:31b-nvfp4 served the full vision
+suite on this backend on 2026-08-17 (container mlx-release, :11495), think-off
+n=3 bit-identical across repeats — scene bbox IoU 0.962, boxes/labels/colors
+6/6, serial and invoice exact, fine text 4/4/4/3/3, multi-image all Qs + bbox,
+contract_followed 7/7/7 of 8. Against the mlx-metal row for the SAME model that
+is 0.962 vs 0.964, inside ADR 0012's +/-0.01 noise floor: the runtime behaves
+the same on both backends.
+
+That is a QUALITY result and it is deliberately not written into the arch
+blocks below, which assert TOKEN LADDERS. ADR 0011 rule 4 forbids copying the
+mlx-metal ladder across on the strength of quality parity, so each arch below
+was measured on this backend before it was marked measured:
+- gemma4 on 2026-08-17, in the container;
+- qwen35moe on 2026-09-30 and qwen35 on 2026-10-01, on a native build on an
+  H100 (sm_90).
+
+On 2026-10-01, preflight on that host passed both qwen blocks: prefix 13 and
+the ladder 5/5 for each, with payload_proof skipped as not observable. No arch's
+budgets can be observed on this backend, because the MLX runner logs no
+load_hparams line; each block says how its budgets were established.
+
+KNOWN DEFECT, think-on only. Under THINK=on the twelfth consecutive cell
+aborted the runner:
+  mlx: cudaGraphAddDependencies(...) failed: invalid argument
+  at mlx-c-src/mlx/c/transforms.cpp:15
+raised from Runner.prefill -> mlx.Eval, with a second panic during unwind in
+cacheSession.close -> mlx.AsyncEval. The same cell passes with think off at the
+same num_ctx, so window size is not the trigger; prefix-cache state interacting
+with CUDA graph capture is the hypothesis and it has not been reproduced in
+isolation. Think-off is unaffected.
+"""
+
+[expect.mlx-cuda-0-40-2.gemma4]
+status = "measured"
+measured_on = "2026-10-13"
+model = "gemma4:31b-nvfp4"
+# Emitted by measure_ladder.py against :11495 (container mlx-release, server
+# 0.32.14-rc0-dynres-20-geb0ad43) and pasted whole, per ADR 0012 rule 8.
+patch_stride = 48                # BudgetFillSize(w, h, 48, maxTok) — llm/llama_server.go
+# THE BUDGETS CANNOT BE OBSERVED HERE, SO THEY ARE FLAGGED RATHER THAN READ
+# (corrected 2026-10-01). The MLX runner writes no load_hparams line on CUDA, as
+# on Metal. A fresh gemma4:31b-nvfp4 load in an mlx-cuda canary of
+# 0.34.4-dynres-0-gb43ee8e logged its one MLX runner launch and no pixel line at
+# all, with nothing else loading. Reading that container's log, payload_proof
+# returned FAIL, "no load_hparams pixel budget in the fresh log", while the
+# ladder passed 5/5. The values are the Go sizing defaults the ladder
+# exercises: 70/1120 are the ADR 0008 gemma4 budgets (gemma4Ladder in
+# llm/llama_server.go), and 48 is llm.Gemma4ImageAlign, the align the MLX
+# runner passes to BudgetFillSize (mlxrunner/model/gemma4/vision.go).
+budgets_observed = false
+budget_min_tokens = 70           # ADR 0008 floor
+budget_max_tokens = 1120         # vendor maximum
+image_min_pixels = 161280        # 70 * 48^2
+image_max_pixels = 2580480       # 1120 * 48^2
+
+# THE LADDER IS MEASURED HERE, NOT CARRIED OVER. It lands on the same values as
+# mlx-metal, which is the expected result — MLX sizing goes through
+# llm.BudgetFillSize, plain Go, identical on both backends — but ADR 0011 rule 4
+# forbids asserting that from expectation rather than measurement, and the
+# earlier draft of this profile said in as many words "do NOT copy the mlx-metal
+# ladder". So it was measured: image_prefix (B8), five geometries, flat 1102
+# throughout, prefix == text_only == 19.
+#
+# WHAT THE 2026-08-17 COMMENT GOT WRONG. It said the budgets had two
+# independent sources that agreed:
+#   1. the container's load_hparams block, read by measure_ladder.py and re-read
+#      by payload_proof;
+#   2. the fork's own source.
+# Only the second holds. The first measurement run read no budget line, which was
+# right; it was diagnosed as a race and re-run. The re-run's "budget logged as
+# custom on max/min (min 70*48^2=161280, max 1120*48^2=2580480)" most likely read
+# a llama-server line in the same log window, from a GGUF gemma4, which logs
+# exactly these budgets. A tool returning nothing is not evidence that nothing
+# exists. A tool returning something is not evidence of where it came from.
+#
+# READ FROM BEHAVIOUR, 2026-10-04: 0.35.0-dynres-15-ga657392 on an H100, with the MLX
+# limit at 48 GiB.
+# - measure_ladder.py read this ladder again: 1102 at all five geometries, with
+#   prefix == text_only == 19.
+# - Pinning image_min_tokens = image_max_tokens through preflight's own client gave
+#   68/122/266/529/1102 image tokens at pins of 70/140/280/560/1120, the same at
+#   1024x576 and 2048x1152. With no pin it gave 1102.
+# - Pins of 35 and 69 read as 70, and pins of 1121 and 2240 as 1120. So the runner
+#   clamps to budget_min_tokens and budget_max_tokens.
+# - probe_mlx_image_budget.py agrees: KNOB LIVE.
+# budgets_observed stays false, because no load log shows these values, and that is
+# what the flag records. The readings are in
+# ../bench-runs/vision-campaign-2026-10-04-h100-sm90.mlx-gemma4-budgets.json
+# (../../vision-campaign-2026-10-04-h100-sm90.md, §5).
+scaling = "flat"
+ladder_tolerance = 2
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.mlx-cuda-0-40-2.qwen35moe]
+status = "measured"
+measured_on = "2026-10-13"
+model = "qwen3.6:35b-a3b-nvfp4"
+# Emitted by measure_ladder.py on the H100 (sm_90) host, gcp-a3-highgpu-1g/cuda: a native
+# build, server 0.34.4-dynres-0-gb43ee8e, MLX 0.32.2-65-g59d600b, the mlx_cuda_v13 payload.
+# OLLAMA_MLX_MEMORY_LIMIT was pinned at 48 GiB (derived: 78.3 GiB), as the 2026-08-17
+# attempt's reason asked. With the pin, all five geometries complete, including the 3072x1728
+# rung that ran out of memory then. The ladder equals mlx-metal's and qwen35's on this
+# profile, and it was measured here, not carried (ADR 0011 rule 4).
+patch_stride = 32
+# THE BUDGETS CANNOT BE OBSERVED HERE, SO THEY ARE FLAGGED RATHER THAN READ. payload_proof
+# reads llama.cpp's `load_hparams: image_*_pixels` line, and the MLX runner never writes one,
+# on either backend: in the H100's journal for 2026-09-30, all 72 such lines followed a
+# llama-server launch and none followed any of the 20 MLX runner launches. The four values
+# are the Go sizing constants the ladder below exercises, visionMinPixels and visionMaxPixels
+# in mlxrunner/model/qwen3_5/process_image.go, the same four the mlx-metal blocks carry.
+budgets_observed = false
+budget_min_tokens = 64          # visionMinPixels / 32^2
+budget_max_tokens = 16384       # visionMaxPixels / 32^2
+image_min_pixels = 65536        # visionMinPixels
+image_max_pixels = 16777216     # visionMaxPixels
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
+
+[expect.mlx-cuda-0-40-2.qwen35]
+status = "measured"
+measured_on = "2026-10-13"
+model = "qwen3.8:27b-nvfp4"
+# Emitted by measure_ladder.py on the same host, build and pinned limit as qwen35moe above,
+# against an idle server. The 2026-08-17 row had the same ladder but no budgets, because that
+# run read gemma4's pixel lines; there is no qwen line to read on this backend (below).
+patch_stride = 32
+# THE BUDGETS CANNOT BE OBSERVED HERE, SO THEY ARE FLAGGED RATHER THAN READ. payload_proof
+# reads llama.cpp's `load_hparams: image_*_pixels` line, and the MLX runner never writes one,
+# on either backend: in the H100's journal for 2026-09-30, all 72 such lines followed a
+# llama-server launch and none followed any of the 20 MLX runner launches. The four values
+# are the Go sizing constants the ladder below exercises, visionMinPixels and visionMaxPixels
+# in mlxrunner/model/qwen3_5/process_image.go, the same four the mlx-metal blocks carry.
+budgets_observed = false
+budget_min_tokens = 64          # visionMinPixels / 32^2
+budget_max_tokens = 16384       # visionMaxPixels / 32^2
+image_min_pixels = 65536        # visionMinPixels
+image_max_pixels = 16777216     # visionMaxPixels
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
+
+# ------------------------------------------------------- metal / 0.32.14 --
+# Measured 2026-08-17, native macOS serve (:11436), server
+# 0.32.14-maxusai-9594f81e, probes.Ollama.image_prefix + visual_tokens.
