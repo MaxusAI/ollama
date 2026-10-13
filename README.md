@@ -26,34 +26,36 @@
 > **Current fold:** [`v0.40.2-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.40.2-dynres)
 > ([#460](https://github.com/MaxusAI/ollama/pull/460)): upstream v0.40.2, llama.cpp `b11351` with compat patches 001,
 > 002, upstream's 002-clef, 004, 005, 801, 802, 805, 903 and 908 (805 and 903 re-cut for b11351), MLX `a59cc231`.
-> `main` moves ahead of this between folds; the tag is the fixed point to build and roll back to.
+> Its point tag **`v0.40.2-dynres.1`** (`39602449f`) adds the fixes since: 903 becomes llama.cpp#29953 plus the y-tile
+> guard ([#462](https://github.com/MaxusAI/ollama/pull/462)), the muse-glimmer fixes ([#464](https://github.com/MaxusAI/ollama/pull/464)–[#468](https://github.com/MaxusAI/ollama/pull/468)),
+> the JSON grammar's whitespace ([#470](https://github.com/MaxusAI/ollama/pull/470)), an explicit `num_ctx` on MLX
+> ([#476](https://github.com/MaxusAI/ollama/pull/476)) and nemotron3's converted vision budget ([#483](https://github.com/MaxusAI/ollama/pull/483)).
+> Its one native change, 903, is in `ggml-cuda`, so on Metal it moves Go only. `main` moves ahead of the tags between
+> folds; a tag is the fixed point to build and roll back to.
 >
-> **Deployed:**
+> **Deployed** (versions read from each server's `/api/version` on 2026-10-13):
 >
 > | host | build | since | record |
 > |---|---|---|---|
-> | Apple Silicon, mlx-metal (`:11435`) | `0.40.2-dynres-0-g5623192`, both halves built at the tag | 2026-10-11 09:29 | [fold record](docs/maxusai/tasks/upstream-sync-0.40.2.md) |
-> | AMD gfx1151 | `v0.35.0-dynres` | 2026-10-01 | [v0.35.0 record](docs/maxusai/tasks/upstream-sync-0.35.0.md) |
-> | CUDA host, ai-server (`:11497`) | `0.34.4-dynres-0-gb43ee8e` | 2026-09-28 | the last deploy recorded: the v0.35.0 record ran no CUDA gates on this host |
+> | Apple Silicon, mlx-metal (`:11435`) | `0.40.2-dynres.1-0-g3960244`, both halves built at the point tag | 2026-10-13 22:01 | [#486](https://github.com/MaxusAI/ollama/pull/486) |
+> | CUDA host, ai-server (`:11497`) | `0.40.2-dynres.1-0-g3960244` (image `sync-0.40.2.1-main`) | 2026-10-13 21:05 | [#484](https://github.com/MaxusAI/ollama/pull/484), [#487](https://github.com/MaxusAI/ollama/pull/487) |
+> | AMD gfx1151 | `v0.35.0-dynres`; the `v0.40.2-dynres.1` release build passes `rocm7-0-40-2` and waits for the maintainer's deploy | 2026-10-01 | [#485](https://github.com/MaxusAI/ollama/pull/485) |
 > | H100 (CUDA) | `0.35.0-dynres-15-ga657392`, a build of `main` past the v0.35.0 tag | 2026-10-03 | [v0.35.0 record](docs/maxusai/tasks/upstream-sync-0.35.0.md) |
 >
-> The CUDA and gfx1151 legs of v0.40.2 have not run. The three hosts deployed with v0.34.4 run the two-pass
-> think+format flow (`OLLAMA_FORMAT_TWO_PASS=1`, [ADR 0045](docs/maxusai/adr/0045-think-format-single-pass-by-default-two-pass-in-production.md))
+> On the CUDA host, the MLX runner needs [#487](https://github.com/MaxusAI/ollama/pull/487), merged after the point tag:
+> with the second GPU visible, MLX requests fail with `cudaMemcpy … invalid argument`. The hosts deployed since v0.34.4
+> run the two-pass think+format flow (`OLLAMA_FORMAT_TWO_PASS=1`, [ADR 0045](docs/maxusai/adr/0045-think-format-single-pass-by-default-two-pass-in-production.md))
 > and set `OLLAMA_KV_CACHE_TYPE=f16` explicitly ([#387](https://github.com/MaxusAI/ollama/pull/387)). The ai-server
 > CUDA container and the Apple Silicon launchd agent also keep `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` (ADR 0033). The
-> Apple Silicon agent still sets all three on v0.40.2, checked after the swap. The H100's settings are in its own
-> record.
+> Apple Silicon agent still sets all three on v0.40.2-dynres.1, checked after the swap. The H100's settings are in its
+> own record.
 >
-> On Apple Silicon, the tag replaced `0.35.0-dynres-0-g043f441`. Before the swap, the tag's build passed these checks
-> on a `:11437` stage serving an APFS clone of production's store:
-> - preflight;
-> - the MLX tests, with vision golden parity;
-> - a two-pass smoke;
-> - every GGUF model in the store, converted where v0.40.2 converts it, with vision checked where the model has it;
-> - a rollback check with the outgoing build.
->
-> The clone was needed because v0.40.2 rewrites a legacy GGUF on its first load. Both builds' binary and payload
-> are archived for rollback ([BINARIES.md](docs/maxusai/vision-suite/BINARIES.md)).
+> On Apple Silicon, the point tag replaced `0.40.2-dynres-0-g5623192`. Before the swap, its build passed preflight, the
+> MLX tests with vision golden parity, and the two-pass, converted-GGUF and vision smoke, on a `:11437` stage serving
+> an APFS clone of production's store; preflight passed again on production after it. The v0.40.2 swap before it also
+> checked every GGUF model in the store, converted where v0.40.2 converts it, and a rollback to the outgoing build
+> ([fold record](docs/maxusai/tasks/upstream-sync-0.40.2.md)). Every build's binary and payload are archived for
+> rollback ([BINARIES.md](docs/maxusai/vision-suite/BINARIES.md)).
 
 > Fork builds are stamped `<upstream-version>-dynres-<n>-g<sha>`; `dynres`
 > names the change that started the fork, not the company that runs it.
@@ -71,19 +73,24 @@
      cells with "skipped". The release notes carry the same generated matrix.
      runs/ is gitignored; a run meant for this table is committed with `git add -f`.
 
-     For v0.40.2 only the Apple Silicon leg has run, and the table below is the verbatim output of
-     `release_matrix.py --version 0.40.2-dynres runs/*.json`. The newest run per surface is:
-       runs/preflight-mlx-metal-0402-prod-g5623192.json       the Apple Silicon launchd agent, after the deploy
-     The release build's stage run is runs/preflight-mlx-metal-0402-release-g5623192.json. The CUDA and gfx1151
-     surfaces read "not run" until their legs commit runs for this release. -->
+     For v0.40.2-dynres.1 the table below is the verbatim output of
+       release_matrix.py --version 0.40.2-dynres.1 --version 0.40.2-dynres-10-g601b8a6 \
+           runs/preflight-mlx-metal-0402-dynres1-prod-g3960244.json \
+           runs/preflight-rocm7-0402-dynres1-release-g3960244.json \
+           runs/preflight-cuda-0402-main-g601b8a6.json runs/preflight-mlx-cuda-0402-main-g601b8a6.json \
+           runs/preflight-mlx-cuda-0402-gpu-pin-prod-g3960244.json
+     The runs are listed by name because runs/ also holds #487's A/B runs, which are not release runs.
+     0.40.2-dynres-10-g601b8a6 is main at 601b8a65, code-identical to the point tag outside docs/ (ADR 0032): the
+     CUDA host measured cuda there (#484). mlx-cuda's newest run is production's on the point tag, and its two
+     ERRORs are the two-GPU cudaMemcpy failure #487 fixes after the tag. -->
 
 | surface | Build identity | MLX build pin | Toolchain pin | M5 tensor path | Image size ladder | Aspect ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **cuda** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
-| **mlx-cuda** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
-| **mlx-metal** | skipped | green | skipped | green | green | green | skipped | green | skipped | skipped | green | `0.40.2-dynres-0-g5623192` |
+| **cuda** | green | green | skipped | n/a | green | skipped | green | green | not run | skipped | green | `0.40.2-dynres-10-g601b8a6` |
+| **mlx-cuda** | skipped | green | skipped | n/a | **ERROR** | skipped | skipped | skipped | not run | skipped | green | `0.40.2-dynres.1-0-g3960244` |
+| **mlx-metal** | skipped | green | skipped | green | green | green | skipped | green | skipped | skipped | green | `0.40.2-dynres.1-0-g3960244` |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
-| **rocm7** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
+| **rocm7** | green | skipped | green | n/a | green | green | green | green | green | green | green | `0.40.2-dynres.1-0-g3960244` |
 | **rocm10** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
 | **cpu** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
 
@@ -107,7 +114,7 @@ decision and its measurements live (`docs/maxusai/`). The
 | **nemotron-3 vision** | fixed 512×512 canvas — **256 tokens per image**, whatever the aspect ratio. Upstream's MLX `nemotron_h` has been native-aspect since v0.34.3 | native-aspect dynamic resolution, **256–3,328 tokens**, position embeddings interpolated to the patch grid in-graph | patch `002`, ADR 0001 |
 | **gemma4 image budget** | default limits **70–1,120 tokens** (40–280 before b10864); an under-budget image keeps its natural rounded grid and is letterbox-padded | every image scaled to *fill* the requested budget and snapped to gemma4's supported ladder (70/140/280/560/1120), never padded — off-ladder grids measurably break `box_2d` vertical grounding. The budget is a per-request option (`image_min_tokens`/`image_max_tokens`, defaults 70/1120) and the scheduler reloads when the resolved flags change. Upstream has since adopted the same default limits; the fill is still fork-only | patch `004`, ADR 0003/0008/0016 |
 | **qwen2.5-vl on CUDA** | f16 vision matmuls accumulate in fp16; on some ordinary images a few elements of millions reach `inf` at `v.blk.31.ffn_down` and the caption collapses into one repeated glyph | fp32 accumulation forced for every Qwen-VL runner (`qwen2vl` and `qwen25vl`, one family under two converter spellings), keyed on the GGUF architecture. Offered upstream as [ollama#18070](https://github.com/ollama/ollama/pull/18070), still open | `llm/llama_server.go` |
-| **MoE + MMQ on CUDA** | MMQ reads its buffers in whole tiles, but at `b11351` pads them from the batch (`get_J_max(ne11)`), which rounds down while the launched tile rounds up; a broadcast `ne11 == 1` gets no padding at all. Upstream's fix, [llama.cpp#29953](https://github.com/ggml-org/llama.cpp/pull/29953), merged on 2026-10-08, after `b11351`, so it is not in v0.40.2 | every tile-read buffer (`src1`, `ids_dst`, NVFP4 scales) padded for the widest padded tile that has a config, through one helper, with a compile-time check over every config table. Carried until the pin includes #29953; the guard stays after that | patch `903`, [the #29953 record](docs/maxusai/upstream-mmq-29953-material.md) |
+| **MoE + MMQ on CUDA** | MMQ reads its buffers in whole tiles, but at `b11351` pads them from the batch (`get_J_max(ne11)`), which rounds down while the launched tile rounds up; a broadcast `ne11 == 1` gets no padding at all. Upstream's fix, [llama.cpp#29953](https://github.com/ggml-org/llama.cpp/pull/29953), merged on 2026-10-08, after `b11351`, so it is not in v0.40.2 | #29953 itself, backported to `b11351`, plus a compile-time y-tile guard over every config table ([#462](https://github.com/MaxusAI/ollama/pull/462), verified on CUDA and ROCm). The backport retires at the first pin that includes #29953; the guard stays after that | patch `903`, [the #29953 record](docs/maxusai/upstream-mmq-29953-material.md) |
 | **gemma4 flash attention on CUDA** | `b11081` retunes the MMA configs and tile sizes for head dims 256/512 (`ce8caa6e6`). Its accuracy is unchanged in llama.cpp's `test-backend-ops`, but the rounding moves. With ollama's Q4_K_M, gemma4:26b leaves 6 of 27 think-on cases in loops that never end, against 1 without it; with ggml-org's Q4_0, a case loops the other way | the device half of `ce8caa6e6` is reverted to `b10969`'s tiling, which keeps the numerics production was gated on; the host half, the decode selection, stays upstream's. The revert shows no speed cost: in the paired runs on CUDA, gemma4:31b decoded 57 tok/s with either tiling, and gemma4:26b 176 tok/s against the new tiling's 137. On gfx1151 the patch changes no kernel | patch `908`, the [v0.34.4 fold record](docs/maxusai/tasks/upstream-sync-0.34.4.md) |
 
 **Structured output and generation control**
@@ -116,7 +123,7 @@ decision and its measurements live (`docs/maxusai/`). The
 |---|---|---|---|
 | **`think` + `format` in one request** | since v0.34.4, one pass: the grammar applies from the first token, after free thinking that ends at the parser's closing strings | the same by default. `OLLAMA_FORMAT_TWO_PASS=1` keeps the fork's two-pass flow: pass one thinks without the grammar and stops at the think-close marker, and pass two answers under it. Production runs it, because on MLX it lets the thinking draft | ADR 0045 (0002/0004/0010) |
 | **`format` on muse-glimmer** | the grammar binds from the first token, before the model has written its message header. With thinking off, GGUF answers `{…}<|eot|>` and MLX can write the header into the JSON; [ollama#18687](https://github.com/ollama/ollama/pull/18687), open, fixes the parser half | the format waits for the header in one pass and in two, where pass two is prefilled with ` to=user<|message|>` as harmony's is with its own | [#464](https://github.com/MaxusAI/ollama/pull/464) |
-| **whitespace in structured output (MLX)** | the JSON grammar allows an unlimited whitespace run between tokens, so a stalled decode can fill `num_predict` with indentation and never close the answer | runs bounded at 32 characters per separator (`max_whitespace_cnt` on the `json_schema` element) | ADR 0035 (proposed) |
+| **whitespace in structured output (MLX)** | the JSON grammar allows an unlimited whitespace run between tokens, so a stalled decode can fill `num_predict` with indentation and never close the answer | runs bounded at 22 characters per separator (`max_whitespace_cnt` on the `json_schema` element), the length of llama.cpp's longest run for a JSON schema but not its shape (any 22 whitespace characters); GGUF's `format: "json"` grammar uses llama.cpp's own rule, one per gap | ADR 0035 (proposed; amended 2026-10-12) |
 | **drafting under a grammar (MLX)** | always on | on by default to match upstream; `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` restores the gate, and production sets it | ADR 0033 |
 | **stop sequences (MLX)** | not honoured by the MLX runner | honoured, with a possible stop prefix held back until it matches or the stream ends | `mlxrunner/stopper.go` |
 | **KV cache type** | one global `OLLAMA_KV_CACHE_TYPE` | per model, with K/V pair syntax; production runs f16 on every platform, and a quantized cache is per model or per request | ADR 0005, ADR 0043 |
@@ -259,7 +266,7 @@ lands there. The Qwen-VL accumulation gate
 ([ollama#18070](https://github.com/ollama/ollama/pull/18070)) is filed and pending.
 Upstream closed the MMQ padding fix ([llama.cpp#27044](https://github.com/ggml-org/llama.cpp/pull/27044))
 for its narrower [#29941](https://github.com/ggml-org/llama.cpp/pull/29941), which still reads past the
-buffer below 128 tokens. `903` now carries the widest-tile padding that a successor would offer. The gemma4 tiling revert (`908`) is not upstream's to take:
+buffer below 128 tokens. `903` now carries upstream's later fix, [#29953](https://github.com/ggml-org/llama.cpp/pull/29953), backported to `b11351` with a y-tile guard ([#462](https://github.com/MaxusAI/ollama/pull/462)). The gemma4 tiling revert (`908`) is not upstream's to take:
 `ce8caa6e6` loses no precision in llama.cpp's `test-backend-ops`, so the revert is the fork's own
 choice to keep production's gated numerics.
 

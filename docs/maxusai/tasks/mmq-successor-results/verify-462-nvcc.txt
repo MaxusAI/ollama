@@ -1,0 +1,14 @@
+load at start: 35.76 19.81 11.59; Build cuda_12.8.r12.8/compiler.35583870_0
+main=5623192cc pr462=b36fedafe b11351=631109b34
+  main: 10 patches applied in order: 001 002 002 004 005 801 802 805 903 908 
+  pr462: 10 patches applied in order: 001 002 002 004 005 801 802 805 903 908 
+  pr462 tree carries the guard helper
+A-main             sm_120a  rc=0   ok   want=ok   as-expected     23s
+A-main             sm_75    rc=0   ok   want=ok   as-expected     22s
+B-pr462            sm_120a  rc=0   ok   want=ok   as-expected     27s
+B-pr462            sm_75    rc=0   ok   want=ok   as-expected     21s
+  mutation C: helper -> J blocks
+C-J-blocks         sm_120a  rc=2   fail want=fail as-expected      6s  errors=220 guard=220 tables: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4 
+  mmq.cu vs fc9ce6b9d (#29953 as merged): +59 -7 lines
+  mmq.cuh vs fc9ce6b9d (#29953 as merged): +7 -2 lines
+### VERIFY-462-NVCC PASS 2026-10-13 11:18:16

@@ -986,6 +986,21 @@ class TestQualityCappedExcluded(unittest.TestCase):
         self.assertEqual(eligible, {})
         self.assertEqual(capped, [])
 
+    def test_a_loop_verdict_leaves_the_denominator_and_is_named(self):
+        # LOOP_DETECT=1 reaches vision_suite through the inherited environment. A cell ended on a loop (ADR 0049)
+        # was scored on output cut at the loop -- held back by the server it even sits at eval == num_predict -- so
+        # it is neither a quality score nor capped: it is reported as the loop it is.
+        scores = {"scene_single": {"json_valid": False, "eval_count": 2200, "num_predict": 2200,
+                                   "done_reason": "loop", "failure_mode": "loop detected:content",
+                                   "loop_kind": "content"},
+                  "document_single": {"json_valid": True, "eval_count": 100, "num_predict": 2200,
+                                      "done_reason": "stop"}}
+        eligible, capped = checks.quality_eligible(scores)
+        self.assertEqual(list(eligible), ["document_single"])
+        self.assertEqual(capped, [])
+        self.assertEqual(checks.quality_looped(scores), ["scene_single (loop:content)"])
+        self.assertEqual(checks.quality_looped(scores, tests=["document_single"]), [])
+
 
 
 
@@ -1712,6 +1727,127 @@ class TestRocm7ProfileAdmitsTheV0350Fold(unittest.TestCase):
         """Every build since #371 carries 805, and the ROCm build applies it."""
         self.assertIn("805", self.exp["profiles"][self.PROFILE]["patchset"])
 
+class TestCudaProfilesForTheV0402Fold(unittest.TestCase):
+    """ADR 0011 and ADR 0032 on the CUDA host. The v0.40.2 fold (#460) moves llama.cpp b11081 -> b11351 and MLX
+    59d600b5 -> a59cc231, so CUDA builds get cuda-0-40-2 and mlx-cuda-0-40-2, measured on the release image
+    0.40.2-dynres-0-g5623192 (sm_120a). The two share one version pattern, as cuda-dynres-903 and mlx-cuda do, and
+    the old pair keeps 0.35.0.
+
+    nemotron's row has no custom_bounds line: on the converted child the release build launched no image flags
+    (#480), and a `custom_bounds = []` row would have passed payload_proof on that regression.
+    """
+
+    PROFILES = ("cuda-0-40-2", "mlx-cuda-0-40-2")
+    PREDECESSOR = {"cuda-0-40-2": "cuda-dynres-903", "mlx-cuda-0-40-2": "mlx-cuda"}
+    ADMIT = (
+        "0.40.2-dynres-0-g5623192",    # the tag, and the measured release image
+        "0.40.2-dynres-2-g19455c6",    # the release image with #483's binary
+        "0.40.2-dynres-10-g601b8a6",   # main after the day's merges
+        "0.40.2-dynres.1-0-gabcdef0",  # a point tag ADR 0032 cuts for a release build
+    )
+    REJECT = (
+        "0.35.0-dynres-0-g043f441",        # the previous payload: cuda-dynres-903 / mlx-cuda
+        "0.40.2-dynres-0-g5623192-dirty",  # a dirty tree describes nothing
+        "0.40.3-dynres-0-gabcdef0",        # the next fold: measure first
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_pattern(self):
+        for pid in self.PROFILES:
+            pat = re.compile(self.exp["profiles"][pid]["version_pattern"])
+            for stamp in self.ADMIT:
+                self.assertRegex(stamp, pat, f"{pid} must admit {stamp}")
+            for stamp in self.REJECT:
+                self.assertNotRegex(stamp, pat, f"{pid} must reject {stamp}")
+
+    def test_the_pair_shares_one_pattern(self):
+        pats = {pid: self.exp["profiles"][pid]["version_pattern"] for pid in self.PROFILES}
+        self.assertEqual(len(set(pats.values())), 1, f"the 0.40.2 CUDA pair drifted: {pats}")
+
+    def test_the_resolver_picks_these_profiles_and_keeps_0350_on_the_old_pair(self):
+        import preflight
+        for platform, new, old in (("cuda", "cuda-0-40-2", "cuda-dynres-903"), ("mlx-cuda", "mlx-cuda-0-40-2", "mlx-cuda")):
+            self.assertEqual(preflight.resolve_profile(self.exp, platform, "0.40.2-dynres-0-g5623192")[0], new)
+            self.assertEqual(preflight.resolve_profile(self.exp, platform, "0.35.0-dynres-0-g043f441")[0], old)
+
+    def test_the_payload_pins(self):
+        self.assertEqual(self.exp["profiles"]["cuda-0-40-2"]["llama_cpp_build"], "631109b34")
+        for pid in self.PROFILES:
+            self.assertEqual(self.exp["profiles"][pid]["mlx_build"], "a59cc23190f1e26fabcba8693607bb4c34b2ac2b")
+
+    def test_nemotron_keeps_no_custom_bounds(self):
+        self.assertNotIn("custom_bounds", self.exp["expect"]["cuda-0-40-2"]["nemotron_h_omni"])
+
+    def test_ladders_equal_the_previous_payloads(self):
+        """Measured, and byte-identical to the predecessors': a split is a finding, not a typo to align."""
+        for pid in self.PROFILES:
+            new, old = self.exp["expect"][pid], self.exp["expect"][self.PREDECESSOR[pid]]
+            self.assertEqual(sorted(new), sorted(old), pid)
+            for arch in new:
+                self.assertEqual(new[arch]["ladder"], old[arch]["ladder"], f"{pid} {arch}")
+
+
+class TestRocm7ProfileForTheV0402Fold(unittest.TestCase):
+    """ADR 0011 and ADR 0032 on gfx1151. The v0.40.2 fold (#460) moves llama.cpp b11081 -> b11351, so its builds get
+    their own profile, rocm7-0-40-2, measured on 0.40.2-dynres-1-g9e80e78 (the tag plus #475, which ROCm needs to
+    build). The pattern admits the tag's lineage and the point tag v0.40.2-dynres.N that ADR 0032 cuts for a release
+    build that is not the fold commit. rocm7-0-34-4-dynres must keep 0.35.0 and refuse 0.40.2.
+
+    nemotron's row keeps rocm7-0-34-4-dynres's custom bounds (no custom_bounds line). On the converted child the
+    build launched none (#480); a `custom_bounds = []` row would have passed payload_proof on that regression.
+    """
+
+    PROFILE = "rocm7-0-40-2"
+    ADMIT = (
+        "0.40.2-dynres-0-g5623192",    # the tag's stamp
+        "0.40.2-dynres-1-g9e80e78",    # the measured build: the tag plus #475
+        "0.40.2-dynres.1-0-gabcdef0",  # the point tag ADR 0032 cuts for the release build
+    )
+    REJECT = (
+        "0.35.0-dynres-0-g043f441",        # production's payload: rocm7-0-34-4-dynres
+        "0.40.2-dynres-0-g5623192-dirty",  # a dirty tree describes nothing
+        "0.40.3-dynres-0-gabcdef0",        # the next fold: measure first
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_pattern(self):
+        pat = re.compile(self.exp["profiles"][self.PROFILE]["version_pattern"])
+        for stamp in self.ADMIT:
+            self.assertRegex(stamp, pat, f"{self.PROFILE} must admit {stamp}")
+        for stamp in self.REJECT:
+            self.assertNotRegex(stamp, pat, f"{self.PROFILE} must reject {stamp}")
+
+    def test_the_resolver_picks_this_profile_and_keeps_0350_on_its_own(self):
+        import preflight
+        self.assertEqual(preflight.resolve_profile(self.exp, "rocm7", "0.40.2-dynres-1-g9e80e78")[0], self.PROFILE)
+        self.assertEqual(preflight.resolve_profile(self.exp, "rocm7", "0.35.0-dynres-0-g043f441")[0],
+                         "rocm7-0-34-4-dynres")
+
+    def test_the_payload_pin_is_b11351(self):
+        self.assertEqual(self.exp["profiles"][self.PROFILE]["llama_cpp_build"], "631109b34")
+
+    def test_ladders_equal_the_previous_payloads(self):
+        """Measured, and byte-identical to rocm7-0-34-4-dynres's: a split is a finding, not a typo to align."""
+        new, old = self.exp["expect"][self.PROFILE], self.exp["expect"]["rocm7-0-34-4-dynres"]
+        for arch in self.exp["profiles"][self.PROFILE]["arches"]:
+            for key in ("ladder", "aspect_ladder", "budget_min_tokens", "budget_max_tokens", "patch_stride"):
+                self.assertEqual(new[arch][key], old[arch][key], f"{arch}.{key}")
+
+    def test_nemotron_keeps_the_custom_bounds_the_fork_launches(self):
+        """#480: an empty custom_bounds would encode the converted child's missing flags as correct."""
+        self.assertNotIn("custom_bounds", self.exp["expect"][self.PROFILE]["nemotron_h_omni"])
+        self.assertEqual(self.exp["expect"][self.PROFILE]["nemotron_h_omni"],
+                         {**self.exp["expect"]["rocm7-0-34-4-dynres"]["nemotron_h_omni"],
+                          "measured_on": "2026-10-13"})
+
 class TestMlxMetalProfileAdmitsTheV0350Fold(unittest.TestCase):
     """ADR 0032 on Apple Silicon. The v0.35.0 fold (#427) moves no native input: MLX stays 59d600b5 and
     llama.cpp b11081. So its builds share mlx-metal-0-34-4, and the pattern widens to 0.35.0, as
@@ -1766,7 +1902,8 @@ class TestMlxMetalProfileForTheV0402Fold(unittest.TestCase):
     """ADR 0011 on Apple Silicon. The v0.40.2 fold (#460) moves BOTH native inputs: MLX 59d600b5 -> a59cc231 and
     llama.cpp b11081 -> b11351. So it gets its own profile, mlx-metal-0-40-2, rather than a widened 0-34-4.
 
-    The new profile admits the v0.40.2-dynres tag's lineage only. 0-34-4 keeps production's 0.35.0 build and must not
+    The new profile admits the v0.40.2-dynres tag's lineage and its .N point tags (v0.40.2-dynres.1 moves Go only on
+    Metal; its one native change is in ggml-cuda), and nothing else. 0-34-4 keeps production's 0.35.0 build and must not
     admit 0.40.2: that payload is not its own. The fold's interim builds stamp 0.35.0-dynres-N, which 0-34-4 admits and
     whose pins they fail; they were validated with a campaign copy of this file, not by widening either pattern.
     """
@@ -1775,13 +1912,14 @@ class TestMlxMetalProfileForTheV0402Fold(unittest.TestCase):
     ADMIT = (
         "0.40.2-dynres-0-gabcdef0",    # the fold's tag stamp
         "0.40.2-dynres-5-g0123456",    # a build after that tag
+        "0.40.2-dynres.1-0-gabcdef0",  # the v0.40.2-dynres.1 point tag (Go-only on Metal)
     )
     REJECT = (
         "0.35.0-dynres-0-g043f441",          # production's build: mlx-metal-0-34-4's
         "0.35.0-dynres-27-g948ef3a",         # the fold's interim stamp: not admitted by widening
         "0.40.1-dynres-0-gabcdef0",          # an upstream release this fold passed through
         "0.40.2-dynres-0-gabcdef0-dirty",    # a dirty tree describes nothing
-        "0.40.2-dynres.1-0-gabcdef0",        # a point tag is a new deploy: widen deliberately
+        "0.40.2-dynres.1-0-gabcdef0-dirty",  # nor does a dirty point-tag tree
     )
 
     @classmethod
@@ -1806,8 +1944,9 @@ class TestMlxMetalProfileForTheV0402Fold(unittest.TestCase):
 
     def test_the_tag_stamp_resolves_to_this_profile_through_preflight(self):
         import preflight
-        pid, _ = preflight.resolve_profile(self.exp, "mlx-metal", "0.40.2-dynres-0-gabcdef0")
-        self.assertEqual(pid, self.PROFILE)
+        for stamp in ("0.40.2-dynres-0-gabcdef0", "0.40.2-dynres.1-0-gabcdef0"):
+            pid, _ = preflight.resolve_profile(self.exp, "mlx-metal", stamp)
+            self.assertEqual(pid, self.PROFILE, stamp)
 
     def test_the_pins_name_the_fold_payload(self):
         prof = self.exp["profiles"][self.PROFILE]

@@ -1,6 +1,7 @@
 package kvsize
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -360,5 +361,109 @@ func TestSlotsRoundUpToTheCacheStep(t *testing.T) {
 		if got := slots(tc.numCtx); got != tc.want {
 			t.Errorf("slots(%d) = %d, want %d", tc.numCtx, got, tc.want)
 		}
+	}
+}
+
+const (
+	glimmerConfig      = "muse-glimmer-30b-config.json"
+	glimmerDraftConfig = "muse-glimmer-30b-dflash-draft-config.json"
+)
+
+// muse-glimmer's config.json gives sliding_window_pattern as a per-position
+// list ([2048,2048,2048,0]), not gemma4's integer period. That one field
+// failed the whole parse, so MLX admission priced every glimmer load as
+// weights only and logged "no KV rule for this architecture" with an empty
+// architecture (muse-glimmer:30b-nvfp4, 2026-10-11). The fixture is the
+// published config.json without its quantization_config; the draft is the
+// -dflash tags' draft/config.json.
+func TestGlimmerConfigIsPriced(t *testing.T) {
+	got := Model(load(t, glimmerConfig), nil, 8192)
+	if got.Err != nil {
+		t.Fatalf("parse error: %v", got.Err)
+	}
+	if !got.Known || got.Arch != "MuseGlimmerForConditionalGeneration" {
+		t.Fatalf("known=%v arch=%q, want the glimmer rule", got.Known, got.Arch)
+	}
+	// layer_types holds 39 "sliding_attention" and 13 "full_attention" (every
+	// 4th layer), which is what glimmer.go reads; sliding_window_pattern is
+	// not consulted.
+	if want := (LayerCounts{Attention: 13, Sliding: 39}); got.Layers != want {
+		t.Errorf("layers = %+v, want %+v", got.Layers, want)
+	}
+	if got.Total() == 0 {
+		t.Error("a priced glimmer estimate has no bytes")
+	}
+
+	withDraft := Model(load(t, glimmerConfig), load(t, glimmerDraftConfig), 8192)
+	if !withDraft.DraftKnown || withDraft.DraftArch != "MuseGlimmerAssistantModel" {
+		t.Errorf("draft known=%v arch=%q, want the dflash rule", withDraft.DraftKnown, withDraft.DraftArch)
+	}
+	if withDraft.Total() <= got.Total() {
+		t.Errorf("total with the drafter %d, want more than without it %d", withDraft.Total(), got.Total())
+	}
+}
+
+// The list form must price exactly as if the field were absent: layer_types
+// decides, as in the model.
+func TestSlidingWindowPatternListIsNotAPeriod(t *testing.T) {
+	var cfg map[string]any
+	if err := json.Unmarshal(load(t, glimmerConfig), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	delete(cfg, "sliding_window_pattern")
+	without, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range ladder {
+		a, b := Model(load(t, glimmerConfig), nil, n), Model(without, nil, n)
+		if a.Total() != b.Total() || a.Layers != b.Layers {
+			t.Errorf("num_ctx %d: list form %d bytes %+v, field absent %d bytes %+v", n, a.Total(), a.Layers, b.Total(), b.Layers)
+		}
+	}
+}
+
+// A config the parser cannot read says so: the caller's warning must not
+// read as an unregistered architecture with an empty name.
+func TestUnparsableConfigCarriesItsError(t *testing.T) {
+	got := Model([]byte(`{"architectures":["MuseGlimmerForConditionalGeneration"],"num_hidden_layers":"52"}`), nil, 8192)
+	if got.Known {
+		t.Fatal("an unparsable config must not be priced")
+	}
+	if got.Err == nil {
+		t.Fatal("Err is nil for a config that does not parse")
+	}
+}
+
+// A gemma4-family config whose sliding_window_pattern is a list and that has no
+// layer_types cannot be priced: gemma4.go reads the field as an int32, so the
+// model itself would fail to parse it, and the period the list implies is not
+// the rule's to guess. It must come back unknown (the caller falls back), not
+// priced with the default period of 5.
+func TestGemma4ListPatternWithoutLayerTypesIsUnknown(t *testing.T) {
+	var cfg map[string]any
+	if err := json.Unmarshal(load(t, gemma4Config), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	text := cfg
+	if tc, ok := cfg["text_config"].(map[string]any); ok {
+		text = tc
+	}
+	delete(text, "layer_types")
+	text["sliding_window_pattern"] = []int{1024, 1024, 1024, 1024, 1024, 0}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Model(data, nil, 8192); got.Known {
+		t.Errorf("known = true (%d bytes, %+v), want unknown", got.Total(), got.Layers)
+	}
+	// The integer form still prices as before.
+	text["sliding_window_pattern"] = 6
+	if data, err = json.Marshal(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := Model(data, nil, 8192); !got.Known {
+		t.Error("an integer sliding_window_pattern without layer_types is no longer priced")
 	}
 }

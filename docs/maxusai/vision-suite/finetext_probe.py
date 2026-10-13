@@ -38,6 +38,7 @@ def ft_block(r, model, tag, think, num_ctx, num_predict):
          "eval_count": r.get("eval_count")}
     if r.get("done_reason"):
         s["done_reason"] = r["done_reason"]
+    s.update(client.loop_fields(r))
     # ONE metrics derivation, shared with vision_suite via client.metrics_block
     # — this probe's first hand copy diverged at birth (round 1 vs 2,
     # absent-key vs None), publishing a different quantity than the suite for

@@ -1380,21 +1380,40 @@ def quality_eligible(scores, tests=None):
     import lives here rather than at module top because release lineages
     carry preflight/ without the suite — and on those lineages check_quality
     has already SKIPped before scoring.
+
+    A block ended on a loop verdict (LOOP_DETECT=1, ADR 0049) is neither: it
+    was scored on output cut at the loop. quality_looped names it.
     """
     if SUITE_DIR not in sys.path:
         sys.path.insert(0, SUITE_DIR)
-    from summarize_engine_compare import was_capped
+    from summarize_engine_compare import loop_verdict, was_capped
     eligible, capped = {}, []
     for name, blk in scores.items():
         if tests is not None and name not in tests:
             continue
         if not isinstance(blk, dict) or "error" in blk:
             continue
+        if loop_verdict(blk):
+            continue
         if was_capped(blk):
             capped.append(name)
         else:
             eligible[name] = blk
     return eligible, capped
+
+
+def quality_looped(scores, tests=None):
+    """This run's arms that ended on a loop verdict, as "<arm> (loop:<kind>)".
+
+    LOOP_DETECT reaches vision_suite through the inherited environment, so a
+    preflight can record one. It is a finding about the model, not a score:
+    reported as a failure by name, outside every quality ratio."""
+    if SUITE_DIR not in sys.path:
+        sys.path.insert(0, SUITE_DIR)
+    from summarize_engine_compare import loop_verdict
+    return [f"{name} ({loop_verdict(blk)})" for name, blk in scores.items()
+            if (tests is None or name in tests) and isinstance(blk, dict)
+            and "error" not in blk and loop_verdict(blk)]
 
 
 def check_quality(host, quality, expect, arch, tag, timeout=5400):
@@ -1465,6 +1484,9 @@ def check_quality(host, quality, expect, arch, tag, timeout=5400):
         # Surfaced so a run with capped arms cannot read as fully assessed.
         failures.append(f"arms capped, not scored: {', '.join(capped_arms_)} "
                         f"(raise NUM_PREDICT / the ladder)")
+    looped = quality_looped(scores, tests=tests)
+    if looped:
+        failures.append(f"arms ended on a loop verdict, not scored: {', '.join(looped)}")
     if valid:
         metrics["json_valid"] = sum(valid) / len(valid)
         if metrics["json_valid"] < quality.get("min_json_valid", 1.0):

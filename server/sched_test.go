@@ -2608,28 +2608,57 @@ func TestSchedNeedsReloadImageTokenBudget(t *testing.T) {
 	ctx, done := context.WithTimeout(t.Context(), schedTestTimeout(100*time.Millisecond))
 	defer done()
 
-	// The image-token bounds are shared options carrying gemma4's defaults, so
-	// an arch that substitutes its own native bounds for the sentinel launches
-	// identical flags whether the caller left them alone or named them. Only a
-	// budget that changes the flags may reload the runner.
+	// The loaded runner left its budget unset, which the server sends as 0/0
+	// (modelOptionsWithEmbeddingBatchDefault). An arch resolves 0 to its own
+	// native bounds, so a request that names those bounds launches identical
+	// flags and must not reload; only a budget that changes the flags may --
+	// gemma4's 70/1120 included, which on nemotron is now a budget of its own.
 	for _, tc := range []struct {
 		name       string
 		family     string
+		projector  string
 		minTok     int
 		maxTok     int
 		wantReload bool
 	}{
 		{
-			name:   "nemotron explicit native bounds match the unset sentinel",
+			name:   "nemotron explicit native bounds match an unset load",
 			family: "nemotron_h_omni",
 			minTok: 256, maxTok: 3328,
 			wantReload: false,
+		},
+		{
+			name:   "nemotron explicit 70/1120 is a different launch and reloads",
+			family: "nemotron_h_omni",
+			minTok: api.DefaultImageMinTokens, maxTok: api.DefaultImageMaxTokens,
+			wantReload: true,
 		},
 		{
 			name:   "nemotron genuinely different ceiling reloads",
 			family: "nemotron_h_omni",
 			minTok: 256, maxTok: 512,
 			wantReload: true,
+		},
+		{
+			// #480: v0.40.2 converts a legacy nemotron_h_omni GGUF into a
+			// nemotron_h_moe model plus a nemotron_v2_vl projector. Its budget
+			// must still reach the launch, so a different ceiling reloads.
+			name:   "converted nemotron3 genuinely different ceiling reloads",
+			family: "nemotron_h_moe", projector: "nemotron_v2_vl",
+			minTok: 256, maxTok: 512,
+			wantReload: true,
+		},
+		{
+			name:   "converted nemotron3 explicit native bounds match the unset sentinel",
+			family: "nemotron_h_moe", projector: "nemotron_v2_vl",
+			minTok: 256, maxTok: 3328,
+			wantReload: false,
+		},
+		{
+			name:   "text-only nemotron_h_moe ignores the bounds",
+			family: "nemotron_h_moe",
+			minTok: 256, maxTok: 512,
+			wantReload: false,
 		},
 		{
 			name:   "gemma4 explicit defaults do not reload",
@@ -2651,15 +2680,27 @@ func TestSchedNeedsReloadImageTokenBudget(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			newModel := func() *Model {
+				m := &Model{Config: model.ConfigV2{ModelFamily: tc.family}}
+				if tc.projector != "" {
+					m.ProjectorPaths = []string{"projector"}
+					m.projectorMetadata = []ggufMetadata{{KV: map[string]any{
+						"general.architecture":       "clip",
+						"clip.vision.projector_type": tc.projector,
+					}}}
+				}
+				return m
+			}
 			do := api.DefaultOptions()
+			do.ImageMinTokens, do.ImageMaxTokens = 0, 0 // an unset load, as the server sends it
 			runner := &runnerRef{
-				model:       &Model{Config: model.ConfigV2{ModelFamily: tc.family}},
+				model:       newModel(),
 				Options:     &do,
 				llama:       &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}},
 				numParallel: 1,
 			}
 			req := &LlmRequest{
-				model: &Model{Config: model.ConfigV2{ModelFamily: tc.family}},
+				model: newModel(),
 				opts:  api.DefaultOptions(),
 			}
 			req.opts.ImageMinTokens, req.opts.ImageMaxTokens = tc.minTok, tc.maxTok

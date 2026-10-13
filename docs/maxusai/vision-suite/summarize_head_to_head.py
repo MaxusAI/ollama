@@ -21,7 +21,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from summarize_engine_compare import was_capped  # noqa: E402  (H5: import, never redefine)
+from summarize_engine_compare import loop_verdict, was_capped  # noqa: E402  (H5: import, never redefine)
 
 
 def load(path):
@@ -64,10 +64,21 @@ def cap_or(block, text):
     scores; rendering it through the score path printed ❌ ❌ ❌ —/— (?) for a
     2026-09-04 cudaMallocAsync abort — "cannot ground" for a cell that never
     answered. Same rule: name the state, never a score.
+
+    A cell ended on a loop verdict (ADR 0049) renders "loop:<kind>" with its
+    window: its scores were read from output cut at the loop.
     """
     if "error" in block:
         return "error"
+    if loop_verdict(block):
+        return f"{loop_verdict(block)}{ctx(block)}"
     return f"capped{ctx(block)}" if was_capped(block) else text
+
+
+def latency(sc, text):
+    """s/req and req/h derive from the scene's eval_count, which is the cap
+    for a capped cell and the cut point for a looped one: name the state."""
+    return loop_verdict(sc) or ("capped" if was_capped(sc) else text)
 
 
 def main():
@@ -140,8 +151,8 @@ def main():
             ("throughput", "prefill tok/s"): f"{pre:.0f}" if pre else "—",
             # A capped scene cell's eval_count IS the cap: s/req and req/h
             # derived from it quote the harness setting as model latency.
-            ("latency", "s/req (unique image)"): "capped" if was_capped(sc) else (f"{s_req:.1f}" if s_req else "—"),
-            ("latency", "req/h (serial)"): "capped" if was_capped(sc) else (f"{3600 / s_req:.0f}" if s_req else "—"),
+            ("latency", "s/req (unique image)"): latency(sc, f"{s_req:.1f}" if s_req else "—"),
+            ("latency", "req/h (serial)"): latency(sc, f"{3600 / s_req:.0f}" if s_req else "—"),
         })
 
     rows = list(cells[0].keys())

@@ -22,6 +22,13 @@ The checkout must be at dd266785c (#29941 merged) or a commit with the same mmq.
               shared-memory y tile from global memory, GGML_PAD(J*sizeof(block_q8_1_mmq), nthreads*sizeof(int))
               bytes, which is more than J blocks when nthreads*4 does not divide J*144
 
+  pr462       MaxusAI/ollama#462's 903 at b11351 (#29953 as merged plus the y-tile guard), unchanged. Needs a
+              checkout at b11351 with the branch's ggml-cuda patches (805, 903, 908) committed: mmq-462-gate.sh
+              makes one.
+  pr462jb     pr462 with src1 padded by J_best blocks, #29953's first published rule: the positive control for
+              guard:src1
+  pr462ids0   pr462 with no ids_dst padding at all: the positive control for guard:ids_dst
+
 --debug adds the MMQ_DEBUG_ALLOC switch (mmq-debug-alloc.cuh, debug only, never shipped): the ids branch's
 src1_q8_1 and ids_dst come from their own allocation instead of the memory pool, so a read past either is
 observable -- `exact` makes compute-sanitizer report it, `guard` makes it fault. Without it the read lands in
@@ -112,6 +119,16 @@ def variant(src, path, v):
         for rel in MMQ_FILES:
             open(os.path.join(src, rel), "wb").write(git("show", HEAD29953 + ":" + rel))
         return open(path).read()
+    if v == "pr462":
+        return s      # MaxusAI/ollama#462 as applied: #29953 as merged plus the y-tile guard, at b11351
+    if v == "pr462jb":
+        # positive control for guard:src1: pad src1 by J_best blocks, the rule #29953 first published
+        return rep(s, "const size_t src1_q8_1_padding = nbytes_y_tile_best;",
+                      "const size_t src1_q8_1_padding = J_best*sizeof(block_q8_1_mmq);")
+    if v == "pr462ids0":
+        # positive control for guard:ids_dst: no ids_dst padding at all
+        return rep(s, "ggml_cuda_pool_alloc<int32_t> ids_dst(ctx.pool(), ne_get_rows + J_best-1);",
+                      "ggml_cuda_pool_alloc<int32_t> ids_dst(ctx.pool(), ne_get_rows);")
     if v == "head":
         return s      # the PR's own head as fetched: already pads the tile and ids_dst, but not the y scales
     if v == "headyscale":
