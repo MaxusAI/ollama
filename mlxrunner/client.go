@@ -855,6 +855,7 @@ func (c *Client) Load(ctx context.Context, systemInfo ml.SystemInfo, gpus []ml.D
 	}
 
 	mlxRunnerEnvDefaults(cmd)
+	pinAdmittedDevice(cmd, gpus)
 
 	status := llm.NewStatusWriter(os.Stderr)
 	// os/exec serializes Write calls when shared, which keeps the status writer
@@ -1020,6 +1021,26 @@ const CacheThrashingCheckEnv = "MLX_ENABLE_CACHE_THRASHING_CHECK"
 func mlxRunnerEnvDefaults(cmd *exec.Cmd) {
 	if os.Getenv(CacheThrashingCheckEnv) == "" {
 		setEnv(cmd, CacheThrashingCheckEnv, "0")
+	}
+}
+
+// pinAdmittedDevice restricts the runner to the one GPU admit priced: gpus[0].
+//
+// The runner used to inherit every device the server sees. MLX's CUDA
+// backend then sets up a memory pool and a stream per visible device and
+// switches the thread's current device as it walks them; with a second CUDA
+// GPU visible, requests die in mlx.FromValues with "cudaMemcpy(data,
+// buf.data, buf.size, kind) failed: invalid argument" (CUDA host, RTX PRO
+// 6000 + 2080 Ti: gemma4, qwen3.6 and qwen3.8 nvfp4 failed with both devices
+// visible). llama-server is already filtered through ml.GetDevicesEnv; this
+// is the same call for the device MLX runs on. A one-device list is always
+// filtered, and FilterID keeps an operator's CUDA_VISIBLE_DEVICES numbering.
+func pinAdmittedDevice(cmd *exec.Cmd, gpus []ml.DeviceInfo) {
+	if len(gpus) == 0 {
+		return
+	}
+	for k, v := range ml.GetDevicesEnv(gpus[:1]) {
+		setEnv(cmd, k, v)
 	}
 }
 
