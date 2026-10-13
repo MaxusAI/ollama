@@ -1632,14 +1632,13 @@ func TestVisionServerArgs(t *testing.T) {
 			want: []string{"--image-min-tokens", "256", "--image-max-tokens", "3328"},
 		},
 		{
-			// The gemma4-shaped DefaultOptions values (70/1120 today) mean
-			// "untouched" and must map to the nemotron-native bounds, not be
-			// forwarded literally. Asserted through the constants, so the case
-			// keeps holding when an ADR moves the gemma4 default again.
-			name: "nemotron_h_omni DefaultOptions values treated as unset",
+			// Unset reaches the runner as 0 (server/routes.go), so gemma4's
+			// 70/1120 is an explicit request here like any other value and is
+			// forwarded; it no longer stands for "untouched".
+			name: "nemotron_h_omni explicit 70/1120 honoured",
 			arch: "nemotron_h_omni",
 			opts: api.Options{Runner: api.Runner{ImageMinTokens: api.DefaultImageMinTokens, ImageMaxTokens: api.DefaultImageMaxTokens}},
-			want: []string{"--image-min-tokens", "256", "--image-max-tokens", "3328"},
+			want: []string{"--image-min-tokens", "70", "--image-max-tokens", "1120"},
 		},
 		{
 			name: "nemotron_h_omni custom budget",
@@ -1655,17 +1654,17 @@ func TestVisionServerArgs(t *testing.T) {
 		},
 		{
 			// The production-realistic shape: a Modelfile sets only one param, so the
-			// other arrives at its DefaultOptions sentinel and must be substituted
-			// per-field, not only when both are sentinels.
-			name: "nemotron_h_omni max explicit, min at sentinel",
+			// other arrives unset (0) and must be substituted per-field, not only
+			// when both are unset.
+			name: "nemotron_h_omni max explicit, min unset",
 			arch: "nemotron_h_omni",
-			opts: api.Options{Runner: api.Runner{ImageMinTokens: api.DefaultImageMinTokens, ImageMaxTokens: 2048}},
+			opts: api.Options{Runner: api.Runner{ImageMinTokens: 0, ImageMaxTokens: 2048}},
 			want: []string{"--image-min-tokens", "256", "--image-max-tokens", "2048"},
 		},
 		{
-			name: "nemotron_h_omni min explicit, max at sentinel",
+			name: "nemotron_h_omni min explicit, max unset",
 			arch: "nemotron_h_omni",
-			opts: api.Options{Runner: api.Runner{ImageMinTokens: 1024, ImageMaxTokens: api.DefaultImageMaxTokens}},
+			opts: api.Options{Runner: api.Runner{ImageMinTokens: 1024, ImageMaxTokens: 0}},
 			want: []string{"--image-min-tokens", "1024", "--image-max-tokens", "3328"},
 		},
 		{
@@ -1681,7 +1680,7 @@ func TestVisionServerArgs(t *testing.T) {
 			// ceiling lands on 3328/3328.
 			name: "nemotron_h_omni min above substituted ceiling",
 			arch: "nemotron_h_omni",
-			opts: api.Options{Runner: api.Runner{ImageMinTokens: 3500, ImageMaxTokens: api.DefaultImageMaxTokens}},
+			opts: api.Options{Runner: api.Runner{ImageMinTokens: 3500, ImageMaxTokens: 0}},
 			want: []string{"--image-min-tokens", "3328", "--image-max-tokens", "3328"},
 		},
 		{
@@ -1843,11 +1842,11 @@ func TestMaxImageTokens(t *testing.T) {
 			want: 3330,
 		},
 		{
-			// The gemma4-shaped DefaultOptions sentinels mean "untouched".
-			name: "nemotron_h_omni DefaultOptions values treated as unset",
+			// An explicit 1120 is a ceiling like any other (unset is 0).
+			name: "nemotron_h_omni explicit 1120 honoured",
 			arch: "nemotron_h_omni",
 			opts: api.Options{Runner: api.Runner{ImageMinTokens: api.DefaultImageMinTokens, ImageMaxTokens: api.DefaultImageMaxTokens}},
-			want: 3330,
+			want: 1122,
 		},
 		{
 			name: "nemotron_h_omni custom ceiling",
@@ -2929,6 +2928,59 @@ func TestMMProjFitTargetExtraEnvs(t *testing.T) {
 			t.Fatalf("user env should not be overridden, got extra env %q", got[llamaArgFitTargetEnv])
 		}
 	})
+}
+
+// TestVisionBudgetArch pins #480: v0.40.2 converts a legacy nemotron_h_omni
+// GGUF into a nemotron_h_moe model plus a separate nemotron_v2_vl projector,
+// and the converted child must launch with the same image-budget flags the
+// legacy model did. A text-only nemotron_h_moe must launch with none.
+func TestVisionBudgetArch(t *testing.T) {
+	for _, tc := range []struct {
+		arch, projector, want string
+	}{
+		{"nemotron_h_moe", "nemotron_v2_vl", "nemotron_h_omni"},
+		{"nemotron_h", "nemotron_v2_vl", "nemotron_h_omni"},
+		{"nemotron_h_moe", "", "nemotron_h_moe"},
+		{"nemotron_h_omni", "", "nemotron_h_omni"},
+		{"gemma4", "", "gemma4"},
+		{"qwen35moe", "nemotron_v2_vl", "qwen35moe"},
+	} {
+		if got := VisionBudgetArch(tc.arch, tc.projector); got != tc.want {
+			t.Errorf("VisionBudgetArch(%q, %q) = %q, want %q", tc.arch, tc.projector, got, tc.want)
+		}
+	}
+
+	opts := api.DefaultOptions()
+	opts.ImageMinTokens, opts.ImageMaxTokens = 256, 1024
+	converted := visionServerArgs(VisionBudgetArch("nemotron_h_moe", "nemotron_v2_vl"), opts)
+	if want := []string{"--image-min-tokens", "256", "--image-max-tokens", "1024"}; !slices.Equal(converted, want) {
+		t.Errorf("converted nemotron3 child launches with %v, want %v", converted, want)
+	}
+	if textOnly := visionServerArgs(VisionBudgetArch("nemotron_h_moe", ""), opts); textOnly != nil {
+		t.Errorf("text-only nemotron_h_moe launches with %v, want no image flags", textOnly)
+	}
+
+	modelPath, _ := writeTestGGUF(t, gguftest.KV{"general.architecture": "nemotron_h_moe"}, []*gguftest.Tensor{
+		testGGUFTensor("blk.0.attn_q.weight", gguf.TensorTypeF32, []uint64{4}),
+	})
+	projectorPath, _ := writeTestGGUF(t, gguftest.KV{
+		"general.architecture":       "clip",
+		"clip.vision.projector_type": "nemotron_v2_vl",
+	}, []*gguftest.Tensor{
+		testGGUFTensor("v.patch_embd.weight", gguf.TensorTypeF16, []uint64{16}),
+	})
+	if got := externalProjectorType(modelPath, []string{projectorPath}); got != "nemotron_v2_vl" {
+		t.Errorf("externalProjectorType(projector file) = %q, want nemotron_v2_vl", got)
+	}
+	if got := externalProjectorType(modelPath, []string{modelPath}); got != "" {
+		t.Errorf("externalProjectorType(inline) = %q, want \"\"", got)
+	}
+	if got := externalProjectorType(modelPath, nil); got != "" {
+		t.Errorf("externalProjectorType(none) = %q, want \"\"", got)
+	}
+	if got := externalProjectorType(modelPath, []string{filepath.Join(t.TempDir(), "missing.gguf")}); got != "" {
+		t.Errorf("externalProjectorType(unreadable) = %q, want \"\"", got)
+	}
 }
 
 func TestMMProjMemoryRequirement(t *testing.T) {
@@ -4496,12 +4548,19 @@ func TestResolvedImageTokenBudget(t *testing.T) {
 			wantMin: api.DefaultImageMinTokens, wantMax: api.DefaultImageMaxTokens, wantDerived: true,
 		},
 		{
-			// The sentinel means "untouched" here, so it must resolve to the
-			// same bounds an explicit 256/3328 does — that equality is what
-			// keeps the scheduler from reloading for identical flags.
-			name: "nemotron sentinel resolves to native bounds",
-			arch: "nemotron_h_omni", opts: sentinel,
+			// Unset (0) must resolve to the same bounds an explicit 256/3328
+			// does -- that equality is what keeps the scheduler from reloading
+			// for identical flags.
+			name: "nemotron unset resolves to native bounds",
+			arch: "nemotron_h_omni", opts: api.Options{},
 			wantMin: 256, wantMax: 3328, wantDerived: true,
+		},
+		{
+			// gemma4's 70/1120 is an explicit request on nemotron, and a
+			// different launch than unset, so the scheduler reloads for it.
+			name: "nemotron explicit 70/1120 is its own budget",
+			arch: "nemotron_h_omni", opts: sentinel,
+			wantMin: 70, wantMax: 1120, wantDerived: true,
 		},
 		{
 			name:    "nemotron explicit native bounds resolve identically",

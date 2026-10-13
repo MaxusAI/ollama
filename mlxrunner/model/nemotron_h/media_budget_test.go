@@ -67,7 +67,7 @@ func TestImagePatchBounds(t *testing.T) {
 		wantMin, wantMax int
 	}{
 		{name: "unset keeps the model's own", minTok: 0, maxTok: 0, wantMin: 1024, wantMax: 13312},
-		{name: "the shared api default counts as unset", minTok: api.DefaultImageMinTokens, maxTok: api.DefaultImageMaxTokens, wantMin: 1024, wantMax: 13312},
+		{name: "an explicit shared api default is honoured", minTok: api.DefaultImageMinTokens, maxTok: api.DefaultImageMaxTokens, wantMin: 280, wantMax: 4480},
 		{name: "max maps tokens to patches x4", maxTok: 1024, wantMin: 1024, wantMax: 4096},
 		{name: "max below the model floor is honoured", maxTok: 128, wantMin: 512, wantMax: 512},
 		{name: "min raises the floor", minTok: 1024, wantMin: 4096, wantMax: 13312},
@@ -106,16 +106,14 @@ func TestPrepareMediaWithBudgetUnsetMatchesUpstream(t *testing.T) {
 		gh, gw := nemotronImagePatchGrid(h, w, nemotronImagePatchBudget(cfg), cfg)
 		want := []int{1, 3, gh * int(cfg.PatchSize), gw * int(cfg.PatchSize)}
 
+		// Unset is 0 (server/routes.go); gemma4's 70/1120 is an explicit request
+		// on this model and is covered by TestImagePatchBounds.
 		unset, unsetTokens := prepareOne(t, m, data, 0, 0)
-		shared, sharedTokens := prepareOne(t, m, data, api.DefaultImageMinTokens, api.DefaultImageMaxTokens)
-		if !slices.Equal(unset.Dims, want) || !slices.Equal(shared.Dims, want) {
-			t.Fatalf("%dx%d: dims unset=%v shared-default=%v, want upstream's %v", w, h, unset.Dims, shared.Dims, want)
+		if !slices.Equal(unset.Dims, want) {
+			t.Fatalf("%dx%d: dims unset=%v, want upstream's %v", w, h, unset.Dims, want)
 		}
-		if unsetTokens != sharedTokens || unsetTokens != m.visionTokenCount(want[2], want[3]) {
-			t.Fatalf("%dx%d: tokens unset=%d shared-default=%d, want %d", w, h, unsetTokens, sharedTokens, m.visionTokenCount(want[2], want[3]))
-		}
-		if !slices.Equal(unset.MediaData, shared.MediaData) {
-			t.Fatalf("%dx%d: pixels differ between an unset request and the shared default", w, h)
+		if unsetTokens != m.visionTokenCount(want[2], want[3]) {
+			t.Fatalf("%dx%d: tokens unset=%d, want %d", w, h, unsetTokens, m.visionTokenCount(want[2], want[3]))
 		}
 
 		viaMediaModel, err := m.PrepareMedia([]model.Segment{{Kind: "image", Data: data}})

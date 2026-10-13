@@ -81,6 +81,8 @@ WORKDIR /go/src/github.com/ollama/ollama
 COPY LLAMA_CPP_VERSION .
 COPY llama/server llama/server
 COPY llama/compat llama/compat
+COPY llama/clef llama/clef
+COPY cmake cmake
 RUN --mount=type=cache,target=/root/.ccache \
     cmake -S llama/server --preset cpu \
         && cmake --build build/llama-server-cpu -- -l $(nproc) \

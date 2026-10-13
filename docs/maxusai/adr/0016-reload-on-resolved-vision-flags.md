@@ -67,7 +67,8 @@ must not reload, a genuinely different ceiling must — and
 - The sentinel ambiguity itself remains: an explicit `70/1120` on nemotron is
   still read as unset and is not expressible. That is now a documented
   limitation rather than an accident — see the resolver's comment and
-  `nemotron-dynres-patch.md`.
+  `nemotron-dynres-patch.md`. **Superseded by [ADR 0048](0048-an-unset-image-budget-reaches-the-runner-as-zero.md):
+  the server sends an unset budget as 0 and an explicit 70/1120 is honoured.**
 - `ResolvedImageTokenBudget` is the single place that answers "what budget
   will this arch launch with", so an arch added to `visionServerArgs` must be
   added there too or its budget silently stops forcing reloads. The two

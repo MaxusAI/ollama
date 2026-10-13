@@ -23,9 +23,11 @@ func TestResolveImageBudgetKeepsTheModelsOwnCeiling(t *testing.T) {
 		{"unset resolves to the model's own", 0, 0, modelMin, modelMax},
 		{"negative resolves to the model's own", -1, -1, modelMin, modelMax},
 		{
-			"shared api default counts as unset",
+			// Unset reaches the runner as 0, so the shared api default is an
+			// explicit request on a model with its own bounds, and is honoured.
+			"an explicit shared api default is honoured",
 			api.DefaultImageMinTokens, api.DefaultImageMaxTokens,
-			modelMin, modelMax,
+			api.DefaultImageMinTokens, api.DefaultImageMaxTokens,
 		},
 		{"an explicitly different value wins", 128, 2048, 128, 2048},
 		{"only the ceiling set", 0, 2048, modelMin, 2048},

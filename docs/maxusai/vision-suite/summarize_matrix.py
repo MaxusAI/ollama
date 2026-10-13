@@ -26,6 +26,11 @@ count is per LEVEL, not per row, because termination itself may respond to the
 factor (the anchor bounded qwen3.6's multi_3img runaway from >122,880 tokens to
 10,910 — the capped column is where that effect would show here).
 
+**A loop verdict is excluded the same way and counted on its own.** A cell
+that LOOP_DETECT=1 ended on a verbatim loop (ADR 0049) was scored on output
+cut at the loop. It enters no mean, and the capped column adds "(+k loop)"
+for it -- only when there is one, so a table without loops keeps its shape.
+
 **A partial campaign renders as INCOMPLETE, with the missing cells named.**
 ADR 0012 rule 8: re-render after a campaign fully completes. The expected grid
 is the cross-product of every model, mode and geometry seen on disk × 8 arms,
@@ -51,7 +56,7 @@ import statistics
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from summarize_engine_compare import was_capped  # noqa: E402  (SPEC H5)
+from summarize_engine_compare import loop_verdict, not_a_score, was_capped  # noqa: E402  (SPEC H5)
 
 FACTORS = ("pin", "anchor", "coords")
 ARM_RE = re.compile(r"^bboxm_(pin|free)_(anc|noanc)_(named|pos)$")
@@ -79,7 +84,10 @@ capped = was_capped
 
 
 def load(rundir, prefix):
-    """[(model, mode, geometry, arm, factors, block, capped)]"""
+    """[(model, mode, geometry, arm, factors, block, excluded)]
+
+    `excluded` is not_a_score: capped OR ended on a loop verdict. Every mean
+    below reads it; the counts tell the two apart with loop_verdict."""
     out = []
     for f in sorted(glob.glob(os.path.join(rundir, f"scores_{prefix}-*.json"))):
         m = re.match(rf"scores_{re.escape(prefix)}-(.+?)-\d+_(.+)_think(\w+)\.json",
@@ -94,7 +102,7 @@ def load(rundir, prefix):
         for arm, blk in data.items():
             fac = factors_of(arm)
             if fac and isinstance(blk, dict) and "error" not in blk:
-                out.append((model, mode, geom, arm, fac, blk, capped(blk)))
+                out.append((model, mode, geom, arm, fac, blk, not_a_score(blk)))
     return out
 
 
@@ -119,11 +127,13 @@ def main():
     models = sorted({r[0] for r in rows})
     modes = sorted({r[1] for r in rows})
     geoms = sorted({r[2] for r in rows})
-    n_cap = sum(1 for r in rows if r[6])
+    n_loop = sum(1 for r in rows if loop_verdict(r[5]))
+    n_cap = sum(1 for r in rows if r[6]) - n_loop
     n_salv = sum(1 for r in rows if r[5].get("json_salvaged"))
     print(f"\n**{a.metric}** — {len(rows)} arm-results, "
           f"{len(models)} models × {len(modes)} think modes × {len(geoms)} geometries")
-    print(f"capped (excluded from every mean): {n_cap}  ·  json salvaged: {n_salv}\n")
+    print(f"capped (excluded from every mean): {n_cap}  ·  json salvaged: {n_salv}"
+          + (f"  ·  loop verdicts (excluded from every mean): {n_loop}" if n_loop else "") + "\n")
 
     # ---- completeness: a partial campaign must say so (ADR 0012 rule 8) -----
     present = {(r[0], r[1], r[2], r[3]) for r in rows}
@@ -176,7 +186,9 @@ def main():
                 means, spreads, caps, worst = [], [], [], []
                 for lv in levels:
                     lvc = [r for r in cells if r[4][factor] == lv]
-                    caps.append(f"{sum(1 for r in lvc if r[6])}/{len(lvc)}")
+                    n_lp = sum(1 for r in lvc if loop_verdict(r[5]))
+                    caps.append(f"{sum(1 for r in lvc if r[6]) - n_lp}/{len(lvc)}"
+                                + (f" (+{n_lp} loop)" if n_lp else ""))
                     vs = [val(b, a.metric) for (_, _, _, _, _, b, c) in lvc
                           if not c and val(b, a.metric) is not None]
                     means.append(statistics.mean(vs) if vs else None)
@@ -236,7 +248,7 @@ def main():
             for arm in ARMS:
                 ac = [r for r in rows if r[0] == mdl and r[1] == mode and r[3] == arm]
                 if not ac or any(r[6] for r in ac):
-                    continue  # capped anywhere → not trustable in this mode
+                    continue  # capped or looped anywhere → not trustable in this mode
                 vs = [val(b, a.metric) for (_, _, _, _, _, b, _) in ac
                       if val(b, a.metric) is not None]
                 if not vs:
@@ -250,8 +262,11 @@ def main():
                 cand.append((statistics.mean(vs), sp, arm, len(vs)))
             if not cand:
                 if any(r[0] == mdl and r[1] == mode for r in rows):
+                    how = ("hit the cap or looped" if any(
+                        loop_verdict(r[5]) for r in rows if r[0] == mdl and r[1] == mode)
+                        else "hit the cap")
                     print(f"| {mdl.replace('_','.')[:22]} | {mode} | — | — | — | "
-                          "every arm hit the cap at least once |")
+                          f"every arm {how} at least once |")
                 continue
             cand.sort(key=lambda t: (-t[0], t[1]))
             mean, sp, arm, n = cand[0]

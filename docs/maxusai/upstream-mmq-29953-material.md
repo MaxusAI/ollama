@@ -39,7 +39,7 @@ the note under "Ten architectures"). Details: "The exact head, measured".
 `mmq_get_nbytes_shared()` and in its new padding line, spelled differently -- and those two drifting apart is what
 this bug was. On the stock pool nothing would notice it happen again. "A guard upstream could take" has a patch on
 the head (+70/-9 lines): one helper for both, and a compile-time check over all ten config tables, verified with
-nvcc. Whether to offer it is the maintainer's call.
+nvcc and, by the ROCm host, with hipcc. Whether to offer it is the maintainer's call.
 
 **For the fork: keep compat 903 until the pin includes #29953**, then retire its padding by the gate under "For
 the fork" and keep the guard.
@@ -253,15 +253,15 @@ ids-branch shapes ([tasks/mmq-successor-results/check-rules-wide.txt](tasks/mmq-
 | **#29953 head (`3070d927f`)** | **covered** | - | none |
 
 > [!NOTE]
-> **Corrected 2026-10-05.** This table used to label the published row "#29953 at `3070d927f`". The checker's
-> #29953 rule is the published one -- pad by the launched `J_best` in blocks -- and the head's rule was not in it
-> at all. Read literally, the old label said upstream's current fix is short in 3.5 million shapes, which is
-> false. The head's rule (the launched config's padded tile, and `J_best - 1` for `ids_dst`) is now in
-> [tasks/mmq-rules-check.cu](tasks/mmq-rules-check.cu) and is covered in all four tallies on all ten
-> architectures: 9,431,816 ids-branch shapes and 203,200 dense ones. Built against `dd266785c` and against
-> `3070d927f` itself, the check prints byte-identical output; the config tables are the same files in both. That is by construction -- its padding is
-> the load loop's own extent for the launched config -- so the sweep shows the model agrees, not that the head
-> is right; the measurements in the Conclusion are the evidence for that.
+> **Corrected 2026-10-05.** This table used to label the published row "#29953 at `3070d927f`". The checker's #29953
+> rule is the published one -- pad by the launched `J_best` in blocks -- and the head's rule was not in it at all.
+> Read literally, the old label said upstream's current fix is short in 3.5 million shapes, which is false. The
+> head's rule (the launched config's padded tile, and `J_best - 1` for `ids_dst`) is now in
+> [tasks/mmq-rules-check.cu](tasks/mmq-rules-check.cu) and is covered in all four tallies on all ten architectures:
+> 9,431,816 ids-branch shapes and 203,200 dense ones. That is by construction -- its padding is the load loop's own
+> extent for the launched config -- so the sweep shows the model agrees, not that the head is right; the
+> measurements in the Conclusion are the evidence for that. Built against `dd266785c` and against `3070d927f`
+> itself, the check prints byte-identical output; the config tables are the same files in both.
 
 **This widens the case for the amendment well beyond gfx1151.** `nthreads` is 512 on CDNA, not 256, so the
 padded tile is larger: the worst case is CDNA3, q4_0, non-fallback, `J = 64` with `nthreads = 512`, where
@@ -596,27 +596,33 @@ would see it happen again: on the stock pool the over-read lands in mapped memor
 - **A compile-time check.** For every config table and type, the helper must cover the load loop's extent,
   written from the loop with exact ceiling division -- `ceil(J*MMQ_TILE_Y_K / nthreads) * nthreads` ints -- not
   from the helper or from `GGML_PAD`. One `static_assert` per (table, type), host pass only: the structure of
-  the fork's compat 903 guard (#451), which the ROCm host verified under hipcc.
+  the fork's compat 903 guard (#451). They are gathered by an explicitly instantiated class that inherits every
+  per-type guard, the ROCm host's variant (#455, #456). The first form gathered them with a `static_assert` on a
+  fold, which under clang turned non-constant once a per-type assertion failed and added one error per failing
+  table, worded like a constant-evaluation limit.
 
-Verified with nvcc 12.8 for sm_120 by [tasks/mmq-29953-guard-verify.sh](tasks/mmq-29953-guard-verify.sh), which
-scores each build by why it failed -- every error must be the guard's and the tables it names must be the expected
+Verified with nvcc 12.8 here and with hipcc on the ROCm host. nvcc, for sm_120, by
+[tasks/mmq-29953-guard-verify.sh](tasks/mmq-29953-guard-verify.sh), which scores each build by why it failed -- every error must be the guard's and the tables it names must be the expected
 ones -- not just by its exit code
 ([tasks/mmq-successor-results/verify-29953-guard.txt](tasks/mmq-successor-results/verify-29953-guard.txt)):
 
 ```
-host load at start (1/5/15 min): 7.73 12.80 17.77, 32 cores
-1-head-unpatched                   rc=0   ok   want=ok   as-expected     8.1s
+host load at start (1/5/15 min): 38.78 35.94 28.60, 32 cores
+1-head-unpatched                   rc=0   ok   want=ok   as-expected    13.5s
 patch applies to a pristine 3070d927f6c172242d56a2c1fb897e838e7b2632
-2-head-with-guard                  rc=0   ok   want=ok   as-expected    11.2s
-3-helper-shrunk-to-J-blocks        rc=2   fail want=fail as-expected     3.0s
+2-head-with-guard                  rc=0   ok   want=ok   as-expected    19.1s
+3-helper-shrunk-to-J-blocks        rc=2   fail want=fail as-expected     5.0s
     errors=220, from the guard=220, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
-4-helper-rounded-to-one-warp       rc=2   fail want=fail as-expected     3.0s
+4-helper-rounded-to-one-warp       rc=2   fail want=fail as-expected     5.0s
     errors=220, from the guard=220, tables named: ampere blackwell cdna gcn pascal_dp4a pascal_older rdna2 rdna3 rdna3_5 rdna4
 mutation 5 rewrote:     CASE(GGML_TYPE_MXFP4, 256, 1, 128,   8, GGML_CUDA_MMQ_SRAM_LAYOUT_FP4, MMQ_ITER_K_FP4, true, true); ->     CASE(GGML_TYPE_MXFP4, 192, 1, 128,   8, GGML_CUDA_MMQ_SRAM_LAYOUT_FP4, MMQ_ITER_K_FP4, true, true);
-5-blackwell-config-at-192-threads  rc=2   fail want=fail as-expected     4.0s
+5-blackwell-config-at-192-threads  rc=2   fail want=fail as-expected     6.1s
     errors=1, from the guard=1, tables named: blackwell
-6-guard-compiled-out               rc=0   ok   want=ok   as-expected     7.9s
-VERIFY29953GUARD COMPLETE 2026-10-05T02:33:16Z all_as_expected=1
+mutation 5b rewrote:     CASE(GGML_TYPE_Q1_0, 256, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true); ->     CASE(GGML_TYPE_Q1_0, 160, 2, 128,  64, GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0, MMQ_ITER_K, false, true);
+5b-rdna3_5-config-at-160-threads   rc=2   fail want=fail as-expected     6.0s
+    errors=1, from the guard=1, tables named: rdna3_5
+6-guard-compiled-out               rc=0   ok   want=ok   as-expected    14.2s
+VERIFY29953GUARD COMPLETE 2026-10-05T04:51:06Z all_as_expected=1
 ```
 
 - **3** puts the published #29953's padding, `J` blocks, back into the helper: every table fails, 220 (table,
@@ -626,18 +632,29 @@ VERIFY29953GUARD COMPLETE 2026-10-05T02:33:16Z all_as_expected=1
   granularities, the config tables only assert `nthreads % 32 == 0`, and the kernel places `tile_x` with the
   same `GGML_PAD`. A 192-thread config would compile today and mis-size the tile; with the guard, the build fails
   and names that table only.
-- **Cost:** about 3 s per compile of `mmq.cu`, paid once per build because the guard runs in the host pass only,
-  however many architectures are targeted: a median of 11.1 s with it against 8.2 s compiled out, over five
-  interleaved repeats at a load of 7-8 on 32 cores
+- **5b** is 5 on an AMD table: rdna3_5 at 160 threads. Not 192: rdna3_5's first 256-thread line has `J = 64`, and
+  64 x 36 ints is a multiple of 192, so the bit mask happens to round correctly there. The first instruction to
+  the ROCm host said 192 and could not fire; they found 160 (#455).
+- **hipcc agrees on every build** (ROCm 7.2.1, AMD clang 22, gfx1151, run by the ROCm host:
+  [#456](https://github.com/MaxusAI/ollama/pull/456), `rocm-gfx1151/README.md`). The patch compiles; 3 and 4 fail
+  with 220 errors, all the guard's, naming all ten tables; blackwell at 192 and rdna3_5 at 160 each name only
+  their table; compiled out, it compiles. clang stops at 20 errors unless given `-ferror-limit=0`.
+- **No generated code changes, on either compiler.** On hipcc `mmq.o` is byte-identical with and without the
+  guard: clang derives `__hip_cuid_*` from the path and the command line. On nvcc whole objects differ between
+  two builds of the same source, so the comparison is of the host disassembly, 56,837 lines, identical across the
+  first form, the variant, no guard and a repeat build.
+- **Cost:** about 3 s per compile of `mmq.cu` on nvcc and 0.8 s on hipcc, paid once per build because the guard
+  runs in the host pass only, however many architectures are targeted. nvcc: a median of 15.2 s with the guard
+  against 11.8 s compiled out, over five interleaved repeats at a load of 28-36 on 32 cores
   ([tasks/mmq-29953-guard-timing.sh](tasks/mmq-29953-guard-timing.sh),
-  [output](tasks/mmq-successor-results/guard-timing.txt)). A single build is too noisy to quote: two one-off
-  runs gave 9.8 against 8.9 s and 11.2 against 7.9 s.
+  [output](tasks/mmq-successor-results/guard-timing.txt)); the first form measured 11.1 against 8.2 s at a load
+  of 7-8. hipcc, measured by the ROCm host: 2.89 against 2.06 s, median of five.
 - nvcc's front end stops at 100 errors by default, which on the first run cut mutation 3's list to the first five
   tables; the script passes `-Xcudafe --error_limit=100000` so every failing table is named.
 
-**Limits.** Only nvcc was run here: the HIP and MUSA branches are untested on this host. HIP keys off
-`__HIP_DEVICE_COMPILE__` because `vendors/hip.h` defines `__CUDA_ARCH__` in every HIP pass -- the trap the ROCm
-host caught in #451's first draft -- and MUSA is excluded, as in 903, because nothing here builds it. The guard
+**Limits.** The HIP branch is verified by the ROCm host; MUSA is untested, and excluded as in 903 because nothing
+here builds it. HIP keys off `__HIP_DEVICE_COMPILE__` because `vendors/hip.h` defines `__CUDA_ARCH__` in every HIP
+pass -- the trap the ROCm host caught in #451's first draft. The guard
 cannot see call sites: a later change that pads src1 by something other than the helper would pass it. `ids_dst`
 needs no guard of this kind; its `J_best - 1` depends on nothing but `J`.
 

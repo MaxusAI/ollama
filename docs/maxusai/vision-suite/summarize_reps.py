@@ -22,7 +22,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from summarize_engine_compare import was_capped  # noqa: E402  (SPEC H5)
+from summarize_engine_compare import loop_verdict, was_capped  # noqa: E402  (SPEC H5)
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -189,16 +189,23 @@ def cell(runs, section, key, kind):
     # pooling level" clause exactly. A partial cell returns spread=None so
     # the within-arm spread section cannot claim reproducibility over reps
     # that contributed nothing.
+    #
+    # A rep that ended on a loop verdict (ADR 0049) is dropped the same way
+    # and counted on its own ("(k loop)"): its score was read from output cut
+    # at the loop, and "cannot stop" and "loops" are different findings.
     secs = [r[section] for r in runs
             if section in r and key in r.get(section, {})]
-    kept = [s for s in secs if not was_capped(s)]
+    looped = [s for s in secs if loop_verdict(s)]
+    capped = [s for s in secs if not loop_verdict(s) and was_capped(s)]
+    kept = [s for s in secs if not loop_verdict(s) and not was_capped(s)]
     dropped = len(secs) - len(kept)
     vals = [s[key] for s in kept]
     if secs and not vals:
-        return "capped", None
+        return " + ".join(w for w, n in (("capped", capped), ("loop", looped)) if n), None
     if not vals:
         return "—", None
-    suffix = f" ({dropped} capped)" if dropped else ""
+    why = [f"{len(n)} {w}" for w, n in (("capped", capped), ("loop", looped)) if n]
+    suffix = f" ({', '.join(why)})" if dropped else ""
     if kind == "bool":
         hits = sum(1 for v in vals if v)
         s = (f"{hits}/{len(vals)} ✅" if hits == len(vals)
@@ -277,12 +284,13 @@ def main():
         # the IoU spread then reaches for it by hand, which is how the wrong
         # 0.103 reached the campaign record's prose.
         worst = {"float": [], "int": []}
-        any_capped = False
+        any_capped = any_looped = False
         for section, key, label, kind in METRICS:
             if kind == "bool":
                 continue
             cs, sp = cell(runs, section, key, kind)
             any_capped = any_capped or "capped" in cs
+            any_looped = any_looped or "loop" in cs
             if sp:
                 worst[kind].append((sp, label))
         parts = []
@@ -294,12 +302,15 @@ def main():
                          + ", ".join(f"{l} {s:g}" for s, l in worst[kind][:4]))
         if parts:
             print(f"  {tag}: " + "; ".join(parts))
-        elif any_capped:
+        elif any_capped and not any_looped:
             # "identical across all N runs" over survivors was a fabricated
             # reproducibility claim — the exact class the ± comment above
             # documents. Capped reps contributed nothing; say so instead.
             print(f"  {tag}: no spread measurable — capped reps excluded "
                   f"(see '(k capped)' cells)")
+        elif any_looped:
+            print(f"  {tag}: no spread measurable — capped or looped reps "
+                  f"excluded (see '(k capped)' / '(k loop)' cells)")
         else:
             print(f"  {tag}: identical across all {len(runs)} runs")
     return 0
