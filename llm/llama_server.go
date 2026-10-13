@@ -52,27 +52,37 @@ import (
 	"github.com/ollama/ollama/ml"
 )
 
+// grammarJSON is format "json"'s grammar on the GGUF path. It has the shape of
+// llama.cpp's grammars/json.gbnf: whitespace follows "{", "[", ":", "," and
+// every value, and nothing puts it before "}" or "]", so no two ws rules are
+// ever adjacent and no run is longer than one ws allows. It differs from
+// json.gbnf in two places, both kept from the grammar before: the root object
+// ends at its "}" (no trailing whitespace, so the grammar completes there),
+// and there is no whitespace between a key and its ":".
 var grammarJSON = `
 root   ::= object
-value  ::= object | array | string | number | ("true" | "false" | "null") ws
+value  ::= (object | array | string | number | "true" | "false" | "null") ws
 object ::=
   "{" ws (
          string ":" ws value
     ("," ws string ":" ws value)*
-  )? ws "}"
+  )? "}"
 array  ::=
   "[" ws (
             value
     ("," ws value)*
-  )? ws "]"
+  )? "]"
 string ::=
   "\"" (
     [^"\\\x7F\x00-\x1F] |
     "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F]) # escapes
   )* "\""
 number ::= ("-"? ([0-9] | [1-9] [0-9]*)) ("." [0-9]+)? ([eE] [-+]? [0-9]+)?
-# Optional space: by convention, applied in this grammar after literal chars when allowed
-ws ::= ([ \t\n] ws)?
+# Optional space: by convention, applied in this grammar after literal chars when allowed.
+# Bounded as llama.cpp bounds it for a JSON schema (json-schema-to-grammar's SPACE_RULE): nothing,
+# one space, or one or two newlines and up to 20 spaces or tabs. Unbounded, a model that
+# degenerates into whitespace runs to num_predict or to llama-server's 100-repeat abort.
+ws ::= (" " | "\n"{1,2} [ \t]{0,20})?
 `
 
 // DefaultEmbeddingNumBatch is the default NumBatch used for embedding models
