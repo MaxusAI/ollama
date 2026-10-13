@@ -385,6 +385,12 @@ byte-identical to the measured image's), on a freshly converted child, is
 VERDICT PASS, PASS=13 SKIP=4: pinned 3328 -> 3270 and payload_proof custom on
 max/min, as on 0.35.0 (runs/preflight-rocm7-0402-pr483-nemotron-g19455c6.json).
 A build of this lineage without #483 still fails, as it should.
+
+THE RELEASE BUILD PASSES, 2026-10-13: maxusai-ollama:0.40.2-dynres.1-0-g3960244-rocm7-gfx1151, cut at the point tag
+v0.40.2-dynres.1 (main 39602449f: #483 and #462's 903 included), VERDICT PASS, PASS=27 SKIP=5, the shape of the
+v0.35.0 release run (runs/preflight-rocm7-0402-dynres1-release-g3960244.json). Every preflight model ran as its
+converted llamacpp child, on a hard-linked clone of the store. Against the measured 0.40.2-dynres-1-g9e80e78, one
+native library of 19 differs, rocm_v7_2/libggml-hip.so (#462's 903), and no row here moved.
 """
 
 [profiles.cpu]
