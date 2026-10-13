@@ -51,6 +51,8 @@ runs to the cap (57 of the 60 on that replay) costs one verdict at the rung wher
    Such a loop is labelled, not cut early: that needs the server to stream.
 4. **A loop is a verdict, not an error and not a cap.**
    - The suite scores the partial output as it scores a capped answer.
+   - `was_capped` is False for `done_reason: "loop"` at any `eval_count`. A held-back loop stopped at
+     `num_predict` keeps `eval_count == num_predict`, and the arithmetic fallback would otherwise call it capped.
    - `arm_done` treats the block as finished, so it is not re-run on resume.
    - `capped_arms` does not climb for it.
 5. **Every streamed block says so.** `client.loop_fields` stamps `stream: true` and the `loop_detect` parameters,
@@ -83,6 +85,8 @@ runs to the cap (57 of the 60 on that replay) costs one verdict at the rung wher
 - **Think-on cells that loop end at the rung where they loop,** as `failure_mode: loop detected:thinking`. Before,
   they climbed to the ceiling and ended NOT CONVERGED. A NOT CONVERGED cell under detection is therefore a
   non-looping one that genuinely needs more.
-- **A looped cell has no throughput.** Its tok/s and s/req are underivable and are excluded like a capped cell's.
+- **A looped cell has no decode rate.** `metrics_block` sets `gen_tps` to None for every loop, including a held-back
+  one whose server metrics would allow it: that rate is a loop's, not a finishing model's. Prefill ended before the
+  loop, so `prefill_tps` is kept when the server reported it.
 - **Streaming changes no generation.** It is the same request with `stream: true`. The drafted MLX tags' text already
   depends on wall-clock draft depth (`mlx-greedy-has-baseline-spread`), and this neither fixes nor worsens that.

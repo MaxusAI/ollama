@@ -651,6 +651,43 @@ class TestWasCappedPrefersDoneReason(unittest.TestCase):
             {"done_reason": "length", "eval_count": 100, "num_predict": 8192}))
 
 
+class TestLoopIsNotCapped(unittest.TestCase):
+    """done_reason "loop" is a verdict (ADR 0049), never a cap -- including a loop the server held back and stopped
+    at num_predict, whose eval_count IS the cap. The arithmetic fallback read that block as capped, so arm_done
+    re-ran it and capped_arms climbed the ladder for it (#469 review). The row below is the shape the muse-glimmer
+    think-off run recorded for 30b-mxfp8 bboxm_pin_noanc_named."""
+
+    HELD_BACK = {"done_reason": "loop", "failure_mode": "loop detected:content", "loop_kind": "content",
+                 "server_done_reason": "length", "eval_count": 2200, "num_predict": 2200,
+                 "req_num_predict": 2200}
+
+    def test_a_loop_at_the_cap_is_not_capped(self):
+        self.assertFalse(sec.was_capped(dict(self.HELD_BACK)))
+
+    def test_a_loop_at_the_cap_is_done_on_resume(self):
+        self.assertTrue(vs.arm_done(dict(self.HELD_BACK)))
+        self.assertTrue(ftp.ft_done(dict(self.HELD_BACK)))
+
+    def test_a_loop_at_the_cap_does_not_climb(self):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "scores_x.json")
+        json.dump({"a": dict(self.HELD_BACK),
+                   "b": {"done_reason": "length", "eval_count": 2200, "num_predict": 2200}}, open(p, "w"))
+        self.assertEqual(sec.capped_arms(p), ["b"])
+
+    def test_a_loop_has_no_decode_rate(self):
+        # The held-back loop keeps the server's metrics, so gen_tps WAS derivable -- and it is the decode rate of a
+        # loop, not of a model finishing. It stays None, as it is for a loop cut mid-stream (no eval_duration).
+        import client
+        r = {"done_reason": "loop", "eval_count": 2200, "eval_duration": 150_000_000_000,
+             "prompt_eval_count": 1000, "prompt_eval_duration": 1_000_000_000}
+        m = client.metrics_block(r)
+        self.assertIsNone(m["gen_tps"])
+        self.assertEqual(m["eval_duration"], 150_000_000_000, "the server's durations are kept as recorded")
+        self.assertEqual(m["prefill_tps"], 1000.0, "prefill finished before the loop began; it is still a rate")
+        self.assertEqual(client.metrics_block(dict(r, done_reason="stop"))["gen_tps"], 14.67)
+
+
 class TestT1CampaignPrefix(unittest.TestCase):
     """--prefix renders a TAG_PREFIX campaign; unset, tags derive as before (H4).
 

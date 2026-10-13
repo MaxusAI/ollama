@@ -139,7 +139,10 @@ cap (`eval == num_predict`, `done_reason "stop"`), and a thinking
 continuation that overshoots the recorded cap (eval 8290 against 8192,
 measured 2026-08-20 on qwen3.6 `bbox_contract_reasoning`). Blocks without the
 field keep the `eval_count >= num_predict` fallback, so historical files
-never change verdict by upgrading the summarizers.
+never change verdict by upgrading the summarizers. `"loop"` is not the
+server's: the client writes it when it ends a cell on a loop verdict
+(`LOOP_DETECT=1`, ADR 0049), and it is never capped, even at
+`eval == num_predict` (a loop the server held back and stopped at the cap).
 
 The value inventory, from this repo's server code (the serving build is this
 fork): the runner emits `stop` or `length` (`llm/llama_server.go`, from

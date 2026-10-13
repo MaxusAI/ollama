@@ -169,12 +169,18 @@ def was_capped(sec):
     eval_count >= num_predict fallback — as does a connection-closed final,
     which serializes with the field omitted (llm/server.go maps
     DoneReasonConnectionClosed to "" and the API field is omitempty).
+
+    done_reason "loop" is the client's loop verdict (ADR 0049) and is never
+    capped, even at eval == num_predict: a loop the server held back and
+    stopped at the cap keeps that eval_count, and the fallback re-ran it on
+    resume and climbed the ladder for it. A loop is a finished cell whose
+    result is the verdict, not a score.
     """
     sec = sec or {}
     dr = sec.get("done_reason")
     if dr == "length":
         return True
-    if dr == "stop":
+    if dr in ("stop", "loop"):
         return False
     # req_num_predict is the fallback cap spelling: legacy finetext blocks
     # recorded the suite default in num_predict while req_num_predict held

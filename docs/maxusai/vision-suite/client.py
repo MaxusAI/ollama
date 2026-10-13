@@ -550,11 +550,19 @@ def metrics_block(r):
     publishing different quantities for the same measurement. Durations are
     always present (None when the server omitted them, matching the suite's
     historical shape); tok/s are None when underivable.
+
+    A loop verdict (done_reason "loop", ADR 0049) has no decode rate. Cut
+    mid-stream it has no eval_duration anyway; held back by the server and
+    stopped at num_predict it does, and eval/eval_duration is then the rate
+    of a loop, not of a model finishing an answer. gen_tps is None for both,
+    explicitly, so no table or mean can quote it. Prefill ended before the
+    loop began, so prefill_tps is kept when the server reported it.
     """
     m = {k: r.get(k) for k in ("total_duration", "load_duration",
                                "prompt_eval_duration", "eval_duration")}
     m["gen_tps"] = (round(r["eval_count"] / (r["eval_duration"] / 1e9), 2)
-                    if r.get("eval_count") and r.get("eval_duration") else None)
+                    if r.get("eval_count") and r.get("eval_duration")
+                    and r.get("done_reason") != "loop" else None)
     m["prefill_tps"] = (round(r["prompt_eval_count"]
                               / (r["prompt_eval_duration"] / 1e9), 2)
                         if r.get("prompt_eval_count")
