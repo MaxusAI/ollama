@@ -1806,11 +1806,13 @@ class TestRocm7ProfileForTheV0402Fold(unittest.TestCase):
         "0.40.2-dynres-0-g5623192",    # the tag's stamp
         "0.40.2-dynres-1-g9e80e78",    # the measured build: the tag plus #475
         "0.40.2-dynres.1-0-gabcdef0",  # the point tag ADR 0032 cuts for the release build
+        "0.40.2-dynres.1-5-gfd14dc6",  # the v0.40.3 fold's interim build
+        "0.40.3-dynres-0-gabcdef0",    # the v0.40.3 fold: Go-only, the same payload (ADR 0032)
     )
     REJECT = (
         "0.35.0-dynres-0-g043f441",        # production's payload: rocm7-0-34-4-dynres
         "0.40.2-dynres-0-g5623192-dirty",  # a dirty tree describes nothing
-        "0.40.3-dynres-0-gabcdef0",        # the next fold: measure first
+        "0.40.4-dynres-0-gabcdef0",        # v0.40.4 moves llama.cpp to b11521: measure first
     )
 
     @classmethod

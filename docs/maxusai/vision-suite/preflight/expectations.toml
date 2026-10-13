@@ -334,7 +334,10 @@ platform = "rocm7"
 # metal-0-40-2 did on Apple Silicon.
 # Admits the v0.40.2-dynres tag's lineage, and the point tag v0.40.2-dynres.N that ADR 0032 cuts for a release build
 # that is not the fold commit: the gfx1151 release needs Dockerfile.rocm's `COPY llama/clef` (#475) on top of the tag.
-version_pattern = '^0\.40\.2-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
+# Widened 2026-10-13 to 0.40.3 for the v0.40.3 fold, as ADR 0032 says for a Go-only fold: v0.40.3 moves no native
+# input (llama.cpp stays b11351), so its builds share this payload and this profile. 0.40.4 stays refused: its rc1
+# moves llama.cpp to b11521.
+version_pattern = '^0\.40\.[23]-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
 # The ROCm build applies every compat patch at b11351. 002-clef (new in v0.40.2) is upstream ollama's own patch and is
 # not a fork patch, so the list is the fork's, as on metal-0-40-2.
 patchset = ["001", "002", "004", "005", "801", "802", "805", "903", "908"]
