@@ -38,7 +38,7 @@
 > | host | build | since | record |
 > |---|---|---|---|
 > | Apple Silicon, mlx-metal (`:11435`) | `0.40.2-dynres.1-0-g3960244`, both halves built at the point tag | 2026-10-13 22:01 | [#486](https://github.com/MaxusAI/ollama/pull/486) |
-> | CUDA host, ai-server (`:11497`) | `0.40.2-dynres.1-4-g377f9d1`: the point tag plus [#487](https://github.com/MaxusAI/ollama/pull/487), a Go-only build of main `377f9d14` (image `main-377f9d14`) | 2026-10-13 23:39 | [#484](https://github.com/MaxusAI/ollama/pull/484), [#487](https://github.com/MaxusAI/ollama/pull/487) |
+> | CUDA host, ai-server (`:11497`) | `0.40.2-dynres.1-17-g75c6d35`: the v0.40.3 fold ([#488](https://github.com/MaxusAI/ollama/pull/488)) on the point tag plus [#487](https://github.com/MaxusAI/ollama/pull/487), a Go-only build of main `75c6d350` (image `main-75c6d350`) | 2026-10-14 07:53 | [#487](https://github.com/MaxusAI/ollama/pull/487), [#488](https://github.com/MaxusAI/ollama/pull/488), [#492](https://github.com/MaxusAI/ollama/pull/492) |
 > | AMD gfx1151 | `v0.35.0-dynres`; the `v0.40.2-dynres.1` release build passes `rocm7-0-40-2`, and its deploy is scheduled after the [#477](https://github.com/MaxusAI/ollama/pull/477) campaign | 2026-10-01 | [#485](https://github.com/MaxusAI/ollama/pull/485) |
 > | H100 (CUDA) | `0.35.0-dynres-15-ga657392`, a build of `main` past the v0.35.0 tag | 2026-10-03 | [v0.35.0 record](docs/maxusai/tasks/upstream-sync-0.35.0.md) |
 >
@@ -77,16 +77,18 @@
        release_matrix.py --version 0.40.2-dynres.1 \
            runs/preflight-mlx-metal-0402-dynres1-prod-g3960244.json \
            runs/preflight-rocm7-0402-dynres1-release-g3960244.json \
-           runs/preflight-cuda-0402-dynres1-487-prod-g377f9d1.json \
-           runs/preflight-mlx-cuda-0402-dynres1-487-prod-g377f9d1.json
+           runs/preflight-cuda-0403-prod-g75c6d35.json \
+           runs/preflight-mlx-cuda-0403-prod-g75c6d35.json
      The runs are listed by name because runs/ also holds #487's A/B runs and canaries, which are not release runs.
-     The CUDA host serves 0.40.2-dynres.1-4-g377f9d1 (main 377f9d14: the point tag plus #487, Go only); both of its
-     rows are production's own runs on that build, with both GPUs visible. -->
+     The CUDA host serves 0.40.2-dynres.1-17-g75c6d35 (main 75c6d350: the v0.40.3 fold on the point tag plus #487, Go
+     only); both of its rows are production's own runs on that build. The cuda row is the idle re-run
+     (preflight-cuda-0403-prod-g75c6d35.json); the first post-deploy run, -contended.json, failed gemma4's ladder and
+     pinned budget by a constant +573 while a client's gemma4 q8 shared the GPU and capped image_max_tokens to n_ubatch. -->
 
 | surface | Build identity | MLX build pin | Toolchain pin | M5 tensor path | Image size ladder | Aspect ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **cuda** | green | green | skipped | n/a | green | skipped | green | green | not run | skipped | green | `0.40.2-dynres.1-4-g377f9d1` |
-| **mlx-cuda** | skipped | green | skipped | n/a | green | skipped | skipped | skipped | not run | skipped | green | `0.40.2-dynres.1-4-g377f9d1` |
+| **cuda** | green | green | skipped | n/a | green | skipped | green | green | not run | skipped | green | `0.40.2-dynres.1-17-g75c6d35` |
+| **mlx-cuda** | skipped | green | skipped | n/a | green | skipped | skipped | skipped | not run | skipped | green | `0.40.2-dynres.1-17-g75c6d35` |
 | **mlx-metal** | skipped | green | skipped | green | green | green | skipped | green | skipped | skipped | green | `0.40.2-dynres.1-0-g3960244` |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
 | **rocm7** | green | skipped | green | n/a | green | green | green | green | green | green | green | `0.40.2-dynres.1-0-g3960244` |
