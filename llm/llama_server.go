@@ -1647,10 +1647,12 @@ func Gemma4ImageBudget(opts api.Options) (minTok, maxTok int) {
 // will actually pass for modelArch under opts, and whether those flags derive
 // from opts at all.
 //
-// The budget options are arch-agnostic but carry gemma4's defaults, so equal
-// flags do not imply equal options: on nemotron the unset sentinel and an
-// explicit 256/3328 launch the identical runner. Resolving before comparing
-// is what lets the scheduler tell "same launch" from "same request".
+// The budget options are arch-agnostic, and an unset one arrives as 0
+// (server/routes.go), which each arch resolves to its own bounds. So equal
+// flags do not imply equal options: on nemotron an unset budget and an
+// explicit 256/3328 launch the identical runner, as an unset budget and an
+// explicit 70/1120 do on gemma4. Resolving before comparing is what lets the
+// scheduler tell "same launch" from "same request".
 // derived is false for arches whose vision flags ignore the options (a fixed
 // floor, or none at all), where the bounds cannot affect the launch.
 func ResolvedImageTokenBudget(modelArch string, opts api.Options) (minTok, maxTok int, derived bool) {

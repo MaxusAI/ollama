@@ -1551,12 +1551,15 @@ func (runner *runnerRef) needsReload(ctx context.Context, req *LlmRequest) bool 
 		optsExisting.NumGPU = -1
 		optsNew.NumGPU = -1
 	}
-	// The image-token bounds are arch-agnostic options carrying gemma4's
-	// defaults, so unequal values do not imply a different runner: on an arch
-	// that substitutes its own bounds for the sentinel, an unset request and
-	// one that names those bounds explicitly launch identical flags. Compare
-	// what the runner would be started with, not what the caller happened to
-	// send, or the second request reloads the model for nothing.
+	// The image-token bounds are arch-agnostic options, and an unset one
+	// arrives as 0 (server/routes.go), which each arch resolves to its own
+	// bounds. So unequal values do not imply a different runner: an unset
+	// request and one that names the arch's own bounds explicitly (256/3328
+	// on nemotron, 70/1120 on gemma4) launch identical flags, and an arch
+	// whose flags ignore the budget launches the same runner whatever was
+	// sent. Compare what the runner would be started with, not what the
+	// caller happened to send, or the second request reloads the model for
+	// nothing.
 	llm.NormalizeImageTokenBudget(req.model.Config.ModelFamily, &optsExisting)
 	llm.NormalizeImageTokenBudget(req.model.Config.ModelFamily, &optsNew)
 	// The same holds for the prompt-cache size: an invalid prompt_cache_ram is
