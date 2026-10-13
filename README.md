@@ -38,12 +38,12 @@
 > | host | build | since | record |
 > |---|---|---|---|
 > | Apple Silicon, mlx-metal (`:11435`) | `0.40.2-dynres.1-0-g3960244`, both halves built at the point tag | 2026-10-13 22:01 | [#486](https://github.com/MaxusAI/ollama/pull/486) |
-> | CUDA host, ai-server (`:11497`) | `0.40.2-dynres.1-0-g3960244` (image `sync-0.40.2.1-main`) | 2026-10-13 21:05 | [#484](https://github.com/MaxusAI/ollama/pull/484), [#487](https://github.com/MaxusAI/ollama/pull/487) |
+> | CUDA host, ai-server (`:11497`) | `0.40.2-dynres.1-4-g377f9d1`: the point tag plus [#487](https://github.com/MaxusAI/ollama/pull/487), a Go-only build of main `377f9d14` (image `main-377f9d14`) | 2026-10-13 23:39 | [#484](https://github.com/MaxusAI/ollama/pull/484), [#487](https://github.com/MaxusAI/ollama/pull/487) |
 > | AMD gfx1151 | `v0.35.0-dynres`; the `v0.40.2-dynres.1` release build passes `rocm7-0-40-2`, and its deploy is scheduled after the [#477](https://github.com/MaxusAI/ollama/pull/477) campaign | 2026-10-01 | [#485](https://github.com/MaxusAI/ollama/pull/485) |
 > | H100 (CUDA) | `0.35.0-dynres-15-ga657392`, a build of `main` past the v0.35.0 tag | 2026-10-03 | [v0.35.0 record](docs/maxusai/tasks/upstream-sync-0.35.0.md) |
 >
-> On the CUDA host, the MLX runner needs [#487](https://github.com/MaxusAI/ollama/pull/487), merged after the point tag:
-> with the second GPU visible, MLX requests fail with `cudaMemcpy … invalid argument`. The hosts deployed since v0.34.4
+> The CUDA host serves [#487](https://github.com/MaxusAI/ollama/pull/487), merged after the point tag: without it, an MLX
+> runner that can see the host's second GPU fails requests with `cudaMemcpy … invalid argument`. The hosts deployed since v0.34.4
 > run the two-pass think+format flow (`OLLAMA_FORMAT_TWO_PASS=1`, [ADR 0045](docs/maxusai/adr/0045-think-format-single-pass-by-default-two-pass-in-production.md))
 > and set `OLLAMA_KV_CACHE_TYPE=f16` explicitly ([#387](https://github.com/MaxusAI/ollama/pull/387)). The ai-server
 > CUDA container and the Apple Silicon launchd agent also keep `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` (ADR 0033). The
@@ -74,20 +74,19 @@
      runs/ is gitignored; a run meant for this table is committed with `git add -f`.
 
      For v0.40.2-dynres.1 the table below is the verbatim output of
-       release_matrix.py --version 0.40.2-dynres.1 --version 0.40.2-dynres-10-g601b8a6 \
+       release_matrix.py --version 0.40.2-dynres.1 \
            runs/preflight-mlx-metal-0402-dynres1-prod-g3960244.json \
            runs/preflight-rocm7-0402-dynres1-release-g3960244.json \
-           runs/preflight-cuda-0402-main-g601b8a6.json runs/preflight-mlx-cuda-0402-main-g601b8a6.json \
-           runs/preflight-mlx-cuda-0402-gpu-pin-prod-g3960244.json
-     The runs are listed by name because runs/ also holds #487's A/B runs, which are not release runs.
-     0.40.2-dynres-10-g601b8a6 is main at 601b8a65, code-identical to the point tag outside docs/ (ADR 0032): the
-     CUDA host measured cuda there (#484). mlx-cuda's newest run is production's on the point tag, and its two
-     ERRORs are the two-GPU cudaMemcpy failure #487 fixes after the tag. -->
+           runs/preflight-cuda-0402-dynres1-487-prod-g377f9d1.json \
+           runs/preflight-mlx-cuda-0402-dynres1-487-prod-g377f9d1.json
+     The runs are listed by name because runs/ also holds #487's A/B runs and canaries, which are not release runs.
+     The CUDA host serves 0.40.2-dynres.1-4-g377f9d1 (main 377f9d14: the point tag plus #487, Go only); both of its
+     rows are production's own runs on that build, with both GPUs visible. -->
 
 | surface | Build identity | MLX build pin | Toolchain pin | M5 tensor path | Image size ladder | Aspect ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **cuda** | green | green | skipped | n/a | green | skipped | green | green | not run | skipped | green | `0.40.2-dynres-10-g601b8a6` |
-| **mlx-cuda** | skipped | green | skipped | n/a | **ERROR** | skipped | skipped | skipped | not run | skipped | green | `0.40.2-dynres.1-0-g3960244` |
+| **cuda** | green | green | skipped | n/a | green | skipped | green | green | not run | skipped | green | `0.40.2-dynres.1-4-g377f9d1` |
+| **mlx-cuda** | skipped | green | skipped | n/a | green | skipped | skipped | skipped | not run | skipped | green | `0.40.2-dynres.1-4-g377f9d1` |
 | **mlx-metal** | skipped | green | skipped | green | green | green | skipped | green | skipped | skipped | green | `0.40.2-dynres.1-0-g3960244` |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
 | **rocm7** | green | skipped | green | n/a | green | green | green | green | green | green | green | `0.40.2-dynres.1-0-g3960244` |
