@@ -1727,6 +1727,70 @@ class TestRocm7ProfileAdmitsTheV0350Fold(unittest.TestCase):
         """Every build since #371 carries 805, and the ROCm build applies it."""
         self.assertIn("805", self.exp["profiles"][self.PROFILE]["patchset"])
 
+class TestCudaProfilesForTheV0402Fold(unittest.TestCase):
+    """ADR 0011 and ADR 0032 on the CUDA host. The v0.40.2 fold (#460) moves llama.cpp b11081 -> b11351 and MLX
+    59d600b5 -> a59cc231, so CUDA builds get cuda-0-40-2 and mlx-cuda-0-40-2, measured on the release image
+    0.40.2-dynres-0-g5623192 (sm_120a). The two share one version pattern, as cuda-dynres-903 and mlx-cuda do, and
+    the old pair keeps 0.35.0.
+
+    nemotron's row has no custom_bounds line: on the converted child the release build launched no image flags
+    (#480), and a `custom_bounds = []` row would have passed payload_proof on that regression.
+    """
+
+    PROFILES = ("cuda-0-40-2", "mlx-cuda-0-40-2")
+    PREDECESSOR = {"cuda-0-40-2": "cuda-dynres-903", "mlx-cuda-0-40-2": "mlx-cuda"}
+    ADMIT = (
+        "0.40.2-dynres-0-g5623192",    # the tag, and the measured release image
+        "0.40.2-dynres-2-g19455c6",    # the release image with #483's binary
+        "0.40.2-dynres-10-g601b8a6",   # main after the day's merges
+        "0.40.2-dynres.1-0-gabcdef0",  # a point tag ADR 0032 cuts for a release build
+    )
+    REJECT = (
+        "0.35.0-dynres-0-g043f441",        # the previous payload: cuda-dynres-903 / mlx-cuda
+        "0.40.2-dynres-0-g5623192-dirty",  # a dirty tree describes nothing
+        "0.40.3-dynres-0-gabcdef0",        # the next fold: measure first
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_pattern(self):
+        for pid in self.PROFILES:
+            pat = re.compile(self.exp["profiles"][pid]["version_pattern"])
+            for stamp in self.ADMIT:
+                self.assertRegex(stamp, pat, f"{pid} must admit {stamp}")
+            for stamp in self.REJECT:
+                self.assertNotRegex(stamp, pat, f"{pid} must reject {stamp}")
+
+    def test_the_pair_shares_one_pattern(self):
+        pats = {pid: self.exp["profiles"][pid]["version_pattern"] for pid in self.PROFILES}
+        self.assertEqual(len(set(pats.values())), 1, f"the 0.40.2 CUDA pair drifted: {pats}")
+
+    def test_the_resolver_picks_these_profiles_and_keeps_0350_on_the_old_pair(self):
+        import preflight
+        for platform, new, old in (("cuda", "cuda-0-40-2", "cuda-dynres-903"), ("mlx-cuda", "mlx-cuda-0-40-2", "mlx-cuda")):
+            self.assertEqual(preflight.resolve_profile(self.exp, platform, "0.40.2-dynres-0-g5623192")[0], new)
+            self.assertEqual(preflight.resolve_profile(self.exp, platform, "0.35.0-dynres-0-g043f441")[0], old)
+
+    def test_the_payload_pins(self):
+        self.assertEqual(self.exp["profiles"]["cuda-0-40-2"]["llama_cpp_build"], "631109b34")
+        for pid in self.PROFILES:
+            self.assertEqual(self.exp["profiles"][pid]["mlx_build"], "a59cc23190f1e26fabcba8693607bb4c34b2ac2b")
+
+    def test_nemotron_keeps_no_custom_bounds(self):
+        self.assertNotIn("custom_bounds", self.exp["expect"]["cuda-0-40-2"]["nemotron_h_omni"])
+
+    def test_ladders_equal_the_previous_payloads(self):
+        """Measured, and byte-identical to the predecessors': a split is a finding, not a typo to align."""
+        for pid in self.PROFILES:
+            new, old = self.exp["expect"][pid], self.exp["expect"][self.PREDECESSOR[pid]]
+            self.assertEqual(sorted(new), sorted(old), pid)
+            for arch in new:
+                self.assertEqual(new[arch]["ladder"], old[arch]["ladder"], f"{pid} {arch}")
+
+
 class TestRocm7ProfileForTheV0402Fold(unittest.TestCase):
     """ADR 0011 and ADR 0032 on gfx1151. The v0.40.2 fold (#460) moves llama.cpp b11081 -> b11351, so its builds get
     their own profile, rocm7-0-40-2, measured on 0.40.2-dynres-1-g9e80e78 (the tag plus #475, which ROCm needs to
