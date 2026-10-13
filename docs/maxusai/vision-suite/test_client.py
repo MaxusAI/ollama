@@ -326,6 +326,68 @@ class TestTransportRetry(unittest.TestCase):
         self.assertEqual(client.generate("http://h", "M", "p", ["IMG"])["response"], "ok")
 
 
+class TestContextError(unittest.TestCase):
+    """A 400 that says the window was too small must read as "num_ctx too
+    small" on every backend, because that phrase is what capped_arms climbs
+    the ladder on. The MLX runner's refusal under an explicit num_ctx
+    (ADR 0050) names both counts in its own words; before this it fell
+    through to "HTTP 400" and the cell re-ran at the same rung on every
+    resume, while the same cell on GGUF climbed."""
+
+    MLX = ('{"error":"input length (9123 tokens) exceeds the context length '
+           '(8192 tokens) set by num_ctx; a prompt with images cannot be '
+           'truncated, so shorten it or raise num_ctx"}')
+    GGUF = ('{"error":"{\\"code\\":400,\\"message\\":\\"the request exceeds the '
+            'available context size\\",\\"type\\":\\"exceed_context_size_error\\",'
+            '\\"n_prompt_tokens\\":9123,\\"n_ctx\\":8192}"}')
+
+    def _err(self, body, code=400):
+        e = urllib.error.HTTPError("u", code, "Bad Request", {},
+                                   __import__("io").BytesIO(body.encode()))
+        try:
+            return str(client.context_error(e, 2200, 8192))
+        finally:
+            e.close()
+
+    def test_gguf_overflow_names_the_counts(self):
+        msg = self._err(self.GGUF)
+        self.assertTrue(msg.startswith("num_ctx too small"), msg)
+        self.assertIn("needs 9123 tokens but num_ctx is 8192", msg)
+
+    def test_mlx_overflow_names_the_counts(self):
+        msg = self._err(self.MLX)
+        self.assertTrue(msg.startswith("num_ctx too small"), msg)
+        self.assertIn("needs 9123 tokens but num_ctx is 8192", msg)
+
+    def test_mlx_truncate_and_shift_refusals_too(self):
+        for reason in ("and truncate is off; shorten the prompt or raise num_ctx",
+                       "and shift is off; shorten the prompt or raise num_ctx"):
+            body = ('{"error":"input length (9123 tokens) exceeds the context '
+                    'length (8192 tokens) set by num_ctx ' + reason + '"}')
+            self.assertTrue(self._err(body).startswith("num_ctx too small"), reason)
+
+    def test_mlx_model_maximum_is_not_a_rung_problem(self):
+        # Past the model's own maximum no bigger num_ctx can help, so the
+        # ladder must not climb on it.
+        body = ('{"error":"input length (300000 tokens) exceeds the model\'s '
+                'maximum context length (262144 tokens)"}')
+        self.assertTrue(self._err(body).startswith("HTTP 400"))
+
+    def test_other_400s_stay_plain(self):
+        self.assertTrue(self._err('{"error":"invalid format"}').startswith("HTTP 400"))
+
+    def test_only_a_400_counts(self):
+        self.assertTrue(self._err(self.MLX, code=500).startswith("HTTP 500"))
+
+    def test_mlx_overflow_climbs_the_ladder(self):
+        import tempfile
+        import summarize_engine_compare as sec
+        p = os.path.join(tempfile.mkdtemp(), "scores_x.json")
+        with open(p, "w") as fh:
+            json.dump({"a": {"error": self._err(self.MLX)}}, fh)
+        self.assertEqual(sec.capped_arms(p), ["a"])
+
+
 class TestTimeoutPolicy(unittest.TestCase):
     """A timeout is the one transport-shaped failure that is deterministic for
     the request (blueprint P0-6): budget scales with num_predict, operator env
