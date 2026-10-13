@@ -1712,6 +1712,63 @@ class TestRocm7ProfileAdmitsTheV0350Fold(unittest.TestCase):
         """Every build since #371 carries 805, and the ROCm build applies it."""
         self.assertIn("805", self.exp["profiles"][self.PROFILE]["patchset"])
 
+class TestRocm7ProfileForTheV0402Fold(unittest.TestCase):
+    """ADR 0011 and ADR 0032 on gfx1151. The v0.40.2 fold (#460) moves llama.cpp b11081 -> b11351, so its builds get
+    their own profile, rocm7-0-40-2, measured on 0.40.2-dynres-1-g9e80e78 (the tag plus #475, which ROCm needs to
+    build). The pattern admits the tag's lineage and the point tag v0.40.2-dynres.N that ADR 0032 cuts for a release
+    build that is not the fold commit. rocm7-0-34-4-dynres must keep 0.35.0 and refuse 0.40.2.
+
+    nemotron's row keeps rocm7-0-34-4-dynres's custom bounds (no custom_bounds line). On the converted child the
+    build launched none (#480); a `custom_bounds = []` row would have passed payload_proof on that regression.
+    """
+
+    PROFILE = "rocm7-0-40-2"
+    ADMIT = (
+        "0.40.2-dynres-0-g5623192",    # the tag's stamp
+        "0.40.2-dynres-1-g9e80e78",    # the measured build: the tag plus #475
+        "0.40.2-dynres.1-0-gabcdef0",  # the point tag ADR 0032 cuts for the release build
+    )
+    REJECT = (
+        "0.35.0-dynres-0-g043f441",        # production's payload: rocm7-0-34-4-dynres
+        "0.40.2-dynres-0-g5623192-dirty",  # a dirty tree describes nothing
+        "0.40.3-dynres-0-gabcdef0",        # the next fold: measure first
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_pattern(self):
+        pat = re.compile(self.exp["profiles"][self.PROFILE]["version_pattern"])
+        for stamp in self.ADMIT:
+            self.assertRegex(stamp, pat, f"{self.PROFILE} must admit {stamp}")
+        for stamp in self.REJECT:
+            self.assertNotRegex(stamp, pat, f"{self.PROFILE} must reject {stamp}")
+
+    def test_the_resolver_picks_this_profile_and_keeps_0350_on_its_own(self):
+        import preflight
+        self.assertEqual(preflight.resolve_profile(self.exp, "rocm7", "0.40.2-dynres-1-g9e80e78")[0], self.PROFILE)
+        self.assertEqual(preflight.resolve_profile(self.exp, "rocm7", "0.35.0-dynres-0-g043f441")[0],
+                         "rocm7-0-34-4-dynres")
+
+    def test_the_payload_pin_is_b11351(self):
+        self.assertEqual(self.exp["profiles"][self.PROFILE]["llama_cpp_build"], "631109b34")
+
+    def test_ladders_equal_the_previous_payloads(self):
+        """Measured, and byte-identical to rocm7-0-34-4-dynres's: a split is a finding, not a typo to align."""
+        new, old = self.exp["expect"][self.PROFILE], self.exp["expect"]["rocm7-0-34-4-dynres"]
+        for arch in self.exp["profiles"][self.PROFILE]["arches"]:
+            for key in ("ladder", "aspect_ladder", "budget_min_tokens", "budget_max_tokens", "patch_stride"):
+                self.assertEqual(new[arch][key], old[arch][key], f"{arch}.{key}")
+
+    def test_nemotron_keeps_the_custom_bounds_the_fork_launches(self):
+        """#480: an empty custom_bounds would encode the converted child's missing flags as correct."""
+        self.assertNotIn("custom_bounds", self.exp["expect"][self.PROFILE]["nemotron_h_omni"])
+        self.assertEqual(self.exp["expect"][self.PROFILE]["nemotron_h_omni"],
+                         {**self.exp["expect"]["rocm7-0-34-4-dynres"]["nemotron_h_omni"],
+                          "measured_on": "2026-10-13"})
+
 class TestMlxMetalProfileAdmitsTheV0350Fold(unittest.TestCase):
     """ADR 0032 on Apple Silicon. The v0.35.0 fold (#427) moves no native input: MLX stays 59d600b5 and
     llama.cpp b11081. So its builds share mlx-metal-0-34-4, and the pattern widens to 0.35.0, as
