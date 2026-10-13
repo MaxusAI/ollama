@@ -139,13 +139,14 @@ func (s *Server) modelOptionsWithEmbeddingBatchDefault(model *Model, requestOpts
 	draftNumPredictSet := hasOption(requestOpts, "draft_num_predict")
 	// The same holds for the image-token budget: DefaultOptions carries
 	// gemma4's 70/1120 ladder, so an unset budget and an explicit 70 or 1120
-	// would reach the runners as the same values.
-	imageMinSet := hasOption(requestOpts, "image_min_tokens")
-	imageMaxSet := hasOption(requestOpts, "image_max_tokens")
+	// would reach the runners as the same values. A key sent as JSON null is
+	// unset too: FromMap skips it, so it leaves 70/1120 in place.
+	imageMinSet := hasNonNilOption(requestOpts, "image_min_tokens")
+	imageMaxSet := hasNonNilOption(requestOpts, "image_max_tokens")
 	if model != nil {
 		draftNumPredictSet = draftNumPredictSet || hasOption(model.Options, "draft_num_predict")
-		imageMinSet = imageMinSet || hasOption(model.Options, "image_min_tokens")
-		imageMaxSet = imageMaxSet || hasOption(model.Options, "image_max_tokens")
+		imageMinSet = imageMinSet || hasNonNilOption(model.Options, "image_min_tokens")
+		imageMaxSet = imageMaxSet || hasNonNilOption(model.Options, "image_max_tokens")
 		if err := opts.FromMap(model.GenerationDefaults); err != nil {
 			return api.Options{}, err
 		}
@@ -198,6 +199,13 @@ func shouldApplyEmbeddingBatchDefault(m *Model, requestOpts map[string]any) bool
 func hasOption(opts map[string]any, name string) bool {
 	_, ok := opts[name]
 	return ok
+}
+
+// hasNonNilOption reports whether opts sets name to a value FromMap applies.
+// FromMap skips a nil value, so a key sent as JSON null leaves the default in
+// place and must not count as an explicit request.
+func hasNonNilOption(opts map[string]any, name string) bool {
+	return opts[name] != nil
 }
 
 // deprecatedOptions may still be set per request, and reach the runner, but

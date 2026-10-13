@@ -342,6 +342,13 @@ func TestModelOptionsImageBudgetUnsetIsZero(t *testing.T) {
 		{name: "an explicit 70 is kept", model: &Model{}, requestOpts: map[string]any{"image_min_tokens": float64(70)}, wantMin: 70, wantMax: 0},
 		{name: "a Modelfile value counts as set", model: &Model{Options: map[string]any{"image_max_tokens": float64(560)}}, wantMin: 0, wantMax: 560},
 		{name: "the request overrides the Modelfile", model: &Model{Options: map[string]any{"image_max_tokens": float64(560)}}, requestOpts: map[string]any{"image_max_tokens": float64(1120)}, wantMin: 0, wantMax: 1120},
+		// FromMap skips a nil value, so a key sent as JSON null leaves
+		// DefaultOptions' 70/1120 in place; it must not read as an explicit
+		// request for them.
+		{name: "a null image_max_tokens is unset", model: &Model{}, requestOpts: map[string]any{"image_max_tokens": nil}, wantMin: 0, wantMax: 0},
+		{name: "a null image_min_tokens is unset", model: &Model{}, requestOpts: map[string]any{"image_min_tokens": nil}, wantMin: 0, wantMax: 0},
+		{name: "a null Modelfile value is unset", model: &Model{Options: map[string]any{"image_min_tokens": nil, "image_max_tokens": nil}}, wantMin: 0, wantMax: 0},
+		{name: "a null request keeps the Modelfile value", model: &Model{Options: map[string]any{"image_max_tokens": float64(560)}}, requestOpts: map[string]any{"image_max_tokens": nil}, wantMin: 0, wantMax: 560},
 		{name: "no model: the api defaults stand", model: nil, wantMin: api.DefaultImageMinTokens, wantMax: api.DefaultImageMaxTokens},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

@@ -31,8 +31,9 @@ A request for 1120 cost 3.7 times what it asked for, and nothing reported it.
 ## Decision
 
 1. **The server sends an unset budget as 0.** `modelOptionsWithEmbeddingBatchDefault` records whether the request or
-   the Modelfile set each bound (`hasOption`, as it already does for `draft_num_predict`), and zeroes each one that
-   neither set. That holds only when a model is resolved; a nil model keeps the api defaults.
+   the Modelfile set each bound (`hasNonNilOption`, like `hasOption` for `draft_num_predict` but a key sent as JSON
+   `null` is unset, because `FromMap` skips it and leaves 70/1120 in place), and zeroes each one that neither set.
+   That holds only when a model is resolved; a nil model keeps the api defaults.
 2. **The resolvers read only `<= 0` as unset.** `nemotronImageTokenBudget` and `ResolveImageBudget` lose their
    equality test against the api defaults. Any explicit value is honoured, 70 and 1120 included.
 3. **gemma4 is unchanged.** Its resolvers already map `<= 0` to 70/1120, its own bounds. An unset request and an
