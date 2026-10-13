@@ -176,8 +176,8 @@ def _read_stream(resp, ep, tmo):
     A loop is a VERDICT, not an error: the connection is closed (which cancels the generation server-side) and the
     partial output comes back as a finished response with done_reason "loop" and failure_mode
     "loop detected:<kind>", so the suite scores what was produced, as it scores a capped answer. Finished, it is
-    neither re-run on resume (arm_done) nor escalated (capped_arms): the same greedy decode loops identically at
-    every rung. The server never sent its final metrics, so eval_count is the number of streamed chunks (one per
+    neither re-run on resume (arm_done) nor escalated (capped_arms): a greedy decode that repeats a block back to
+    back usually does so again at every rung, and the verdict says the cell was ended there (ADR 0049). The server never sent its final metrics, so eval_count is the number of streamed chunks (one per
     token on both runners) and the durations are None. A whole generation that outlasts tmo raises the
     blown-budget timeout, as a stream:false read did."""
     det = loop_detect.LoopDetector()

@@ -57,6 +57,22 @@ class TestBlockLoops(unittest.TestCase):
         text = prose(1200, seed=2) + block + prose(300, seed=3) + block
         self.assertIsNone(feed_all(ld.LoopDetector(), text))
 
+    def test_a_draft_restated_between_checks_is_not_a_loop(self):
+        # Three copies that are NOT back to back: a thinking trace that restates its draft answer after each round of
+        # checking. The CUDA host's replay of 1,505 finished think-on traces (#469 review) found 17-18 of these called
+        # loops by a copy count alone -- 13 of them multi_3img cells with q1, q2 and q4 all right.
+        draft = prose(500, seed=20)
+        text = prose(1000, seed=21) + draft + prose(300, seed=22) + draft + prose(300, seed=23) + draft
+        self.assertIsNone(feed_all(ld.LoopDetector(), text, kind="thinking"))
+
+    def test_a_restated_draft_then_a_real_loop_still_fires(self):
+        # The periodicity test must not hide a loop that starts after earlier restatements.
+        draft, block = prose(500, seed=24), prose(430, seed=25)
+        text = prose(1000, seed=26) + draft + prose(300, seed=27) + draft + block * 4
+        got = feed_all(ld.LoopDetector(), text, kind="thinking")
+        self.assertIsNotNone(got)
+        self.assertEqual((got.kind, got.period), (ld.THINKING, 430))
+
     def test_a_block_repeated_is_a_loop(self):
         block = prose(450, seed=4)
         got = feed_all(ld.LoopDetector(), prose(900, seed=5) + block * 4, kind="thinking")

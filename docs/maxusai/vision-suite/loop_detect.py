@@ -4,12 +4,14 @@ Stdlib only, so one file serves three codebases, kept byte-identical: MaxusAI/ol
 (docs/maxusai/vision-suite/loop_detect.py, ADR 0049), ai-invoice-to-xero's ollama_toolkit
 (packages/ollama_toolkit/loop_detect.py) and maxusai-structured-docs-backend's repair client.
 
-A greedy (temperature 0) decode that starts repeating itself verbatim does not recover: the same context produces the
-same continuation. Waiting for num_predict, or climbing a context ladder after the length stop, spends the rest of the
-budget proving it. LoopDetector watches a stream as it arrives and says so the moment the loop is unambiguous, as one
-of three failure modes:
+A greedy (temperature 0) decode that starts repeating a block back to back usually keeps repeating it: the same
+context tends to produce the same continuation, and waiting for num_predict, or climbing a context ladder after the
+length stop, spends the rest of the budget on it. Usually, not always: a replay of 1,505 finished think-on traces found
+3 that repeated a block three times back to back and then finished. LoopDetector watches a stream as it arrives and
+calls the loop the moment it meets the rule below, as one of three failure modes:
 
-  loop detected:thinking    the thinking trace's last WINDOW chars occur MIN_REPEATS times in it (period = distance)
+  loop detected:thinking    the thinking trace's last WINDOW chars occur MIN_REPEATS times in it, back to back: the
+                            last WINDOW + (MIN_REPEATS - 1) * period chars are one block repeated (period = distance)
   loop detected:content     the same, in the answer -- the mode ai-invoice-to-xero's detector could not see
                             ("Invoice own own own...", extraction-failure-modes.md)
   loop detected:token-run   one stream emitted the same chunk (whitespace-stripped) TOKEN_RUN times in a row -- the
@@ -18,7 +20,9 @@ of three failure modes:
 
 Why three copies, not two: a single earlier occurrence of 400 characters is how a model restates a table or quotes a
 passage. ai-invoice-to-xero's thinking_is_looping fires on it; this detector does not. Its two functions are kept
-below, unchanged in meaning, for callers that use them.
+below, unchanged in meaning, for callers that use them. Why back to back: three copies with other text between them
+are how a trace restates its draft answer after each check, and counting copies alone called 17-18 of those 1,505
+finished traces loops.
 
 Cost: the block check runs every CHECK_EVERY new characters and searches only the last LOOKBACK characters, so a stream
 of n characters costs O(n / CHECK_EVERY * LOOKBACK) in C-level string search -- linear in n, unlike re-scanning the
@@ -36,10 +40,10 @@ TOKEN_RUN = "token-run"
 
 LOOP_CHECK_WINDOW = 400  # chars of tail compared against the earlier stream (ai-invoice-to-xero's value)
 LOOP_MIN_LENGTH = 800  # a stream shorter than this is never judged (ai-invoice-to-xero's value)
-MIN_REPEATS = 3  # the tail window must occur this many times in all: itself plus two earlier copies
+MIN_REPEATS = 3  # the tail window must occur this many times, back to back: itself plus two earlier copies
 TOKEN_RUN_LEN = 64  # identical chunks in a row; below the server's 100, so the client keeps the partial output
 CHECK_EVERY = 64  # chars between block checks
-LOOKBACK = 16384  # chars searched for earlier copies; a period longer than LOOKBACK / MIN_REPEATS is not seen
+LOOKBACK = 16384  # chars searched; a period over (LOOKBACK - WINDOW) / (MIN_REPEATS - 1) is not seen
 
 
 @dataclass
@@ -164,6 +168,12 @@ class LoopDetector:
             end = pos + w - 1
         assert nearest is not None  # min_repeats >= 2, so the loop above found at least one copy
         period = (n - w) - nearest
+        # Copies are not enough: a trace that restates its draft between rounds of checking has copies with other
+        # text between them. A loop's copies are back to back, so the tail is periodic: the last window plus
+        # (min_repeats - 1) periods is one block repeated.
+        span = w + (self.min_repeats - 1) * period
+        if span > n or buf[n - span : n - period] != buf[n - span + period :]:
+            return None
         return Loop(
             s.name, s.name, s.total, period, copies, buf[n - period :] if period <= w else buf[n - w :], self.params
         )
@@ -176,7 +186,8 @@ def thinking_is_looping(thinking: str) -> bool:
     """True if the last LOOP_CHECK_WINDOW chars of the trace occur verbatim earlier in it (once is enough).
 
     ai-invoice-to-xero's original predicate, kept for its callers. A one-copy repeat is also how a model restates a
-    table, so new code should use LoopDetector, which needs MIN_REPEATS copies and also watches content and token runs.
+    table, so new code should use LoopDetector, which needs MIN_REPEATS copies back to back and also watches content
+    and token runs.
     """
     if len(thinking) < LOOP_MIN_LENGTH:
         return False

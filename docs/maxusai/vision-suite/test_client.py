@@ -573,7 +573,7 @@ class TestLoopDetect(unittest.TestCase):
 
     def test_a_loop_is_finished_not_capped(self):
         # A loop is a verdict, not a cap: it must neither climb the context ladder (capped_arms) nor be re-run on
-        # resume (arm_done / ft_done), because the same greedy decode loops identically at every rung.
+        # resume (arm_done / ft_done): the cell was ended at the loop, and the verdict is its result (ADR 0049).
         import summarize_engine_compare as sec
         import vision_suite
         blk = {"done_reason": "loop", "failure_mode": "loop detected:content", "eval_count": 312,
