@@ -208,10 +208,12 @@ func (c *Client) Close() error {
 // were lost this way — four to the token cap and two to a 900-second timeout — while
 // other documents of the same kind and size decoded in under a minute.
 //
-// 22 is the longest run llama.cpp allows for a JSON schema on the GGUF path (two
-// newlines and 20 spaces or tabs), so both runners bound whitespace alike; it still
-// fits a newline and ten levels of two-space indent (21 characters) and is far below
-// a stall, which runs to thousands. It was 32 until 2026-10-12, when muse-glimmer
+// 22 is the length of the longest run llama.cpp allows for a JSON schema on the GGUF
+// path (two newlines and 20 spaces or tabs), so neither runner allows a longer run.
+// The runners agree on that length only: max_whitespace_cnt counts any whitespace,
+// so MLX accepts 22 spaces in one gap where llama.cpp allows one. 22 still fits a
+// newline and ten levels of two-space indent (21 characters) and is far below a
+// stall, which runs to thousands. It was 32 until 2026-10-12, when muse-glimmer
 // answering after its message header in single pass padded the first and last slot
 // of every object to the bound (ADR 0035).
 const maxWhitespaceRun = 22

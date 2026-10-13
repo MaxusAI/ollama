@@ -13,15 +13,18 @@ import (
 	"github.com/ollama/ollama/mlxrunner/xgrammar"
 )
 
-// TestRequestGrammarWhitespaceRunMatchesLlamaCpp drives the structural tag the
+// TestRequestGrammarBoundsWhitespaceRunLength drives the structural tag the
 // runner decodes under through xgrammar one byte at a time (ADR 0035 checked the
-// bound only on the tag's JSON). The longest whitespace run between tokens is
-// llama.cpp's for a JSON schema on the GGUF path: two newlines and 20 spaces or
-// tabs, 22 characters, which still fits a newline and ten levels of two-space
-// indent. muse-glimmer answering after its message header pads the first and
+// bound only on the tag's JSON). It proves the length of the longest whitespace
+// run between tokens: 22 characters, the longest run llama.cpp's SPACE_RULE
+// allows for a JSON schema on the GGUF path (two newlines and 20 spaces or tabs),
+// which still fits a newline and ten levels of two-space indent. The runners
+// agree on that length only, not on the shape: max_whitespace_cnt counts any
+// whitespace, so MLX accepts 22 spaces in one gap where SPACE_RULE allows at most
+// one space. muse-glimmer answering after its message header pads the first and
 // last slot to the bound in single pass (2026-10-12), so the bound is also what
 // that padding costs.
-func TestRequestGrammarWhitespaceRunMatchesLlamaCpp(t *testing.T) {
+func TestRequestGrammarBoundsWhitespaceRunLength(t *testing.T) {
 	compiler := byteXGrammar(t)
 	schema := json.RawMessage(`{"type":"object","properties":{"a":{"type":"integer"}},"required":["a"]}`)
 	for _, tt := range []struct {

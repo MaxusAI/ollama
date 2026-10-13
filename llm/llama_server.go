@@ -52,19 +52,26 @@ import (
 	"github.com/ollama/ollama/ml"
 )
 
+// grammarJSON is format "json"'s grammar on the GGUF path. It has the shape of
+// llama.cpp's grammars/json.gbnf: whitespace follows "{", "[", ":", "," and
+// every value, and nothing puts it before "}" or "]", so no two ws rules are
+// ever adjacent and no run is longer than one ws allows. It differs from
+// json.gbnf in two places, both kept from the grammar before: the root object
+// ends at its "}" (no trailing whitespace, so the grammar completes there),
+// and there is no whitespace between a key and its ":".
 var grammarJSON = `
 root   ::= object
-value  ::= object | array | string | number | ("true" | "false" | "null") ws
+value  ::= (object | array | string | number | "true" | "false" | "null") ws
 object ::=
   "{" ws (
          string ":" ws value
     ("," ws string ":" ws value)*
-  )? ws "}"
+  )? "}"
 array  ::=
   "[" ws (
             value
     ("," ws value)*
-  )? ws "]"
+  )? "]"
 string ::=
   "\"" (
     [^"\\\x7F\x00-\x1F] |
