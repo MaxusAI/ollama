@@ -1557,8 +1557,9 @@ func (runner *runnerRef) needsReload(ctx context.Context, req *LlmRequest) bool 
 	// one that names those bounds explicitly launch identical flags. Compare
 	// what the runner would be started with, not what the caller happened to
 	// send, or the second request reloads the model for nothing.
-	llm.NormalizeImageTokenBudget(req.model.Config.ModelFamily, &optsExisting)
-	llm.NormalizeImageTokenBudget(req.model.Config.ModelFamily, &optsNew)
+	visionArch := llm.VisionBudgetArch(req.model.Config.ModelFamily, req.model.projectorType())
+	llm.NormalizeImageTokenBudget(visionArch, &optsExisting)
+	llm.NormalizeImageTokenBudget(visionArch, &optsNew)
 	// The same holds for the prompt-cache size: an invalid prompt_cache_ram is
 	// ignored at launch, so it starts the same llama-server as an unset one.
 	llm.NormalizePromptCacheRAM(&optsExisting)

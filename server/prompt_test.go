@@ -749,6 +749,20 @@ func TestRenderPromptResolvesDynamicGemma4Renderer(t *testing.T) {
 	}
 }
 
+// convertedNemotron is what v0.40.2's compatmigrate leaves for a legacy
+// nemotron_h_omni GGUF: a nemotron_h_moe text model with a separate clip
+// projector of type nemotron_v2_vl (#480).
+func convertedNemotron() *Model {
+	return &Model{
+		ProjectorPaths: []string{"projector"},
+		Config:         model.ConfigV2{ModelFamily: "nemotron_h_moe", ModelFamilies: []string{"nemotron_h_moe", "clip"}},
+		projectorMetadata: []ggufMetadata{{KV: map[string]any{
+			"general.architecture":       "clip",
+			"clip.vision.projector_type": "nemotron_v2_vl",
+		}}},
+	}
+}
+
 func TestMaxImageTokensModelGating(t *testing.T) {
 	opts := &api.Options{Runner: api.Runner{NumCtx: 4096}}
 
@@ -803,6 +817,27 @@ func TestMaxImageTokensModelGating(t *testing.T) {
 			want: 3330,
 		},
 		{
+			// #480: the converted child must charge what the legacy omni GGUF did.
+			name: "converted nemotron3 child charges the omni ceiling",
+			m:    convertedNemotron(),
+			opts: opts,
+			want: 3330,
+		},
+		{
+			name: "converted nemotron3 child resolves a pinned ceiling",
+			m:    convertedNemotron(),
+			opts: &api.Options{Runner: api.Runner{ImageMinTokens: 256, ImageMaxTokens: 1024}},
+			want: 1026,
+		},
+		{
+			// Nemotron 3 Nano without vision is also nemotron_h_moe, with no
+			// projector: it has no image input path at all.
+			name: "text-only nemotron_h_moe has no image input path",
+			m:    &Model{Config: model.ConfigV2{ModelFamily: "nemotron_h_moe", ModelFamilies: []string{"nemotron_h_moe"}}},
+			opts: opts,
+			want: 0,
+		},
+		{
 			name: "inline gemma4 resolves ceiling from opts",
 			m:    &Model{Config: model.ConfigV2{ModelFamily: "gemma4", ModelFamilies: []string{"gemma4"}}},
 			opts: &api.Options{Runner: api.Runner{ImageMinTokens: 70, ImageMaxTokens: 560}},
@@ -839,6 +874,12 @@ func TestImageTokenCosts(t *testing.T) {
 
 	if diff := cmp.Diff(imageTokenCosts(nemotron, opts, msgs), []int{302 + 3330, 0, 3330}); diff != "" {
 		t.Errorf("nemotron costs mismatch (-got +want):\n%s", diff)
+	}
+
+	// #480: the converted nemotron3 child sizes images exactly as the legacy
+	// omni GGUF does.
+	if diff := cmp.Diff(imageTokenCosts(convertedNemotron(), opts, msgs), []int{302 + 3330, 0, 3330}); diff != "" {
+		t.Errorf("converted nemotron costs mismatch (-got +want):\n%s", diff)
 	}
 
 	textOnly := &Model{Config: model.ConfigV2{ModelFamily: "llama"}}

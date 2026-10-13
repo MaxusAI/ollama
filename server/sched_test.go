@@ -2615,6 +2615,7 @@ func TestSchedNeedsReloadImageTokenBudget(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		family     string
+		projector  string
 		minTok     int
 		maxTok     int
 		wantReload bool
@@ -2630,6 +2631,27 @@ func TestSchedNeedsReloadImageTokenBudget(t *testing.T) {
 			family: "nemotron_h_omni",
 			minTok: 256, maxTok: 512,
 			wantReload: true,
+		},
+		{
+			// #480: v0.40.2 converts a legacy nemotron_h_omni GGUF into a
+			// nemotron_h_moe model plus a nemotron_v2_vl projector. Its budget
+			// must still reach the launch, so a different ceiling reloads.
+			name:   "converted nemotron3 genuinely different ceiling reloads",
+			family: "nemotron_h_moe", projector: "nemotron_v2_vl",
+			minTok: 256, maxTok: 512,
+			wantReload: true,
+		},
+		{
+			name:   "converted nemotron3 explicit native bounds match the unset sentinel",
+			family: "nemotron_h_moe", projector: "nemotron_v2_vl",
+			minTok: 256, maxTok: 3328,
+			wantReload: false,
+		},
+		{
+			name:   "text-only nemotron_h_moe ignores the bounds",
+			family: "nemotron_h_moe",
+			minTok: 256, maxTok: 512,
+			wantReload: false,
 		},
 		{
 			name:   "gemma4 explicit defaults do not reload",
@@ -2651,15 +2673,26 @@ func TestSchedNeedsReloadImageTokenBudget(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			newModel := func() *Model {
+				m := &Model{Config: model.ConfigV2{ModelFamily: tc.family}}
+				if tc.projector != "" {
+					m.ProjectorPaths = []string{"projector"}
+					m.projectorMetadata = []ggufMetadata{{KV: map[string]any{
+						"general.architecture":       "clip",
+						"clip.vision.projector_type": tc.projector,
+					}}}
+				}
+				return m
+			}
 			do := api.DefaultOptions()
 			runner := &runnerRef{
-				model:       &Model{Config: model.ConfigV2{ModelFamily: tc.family}},
+				model:       newModel(),
 				Options:     &do,
 				llama:       &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}},
 				numParallel: 1,
 			}
 			req := &LlmRequest{
-				model: &Model{Config: model.ConfigV2{ModelFamily: tc.family}},
+				model: newModel(),
 				opts:  api.DefaultOptions(),
 			}
 			req.opts.ImageMinTokens, req.opts.ImageMaxTokens = tc.minTok, tc.maxTok
