@@ -1915,8 +1915,11 @@ class TestMlxMetalProfileForTheV0402Fold(unittest.TestCase):
         "0.40.2-dynres-0-gabcdef0",    # the fold's tag stamp
         "0.40.2-dynres-5-g0123456",    # a build after that tag
         "0.40.2-dynres.1-0-gabcdef0",  # the v0.40.2-dynres.1 point tag (Go-only on Metal)
+        "0.40.2-dynres.1-6-g9f3baaf",  # the v0.40.3 fold's head, measured here (#488)
+        "0.40.3-dynres-0-gabcdef0",    # the v0.40.3 fold: Go-only, the same payload (ADR 0032)
     )
     REJECT = (
+        "0.40.4-dynres-0-gabcdef0",          # v0.40.4 moves llama.cpp to b11521: measure first
         "0.35.0-dynres-0-g043f441",          # production's build: mlx-metal-0-34-4's
         "0.35.0-dynres-27-g948ef3a",         # the fold's interim stamp: not admitted by widening
         "0.40.1-dynres-0-gabcdef0",          # an upstream release this fold passed through
@@ -1965,9 +1968,10 @@ class TestMetalProfileForTheV0402Fold(unittest.TestCase):
 
     PROFILE = "metal-0-40-2"
     ADMIT = ("0.40.2-dynres-0-g5623192", "0.40.2-dynres-5-g0123456",
-             "0.40.2-dynres.1-0-g3960244")  # the point tag, as mlx-metal-0-40-2 admits it (#486)
+             "0.40.2-dynres.1-0-g3960244",  # the point tag, as mlx-metal-0-40-2 admits it (#486)
+             "0.40.3-dynres-0-gabcdef0")    # the Go-only v0.40.3 fold (#488)
     REJECT = ("0.35.0-dynres-0-g043f441", "0.32.14-maxusai-abcdef0", "0.40.2-dynres-0-gabcdef0-dirty",
-              "0.40.2-dynres.1-0-gabcdef0-dirty")
+              "0.40.2-dynres.1-0-gabcdef0-dirty", "0.40.4-dynres-0-gabcdef0")
 
     @classmethod
     def setUpClass(cls):
