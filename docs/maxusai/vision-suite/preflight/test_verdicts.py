@@ -986,6 +986,21 @@ class TestQualityCappedExcluded(unittest.TestCase):
         self.assertEqual(eligible, {})
         self.assertEqual(capped, [])
 
+    def test_a_loop_verdict_leaves_the_denominator_and_is_named(self):
+        # LOOP_DETECT=1 reaches vision_suite through the inherited environment. A cell ended on a loop (ADR 0049)
+        # was scored on output cut at the loop -- held back by the server it even sits at eval == num_predict -- so
+        # it is neither a quality score nor capped: it is reported as the loop it is.
+        scores = {"scene_single": {"json_valid": False, "eval_count": 2200, "num_predict": 2200,
+                                   "done_reason": "loop", "failure_mode": "loop detected:content",
+                                   "loop_kind": "content"},
+                  "document_single": {"json_valid": True, "eval_count": 100, "num_predict": 2200,
+                                      "done_reason": "stop"}}
+        eligible, capped = checks.quality_eligible(scores)
+        self.assertEqual(list(eligible), ["document_single"])
+        self.assertEqual(capped, [])
+        self.assertEqual(checks.quality_looped(scores), ["scene_single (loop:content)"])
+        self.assertEqual(checks.quality_looped(scores, tests=["document_single"]), [])
+
 
 
 

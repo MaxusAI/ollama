@@ -50,7 +50,12 @@ runs to the cap (57 of the 60 on that replay) costs one verdict at the rung wher
    kept and `server_done_reason: "length"` recorded. A reply that finished is never a loop, however repetitive.
    Such a loop is labelled, not cut early: that needs the server to stream.
 4. **A loop is a verdict, not an error and not a cap.**
-   - The suite scores the partial output as it scores a capped answer.
+   - The suite scores the partial output as it scores a capped answer, and no table shows that score. Every
+     template renders `loop:<kind>` where the score would go, the way it renders `capped`: T1's quality and
+     throughput cells, T2's `cap_or` and latency rows, the contract matrix, geometry, reps and the bbox matrix.
+   - No mean pools a loop. `summarize_engine_compare.not_a_score` (capped, or a loop) is the one test, and the counts
+     name loops apart from caps. `cmp_scored` compares no loop, and a preflight quality run reports one as a
+     failure by name, outside `json_valid`.
    - `was_capped` is False for `done_reason: "loop"` at any `eval_count`. A held-back loop stopped at
      `num_predict` keeps `eval_count == num_predict`, and the arithmetic fallback would otherwise call it capped.
    - `arm_done` treats the block as finished, so it is not re-run on resume.
