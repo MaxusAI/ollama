@@ -61,6 +61,18 @@ when the numbers are equal: that runner was started without the limit. The rever
 reload — an enforcing runner serves the automatic rung of the same size — so alternating
 clients cannot churn it.
 
+The cut and the refusal follow the runner, not the request (`promptTruncation` asks the
+runner whether it enforces). So an automatic request that lands on a runner an explicit
+`num_ctx` of the same size loaded is held to that window: its old turns are dropped, its
+prompt is cut, or it is refused, exactly as under an explicit value. On a runner loaded on the
+automatic rung the same request would be served up to the model maximum. This is accepted:
+
+- That runner cannot serve past its window. Its KV cache and admission's price stop there, so
+  following the request instead could only turn the cut into a refusal, or reload the runner,
+  which is the churn this decision avoids.
+- What the request gets is what llama-server gives every request, automatic or not.
+- The two rungs must be equal for this to happen. A different rung reloads anyway.
+
 ## Options considered
 
 - **Refuse instead of truncating** (upstream's MLX semantics since `a16f966`, and what
@@ -93,15 +105,51 @@ clients cannot churn it.
 | MLX, explicit, over it with `truncate:false`, `shift:false` or images | prefilled to the model maximum | 400 naming the prompt length and the limit |
 | MLX, explicit, `/api/ps` | the rung (not enforced) | the rung, enforced (capped at the model maximum) |
 | MLX, automatic | served to the model maximum, 400 past it | unchanged |
+| MLX, automatic, on a runner an explicit `num_ctx` of the same size loaded | served to the model maximum, 400 past it | held to that window, as explicit (decision 4) |
 | GGUF | — | unchanged |
 
 - Admission's price for an explicit rung (ADR 0034) is now a bound, not an assumption. The cache
   still grows in 256-token blocks, so the last block may be allocated up to 255 tokens past the
   window; speculative drafting appends its draft beyond the prompt as before.
 - `/v1/score`'s `max_tokens` is bounded by the enforced window (it reads the same field).
-- Remaining differences from GGUF: generation that reaches the window stops with
-  `done_reason: length` on MLX, where llama-server context-shifts and continues; the two
-  tokenizers count the same text differently, so the cut lands at a different word.
+- "Fits" means the prompt plus the generation. `Prepare` caps `num_predict` at the window
+  minus the prompt, so a prompt that fits but leaves less room than `num_predict` asks for
+  ends with `done_reason: length` at the window. That holds for pass two of the ADR 0004
+  two-pass request as well, which gets what pass one left.
+- The vision suite's client (`docs/maxusai/vision-suite/client.py`, `context_error`) reads
+  the MLX refusal as a `num_ctx too small` error, as it reads llama-server's
+  `exceed_context_size` body, so an MLX cell whose prompt is over the rung climbs the ladder.
+  The model-maximum refusal is not matched: no bigger rung cures it.
+- Remaining differences from GGUF:
+  - Generation that reaches the window stops with `done_reason: length` on MLX, where
+    llama-server context-shifts and continues.
+  - The two tokenizers count the same text differently, so the cut lands at a different word.
+  - **The message dropping charges an MLX image nothing.** `imageTokenCosts` sizes an image
+    from the model family or a projector, and an MLX config has neither (`model_family ""`,
+    no projector layer). On GGUF a 1920x1080 image costs qwen35moe 2,042 tokens and gemma4
+    1,102. So an image chat over an explicit `num_ctx` that GGUF answers with 200, its old
+    turns dropped, gets a 400 on MLX: the server keeps the turns because it counts only their
+    text, and the runner refuses the prompt because it carries images. Nothing is served past
+    the window and nothing is cut silently. A text-only chat is not affected.
+  - The ADR 0004 continuation check (`routes.go`, before pass two) counts the text of the
+    continuation only. That is the same on both runners, so it is not an MLX difference; with
+    images, a pass two that the check lets through can still be refused by either runner,
+    after pass one has streamed.
+
+  GGUF's image function cannot stand in for MLX. The two runners size images differently:
+  qwen3.5 on llama.cpp holds an image between 1,024 and 4,096 tokens, while the MLX qwen3.5
+  path keeps the reference pixel bounds, about 64 to 16,384 tokens. A 448x448 image costs
+  1,026 tokens on GGUF and 198 on MLX, and a 4096x4096 image costs 4,098 against 16,386.
+  A correct count has to come from the MLX runner, which owns each arch's preprocessing:
+  - an endpoint that runs the model's `PrepareMediaWithBudget` on each image, with the
+    request's image budget, and returns the length of its expansion;
+  - the server calling it once per request, before `chatPromptFrom` and
+    `truncateNativeChatMessages`, in place of `imageTokenCosts` on MLX;
+  - tests that the count equals the expansion `Prepare` builds, per MLX vision arch.
+
+  That decodes and resizes every image twice per request, which needs measuring on Metal
+  first. It is left for a follow-up. The suite is not affected: its prompts are a single
+  turn, so there is no old turn to drop.
 - Not covered: MLX embeddings still bound input by the model maximum, not `num_ctx`.
 
 ## Verification
@@ -112,6 +160,13 @@ Unit tests (no GPU): `mlxrunner/numctx_test.go` (command line, served window, th
 under an explicit `num_ctx`, `/api/generate` asking the runner to cut, the reload rule). They
 were written first and failed against stubs carrying the old behaviour, except two that pin
 behaviour which does not change (a prompt that fits; what `Ping` reports).
+
+Added after review, pinning behaviour this ADR states rather than changing it: an automatic
+chat on an enforcing runner has its old turn dropped (decision 4), and
+`TestImageTokenCostsMLXChargesNothing` holds the image-cost difference above, so a fix flips
+it on purpose. `docs/maxusai/vision-suite/test_client.py` `TestContextError` covers the suite
+reading the MLX refusal; three of its seven cases failed before `context_error` learned the
+MLX wording.
 
 **Live check** (2026-10-13, Apple M5 Max 128 GB, build `0.40.2-dynres-1-g7032203` on :11437
 against an APFS clone of production's store, powermode 2). qwen3.6:35b-a3b in the same build on

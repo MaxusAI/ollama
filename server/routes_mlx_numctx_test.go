@@ -102,6 +102,11 @@ func TestChatMLXExplicitNumCtxTruncatesMessages(t *testing.T) {
 		{name: "explicit", enforces: true, options: map[string]any{"num_ctx": 8}, wantTruncate: true},
 		{name: "explicit truncate false", enforces: true, options: map[string]any{"num_ctx": 8}, truncate: &off, wantOldest: true},
 		{name: "automatic", wantOldest: true},
+		// ADR 0050 decision 4: an automatic request is not reloaded off a
+		// runner that enforces an explicit num_ctx of the same size, and the
+		// cut follows the runner, so this request is held to that window
+		// as llama-server would hold it.
+		{name: "automatic on an enforcing runner", enforces: true, wantTruncate: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s, mock := newMLXNumCtxServer(t, tt.enforces)
@@ -185,4 +190,22 @@ func TestSchedNeedsReloadMLXExplicitNumCtxOverAutomatic(t *testing.T) {
 	runner.numCtxAuto = false
 	req.numCtxAuto = true
 	require.False(t, runner.needsReload(ctx, req), "an enforcing runner serves the automatic rung of the same size")
+}
+
+// Pins a known difference from GGUF (ADR 0050, "Remaining differences"): the
+// message dropping charges an MLX image nothing, because an MLX model's config
+// carries no model family and no projector, and each MLX arch sizes images
+// with its own preprocessing inside the runner. So an image chat over an
+// explicit num_ctx keeps turns GGUF would drop, and the runner refuses it.
+// When the runner learns to report image costs, this test should flip.
+func TestImageTokenCostsMLXChargesNothing(t *testing.T) {
+	mlx := &Model{Config: model.ConfigV2{
+		ModelFormat: "safetensors", Renderer: "qwen3.5", Capabilities: []string{"completion", "vision"},
+	}}
+	gguf := &Model{Config: model.ConfigV2{ModelFamily: "qwen35moe"}, ProjectorPaths: []string{"mmproj"}}
+	opts := &api.Options{Runner: api.Runner{NumCtx: 8192}}
+	msgs := []api.Message{{Role: "user", Images: []api.ImageData{testPNG(t, 1920, 1080)}}}
+
+	require.Equal(t, []int{2042}, imageTokenCosts(gguf, opts, msgs), "GGUF charges the smart-resized grid plus markers")
+	require.Equal(t, []int{0}, imageTokenCosts(mlx, opts, msgs), "MLX images are charged nothing")
 }
