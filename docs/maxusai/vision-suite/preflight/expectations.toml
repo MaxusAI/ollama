@@ -3455,6 +3455,9 @@ model = "qwen2.5vl:3b-q4_K_M"
 #   #483 fixes it; on the release image with #483's binary (0.40.2-dynres-2-g19455c6, payload hash-identical) the
 #   nemotron rows pass: pinned 3328 -> 3270, payload_proof custom on max/min
 #   (runs/preflight-cuda-0402-pr483-nemotron-g19455c6.json). gfx1151 measured the same pair (#481).
+# - main-601b8a65 (0.40.2-dynres-10-g601b8a6, the full build of main 601b8a65c: #483 and #462's 903 in, and the code
+#   v0.40.2-dynres.1 restamps): all three ladders byte-identical again, and VERDICT PASS, PASS=20 SKIP=9
+#   (runs/preflight-cuda-0402-main-g601b8a6.json), nemotron pinned 3328 -> 3270.
 # - nemotron's row keeps no custom_bounds line, as cuda-dynres-903's: a `custom_bounds = []` would have passed
 #   payload_proof on that regression.
 # - 903 here is the tag's. Builds of main after #462 carry #462's 903 (#29953 as merged plus the y-tile guard)
@@ -3646,9 +3649,12 @@ require_nonempty_thinking = true
 # - Preflight on the release image sync-0.40.2-main (0.40.2-dynres-0-g5623192), sm_120a, 2026-10-13: PASS=11
 #   SKIP=18 (runs/preflight-mlx-cuda-0402-release-g5623192.json). All three token ladders pass 5/5 within +/-2, all
 #   three prefixes match, and mlx_payload_pin reads a59cc23 from the runner's engine-init line.
-# - measure_ladder.py: qwen35 (qwen3.8:27b-nvfp4) is byte-identical to mlx-cuda's. gemma4 and qwen35moe were refused
-#   admission while production held a model on the shared GPU; they are re-measured on main's build, whose MLX
-#   payload is this one (#462 touched llama.cpp only).
+# - measure_ladder.py: qwen35 (qwen3.8:27b-nvfp4) is byte-identical to mlx-cuda's on the release image. gemma4 and
+#   qwen35moe were refused admission there while production held a model on the shared GPU, and were measured on
+#   main's build, whose MLX payload is this one (#462 touched llama.cpp only): all three byte-identical, prefixes 19,
+#   13, 13.
+# - main-601b8a65 (0.40.2-dynres-10-g601b8a6, the full build of main 601b8a65c, which v0.40.2-dynres.1 restamps):
+#   PASS=11 SKIP=18 (runs/preflight-mlx-cuda-0402-main-g601b8a6.json).
 version_pattern = '^0\.40\.2-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
 mlx_build = "a59cc23190f1e26fabcba8693607bb4c34b2ac2b"
 platform = "mlx-cuda"
@@ -3690,7 +3696,7 @@ isolation. Think-off is unaffected.
 
 [expect.mlx-cuda-0-40-2.gemma4]
 status = "measured"
-measured_on = "2026-08-17"
+measured_on = "2026-10-13"
 model = "gemma4:31b-nvfp4"
 # Emitted by measure_ladder.py against :11495 (container mlx-release, server
 # 0.32.14-rc0-dynres-20-geb0ad43) and pasted whole, per ADR 0012 rule 8.
@@ -3751,7 +3757,7 @@ ladder = [1102, 1102, 1102, 1102, 1102]
 
 [expect.mlx-cuda-0-40-2.qwen35moe]
 status = "measured"
-measured_on = "2026-09-30"
+measured_on = "2026-10-13"
 model = "qwen3.6:35b-a3b-nvfp4"
 # Emitted by measure_ladder.py on the H100 (sm_90) host, gcp-a3-highgpu-1g/cuda: a native
 # build, server 0.34.4-dynres-0-gb43ee8e, MLX 0.32.2-65-g59d600b, the mlx_cuda_v13 payload.
