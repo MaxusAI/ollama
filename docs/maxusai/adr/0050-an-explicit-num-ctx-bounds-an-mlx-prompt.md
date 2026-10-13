@@ -1,7 +1,7 @@
 # ADR 0050: An explicit num_ctx bounds an MLX prompt as it bounds a GGUF one
 
-- **Status:** proposed (2026-10-13). Code and unit tests on `fix/mlx-num-ctx-enforced`;
-  **the live check on a GPU is pending**.
+- **Status:** proposed (2026-10-13). Code, unit tests and the live check on Metal
+  (`0.40.2-dynres-1-g7032203`) on `fix/mlx-num-ctx-enforced`.
 - **Date:** 2026-10-13
 - **Deciders:** the maintainer
 - **Upstream:** ollama/ollama#18125 (issue), ollama/ollama#18261 (closed unmerged; revised in
@@ -113,6 +113,37 @@ under an explicit `num_ctx`, `/api/generate` asking the runner to cut, the reloa
 were written first and failed against stubs carrying the old behaviour, except two that pin
 behaviour which does not change (a prompt that fits; what `Ping` reports).
 
-**Pending:** the live check — `/v1/status` and `/api/ps` agreeing on the explicit window, the
-cut's `prompt_eval_count` against the GGUF build of the same model, the refusals, and the
-automatic rung unchanged.
+**Live check** (2026-10-13, Apple M5 Max 128 GB, build `0.40.2-dynres-1-g7032203` on :11437
+against an APFS clone of production's store, powermode 2). qwen3.6:35b-a3b in the same build on
+both runners: `nvfp4` on MLX, `q4_K_M` on llama.cpp. Prompts of ~31k tokens, and ~116k for
+#18125's case. Each row is one request; `/api/ps` is the context length it reported after it.
+
+| case | MLX | GGUF |
+|---|---|---|
+| no `num_ctx`, `/api/generate` | 200, 31014 prompt tokens, `/api/ps` 262144 | 200, 31014, 262144 |
+| explicit 262144 (equal to the automatic rung) | 200, 31014; one runner start | 200, 31014; one runner start |
+| no `num_ctx` again | 200, 31014; no start | 200, 31014; no start |
+| explicit 4096, `/api/generate` | 200, **2050**, `length`; `/api/ps` 4096 | 200, **2050**, `length`; 4096 |
+| explicit 4096, `/api/chat` whose old turn alone is over the window | 200, 38: the old turn dropped | 200, 38 |
+| explicit 4096, `truncate:false` | 400 | 400 |
+| explicit 4096, `shift:false` | 400 | 400 |
+| explicit 4096, an image plus ~31k tokens | 400 | 400 |
+| explicit 65536, ~116k-token `/api/generate` (#18125) | 200, **32770**, `length`, no crash | 200, 32770, `stop` |
+
+The status codes and cuts agree on every case. The error wording differs: llama.cpp passes
+llama-server's own message through, while MLX names both token counts. The 116k case ends `length`
+on MLX and `stop` on llama.cpp, the context shift noted above.
+
+**No regression on prompts that fit.** The think-off vision suite (27 tests and the finetext probe, 28
+answers; `num_ctx` 16384, `num_predict` 2200, greedy) was compared answer by answer against the release build's cells on
+the same store:
+- qwen3.6:35b-a3b-nvfp4 (MLX): 28/28 answers byte-identical.
+- gemma4:31b-it-q4_K_M (llama.cpp, `NUM_BATCH=2048`): 28/28.
+- gemma4:31b-nvfp4 (MLX, drafted): 25/28.
+- `prompt_eval_count`: equal on every test of all three models.
+
+The three gemma4 answers that differed moved a box coordinate by 1–3 units. That was not this
+change: re-run the same day, the release build gave the same new bytes, and this build repeated
+them twice. Between 2026-10-10 and 03:27 on 2026-10-13, four builds had agreed on the old bytes, with the
+same weights and prompts.
+The day-to-day shift on a drafted MLX model is still unexplained.
