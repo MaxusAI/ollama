@@ -779,9 +779,11 @@ platform = "mlx-metal"
 # (631109b34), with MLX-C unchanged at ebc88f10. A new profile by the ADR 0011 rule
 # that created every predecessor: a payload move gets its own profile even when
 # the numbers turn out identical, because "identical" is a measurement.
-version_pattern = '^0\.40\.2-dynres-\d+-g[0-9a-f]{7,40}$'
-# Admits the v0.40.2-dynres tag's lineage and nothing else: not -dirty, not a .N
-# point tag, not the legacy 0.34.x-maxusai-<sha> shape. The fold's interim builds
+version_pattern = '^0\.40\.2-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
+# Admits the v0.40.2-dynres tag's lineage and its .N point tags (v0.40.2-dynres.1
+# moves Go only on Metal; its one native change, #462's 903, is in ggml-cuda/mmq.cu,
+# which this build does not compile), and nothing else: not -dirty, not the legacy
+# 0.34.x-maxusai-<sha> shape. The fold's interim builds
 # stamp 0.35.0-dynres-N (mlx-metal-0-34-4's lineage, whose pins they fail); the
 # Metal host validated the interim build with a campaign copy of this file whose
 # only change pinned this pattern to that one stamp (#460).
