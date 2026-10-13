@@ -570,3 +570,61 @@ func TestThinkFormatGlimmerTwoPassThinkingOn(t *testing.T) {
 		}
 	})
 }
+
+// TestThinkFormatThinkingOffParsersThatThinkAnyway covers the parsers whose
+// response begins inside thinking whatever the request says: qwen3-vl-thinking
+// (Qwen3VLParser.setInitialState ignores the think value) and harmony. With
+// thinking off they still report closings, so a format waits for them in single
+// pass and, since the two-pass branch stopped special-casing thinking off, in
+// two-pass too. Before, two-pass bound the format from the first token and the
+// JSON came back in thinking with an empty content (found by the CUDA host's
+// review of #464, qwen3-vl:2b/4b-thinking).
+func TestThinkFormatThinkingOffParsersThatThinkAnyway(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stream := false
+	off := &api.ThinkValue{Value: false}
+	const answer = `{"answer":"42"}`
+	cases := []struct {
+		parser   string
+		closings []string
+		output   string
+	}{
+		{parser: "qwen3-vl-thinking", closings: []string{"</think>"}, output: "Let me think.</think>\n\n" + answer},
+		{parser: "harmony", closings: []string{
+			"<|end|><|start|>assistant<|channel|>final<|message|>",
+			"<|end|><|start|>assistant<|channel|>final <|constrain|>json<|message|>",
+			"<|end|><|start|>assistant<|channel|>final<|constrain|>json<|message|>",
+			"<|end|><|start|>assistant<|channel|>final json<|message|>",
+			"<|end|><|start|>assistant<|channel|>commentary<|message|>",
+			"<|end|><|start|>assistant<|message|>",
+		}, output: "<|channel|>analysis<|message|>Let me think.<|end|><|start|>assistant<|channel|>final<|message|>" + answer},
+	}
+	for _, mode := range []struct{ name, env string }{{"single pass", ""}, {"two pass", "1"}} {
+		for _, tc := range cases {
+			t.Run(mode.name+"/"+tc.parser, func(t *testing.T) {
+				t.Setenv("OLLAMA_FORMAT_TWO_PASS", mode.env)
+				mock := &mockRunner{}
+				s := setupImplicitThinkingModel(t, mock, "off-anyway-"+tc.parser, tc.parser)
+				requests := recordCompletions(mock, llm.DoneReasonStop, tc.output)
+				w := createRequest(t, s.ChatHandler, api.ChatRequest{
+					Model:    "off-anyway-" + tc.parser,
+					Messages: []api.Message{{Role: "user", Content: "Answer in JSON."}},
+					Think:    off,
+					Format:   thinkFormatSchema,
+					Stream:   &stream,
+				})
+				if w.Code != http.StatusOK {
+					t.Fatalf("status %d: %s", w.Code, w.Body.String())
+				}
+				checkOneFormattedCall(t, requests(), tc.closings)
+				var resp api.ChatResponse
+				if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+					t.Fatal(err)
+				}
+				if resp.Message.Content != answer {
+					t.Errorf("content = %q, want %q", resp.Message.Content, answer)
+				}
+			})
+		}
+	}
+}
