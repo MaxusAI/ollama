@@ -3587,7 +3587,11 @@ model = "qwen2.5vl:3b-q4_K_M"
 #   payload_proof on that regression.
 # - 903 here is the tag's. Builds of main after #462 carry #462's 903 (#29953 as merged plus the y-tile guard)
 #   under the same label; it changes the MMQ src1/ids_dst padding, not image token accounting.
-version_pattern = '^0\.40\.2-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
+# Widened 2026-10-14 to 0.40.3 for the v0.40.3 fold (#488), as ADR 0032 says for a Go-only fold: v0.40.3 moves no
+# native input (llama.cpp b11351 and MLX a59cc231 stay), so its builds share this payload and this profile. Its head,
+# 0.40.2-dynres.1-6-g9f3baaf, passed here on a production-like canary (--gpus all): PASS=20 SKIP=9. 0.40.4 stays
+# refused: its rc1 moves llama.cpp to b11521.
+version_pattern = '^0\.40\.[23]-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
 patchset = ["001", "002", "004", "005", "801", "802", "805", "903", "908"]
 llama_cpp_build = "631109b34"
 mlx_build = "a59cc23190f1e26fabcba8693607bb4c34b2ac2b"
@@ -3780,7 +3784,9 @@ require_nonempty_thinking = true
 #   13, 13.
 # - main-601b8a65 (0.40.2-dynres-10-g601b8a6, the full build of main 601b8a65c, which v0.40.2-dynres.1 restamps):
 #   PASS=11 SKIP=18 (runs/preflight-mlx-cuda-0402-main-g601b8a6.json).
-version_pattern = '^0\.40\.2-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
+# Widened 2026-10-14 to 0.40.3 with cuda-0-40-2 (#488, Go-only): the v0.40.3 fold's head passed here on the
+# production-like canary, PASS=11 SKIP=18, 0 cudaMemcpy errors with both GPUs visible. 0.40.4 stays refused.
+version_pattern = '^0\.40\.[23]-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
 mlx_build = "a59cc23190f1e26fabcba8693607bb4c34b2ac2b"
 platform = "mlx-cuda"
 reference_image = "maxusai/ollama:0.32.14-rc0-dynres-mlxfix"
