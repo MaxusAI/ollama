@@ -146,7 +146,14 @@ def context_error(e, num_predict, num_ctx):
         body = e.read().decode()
     except Exception:
         body = ""
-    m = re.search(r"n_prompt_tokens\\?[\"']?:\s*(\d+).*?n_ctx\\?[\"']?:\s*(\d+)", body, re.S)
+    # llama-server's JSON names n_prompt_tokens and n_ctx; the MLX runner's
+    # refusal under an explicit num_ctx (ADR 0050) says the same in words:
+    # "input length (N tokens) exceeds the context length (L tokens) set by
+    # num_ctx". Its "model's maximum context length" refusal is deliberately
+    # NOT matched: no bigger rung can cure it, so the ladder must not climb.
+    m = (re.search(r"n_prompt_tokens\\?[\"']?:\s*(\d+).*?n_ctx\\?[\"']?:\s*(\d+)", body, re.S)
+         or re.search(r"input length \((\d+) tokens\) exceeds the context length "
+                      r"\((\d+) tokens\) set by num_ctx", body))
     if e.code == 400 and ("exceed_context_size" in body or m):
         if m:
             need, ctx = int(m.group(1)), int(m.group(2))
