@@ -1560,8 +1560,9 @@ func (runner *runnerRef) needsReload(ctx context.Context, req *LlmRequest) bool 
 	// sent. Compare what the runner would be started with, not what the
 	// caller happened to send, or the second request reloads the model for
 	// nothing.
-	llm.NormalizeImageTokenBudget(req.model.Config.ModelFamily, &optsExisting)
-	llm.NormalizeImageTokenBudget(req.model.Config.ModelFamily, &optsNew)
+	visionArch := llm.VisionBudgetArch(req.model.Config.ModelFamily, req.model.projectorType())
+	llm.NormalizeImageTokenBudget(visionArch, &optsExisting)
+	llm.NormalizeImageTokenBudget(visionArch, &optsNew)
 	// The same holds for the prompt-cache size: an invalid prompt_cache_ram is
 	// ignored at launch, so it starts the same llama-server as an unset one.
 	llm.NormalizePromptCacheRAM(&optsExisting)
@@ -1589,6 +1590,11 @@ func (runner *runnerRef) needsReload(ctx context.Context, req *LlmRequest) bool 
 		// through the option comparison above. Two automatic rungs were
 		// equalised earlier, so unpinned clients do not churn.
 		(runner.model.IsMLX() && optsExisting.NumCtx != optsNew.NumCtx) ||
+		// A runner loaded on the automatic rung was started without a limit
+		// (mlxrunner/client.go runnerArgs), so an explicit num_ctx of the same
+		// size would go unenforced there. The reverse needs no reload: an
+		// enforcing runner serves the automatic rung (ADR 0050).
+		(runner.model.IsMLX() && runner.numCtxAuto && !req.numCtxAuto) ||
 		runner.llama.Ping(ctx) != nil {
 		return true
 	}

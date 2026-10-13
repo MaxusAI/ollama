@@ -54,6 +54,13 @@ func (p *GlimmerParser) HasThinkingSupport() bool { return true }
 // The model opens the message to the user, with or without naming the
 // recipient, before any content; its self message may end implicitly, so
 // the header alone marks the boundary.
+//
+// The model writes that header with thinking off too: the prompt ends at
+// "<|start|>assistant", as the publisher's template does, so the response
+// never starts in content. The first header then continues the one the
+// prompt opened, and only its recipient and <|message|> are generated. A
+// self message the model writes anyway is still followed by a full header.
+// (Upstream ollama/ollama#18687, open; taken as written.)
 func (p *GlimmerParser) ThinkingClose() []string {
 	if p.emitThinking {
 		return []string{
@@ -61,7 +68,10 @@ func (p *GlimmerParser) ThinkingClose() []string {
 			glimmerStartTag + "assistant" + glimmerMessageTag,
 		}
 	}
-	return nil
+	return []string{
+		" to=user" + glimmerMessageTag,
+		glimmerStartTag + "assistant" + glimmerMessageTag,
+	}
 }
 
 func (p *GlimmerParser) PreservedTokens() []string {
@@ -143,8 +153,11 @@ func (p *GlimmerParser) consumeHeader(done bool) (progress bool, fallback string
 		if !done {
 			return false, ""
 		}
+		// No header ever came, so the whole response is content -- what a
+		// format bound from the first token produces. The end of the message
+		// or turn that stopped it is a boundary, not text.
 		p.buffer.Reset()
-		return acc != "", acc
+		return acc != "", trimGlimmerMessageEnd(acc)
 	}
 
 	header := strings.TrimSpace(acc[:idx])
@@ -153,6 +166,17 @@ func (p *GlimmerParser) consumeHeader(done bool) (progress bool, fallback string
 	p.recipient = strings.TrimSpace(strings.TrimPrefix(header, "to="))
 	p.setStateForRecipient()
 	return true, ""
+}
+
+// trimGlimmerMessageEnd drops the end-of-message or end-of-turn tag that
+// closes s, if one does.
+func trimGlimmerMessageEnd(s string) string {
+	for _, end := range []string{glimmerEndTurnTag, glimmerEndMessageTag} {
+		if t, ok := strings.CutSuffix(s, end); ok {
+			return t
+		}
+	}
+	return s
 }
 
 func (p *GlimmerParser) setStateForRecipient() {

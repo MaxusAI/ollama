@@ -77,12 +77,17 @@ first is image accounting and the second is generation length.
   `IMAGE_MIN_TOKENS` / `IMAGE_MAX_TOKENS` (fork-only per-request vision budget,
   arch-gated to gemma4 and nemotron_h_omni; unset = build default. Recorded in the
   scores as `req_image_*_tokens` so a control run is identifiable after the fact),
-  `DRAFT_NUM_PREDICT` (MTP / speculative draft depth, `--spec-draft-n-max` on the
-  llama-server side; recorded as `req_draft_num_predict`. **Set it to `0` for an
-  off-arm rather than leaving it unset** — `server/routes.go` zeroes the option
-  unless it was explicitly set, so "unset" and "disabled" are the same request but
-  only one of them is self-describing in the scores. Inert on the MLX runner,
-  which never reads `draft_num_predict` and picks depth adaptively instead),
+  `DRAFT_NUM_PREDICT` (MTP / speculative draft depth; recorded as
+  `req_draft_num_predict`). On llama-server it is `--spec-draft-n-max`, a load-time flag:
+  a change relaunches the runner, `0` turns drafting off, and `server/routes.go` zeroes an
+  unset value when there is no separate draft file. On the MLX runner, since #465, it is
+  read per request with no reload: `0` turns drafting off for that request, `N` caps the
+  adaptive depth, and **unset stays adaptive** (the drafter ships inside MLX tags, so unset
+  maps to −1, not 0). **On MLX, unset and `0` are different arms.** `0` is an off-arm on
+  both runners, but exporting `DRAFT_NUM_PREDICT=0` for a mixed GGUF+MLX run now undrafts
+  the MLX cells too. Builds before #465 ignore it on MLX, so compare
+  `req_draft_num_predict` only within one build. A depth-0 request does not advance the
+  runner's per-load warm-up: in an A/B, send unset requests first),
   `PROMPT_CACHE_RAM` (llama-server's host-RAM prompt cache, ADR 0047. **Default `0`, the
   cache off,** sent on every request since 2026-10-03, because a benchmark's image requests
   pay for the cache's update and get nothing back. A size in MiB or `-1` is sent as given,

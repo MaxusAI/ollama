@@ -39,8 +39,9 @@ type Client struct {
 	port      int
 	modelName string
 	// contextLength is what the runner reports; softContextLength is the
-	// recommended limit to avoid poor performance. Atomic because Load may
-	// clamp the soft limit down to what VRAM can hold while Ping reads it.
+	// num_ctx rung: a recommended limit when automatic, the window the runner
+	// enforces when explicit (ADR 0050). Atomic because Load may clamp an
+	// automatic rung down to what VRAM can hold while Ping reads it.
 	contextLength     atomic.Int64
 	softContextLength atomic.Int64
 	// numCtxAuto records that num_ctx came from Ollama's VRAM-tier default
@@ -163,6 +164,26 @@ type CompletionRequest struct {
 	Logprobs                   bool
 	TopLogprobs                int
 	IncludeIntermediateMetrics bool
+	// DraftLimit is the request's draft_num_predict (requestDraftLimit): nil
+	// keeps the adaptive draft depth, 0 parks the drafter for this request,
+	// N caps the depth at N. A zero-valued request is nil, so drafts as always.
+	DraftLimit *int
+	// Truncate and Shift decide what the runner does with a prompt longer
+	// than an explicit num_ctx: cut it as llama-server's path does, or refuse
+	// it (ADR 0050).
+	Truncate bool
+	Shift    bool
+}
+
+// requestDraftLimit maps draft_num_predict onto DraftLimit. The server sends
+// -1 when neither the request nor the Modelfile set it (an MLX model's
+// drafter is part of the model, so unset is not "off").
+func requestDraftLimit(opts api.Options) *int {
+	if opts.DraftNumPredict < 0 {
+		return nil
+	}
+	n := opts.DraftNumPredict
+	return &n
 }
 
 type CompletionResponse struct {
@@ -208,9 +229,15 @@ func (c *Client) Close() error {
 // were lost this way — four to the token cap and two to a 900-second timeout — while
 // other documents of the same kind and size decoded in under a minute.
 //
-// 32 is well above any indentation a model would emit (a newline plus ten levels of
-// two-space indent is 21 characters) and far below a stall, which runs to thousands.
-const maxWhitespaceRun = 32
+// 22 is the length of the longest run llama.cpp allows for a JSON schema on the GGUF
+// path (two newlines and 20 spaces or tabs), so neither runner allows a longer run.
+// The runners agree on that length only: max_whitespace_cnt counts any whitespace,
+// so MLX accepts 22 spaces in one gap where llama.cpp allows one. 22 still fits a
+// newline and ten levels of two-space indent (21 characters) and is far below a
+// stall, which runs to thousands. It was 32 until 2026-10-12, when muse-glimmer
+// answering after its message header in single pass padded the first and last slot
+// of every object to the bound (ADR 0035).
+const maxWhitespaceRun = 22
 
 // requestGrammar returns the structural tag the runner decodes under: the
 // API's format as a json_schema tag, with the whitespace between tokens
@@ -266,9 +293,12 @@ func (c *Client) Completion(ctx context.Context, req llm.CompletionRequest, fn f
 		Logprobs:                   req.Logprobs,
 		TopLogprobs:                req.TopLogprobs,
 		IncludeIntermediateMetrics: req.IncludeIntermediateMetrics,
+		Truncate:                   req.Truncate,
+		Shift:                      req.Shift,
 	}
 	if req.Options != nil {
 		creq.Options = *req.Options
+		creq.DraftLimit = requestDraftLimit(creq.Options)
 	}
 
 	body, err := json.Marshal(creq)
@@ -353,6 +383,26 @@ func (c *Client) ApplyChatTemplate(ctx context.Context, req llm.ChatRequest) (st
 
 func (c *Client) ContextLength() int {
 	return int(c.contextLength.Load())
+}
+
+// EnforcesContextLength reports whether the runner holds prompts to the
+// context length it reports. An explicit num_ctx is passed to the runner as
+// --ctx-size and enforced; the automatic VRAM-tier rung is not, and stays the
+// advisory value it always was (ADR 0050).
+func (c *Client) EnforcesContextLength() bool {
+	return !c.numCtxAuto
+}
+
+// runnerArgs is the subprocess command line. Only an explicit num_ctx is
+// passed, so a runner on the automatic rung keeps the model's own maximum.
+func (c *Client) runnerArgs(port int) []string {
+	args := []string{"runner", "--model", c.modelName, "--port", strconv.Itoa(port)}
+	if c.EnforcesContextLength() {
+		if numCtx := c.softContextLength.Load(); numCtx > 0 {
+			args = append(args, "--ctx-size", strconv.FormatInt(numCtx, 10))
+		}
+	}
+	return args
 }
 
 func (c *Client) reportedContextLength(modelContextLength int) int {
@@ -581,11 +631,18 @@ func (c *Client) admit(systemInfo ml.SystemInfo, gpus []ml.DeviceInfo, requireFu
 	numCtx := int(c.softContextLength.Load())
 	need, kv, headroom, est := c.needFor(weights, numCtx)
 	if !est.Known {
-		// No cache rule for this architecture. Fall back to exactly what
-		// admission did before the estimator existed rather than guessing: a
-		// wrong estimate refuses loads that would have served.
-		slog.Warn("MLX admission is pricing weights only: no KV rule for this architecture",
-			"architecture", est.Arch, "model", c.modelName, "num_ctx", numCtx)
+		// No cache rule for this architecture, or a config.json the estimator
+		// cannot read. Fall back to exactly what admission did before the
+		// estimator existed rather than guessing: a wrong estimate refuses
+		// loads that would have served. Say which, since an unreadable config
+		// has no architecture to name.
+		if est.Err != nil {
+			slog.Warn("MLX admission is pricing weights only: config.json does not parse",
+				"model", c.modelName, "num_ctx", numCtx, "error", est.Err)
+		} else {
+			slog.Warn("MLX admission is pricing weights only: no KV rule for this architecture",
+				"architecture", est.Arch, "model", c.modelName, "num_ctx", numCtx)
+		}
 	}
 
 	// An automatic rung was never asked for: it is Ollama's VRAM-tier default
@@ -731,8 +788,8 @@ func (c *Client) Load(ctx context.Context, systemInfo ml.SystemInfo, gpus []ml.D
 		exe = eval
 	}
 
-	// Spawn subprocess: ollama runner --model <name> --port <port>
-	cmd := exec.Command(exe, "runner", "--model", c.modelName, "--port", strconv.Itoa(port))
+	// Spawn subprocess: ollama runner --model <name> --port <port> [--ctx-size <num_ctx>]
+	cmd := exec.Command(exe, c.runnerArgs(port)...)
 	cmd.Env = os.Environ()
 
 	// Keep Metal weights resident between requests until MLX fixes idle eviction.

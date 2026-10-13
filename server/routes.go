@@ -166,6 +166,14 @@ func (s *Server) modelOptionsWithEmbeddingBatchDefault(model *Model, requestOpts
 
 	if model != nil && model.DraftPath == "" && !draftNumPredictSet {
 		opts.DraftNumPredict = 0
+		// An MLX drafter ships inside the model and the runner picks its depth
+		// adaptively, so unset must stay distinguishable from a request's 0,
+		// which turns drafting off: -1 reaches the runner as "no limit"
+		// (mlxrunner.requestDraftLimit). The MLX scheduler reloads only on
+		// num_ctx, so no value here reloads the model.
+		if model.IsMLX() {
+			opts.DraftNumPredict = -1
+		}
 	}
 
 	// An unset budget reaches the runner as 0, "the model's own": every
@@ -694,7 +702,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 		// the real chat handler, but doing this as a stopgap to get renderer
 		// support for generate
 		if values.Messages != nil && values.Suffix == "" && req.Template == "" {
-			genTruncate := (req.Truncate == nil || *req.Truncate) && !m.IsMLX()
+			genTruncate := promptTruncation(req.Truncate, m, r)
 			if m.HasChatTemplate && chatModeForModel(m) == chatExecutionModeNative {
 				nativeReq, err := prepareNativeChatRequest(c.Request.Context(), m, r, opts, llm.ChatRequest{
 					Messages:    values.Messages,
@@ -822,17 +830,21 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 	// since nothing says where its response starts. OLLAMA_FORMAT_TWO_PASS keeps
 	// the two-pass flow above as the rollback; with it set, no closing strings
 	// are sent, because pass two's prompt already ends past the marker.
+	// With thinking off there is no pass one to defer, so two-pass sends the
+	// single pass's one call, closings included: a model whose response opens
+	// a header before its content (glimmer) needs the format to wait for it
+	// whichever mode runs (thinkingCloseForRequest).
 	twoPass := envconfig.FormatTwoPass()
 	var thinkingClose []string
-	if !twoPass && !req.Raw {
-		thinkingClose = thinkingCloseForCompletion(builtinParser, thinkTagParser)
+	if !req.Raw {
+		thinkingClose = thinkingCloseForRequest(twoPass, forceImmediate, builtinParser, thinkTagParser)
 	}
 	deferViaMarker := twoPass && constrains && !forceImmediate && thinkCloseTag != ""
 	deferViaTransition := twoPass && constrains && !forceImmediate && !deferViaMarker &&
 		generateMsgs != nil && (builtinParser != nil || thinkTagParser != nil) &&
 		slices.Contains(m.Capabilities(), model.CapabilityThinking)
 
-	truncate := req.Truncate == nil || *req.Truncate
+	truncate := promptTruncation(req.Truncate, m, r)
 	promptOpts := optionsForPrompt(opts, r)
 
 	ch := make(chan any)
@@ -1125,12 +1137,9 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 						ch <- gin.H{"error": err.Error()}
 						return
 					}
-					// force constraining by terminating the thinking header; the
-					// harmony renderer cannot otherwise disambiguate between
-					// continuing to think and answering now.
-					if shouldUseHarmony(m) || (builtinParser != nil && m.Config.Parser == "harmony") {
-						prompt += "<|end|><|start|>assistant<|channel|>final<|message|>"
-					}
+					// force constraining by opening the answer's header; see
+					// formatContinuationHeader.
+					prompt += formatContinuationHeader(m, builtinParser)
 					contextPrompt = prompt
 					sb.Reset()
 				}
@@ -3205,6 +3214,44 @@ func toolCallTagForCompletion(toolParser *tools.Parser) string {
 	return toolParser.Tag()
 }
 
+// thinkingCloseForRequest is the closings one completion call carries. Single
+// pass always sends the parser's. Two-pass sends none while it defers the
+// format past the thinking itself, but with thinking off (forceImmediate) it
+// has nothing to defer and runs the single pass's call, so it sends them too.
+// That is what keeps a format off a header the response writes before its
+// content in both modes: with thinking off a glimmer response still opens
+// " to=user<|message|>" (often after a to=self message), and a format bound
+// from the first token returned `{...}<|eot|>` under OLLAMA_FORMAT_TWO_PASS=1.
+// Every other parser returns no closings with thinking off, so for them this
+// changes nothing.
+func thinkingCloseForRequest(twoPass, forceImmediate bool, builtinParser parsers.Parser, thinkTagParser *thinkingparser.Parser) []string {
+	if twoPass && !forceImmediate {
+		return nil
+	}
+	return thinkingCloseForCompletion(builtinParser, thinkTagParser)
+}
+
+// formatContinuationHeader is what two-pass appends to pass two's prompt
+// before it binds the format from the first token. A model whose answer opens
+// with a header the format cannot express needs that header in the prompt:
+//   - harmony: the re-rendered thinking cannot say whether the model continues
+//     thinking or answers, so the prompt closes it and opens the final channel.
+//   - glimmer: the prompt ends at "<|start|>assistant" (as every glimmer prompt
+//     does) and the answer opens with " to=user<|message|>". Without it pass two
+//     wrote JSON where the recipient goes: muse-glimmer:30b-mxfp8 echoed the
+//     prompt as {"user": "You are a ..."} in 6 of 14 vision-suite cases.
+//
+// Every other model's re-rendered prompt already ends where the answer starts.
+func formatContinuationHeader(m *Model, builtinParser parsers.Parser) string {
+	if shouldUseHarmony(m) || (builtinParser != nil && m.Config.Parser == "harmony") {
+		return "<|end|><|start|>assistant<|channel|>final<|message|>"
+	}
+	if _, ok := builtinParser.(*parsers.GlimmerParser); ok {
+		return " to=user<|message|>"
+	}
+	return ""
+}
+
 func thinkingCloseForCompletion(builtinParser parsers.Parser, thinkTagParser *thinkingparser.Parser) []string {
 	if builtinParser != nil {
 		return builtinParser.ThinkingClose()
@@ -3235,6 +3282,25 @@ func optionsForPrompt(opts *api.Options, runner llm.LlamaServer) *api.Options {
 	}
 
 	return opts
+}
+
+// promptTruncation reports whether a prompt that does not fit the runner's
+// context may be cut to fit: oldest messages first, then by the runner.
+//
+// llama-server always may, unless the request turns truncate off. An MLX
+// runner may only when it enforces an explicit num_ctx, and then exactly as
+// llama-server does. On the automatic rung it serves up to the model's
+// maximum and refuses beyond it, as upstream does, so nothing is cut against
+// a rung that is only advisory (ADR 0050).
+func promptTruncation(truncate *bool, m *Model, r llm.LlamaServer) bool {
+	if truncate != nil && !*truncate {
+		return false
+	}
+	if m.IsMLX() {
+		enforcer, ok := r.(interface{ EnforcesContextLength() bool })
+		return ok && enforcer.EnforcesContextLength()
+	}
+	return true
 }
 
 type chatExecutionMode int
@@ -3625,10 +3691,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 		}
 	}
 
-	truncate := req.Truncate == nil || *req.Truncate
-	if m.IsMLX() {
-		truncate = false
-	}
+	truncate := promptTruncation(req.Truncate, m, r)
 	promptOpts := optionsForPrompt(opts, r)
 	// passOneIdx is the window this prompt settled on. The ADR 0004 second
 	// pass pins itself to it so the continuation cannot silently see less
@@ -3739,10 +3802,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 			// what follows, in one generation. OLLAMA_FORMAT_TWO_PASS keeps the
 			// two-pass flow below as the rollback, and sends no closing strings.
 			twoPass := envconfig.FormatTwoPass()
-			var thinkingClose []string
-			if !twoPass {
-				thinkingClose = thinkingCloseForCompletion(builtinParser, thinkTagParser)
-			}
+			thinkingClose := thinkingCloseForRequest(twoPass, forceImmediate, builtinParser, thinkTagParser)
 			deferring := false
 			if twoPass && formatConstrains(req.Format) && structuredOutputsState == structuredOutputsState_None && !forceImmediate && ((builtinParser != nil || thinkTagParser != nil) && slices.Contains(m.Capabilities(), model.CapabilityThinking)) {
 				currentFormat = nil
@@ -4034,13 +4094,10 @@ func (s *Server) ChatHandler(c *gin.Context) {
 					ch <- gin.H{"error": err.Error()}
 					return
 				}
-				// force constraining by terminating thinking header, the parser is already at this state
-				// when the last message is thinking, the rendered for gpt-oss cannot disambiguate between having the
-				// model continue thinking or ending thinking and outputting the final message.
+				// force constraining by opening the answer's header, the parser is already at this state;
+				// see formatContinuationHeader.
 				// TODO(parthsareen): consider adding prefill disambiguation logic to the renderer for structured outputs.
-				if shouldUseHarmony(m) || (builtinParser != nil && m.Config.Parser == "harmony") {
-					prompt += "<|end|><|start|>assistant<|channel|>final<|message|>"
-				}
+				prompt += formatContinuationHeader(m, builtinParser)
 
 				// The continuation re-submits the thinking as prompt. If that
 				// no longer fits the context window, there is no room to
