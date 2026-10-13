@@ -294,21 +294,25 @@ type textConfig struct {
 // slidingWindowPattern is gemma4's sliding_window_pattern, an integer period
 // (every Nth layer is global). muse-glimmer writes a per-position list of
 // windows instead ([2048,2048,2048,0]) and its model reads layer_types, never
-// this field; the list form reads as 0 (unset) rather than failing the whole
-// config, which priced glimmer as weights only.
-type slidingWindowPattern int
+// this field; the list form reads as Period 0 (unset) rather than failing the
+// whole config, which priced glimmer as weights only. IsList records it, so a
+// rule that would otherwise fall back to a default period can decline instead.
+type slidingWindowPattern struct {
+	Period int
+	IsList bool
+}
 
 func (p *slidingWindowPattern) UnmarshalJSON(data []byte) error {
 	var n int
 	if err := json.Unmarshal(data, &n); err == nil {
-		*p = slidingWindowPattern(n)
+		*p = slidingWindowPattern{Period: n}
 		return nil
 	}
 	var list []json.RawMessage
 	if err := json.Unmarshal(data, &list); err != nil {
 		return fmt.Errorf("sliding_window_pattern: want an integer or a list, got %s", data)
 	}
-	*p = 0
+	*p = slidingWindowPattern{IsList: true}
 	return nil
 }
 

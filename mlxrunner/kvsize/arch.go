@@ -105,6 +105,12 @@ func gemma4Rule(cfg *config, numCtx int) (Estimate, bool) {
 	if layers <= 0 {
 		return Estimate{}, false
 	}
+	// gemma4.go reads sliding_window_pattern as an int32, so a list fails the
+	// model's own config parse; without layer_types there is nothing that says
+	// which layers slide, and the default period of 5 would be a guess.
+	if cfg.text.SlidingWindowPattern.IsList && len(cfg.text.LayerTypes) == 0 {
+		return Estimate{}, false
+	}
 
 	// Defaults from gemma4.go:420-441.
 	headDim := cfg.text.HeadDim
@@ -151,7 +157,7 @@ func gemma4IsSliding(cfg *config, i int) bool {
 	if len(cfg.text.LayerTypes) > 0 && i < len(cfg.text.LayerTypes) {
 		return cfg.text.LayerTypes[i] == "sliding_attention"
 	}
-	pattern := int(cfg.text.SlidingWindowPattern)
+	pattern := cfg.text.SlidingWindowPattern.Period
 	if pattern <= 0 && len(cfg.text.LayerTypes) == 0 {
 		pattern = 5
 	}
@@ -356,7 +362,12 @@ func cohere2MoeRule(cfg *config, numCtx int) (Estimate, bool) {
 	if window <= 0 {
 		window = 4096
 	}
-	slidingPattern := int(cfg.text.SlidingWindowPattern)
+	// cohere2_moe.go reads sliding_window_pattern as an int32 too: a list is a
+	// config the model cannot load, not one to price with the default of 4.
+	if cfg.text.SlidingWindowPattern.IsList {
+		return Estimate{}, false
+	}
+	slidingPattern := cfg.text.SlidingWindowPattern.Period
 	if slidingPattern <= 0 {
 		slidingPattern = 4
 	}

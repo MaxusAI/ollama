@@ -434,3 +434,36 @@ func TestUnparsableConfigCarriesItsError(t *testing.T) {
 		t.Fatal("Err is nil for a config that does not parse")
 	}
 }
+
+// A gemma4-family config whose sliding_window_pattern is a list and that has no
+// layer_types cannot be priced: gemma4.go reads the field as an int32, so the
+// model itself would fail to parse it, and the period the list implies is not
+// the rule's to guess. It must come back unknown (the caller falls back), not
+// priced with the default period of 5.
+func TestGemma4ListPatternWithoutLayerTypesIsUnknown(t *testing.T) {
+	var cfg map[string]any
+	if err := json.Unmarshal(load(t, gemma4Config), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	text := cfg
+	if tc, ok := cfg["text_config"].(map[string]any); ok {
+		text = tc
+	}
+	delete(text, "layer_types")
+	text["sliding_window_pattern"] = []int{1024, 1024, 1024, 1024, 1024, 0}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Model(data, nil, 8192); got.Known {
+		t.Errorf("known = true (%d bytes, %+v), want unknown", got.Total(), got.Layers)
+	}
+	// The integer form still prices as before.
+	text["sliding_window_pattern"] = 6
+	if data, err = json.Marshal(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := Model(data, nil, 8192); !got.Known {
+		t.Error("an integer sliding_window_pattern without layer_types is no longer priced")
+	}
+}
