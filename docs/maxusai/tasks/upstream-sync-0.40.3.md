@@ -34,7 +34,7 @@ Upstream [v0.40.3](https://github.com/ollama/ollama/releases/tag/v0.40.3) (2026-
 | 1, the merge | **done**: `fd14dc60b`, no conflicts. `go build ./...` is clean; `go vet` and `go test` pass for `./server`, `./cmd/launch`, `./llm` and `./compatmigrate` |
 | 2, docs and paths | this record |
 | 3, the patch series | unchanged: no native input moves, so the series that applies at b11351 (#462's 903) is the one that ships |
-| 4, image | gfx1151: see below |
-| 5, preflight | gfx1151: see below. The fold's interim stamp `0.40.2-dynres.1-N-g<sha>` resolves to the 0.40.2 profiles on every platform; `rocm7-0-40-2` is widened here to admit the `v0.40.3-dynres` lineage (ADR 0032: a Go-only fold shares its payload's profile, as the v0.35.0 fold did) |
+| 4, image | **gfx1151**: `maxusai-ollama:0.40.2-dynres.1-6-g9f3baaf-rocm7-gfx1151`. Its 19 native libraries are byte-identical to the `v0.40.2-dynres.1` release's. **CUDA**: built (#488) |
+| 5, preflight | **gfx1151: VERDICT PASS, PASS=27 SKIP=5** against `rocm7-0-40-2` (`runs/preflight-rocm7-0403-fold-g9f3baaf.json`), the shape of the `v0.40.2-dynres.1` release run, in production's environment. The server log holds no migration line, so every model ran as its legacy GGUF; nemotron's pinned budget is 3328 -> 3270 and `payload_proof` is custom on max/min. **CUDA: both preflights pass** (#488). **Metal**: open. The fold's interim stamp `0.40.2-dynres.1-N-g<sha>` resolves to the 0.40.2 profiles on every platform; `rocm7-0-40-2` is widened here to admit the `v0.40.3-dynres` lineage (ADR 0032: a Go-only fold shares its payload's profile, as the v0.35.0 fold did) |
 | 6, campaigns | not needed for a Go-only fold that touches no inference path; each host's call |
 | tag and deploy | not cut, not deployed |
