@@ -47,8 +47,11 @@ cd "$SRC" || exit 1
 restore() { git checkout --quiet -- "$F" "$H" 2>/dev/null; pkill -P $$ 2>/dev/null; }
 trap restore EXIT
 git diff --quiet -- "$F" "$H" || { echo "mmq.cu/mmq.cuh are dirty: start from a clean dd266785c"; exit 1; }
+# Two trees are accepted: master with #29941 (dd266785c, the original matrix), or b11351 with #462's 903 (#29953 as
+# merged plus the y-tile guard), whose variants are pr462, pr462jb and pr462ids0.
 grep -q 'ggml_cuda_mmq_get_J_max(src0->type, fallback, cc, ne12) \* sizeof(block_q8_1_mmq);' "$F" \
-    || { echo "$F does not pad the ids branch with get_J_max(ne12): this is not master with #29941"; exit 1; }
+    || grep -q 'const size_t src1_q8_1_padding = nbytes_y_tile_best;' "$F" \
+    || { echo "$F is neither master with #29941 (get_J_max(ne12)) nor #462's 903 (nbytes_y_tile_best)"; exit 1; }
 if ! grep -q 'get_J_max(113) = 64' tests/test-backend-ops.cpp; then
     git apply "$HERE/mmq-tests.patch" || { echo "mmq-tests.patch does not apply"; exit 1; }
 fi
