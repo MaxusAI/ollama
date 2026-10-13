@@ -37,6 +37,40 @@ def result(name, status, summary, arch=None, expected=None, actual=None,
     return r
 
 
+def text_baseline(baseline, text_only, detail, arch):
+    """The in-image text prefix calibration (probes.Ollama.image_prefix) as a record.
+
+    The prefix is count(A) + count(B) - count(A, B): every image count below is read
+    against it, so a wrong prefix moves every row of the ladder and the pinned budget by
+    the same amount, and those checks then fail for a reason that is not theirs. A
+    negative prefix cannot be real (the prompt has text in it), so it is an ERROR here,
+    and the caller stops the arch. Seen 2026-10-14 on CUDA production: a client's model
+    shared the GPU, some launches got -b 1024 and llama-server capped image_max_tokens
+    1120 -> 1024, the three calibration requests mixed caps, and the prefix read -554;
+    the ladder and pinned budget then failed by a constant +573. The three counts are
+    kept on the record so a bad calibration can be read back from the run file.
+    """
+    counts = {k: detail.get(k) for k in ("one_a", "one_b", "both")}
+    note = (f"in-image text prefix = {baseline} "
+            f"(calibrated on {detail['size_a']}+{detail['size_b']}); "
+            f"text-only = {text_only}")
+    if baseline < 0:
+        return result(
+            "text_baseline", ERROR, note + "; a negative prefix is impossible", arch=arch,
+            expected=">= 0", actual=baseline, calibration=counts,
+            diagnosis="count(A) + count(B) - count(A, B) came out below zero, so the "
+                      "three calibration requests were not served alike (a different "
+                      "image cap or batch between them, or a cached prefix). Every image "
+                      "count read against it would be off by the same amount; the arch "
+                      "is not measured. Re-run on an idle server.")
+    skew = text_only - baseline
+    if skew:
+        # Not noise. A constant, reproducible offset -- subtracting the
+        # text-only count here would move every image token count by `skew`.
+        note += f"; text-only is {skew:+d} and MUST NOT be used (B8)"
+    return result("text_baseline", PASS, note, arch=arch, actual=baseline, calibration=counts)
+
+
 # --------------------------------------------------------------------------
 # 1. Version string — the gate. Nothing downstream is trustworthy without it.
 # --------------------------------------------------------------------------

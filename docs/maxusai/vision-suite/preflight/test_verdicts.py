@@ -3365,3 +3365,41 @@ class TestPlatformSplitRocm(unittest.TestCase):
 # six tests between #230 and this line (58 defined, 52 collected).
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestTextBaselineCalibration(unittest.TestCase):
+    """checks.text_baseline: the in-image prefix every image count is read against.
+
+    2026-10-14, CUDA production on v0.40.3: a client's gemma4 q8 shared the GPU, some
+    gemma4 q4 launches got -b 1024 (image_max_tokens capped 1120 -> 1024), and the three
+    calibration requests mixed caps. The prefix read -554, the check still said PASS,
+    and gemma4's ladder and pinned budget then failed by a constant +573 for a reason
+    that was not theirs. A negative prefix is now an ERROR that names itself.
+    """
+
+    DETAIL = {"size_a": "256x144", "size_b": "512x288", "one_a": 1121, "one_b": 1121}
+
+    def rec(self, baseline, text_only, both):
+        return checks.text_baseline(baseline, text_only, dict(self.DETAIL, both=both), "gemma4")
+
+    def test_the_production_calibration_is_an_error(self):
+        r = self.rec(-554, 19, 2796)
+        self.assertEqual(r["status"], checks.ERROR)
+        self.assertEqual(r["actual"], -554)
+        self.assertIn("negative prefix is impossible", r["summary"])
+        self.assertEqual(r["calibration"], {"one_a": 1121, "one_b": 1121, "both": 2796})
+
+    def test_a_clean_calibration_passes_and_keeps_its_counts(self):
+        r = self.rec(19, 19, 2223)
+        self.assertEqual(r["status"], PASS)
+        self.assertEqual(r["actual"], 19)
+        self.assertEqual(r["calibration"]["both"], 2223)
+        self.assertNotIn("MUST NOT", r["summary"])
+
+    def test_a_text_only_skew_still_passes_with_its_warning(self):
+        r = self.rec(19, 20, 2223)   # nemotron: text-only is +1 (B8)
+        self.assertEqual(r["status"], PASS)
+        self.assertIn("text-only is +1 and MUST NOT be used (B8)", r["summary"])
+
+    def test_a_zero_prefix_is_not_refused(self):
+        self.assertEqual(self.rec(0, 0, 2242)["status"], PASS)
