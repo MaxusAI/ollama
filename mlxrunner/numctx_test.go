@@ -143,6 +143,15 @@ func TestPromptWindowFitRefusesWhatItCannotTruncate(t *testing.T) {
 			want:  "input length (100 tokens) exceeds the context length (64 tokens) set by num_ctx",
 		},
 		{
+			// An explicit num_ctx above the model's maximum is capped there, so
+			// the limit is the model's, not num_ctx's: a client must not read it
+			// as a rung a larger num_ctx would cure.
+			name: "num_ctx above the model maximum",
+			w:    promptWindow{length: 64, numCtx: true, requested: 128},
+			req:  CompletionRequest{Shift: true},
+			want: "input length (100 tokens) exceeds the model's maximum context length (64 tokens); num_ctx 128 is larger than the model's maximum",
+		},
+		{
 			// No explicit num_ctx: the window is the model's maximum and an
 			// over-long prompt is refused, as upstream does.
 			name: "model maximum",

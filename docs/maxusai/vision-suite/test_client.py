@@ -373,6 +373,14 @@ class TestContextError(unittest.TestCase):
                 'maximum context length (262144 tokens)"}')
         self.assertTrue(self._err(body).startswith("HTTP 400"))
 
+    def test_mlx_num_ctx_above_the_model_maximum_is_not_a_rung_problem(self):
+        # An explicit num_ctx above the model's maximum is capped there; the
+        # runner says so, and a bigger rung would be capped the same way.
+        body = ('{"error":"input length (300000 tokens) exceeds the model\'s maximum context '
+                'length (262144 tokens); num_ctx 524288 is larger than the model\'s maximum '
+                'and truncate is off; shorten the prompt"}')
+        self.assertTrue(self._err(body).startswith("HTTP 400"))
+
     def test_other_400s_stay_plain(self):
         self.assertTrue(self._err('{"error":"invalid format"}').startswith("HTTP 400"))
 

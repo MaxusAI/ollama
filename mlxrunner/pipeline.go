@@ -73,7 +73,7 @@ func (r *Runner) Prepare(request *Request) (err error) {
 		return errors.New("empty prompt")
 	}
 
-	window := promptWindow{length: r.contextLength, numCtx: r.numCtx > 0, addBOS: r.Tokenizer.AddBOS()}
+	window := promptWindow{length: r.contextLength, numCtx: r.numCtx > 0, requested: r.numCtx, addBOS: r.Tokenizer.AddBOS()}
 	if tokens, err = window.fit(tokens, len(items) > 0, request.CompletionRequest); err != nil {
 		return err
 	}
@@ -98,9 +98,10 @@ func (r *Runner) Prepare(request *Request) (err error) {
 
 // promptWindow is the context window Prepare holds a prompt to.
 type promptWindow struct {
-	length int  // tokens the runner serves (contextLength)
-	numCtx bool // length is an explicit num_ctx, not the model's maximum
-	addBOS bool // the tokenizer prepends BOS, which num_keep does not count
+	length    int  // tokens the runner serves (contextLength)
+	numCtx    bool // an explicit num_ctx is enforced (truncation applies)
+	requested int  // that num_ctx; above length it was capped at the model's maximum
+	addBOS    bool // the tokenizer prepends BOS, which num_keep does not count
 }
 
 // fit returns the prompt cut to the window, or an error naming both lengths.
@@ -121,13 +122,20 @@ func (w promptWindow) fit(tokens []int32, media bool, req CompletionRequest) ([]
 	}
 
 	over := fmt.Sprintf("input length (%d tokens) exceeds the context length (%d tokens) set by num_ctx", len(tokens), w.length)
+	cure := "shorten the prompt or raise num_ctx"
+	if w.requested > w.length {
+		// num_ctx was capped at the model's maximum: raising it cannot help, and
+		// the message must not read as a rung a larger num_ctx would cure.
+		over = fmt.Sprintf("input length (%d tokens) exceeds the model's maximum context length (%d tokens); num_ctx %d is larger than the model's maximum", len(tokens), w.length, w.requested)
+		cure = "shorten the prompt"
+	}
 	switch {
 	case media:
-		return nil, fmt.Errorf("%s; a prompt with images cannot be truncated, so shorten it or raise num_ctx", over)
+		return nil, fmt.Errorf("%s; a prompt with images cannot be truncated, so %s", over, cure)
 	case !req.Truncate:
-		return nil, fmt.Errorf("%s and truncate is off; shorten the prompt or raise num_ctx", over)
+		return nil, fmt.Errorf("%s and truncate is off; %s", over, cure)
 	case !req.Shift:
-		return nil, fmt.Errorf("%s and shift is off; shorten the prompt or raise num_ctx", over)
+		return nil, fmt.Errorf("%s and shift is off; %s", over, cure)
 	}
 
 	keep := req.Options.NumKeep

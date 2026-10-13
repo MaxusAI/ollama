@@ -50,7 +50,10 @@ tokens with the same `num_keep` + BOS rule and the same limit
 source). Where that is not possible the request fails with HTTP 400 naming both numbers —
 `input length (N tokens) exceeds the context length (L tokens) set by num_ctx` — followed by
 the reason: `truncate` off, `shift` off, or a prompt with images (MLX cannot cut through a
-media span; GGUF does not cut one either). It is never served past the window.
+media span; GGUF does not cut one either). It is never served past the window. When the explicit
+`num_ctx` is above the model's maximum, the window is that maximum and the message says so
+instead — `exceeds the model's maximum context length (L tokens); num_ctx M is larger than the
+model's maximum` — so a client does not read it as a rung a larger `num_ctx` would cure.
 
 **3. The automatic VRAM-tier rung stays advisory.** No `--ctx-size`, no truncation; the runner
 serves up to the model maximum and refuses beyond it, as upstream does. `/api/ps` keeps
