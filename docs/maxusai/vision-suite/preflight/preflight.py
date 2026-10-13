@@ -219,17 +219,11 @@ def run_arch(client, exp, profile_id, arch, args, container, results, flush):
         results.append(checks.result("text_baseline", ERROR, str(exc), arch=arch))
         flush()
         return
-    skew = text_only - baseline
-    note = (f"in-image text prefix = {baseline} "
-            f"(calibrated on {detail['size_a']}+{detail['size_b']}); "
-            f"text-only = {text_only}")
-    if skew:
-        # Not noise. A constant, reproducible offset -- subtracting the
-        # text-only count here would move every image token count by `skew`.
-        note += f"; text-only is {skew:+d} and MUST NOT be used (B8)"
-    results.append(checks.result(
-        "text_baseline", PASS, note, arch=arch, actual=baseline))
+    calibration = checks.text_baseline(baseline, text_only, detail, arch)
+    results.append(calibration)
     flush()
+    if calibration["status"] != PASS:
+        return
 
     print(f"    token ladder ({len(exp['ladder_sizes'])} geometries, default budget)...")
     results.append(checks.check_ladder(

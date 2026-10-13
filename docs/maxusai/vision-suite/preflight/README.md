@@ -47,6 +47,15 @@ this asserts. `vision_suite.py` scores; this applies thresholds to its scores.
 > recorded ladder read `[265, 265, 577, 2305, 3269]`: uniformly 1 low, and briefly
 > written off as grid quantisation. Corrected to `[266, 266, 578, 2306, 3270]`,
 > which agrees with the pinned `expect_tokens` and `TestImageTokensForSize`.
+>
+> **The calibration needs its three requests served alike.** On 2026-10-14 CUDA
+> production's prefix read **−554**: a client's model shared the GPU, some gemma4 launches
+> got `-b 1024`, llama-server capped `image_max_tokens` 1120 → 1024, and the three
+> requests mixed caps. Every gemma4 count then read a constant +573 high, and the ladder
+> and pinned budget failed for a reason that was not theirs. `checks.text_baseline` now
+> makes a negative prefix an ERROR that stops the arch, and every `text_baseline` record
+> keeps the three counts (`calibration`), so a bad calibration can be read back from the
+> run file. Re-run on an idle server.
 
 ## Relationship to the no-GPU gates
 
