@@ -533,5 +533,246 @@ class TestCaptureStamps(unittest.TestCase):
         self.assertEqual(st["retries"], 1)
 
 
+
+
+class StreamCapture:
+    """Patch urlopen with a streaming server: one JSON line per chunk, then a final done chunk."""
+
+    def __init__(self, chunks, final=None, endpoint="chat"):
+        self.lines = []
+        for th, co in chunks:
+            if endpoint == "chat":
+                self.lines.append({"message": {"role": "assistant", "content": co, "thinking": th}, "done": False})
+            else:
+                self.lines.append({"response": co, "thinking": th, "done": False})
+        last = {"done": True, "done_reason": "stop", "eval_count": len(chunks), "prompt_eval_count": 7}
+        last.update(final or {})
+        if endpoint == "chat":
+            last["message"] = {"role": "assistant", "content": ""}
+        else:
+            last["response"] = ""
+        self.lines.append(last)
+        self.payload, self.closed, self.read_lines = None, False, 0
+
+    def __enter__(self):
+        self._orig = urllib.request.urlopen
+        cap = self
+
+        class Resp:
+            def __iter__(self_inner):
+                for obj in cap.lines:
+                    if cap.closed:
+                        return
+                    cap.read_lines += 1
+                    yield (json.dumps(obj) + "\n").encode()
+
+            def close(self_inner):
+                cap.closed = True
+
+        def fake(req, timeout=None):
+            cap.payload = json.loads(req.data)
+            return Resp()
+        urllib.request.urlopen = fake
+        return self
+
+    def __exit__(self, *a):
+        urllib.request.urlopen = self._orig
+
+
+class TestLoopDetect(unittest.TestCase):
+    """LOOP_DETECT=1 streams the request and cancels a verbatim loop (loop_detect.py, ADR 0049)."""
+
+    def setUp(self):
+        self._env = os.environ.get("LOOP_DETECT")
+        os.environ["LOOP_DETECT"] = "1"
+
+    def tearDown(self):
+        if self._env is None:
+            os.environ.pop("LOOP_DETECT", None)
+        else:
+            os.environ["LOOP_DETECT"] = self._env
+
+    def test_off_by_default_sends_no_stream(self):
+        os.environ.pop("LOOP_DETECT", None)
+        self.assertFalse(call().payload["stream"])
+
+    def test_a_clean_stream_returns_the_same_shape(self):
+        chunks = [("thinking ", ""), ("done.", ""), ("", '{"a"'), ("", ": 1}")]
+        with StreamCapture(chunks) as cap:
+            r = client.generate("http://h", "M", "p", ["IMG"], think=True)
+        self.assertTrue(cap.payload["stream"])
+        self.assertEqual(r["response"], '{"a": 1}')
+        self.assertEqual(r["thinking"], "thinking done.")
+        self.assertEqual(r["done_reason"], "stop")
+        self.assertEqual(r["eval_count"], 4)
+        self.assertTrue(r["_stream"])
+        self.assertEqual(r["_loop_detect"]["min_repeats"], 3)
+
+    def test_generate_endpoint_streams_too(self):
+        with StreamCapture([("", "hel"), ("", "lo")], endpoint="generate") as cap:
+            r = client.generate("http://h", "M", "p", ["IMG"], endpoint_override="generate")
+        self.assertTrue(cap.payload["stream"])
+        self.assertEqual(r["response"], "hello")
+
+    def test_a_content_loop_is_cancelled_and_returned_as_a_verdict(self):
+        obj = '{"x1": 70, "y1": 147, "x2": 210, "y2": 336, "label": "ANCHOR", "bbox_type": "norm1000", '
+        chunks = [("", '{"boxes": [')] + [("", obj[i:i + 5]) for _ in range(40) for i in range(0, len(obj), 5)]
+        with StreamCapture(chunks) as cap:
+            r = client.generate("http://h", "M", "p", ["IMG"])
+        self.assertTrue(cap.closed, "the stream must be closed so the server stops generating")
+        self.assertLess(cap.read_lines, len(cap.lines), "it must stop reading at the loop, not drain the stream")
+        self.assertEqual(r["done_reason"], "loop")
+        self.assertEqual(r["failure_mode"], "loop detected:content")
+        self.assertEqual(r["_loop"]["loop_period"], len(obj))
+        self.assertTrue(r["response"].startswith('{"boxes": [{"x1": 70'), "the partial answer is kept for scoring")
+        self.assertIsNone(r["eval_duration"])
+
+    def test_a_token_run_is_cancelled(self):
+        with StreamCapture([("", '{"a": ')] + [("", "  ")] * 200) as cap:
+            r = client.generate("http://h", "M", "p", ["IMG"])
+        self.assertEqual(r["failure_mode"], "loop detected:token-run")
+        self.assertTrue(cap.closed)
+
+    def test_a_thinking_loop_keeps_the_trace(self):
+        block = "Let me reconsider the coordinates of the second box once more carefully. " * 7
+        with StreamCapture([(block[i:i + 9], "") for _ in range(4) for i in range(0, len(block), 9)]):
+            r = client.generate("http://h", "M", "p", ["IMG"], think=True)
+        self.assertEqual(r["failure_mode"], "loop detected:thinking")
+        self.assertEqual(r["response"], "")
+        self.assertTrue(r["thinking"].startswith("Let me reconsider"))
+
+    def test_a_loop_is_finished_not_capped(self):
+        # A loop is a verdict, not a cap: it must neither climb the context ladder (capped_arms) nor be re-run on
+        # resume (arm_done / ft_done): the cell was ended at the loop, and the verdict is its result (ADR 0049).
+        import summarize_engine_compare as sec
+        import vision_suite
+        blk = {"done_reason": "loop", "failure_mode": "loop detected:content", "eval_count": 312,
+               "num_predict": 2200, "loop": "loop detected:content"}
+        self.assertFalse(sec.was_capped(blk))
+        self.assertTrue(vision_suite.arm_done(blk))
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump({"case_a": blk, "case_b": {"done_reason": "length", "eval_count": 2200, "num_predict": 2200}},
+                      fh)
+        self.assertEqual(sec.capped_arms(fh.name), ["case_b"])
+
+
+class TestBufferedLoop(unittest.TestCase):
+    """The server can hold a reply back and send it in the final chunk -- glimmer's parser does for a reply with no
+    message header (the #464 path) -- so nothing streams until the generation ends. The loop is then judged on the
+    final text: a length-capped reply that loops is the same verdict, a finished one that repeats is not a loop."""
+
+    def setUp(self):
+        self._env = os.environ.get("LOOP_DETECT")
+        os.environ["LOOP_DETECT"] = "1"
+
+    def tearDown(self):
+        if self._env is None:
+            os.environ.pop("LOOP_DETECT", None)
+        else:
+            os.environ["LOOP_DETECT"] = self._env
+
+    LOOPING = '{"x1": 70, "y1": 147, "x2": 210, "y2": 336, "label": "ANCHOR", "bbox_type": "norm1000", ' * 40
+
+    def _one_final(self, reason):
+        cap = StreamCapture([], final={"done_reason": reason, "eval_count": 2200, "eval_duration": 9 * 10**9})
+        cap.lines[-1]["message"]["content"] = self.LOOPING
+        return cap
+
+    def test_a_capped_buffered_loop_is_the_verdict(self):
+        with self._one_final("length"):
+            r = client.generate("http://h", "M", "p", ["IMG"])
+        self.assertEqual(r["done_reason"], "loop")
+        self.assertEqual(r["failure_mode"], "loop detected:content")
+        self.assertEqual(r["_loop"]["server_done_reason"], "length")
+        self.assertEqual(r["eval_count"], 2200, "the server's own metrics are kept when it sent them")
+        self.assertEqual(r["response"], self.LOOPING)
+
+    def test_a_finished_reply_that_repeats_is_not_a_loop(self):
+        with self._one_final("stop"):
+            r = client.generate("http://h", "M", "p", ["IMG"])
+        self.assertEqual(r["done_reason"], "stop")
+        self.assertNotIn("failure_mode", r)
+
+
+class CountingStream(StreamCapture):
+    """StreamCapture that counts requests, each served the whole stream afresh (so a retry is visible)."""
+
+    def __enter__(self):
+        super().__enter__()
+        fake, self.calls = urllib.request.urlopen, 0
+
+        def counting(req, timeout=None):
+            self.calls += 1
+            self.closed = False
+            return fake(req, timeout)
+        urllib.request.urlopen = counting
+        return self
+
+
+class TestStreamedServerError(unittest.TestCase):
+    """Once a stream has started, the server can no longer send a status code: server/routes.go streamResponse writes
+    the error as one last {"error": ...} line instead (status 500 unless the error carries its own). With stream:false
+    the same failure is an HTTP 500. The streamed one must read the same, name the server's 100-token repeat abort
+    when that is what it is, and -- like the HTTP 500 -- not be retried: it is deterministic, and every retry pays for
+    the whole generation again (#469 review)."""
+
+    def setUp(self):
+        self._env = os.environ.get("LOOP_DETECT")
+        os.environ["LOOP_DETECT"] = "1"
+        self._sleep = client.time.sleep
+        self.slept = []
+        client.time.sleep = self.slept.append
+
+    def tearDown(self):
+        client.time.sleep = self._sleep
+        if self._env is None:
+            os.environ.pop("LOOP_DETECT", None)
+        else:
+            os.environ["LOOP_DETECT"] = self._env
+
+    def _fail_mid_stream(self, error):
+        # Distinct chunks, so the client's own detector cannot fire first: the server counts the runner's raw tokens,
+        # the client counts the chunks that reach it after the output parser, and those can be fewer.
+        cap = CountingStream([("", f"tok{i} ") for i in range(10)])
+        cap.lines[-1] = {"error": error}
+        return cap
+
+    def test_the_repeat_abort_names_the_server_abort_as_an_http_500(self):
+        cap = self._fail_mid_stream("prediction aborted, token repeat limit reached")
+        with cap, self.assertRaises(RuntimeError) as cm:
+            client.generate("http://h", "M", "p", ["IMG"])
+        msg = str(cm.exception)
+        self.assertTrue(msg.startswith("HTTP 500 (streamed): prediction aborted, token repeat limit reached"), msg)
+        self.assertIn("100 identical tokens", msg)
+        self.assertNotIn("stream error", msg)
+        self.assertEqual((cap.calls, self.slept), (1, []), "a server abort is deterministic: not retried")
+
+    def test_any_other_streamed_error_is_an_http_500_too(self):
+        cap = self._fail_mid_stream("mlx runner aborted: out of memory")
+        with cap, self.assertRaises(RuntimeError) as cm:
+            client.generate("http://h", "M", "p", ["IMG"])
+        self.assertEqual(str(cm.exception), "HTTP 500 (streamed): mlx runner aborted: out of memory")
+        self.assertEqual(cap.calls, 1)
+
+class TestLoopFields(unittest.TestCase):
+    """client.loop_fields is the one derivation both producers stamp onto a block (as metrics_block is)."""
+
+    def test_a_loop_result_stamps_its_verdict(self):
+        r = {"done_reason": "loop", "failure_mode": "loop detected:content", "_stream": True,
+             "_loop_detect": {"window": 400}, "_loop": {"loop": "loop detected:content", "loop_period": 87}}
+        f = client.loop_fields(r)
+        self.assertEqual(f["failure_mode"], "loop detected:content")
+        self.assertEqual(f["loop_period"], 87)
+        self.assertEqual(f["stream"], True)
+        self.assertEqual(f["loop_detect"], {"window": 400})
+
+    def test_a_clean_streamed_result_says_detection_ran(self):
+        f = client.loop_fields({"done_reason": "stop", "_stream": True, "_loop_detect": {"window": 400}})
+        self.assertEqual(f, {"stream": True, "loop_detect": {"window": 400}})
+
+    def test_a_non_streamed_result_adds_nothing(self):
+        self.assertEqual(client.loop_fields({"done_reason": "stop"}), {})
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
