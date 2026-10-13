@@ -38,7 +38,7 @@ func TestCompletionForwardsFormatAsStructuralTag(t *testing.T) {
 	}
 	// Since v0.34.0 structured output is compiled as an xgrammar structural
 	// tag: the request's schema must reach the runner inside one.
-	want := `{"type":"structural_tag","format":{"type":"json_schema","max_whitespace_cnt":32,"json_schema":{"type":"object"}}}`
+	want := `{"type":"structural_tag","format":{"type":"json_schema","max_whitespace_cnt":22,"json_schema":{"type":"object"}}}`
 	if string(got.Format) != want {
 		t.Errorf("wire Format = %q, want the request's schema forwarded as %s", got.Format, want)
 	}

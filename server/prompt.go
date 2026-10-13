@@ -183,7 +183,7 @@ func visionTokenArch(m *Model) (string, bool) {
 		return "", false
 	}
 
-	return arch, true
+	return llm.VisionBudgetArch(arch, m.projectorType()), true
 }
 
 // maxImageTokens returns the worst-case per-image token cost the chat

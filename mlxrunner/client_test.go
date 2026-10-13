@@ -63,7 +63,7 @@ func TestRequestGrammar(t *testing.T) {
 	schema := `{"type":"object","properties":{"answer":{"type":"string"}}}`
 	// The tag carries max_whitespace_cnt so a stalled decode cannot spend the whole
 	// generation budget on indentation; see maxWhitespaceRun.
-	tag := `{"type":"structural_tag","format":{"type":"json_schema","max_whitespace_cnt":32,"json_schema":` + schema + `}}`
+	tag := `{"type":"structural_tag","format":{"type":"json_schema","max_whitespace_cnt":22,"json_schema":` + schema + `}}`
 	for _, tt := range []struct {
 		name string
 		req  llm.CompletionRequest
@@ -75,7 +75,7 @@ func TestRequestGrammar(t *testing.T) {
 		{
 			name: "json",
 			req:  llm.CompletionRequest{Format: json.RawMessage(`"json"`)},
-			want: `{"type":"structural_tag","format":{"type":"json_schema","max_whitespace_cnt":32,"json_schema":{"type":"object"}}}`,
+			want: `{"type":"structural_tag","format":{"type":"json_schema","max_whitespace_cnt":22,"json_schema":{"type":"object"}}}`,
 		},
 		{name: "schema", req: llm.CompletionRequest{Format: json.RawMessage(schema)}, want: tag},
 		{
@@ -83,14 +83,14 @@ func TestRequestGrammar(t *testing.T) {
 			req:  llm.CompletionRequest{Format: json.RawMessage(schema), ThinkingClose: []string{"</think>"}},
 			want: `{"type":"structural_tag","format":{"type":"sequence","elements":[{"type":"any_text","excludes":["</think>"]},` +
 				`{"type":"optional","content":{"type":"sequence","elements":[{"type":"const_string","value":"</think>"},` +
-				`{"type":"json_schema","max_whitespace_cnt":32,"json_schema":` + schema + `}]}}]}}`,
+				`{"type":"json_schema","max_whitespace_cnt":22,"json_schema":` + schema + `}]}}]}}`,
 		},
 		{
 			name: "schema after thinking with two closings",
 			req:  llm.CompletionRequest{Format: json.RawMessage(schema), ThinkingClose: []string{"<|final|>", "<|final|>json"}},
 			want: `{"type":"structural_tag","format":{"type":"sequence","elements":[{"type":"any_text","excludes":["<|final|>","<|final|>json"]},` +
 				`{"type":"optional","content":{"type":"sequence","elements":[{"type":"or","elements":[{"type":"const_string","value":"<|final|>"},{"type":"const_string","value":"<|final|>json"}]},` +
-				`{"type":"json_schema","max_whitespace_cnt":32,"json_schema":` + schema + `}]}}]}}`,
+				`{"type":"json_schema","max_whitespace_cnt":22,"json_schema":` + schema + `}]}}]}}`,
 		},
 		{name: "thinking without a format", req: llm.CompletionRequest{ThinkingClose: []string{"</think>"}}},
 	} {

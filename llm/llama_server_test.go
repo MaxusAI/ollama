@@ -2931,6 +2931,59 @@ func TestMMProjFitTargetExtraEnvs(t *testing.T) {
 	})
 }
 
+// TestVisionBudgetArch pins #480: v0.40.2 converts a legacy nemotron_h_omni
+// GGUF into a nemotron_h_moe model plus a separate nemotron_v2_vl projector,
+// and the converted child must launch with the same image-budget flags the
+// legacy model did. A text-only nemotron_h_moe must launch with none.
+func TestVisionBudgetArch(t *testing.T) {
+	for _, tc := range []struct {
+		arch, projector, want string
+	}{
+		{"nemotron_h_moe", "nemotron_v2_vl", "nemotron_h_omni"},
+		{"nemotron_h", "nemotron_v2_vl", "nemotron_h_omni"},
+		{"nemotron_h_moe", "", "nemotron_h_moe"},
+		{"nemotron_h_omni", "", "nemotron_h_omni"},
+		{"gemma4", "", "gemma4"},
+		{"qwen35moe", "nemotron_v2_vl", "qwen35moe"},
+	} {
+		if got := VisionBudgetArch(tc.arch, tc.projector); got != tc.want {
+			t.Errorf("VisionBudgetArch(%q, %q) = %q, want %q", tc.arch, tc.projector, got, tc.want)
+		}
+	}
+
+	opts := api.DefaultOptions()
+	opts.ImageMinTokens, opts.ImageMaxTokens = 256, 1024
+	converted := visionServerArgs(VisionBudgetArch("nemotron_h_moe", "nemotron_v2_vl"), opts)
+	if want := []string{"--image-min-tokens", "256", "--image-max-tokens", "1024"}; !slices.Equal(converted, want) {
+		t.Errorf("converted nemotron3 child launches with %v, want %v", converted, want)
+	}
+	if textOnly := visionServerArgs(VisionBudgetArch("nemotron_h_moe", ""), opts); textOnly != nil {
+		t.Errorf("text-only nemotron_h_moe launches with %v, want no image flags", textOnly)
+	}
+
+	modelPath, _ := writeTestGGUF(t, gguftest.KV{"general.architecture": "nemotron_h_moe"}, []*gguftest.Tensor{
+		testGGUFTensor("blk.0.attn_q.weight", gguf.TensorTypeF32, []uint64{4}),
+	})
+	projectorPath, _ := writeTestGGUF(t, gguftest.KV{
+		"general.architecture":       "clip",
+		"clip.vision.projector_type": "nemotron_v2_vl",
+	}, []*gguftest.Tensor{
+		testGGUFTensor("v.patch_embd.weight", gguf.TensorTypeF16, []uint64{16}),
+	})
+	if got := externalProjectorType(modelPath, []string{projectorPath}); got != "nemotron_v2_vl" {
+		t.Errorf("externalProjectorType(projector file) = %q, want nemotron_v2_vl", got)
+	}
+	if got := externalProjectorType(modelPath, []string{modelPath}); got != "" {
+		t.Errorf("externalProjectorType(inline) = %q, want \"\"", got)
+	}
+	if got := externalProjectorType(modelPath, nil); got != "" {
+		t.Errorf("externalProjectorType(none) = %q, want \"\"", got)
+	}
+	if got := externalProjectorType(modelPath, []string{filepath.Join(t.TempDir(), "missing.gguf")}); got != "" {
+		t.Errorf("externalProjectorType(unreadable) = %q, want \"\"", got)
+	}
+}
+
 func TestMMProjMemoryRequirement(t *testing.T) {
 	if got, err := mmprojMemoryRequirement("model.gguf", nil, nil); err != nil || got != 0 {
 		t.Fatalf("no projector memory = %d, %v; want 0, nil", got, err)
