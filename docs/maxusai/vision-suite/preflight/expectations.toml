@@ -821,6 +821,19 @@ APFS clone of production's (#460). The four arches below are MLX safetensors and
 are not converted; the clone does not change what they load.
 aspect_ladder and the think_format probes are carried from 0-34-4 unchanged and
 run live on every preflight.
+
+THE v0.40.2-dynres.1 RELEASE BUILD PASSES AND IS DEPLOYED, 2026-10-13:
+0.40.2-dynres.1-0-g3960244, built at the point tag in a detached worktree, VERDICT
+PASS, PASS=23 SKIP=16 on a :11437 stage against a cloned store
+(runs/preflight-mlx-metal-0402-dynres1-release-g3960244.json), and again on
+production :11435 after the stopped swap (-prod-g3960244.json). 36 of 39 rows
+match the v0.40.2 release run byte for byte; the other three are the stamp, the
+stage path and gemma4_unified think_format's token count (242 stage, 739 prod),
+which repeats as 496/260/260 on production and 242/260/261 on the stage: the
+first request after a load drafts to a different depth, then both settle at 260.
+The payload is the v0.40.2 one rebuilt: 14 of 19 libraries byte-identical, and
+the other 5 differ only by the build worktree's path in __FILE__ strings (same
+xgrammar 82505d0d source, same MLX a59cc231 and llama.cpp 631109b34 pins).
 """
 
 [profiles.metal-0-32-14]
