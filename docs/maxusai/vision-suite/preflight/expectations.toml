@@ -327,6 +327,66 @@ SKIP=5, runs/preflight-rocm7-0344-aspect-gb43ee8e.json). The five skips left are
 checks and qwen35's pinned budget; none of them applies on gfx1151.
 """
 
+[profiles.rocm7-0-40-2]
+platform = "rocm7"
+# The v0.40.2 fold (#460) moved llama.cpp b11081 -> b11351 (631109b34). A payload move gets its own profile even when
+# the numbers turn out identical, because "identical" is a measurement (ADR 0011), as mlx-metal-0-40-2 and
+# metal-0-40-2 did on Apple Silicon.
+# Admits the v0.40.2-dynres tag's lineage, and the point tag v0.40.2-dynres.N that ADR 0032 cuts for a release build
+# that is not the fold commit: the gfx1151 release needs Dockerfile.rocm's `COPY llama/clef` (#475) on top of the tag.
+version_pattern = '^0\.40\.2-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
+# The ROCm build applies every compat patch at b11351. 002-clef (new in v0.40.2) is upstream ollama's own patch and is
+# not a fork patch, so the list is the fork's, as on metal-0-40-2.
+patchset = ["001", "002", "004", "005", "801", "802", "805", "903", "908"]
+reference_image = "0.40.2-dynres-1-g9e80e78"
+llama_cpp_build = "631109b34"   # b11351, the v0.40.2 fold; read from the candidate's payload through the container route
+toolchain_build = "rocm-7.2.4"
+expect_patch_marker = 1
+arches = ["nemotron_h_omni", "gemma4", "qwen35"]
+notes = """
+gfx1151 (Radeon 8060S), the v0.40.2 fold (#460), built with Dockerfile.rocm on
+rocm/dev-ubuntu-24.04:7.2.4-complete (ADR 0042) from v0.40.2-dynres plus #475.
+
+THE MEASUREMENT RAN ON A CLONED STORE. v0.40.2 converts a legacy GGUF into a
+llamacpp child on its first load and writes it into the store (compatmigrate).
+The bench container served a hard-linked clone of production's store (blobs
+linked, manifests copied; ollama writes blobs by temp file + rename), so
+production's 0.35.0 manifests were not touched. Every measurement below ran on
+the converted child, which is what a 0.40.2 deploy serves after a model's first
+load: gemma4:31b-it-q4_K_M, nemotron3:33b-q4_K_M and qwen2.5vl:3b-q4_K_M were
+converted; qwen3.8:27b-q4_K_M started no migration and loads as it was.
+
+LADDERS AND ASPECT LADDERS RE-MEASURED, 2026-10-13, on
+0.40.2-dynres-1-g9e80e78 in production's environment (f16 KV, flash attention
+on, two-pass, two slots): measure_ladder.py, a fresh container per arch, and
+aspect_measure.py. All 24 values and the three prefixes are byte-identical to
+rocm7-0-34-4-dynres's. The pinned, think_format, quality and poison rows are
+carried from rocm7-0-34-4-dynres and verified by this profile's first preflight
+run, not assumed.
+
+FIRST RUN, 2026-10-13: VERDICT FAIL, FAIL=1 PASS=26 SKIP=5
+(runs/preflight-rocm7-0402-release-g9e80e78.json). The failure is nemotron's
+pinned budget, 3328 -> 2306 (the unpinned control), where 0.35.0 gave 3270: the
+converted child is nemotron_h_moe, and the fork's budget switches match
+nemotron_h_omni only, so the pin never reaches llama-server (#480). That run
+read a draft of this row carrying measure_ladder.py's `custom_bounds = []`, so
+its nemotron payload_proof passed on the regression. The re-run on this row
+(runs/preflight-rocm7-0402-release-nemotron-g9e80e78.json, --arch
+nemotron_h_omni) fails payload_proof and the pinned budget, FAIL=2 PASS=11
+SKIP=4. Every other row passes: the ladders, the aspect ladders, think_format
+on all three arches, the quality floors (1.00 on every measure), gemma4's pinned
+560 -> 529, and the poison canary. The five skips are the Metal and MLX checks
+and qwen35's pinned budget, none of which applies on gfx1151. This profile
+passes once #480 is fixed; it is not to be edited to pass before then.
+
+#480 FIXED BY #483 (fe32ec5cb): the same nemotron re-run on #483's head, built
+as 0.40.2-dynres-2-g19455c6 (only Go differs; the five native libraries are
+byte-identical to the measured image's), on a freshly converted child, is
+VERDICT PASS, PASS=13 SKIP=4: pinned 3328 -> 3270 and payload_proof custom on
+max/min, as on 0.35.0 (runs/preflight-rocm7-0402-pr483-nemotron-g19455c6.json).
+A build of this lineage without #483 still fails, as it should.
+"""
+
 [profiles.cpu]
 platform = "cpu"
 version_pattern = '^0\.32\.5-dynres-[0-9a-f]{7,40}$'
@@ -1431,6 +1491,104 @@ require_nonempty_response = true
 require_valid_json = true
 require_nonempty_thinking = true
 
+[expect.rocm7-0-40-2.nemotron_h_omni]
+status = "measured"
+measured_on = "2026-10-13"
+model = "nemotron3:33b-q4_K_M"
+patch_stride = 32
+budget_min_tokens = 256
+budget_max_tokens = 3328
+image_min_pixels = 262144
+image_max_pixels = 3407872
+# No custom_bounds line, as on rocm7-0-34-4-dynres: the fork launches nemotron with both bounds as flags. On
+# 0.40.2-dynres-1-g9e80e78 the converted child launched with neither (measure_ladder.py printed `custom_bounds = []`,
+# which is not pasted, because it would encode the regression): the conversion renames the text model to
+# nemotron_h_moe, and visionServerArgs matches only nemotron_h_omni. payload_proof and the pinned row fail on it.
+scaling = "dynamic"
+# Measured 2026-10-13 on 0.40.2-dynres-1-g9e80e78 by aspect_measure.py (the calls check_aspect_ladder makes),
+# pasted whole; identical to rocm7-0-34-4-dynres's.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
+ladder_tolerance = 2
+# prefix == 19, text_only == 20; measured with image_prefix (B8), not text_baseline
+ladder = [266, 266, 578, 2306, 3270]
+
+[expect.rocm7-0-40-2.nemotron_h_omni.pinned]
+size = "2048x1152"
+pin_tokens = 3328
+expect_tokens = 3270
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 2306
+control_tolerance = 4
+
+[expect.rocm7-0-40-2.nemotron_h_omni.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.rocm7-0-40-2.gemma4]
+status = "measured"
+measured_on = "2026-10-13"
+model = "gemma4:31b-it-q4_K_M"
+patch_stride = 48
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280
+image_max_pixels = 2580480
+scaling = "flat"   # verified: 004 fills every image to the budget, so the ladder is flat
+# Measured 2026-10-13 on 0.40.2-dynres-1-g9e80e78 by aspect_measure.py, pasted whole; identical to
+# rocm7-0-34-4-dynres's and to mlx-metal's gemma4 row.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.rocm7-0-40-2.gemma4.pinned]
+# Pinned below the ceiling, as on rocm7-0-34-4-dynres: 004 fills every image to the budget max.
+size = "2048x1152"
+pin_tokens = 560
+expect_tokens = 529
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 1102
+control_tolerance = 4
+
+[expect.rocm7-0-40-2.gemma4.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.rocm7-0-40-2.qwen35]
+status = "measured"
+measured_on = "2026-10-13"
+model = "qwen3.8:27b-q4_K_M"
+patch_stride = 32
+budget_min_tokens = 1024
+budget_max_tokens = 4096
+image_min_pixels = 1048576
+image_max_pixels = 4194304
+custom_bounds = ["min"]   # only these are set by our flags
+scaling = "dynamic"
+# Measured 2026-10-13 on 0.40.2-dynres-1-g9e80e78 by aspect_measure.py, pasted whole; identical to
+# rocm7-0-34-4-dynres's.
+aspect_ladder = { "1024x768" = 1038, "1920x480" = 1026, "768x768" = 1026 }
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [1034, 1034, 1034, 2306, 4082]
+
+# Structurally unpinnable, as on rocm7-0-34-4-dynres: visionServerArgs gates image_min/max_tokens to gemma4 and
+# nemotron_h_omni.
+pinned_not_applicable = """image_min_tokens/image_max_tokens are arch-gated to \
+gemma4 and nemotron_h_omni; qwen35's visionServerArgs branch ignores them."""
+
+[expect.rocm7-0-40-2.qwen35.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
 [expect.cpu.nemotron_h_omni]
 status = "unmeasured"
 model = "nemotron3:33b-q8"
@@ -1895,6 +2053,31 @@ min_label_recall = 0.70
 min_qty_price_exact = 0.70
 
 [quality.rocm7-0-34-4-dynres.qwen35]
+status = "measured"
+tests = ["scene_single", "document_single"]
+min_json_valid = 1.0
+min_label_recall = 0.70
+min_qty_price_exact = 0.70
+
+# --- rocm7-0-40-2: output quality -------------------------------------------
+# The floors are rocm7-0-34-4-dynres's (cuda-dynres-005's): with 6 labels and 5 line items, 0.70 allows one miss per
+# test and fails on the second; json_valid allows none. Checked live by this profile's first preflight run.
+
+[quality.rocm7-0-40-2.nemotron_h_omni]
+status = "measured"
+tests = ["scene_single", "document_single"]
+min_json_valid = 1.0
+min_label_recall = 0.70
+min_qty_price_exact = 0.70
+
+[quality.rocm7-0-40-2.gemma4]
+status = "measured"
+tests = ["scene_single", "document_single"]
+min_json_valid = 1.0
+min_label_recall = 0.70
+min_qty_price_exact = 0.70
+
+[quality.rocm7-0-40-2.qwen35]
 status = "measured"
 tests = ["scene_single", "document_single"]
 min_json_valid = 1.0
@@ -3248,3 +3431,9 @@ model = "qwen2.5vl:3b-q4_K_M"
 # passed in the preflight run
 # runs/preflight-rocm7-0344-base-quality-gb43ee8e.json (meter off there). The
 # two canary results are in amd-upgrade-gate.md, 2026-09-28's baseline.
+
+
+[poison.rocm7-0-40-2]
+model = "qwen2.5vl:3b-q4_K_M"
+# Carried from rocm7-0-34-4-dynres, where the canary told the fork's f32 gate apart from f16 on gfx1151 (2026-09-28).
+# On 0.40.2 the model runs as its converted llamacpp child (store-0402); checked live by this profile's first run.
