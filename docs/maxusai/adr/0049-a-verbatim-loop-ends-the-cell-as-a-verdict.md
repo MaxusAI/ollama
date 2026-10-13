@@ -43,6 +43,12 @@ runs to the cap (57 of the 60 on that replay) costs one verdict at the rung wher
    - `done_reason` is `"loop"`, and `failure_mode` is `"loop detected:<kind>"`.
    - The loop's fields: kind, stream, period, repeats, chars at detection, snippet, parameters.
    - `eval_count` is the number of streamed chunks, and the durations are None (the server sent no final metrics).
+   - The server's own abort can still land first: it counts the runner's raw tokens, the client counts the chunks
+     that reach it after the output parser, and a parser that holds back or drops tokens delivers fewer. Mid-stream
+     the server can no longer send a status, so the abort arrives as a final `{"error": ...}` line. The client
+     raises it as `HTTP 500 (streamed): prediction aborted, token repeat limit reached`, naming the abort, and does
+     not retry it, as it does not retry the HTTP 500 that `stream: false` gets. It is an error, not a verdict: the
+     partial output is not kept.
 3. **A loop the server held back is judged at the end.** A server can send a reply in its final chunk: glimmer's
    parser holds back a reply that never writes its message header (the #464 path), so on the release build its
    format + think-off loops stream nothing until the generation ends. The final chunk is fed to the detector too.

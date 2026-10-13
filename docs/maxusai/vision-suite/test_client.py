@@ -624,6 +624,67 @@ class TestBufferedLoop(unittest.TestCase):
         self.assertEqual(r["done_reason"], "stop")
         self.assertNotIn("failure_mode", r)
 
+
+class CountingStream(StreamCapture):
+    """StreamCapture that counts requests, each served the whole stream afresh (so a retry is visible)."""
+
+    def __enter__(self):
+        super().__enter__()
+        fake, self.calls = urllib.request.urlopen, 0
+
+        def counting(req, timeout=None):
+            self.calls += 1
+            self.closed = False
+            return fake(req, timeout)
+        urllib.request.urlopen = counting
+        return self
+
+
+class TestStreamedServerError(unittest.TestCase):
+    """Once a stream has started, the server can no longer send a status code: server/routes.go streamResponse writes
+    the error as one last {"error": ...} line instead (status 500 unless the error carries its own). With stream:false
+    the same failure is an HTTP 500. The streamed one must read the same, name the server's 100-token repeat abort
+    when that is what it is, and -- like the HTTP 500 -- not be retried: it is deterministic, and every retry pays for
+    the whole generation again (#469 review)."""
+
+    def setUp(self):
+        self._env = os.environ.get("LOOP_DETECT")
+        os.environ["LOOP_DETECT"] = "1"
+        self._sleep = client.time.sleep
+        self.slept = []
+        client.time.sleep = self.slept.append
+
+    def tearDown(self):
+        client.time.sleep = self._sleep
+        if self._env is None:
+            os.environ.pop("LOOP_DETECT", None)
+        else:
+            os.environ["LOOP_DETECT"] = self._env
+
+    def _fail_mid_stream(self, error):
+        # Distinct chunks, so the client's own detector cannot fire first: the server counts the runner's raw tokens,
+        # the client counts the chunks that reach it after the output parser, and those can be fewer.
+        cap = CountingStream([("", f"tok{i} ") for i in range(10)])
+        cap.lines[-1] = {"error": error}
+        return cap
+
+    def test_the_repeat_abort_names_the_server_abort_as_an_http_500(self):
+        cap = self._fail_mid_stream("prediction aborted, token repeat limit reached")
+        with cap, self.assertRaises(RuntimeError) as cm:
+            client.generate("http://h", "M", "p", ["IMG"])
+        msg = str(cm.exception)
+        self.assertTrue(msg.startswith("HTTP 500 (streamed): prediction aborted, token repeat limit reached"), msg)
+        self.assertIn("100 identical tokens", msg)
+        self.assertNotIn("stream error", msg)
+        self.assertEqual((cap.calls, self.slept), (1, []), "a server abort is deterministic: not retried")
+
+    def test_any_other_streamed_error_is_an_http_500_too(self):
+        cap = self._fail_mid_stream("mlx runner aborted: out of memory")
+        with cap, self.assertRaises(RuntimeError) as cm:
+            client.generate("http://h", "M", "p", ["IMG"])
+        self.assertEqual(str(cm.exception), "HTTP 500 (streamed): mlx runner aborted: out of memory")
+        self.assertEqual(cap.calls, 1)
+
 class TestLoopFields(unittest.TestCase):
     """client.loop_fields is the one derivation both producers stamp onto a block (as metrics_block is)."""
 

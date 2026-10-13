@@ -169,6 +169,34 @@ def loop_detect_on():
     return os.environ.get("LOOP_DETECT", "") in ("1", "true", "on", "yes")
 
 
+class StreamError(RuntimeError):
+    """An error the server wrote into a stream that had already started.
+
+    server/routes.go streamResponse cannot send a status once the first chunk
+    is written, so it ends the stream with one {"error": ...} line, at status
+    500 unless the error carries its own. With stream:false the same failure
+    is an HTTP 500 (context_error), so this reads as one: "HTTP 500
+    (streamed): <error>". It is NOT retried, as that 500 is not: the server
+    reached a verdict, and a retry pays for the whole generation again
+    (generate's transport retry would otherwise catch it as a RuntimeError)."""
+
+
+def stream_error(err):
+    """The StreamError for a streamed {"error": ...} line. The server's own
+    repeat guard (llm/llama_server.go: more than 100 identical tokens) is
+    named: under LOOP_DETECT the client's 64-chunk token-run check is meant
+    to end such a run first, but it counts the chunks that reach the client,
+    after the output parser, while the server counts the runner's raw
+    tokens -- so a parser that holds back or drops tokens lets the server's
+    abort land first, and that is the server's loop verdict, not a fault."""
+    msg = f"HTTP 500 (streamed): {err}"
+    if "token repeat limit" in str(err):
+        msg += (" -- the server's abort after 100 identical tokens "
+                "(llm/llama_server.go), before the client's 64-chunk "
+                "token-run check fired")
+    return StreamError(msg)
+
+
 def _read_stream(resp, ep, tmo):
     """Read a streamed /api/chat or /api/generate response into the shape stream:false returns, feeding a
     LoopDetector as it goes.
@@ -188,7 +216,8 @@ def _read_stream(resp, ep, tmo):
             continue
         chunk = json.loads(raw)
         if chunk.get("error"):
-            raise RuntimeError(f"stream error: {chunk['error']}")
+            resp.close()
+            raise stream_error(chunk["error"])
         if ep == "chat":
             msg = chunk.get("message") or {}
             th, co = msg.get("thinking") or "", msg.get("content") or ""
@@ -405,6 +434,8 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
             resp = urllib.request.urlopen(req, timeout=tmo)
             r = _read_stream(resp, ep, tmo) if stream else json.load(resp)
             break
+        except StreamError:
+            raise                                   # the server's verdict, as an HTTP 500 is: not retried
         except urllib.error.HTTPError as e:
             if e.code in (502, 503, 504) and attempt < len(RETRY_BACKOFF):
                 last = f"HTTP {e.code}"
