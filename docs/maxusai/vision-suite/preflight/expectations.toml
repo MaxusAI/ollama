@@ -378,6 +378,13 @@ on all three arches, the quality floors (1.00 on every measure), gemma4's pinned
 560 -> 529, and the poison canary. The five skips are the Metal and MLX checks
 and qwen35's pinned budget, none of which applies on gfx1151. This profile
 passes once #480 is fixed; it is not to be edited to pass before then.
+
+#480 FIXED BY #483 (fe32ec5cb): the same nemotron re-run on #483's head, built
+as 0.40.2-dynres-2-g19455c6 (only Go differs; the five native libraries are
+byte-identical to the measured image's), on a freshly converted child, is
+VERDICT PASS, PASS=13 SKIP=4: pinned 3328 -> 3270 and payload_proof custom on
+max/min, as on 0.35.0 (runs/preflight-rocm7-0402-pr483-nemotron-g19455c6.json).
+A build of this lineage without #483 still fails, as it should.
 """
 
 [profiles.cpu]
