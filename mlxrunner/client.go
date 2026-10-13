@@ -163,6 +163,21 @@ type CompletionRequest struct {
 	Logprobs                   bool
 	TopLogprobs                int
 	IncludeIntermediateMetrics bool
+	// DraftLimit is the request's draft_num_predict (requestDraftLimit): nil
+	// keeps the adaptive draft depth, 0 parks the drafter for this request,
+	// N caps the depth at N. A zero-valued request is nil, so drafts as always.
+	DraftLimit *int
+}
+
+// requestDraftLimit maps draft_num_predict onto DraftLimit. The server sends
+// -1 when neither the request nor the Modelfile set it (an MLX model's
+// drafter is part of the model, so unset is not "off").
+func requestDraftLimit(opts api.Options) *int {
+	if opts.DraftNumPredict < 0 {
+		return nil
+	}
+	n := opts.DraftNumPredict
+	return &n
 }
 
 type CompletionResponse struct {
@@ -269,6 +284,7 @@ func (c *Client) Completion(ctx context.Context, req llm.CompletionRequest, fn f
 	}
 	if req.Options != nil {
 		creq.Options = *req.Options
+		creq.DraftLimit = requestDraftLimit(creq.Options)
 	}
 
 	body, err := json.Marshal(creq)

@@ -229,8 +229,10 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
     # routes.go zeroes the option unless it was explicitly set, so "0" is the
     # only way to state "MTP off" rather than "unspecified", and an arm that
     # omitted it could not be distinguished from one that disabled it. Also a
-    # Runner option -- changing it reloads the model. Inert on the MLX runner,
-    # which never reads draft_num_predict and picks depth adaptively instead.
+    # Runner option on llama-server -- changing it reloads the model. On the MLX
+    # runner (since #465) it is read per request, no reload: 0 = no drafting for
+    # this request, N caps the adaptive depth, unset stays adaptive. So on MLX
+    # "unset" and "0" are different arms, and before #465 MLX ignored it.
     if use_env_opts and os.environ.get("DRAFT_NUM_PREDICT") not in (None, ""):
         opts["draft_num_predict"] = int(os.environ["DRAFT_NUM_PREDICT"])
     # llama-server's prompt cache, OFF unless PROMPT_CACHE_RAM says otherwise

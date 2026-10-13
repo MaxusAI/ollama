@@ -158,6 +158,14 @@ func (s *Server) modelOptionsWithEmbeddingBatchDefault(model *Model, requestOpts
 
 	if model != nil && model.DraftPath == "" && !draftNumPredictSet {
 		opts.DraftNumPredict = 0
+		// An MLX drafter ships inside the model and the runner picks its depth
+		// adaptively, so unset must stay distinguishable from a request's 0,
+		// which turns drafting off: -1 reaches the runner as "no limit"
+		// (mlxrunner.requestDraftLimit). The MLX scheduler reloads only on
+		// num_ctx, so no value here reloads the model.
+		if model.IsMLX() {
+			opts.DraftNumPredict = -1
+		}
 	}
 
 	return opts, nil
