@@ -529,6 +529,24 @@ func suppressAudioCapability(m *Model, arch string) bool {
 	return false
 }
 
+// projectorType returns the first separate projector's
+// clip.vision.projector_type, or "" when the model has none. It reads the
+// metadata GetModel already extracted, so it costs no file access.
+// llm.VisionBudgetArch uses it to tell a converted nemotron3 GGUF (a
+// nemotron_h_moe text model plus a nemotron_v2_vl projector, #480) from a
+// text-only nemotron_h_moe.
+func (m *Model) projectorType() string {
+	if m == nil {
+		return ""
+	}
+	for _, md := range m.projectorMetadata {
+		if t := md.String("vision.projector_type"); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
 func isNemotronSafetensors(m *Model) bool {
 	return isNemotronSafetensorsConfig(m.Config)
 }
