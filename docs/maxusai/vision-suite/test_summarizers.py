@@ -651,6 +651,44 @@ class TestWasCappedPrefersDoneReason(unittest.TestCase):
             {"done_reason": "length", "eval_count": 100, "num_predict": 8192}))
 
 
+class TestLoopIsNotCapped(unittest.TestCase):
+    """done_reason "loop" is a verdict (ADR 0049), never a cap -- including a loop the server held back and stopped
+    at num_predict, whose eval_count IS the cap. The arithmetic fallback read that block as capped, so arm_done
+    re-ran it and capped_arms climbed the ladder for it (#469 review). The row below is the shape the muse-glimmer
+    think-off run recorded for 30b-mxfp8 bboxm_pin_noanc_named."""
+
+    HELD_BACK = {"done_reason": "loop", "failure_mode": "loop detected:content", "loop_kind": "content",
+                 "server_done_reason": "length", "eval_count": 2200, "num_predict": 2200,
+                 "req_num_predict": 2200}
+
+    def test_a_loop_at_the_cap_is_not_capped(self):
+        self.assertFalse(sec.was_capped(dict(self.HELD_BACK)))
+
+    def test_a_loop_at_the_cap_is_done_on_resume(self):
+        self.assertTrue(vs.arm_done(dict(self.HELD_BACK)))
+        self.assertTrue(ftp.ft_done(dict(self.HELD_BACK)))
+
+    def test_a_loop_at_the_cap_does_not_climb(self):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "scores_x.json")
+        with open(p, "w") as fh:
+            json.dump({"a": dict(self.HELD_BACK),
+                       "b": {"done_reason": "length", "eval_count": 2200, "num_predict": 2200}}, fh)
+        self.assertEqual(sec.capped_arms(p), ["b"])
+
+    def test_a_loop_has_no_decode_rate(self):
+        # The held-back loop keeps the server's metrics, so gen_tps WAS derivable -- and it is the decode rate of a
+        # loop, not of a model finishing. It stays None, as it is for a loop cut mid-stream (no eval_duration).
+        import client
+        r = {"done_reason": "loop", "eval_count": 2200, "eval_duration": 150_000_000_000,
+             "prompt_eval_count": 1000, "prompt_eval_duration": 1_000_000_000}
+        m = client.metrics_block(r)
+        self.assertIsNone(m["gen_tps"])
+        self.assertEqual(m["eval_duration"], 150_000_000_000, "the server's durations are kept as recorded")
+        self.assertEqual(m["prefill_tps"], 1000.0, "prefill finished before the loop began; it is still a rate")
+        self.assertEqual(client.metrics_block(dict(r, done_reason="stop"))["gen_tps"], 14.67)
+
+
 class TestT1CampaignPrefix(unittest.TestCase):
     """--prefix renders a TAG_PREFIX campaign; unset, tags derive as before (H4).
 
@@ -935,6 +973,140 @@ class TestCappedDiscipline(unittest.TestCase):
         got = [dict(self.CLEAN, gen_tps=40.0), dict(self.CAPPED, gen_tps=90.0)]
         kept = sg.pooled(got)
         self.assertEqual([s["gen_tps"] for s in kept], [40.0])
+
+
+class TestLoopVerdictReachesTheTables(unittest.TestCase):
+    """A loop verdict (ADR 0049) renders as itself in every template and enters no mean -- the capped discipline
+    (ADR 0012 conv 9) applied to the third state. The client scores a loop's partial output, so without this a looped
+    cell published as an ordinary wrong answer and was averaged in (#469 review). A block with no loop -- including
+    one streamed with detection on -- renders exactly as before."""
+
+    MODEL = "gemma4:12b-it-q4_K_M"
+    LOOP = {"done_reason": "loop", "failure_mode": "loop detected:content", "loop_kind": "content",
+            "loop": "loop detected:content", "stream": True, "eval_count": 312, "num_predict": 2200,
+            "num_ctx": 16384}
+    CLEAN = {"bbox_mean_iou": 0.5, "eval_count": 400, "num_predict": 2200, "done_reason": "stop"}
+
+    def looped(self, arm, **scores):
+        s = json.loads(json.dumps(THINKOFF))
+        s[arm] = dict(s[arm], **dict(self.LOOP, **scores))
+        if arm == "scene_single":
+            s[arm]["gen_tps"] = None  # metrics_block gives a loop no decode rate
+        return s
+
+    def t1_rows(self, scores):
+        d = tempfile.mkdtemp()
+        write(d, self.MODEL, "false", scores)
+        return [l for l in render(d, self.MODEL, "false").splitlines() if l.startswith(f"| {self.MODEL} |")]
+
+    def test_loop_verdict_names_the_kind_and_is_none_without_one(self):
+        self.assertEqual(sec.loop_verdict(self.LOOP), "loop:content")
+        self.assertEqual(sec.loop_verdict({"failure_mode": "loop detected:token-run"}), "loop:token-run")
+        self.assertEqual(sec.loop_verdict({"done_reason": "loop"}), "loop")
+        for blk in (None, {}, dict(self.CLEAN), {"done_reason": "length", "eval_count": 2200, "num_predict": 2200},
+                    {"stream": True, "loop_detect": {"window": 400}, "done_reason": "stop"}):
+            self.assertIsNone(sec.loop_verdict(blk), blk)
+
+    def test_t1_a_looped_scene_hides_its_scores_and_throughput(self):
+        grounding, throughput = self.t1_rows(self.looped("scene_single"))
+        self.assertIn("loop:content", grounding)
+        self.assertNotIn("0.900", grounding)
+        self.assertNotIn("6/6", grounding)
+        cells = [c.strip() for c in throughput.split("|")[1:-1]]
+        # ... | Think tok | Gen tok | Gen tok/s | Prefill tok/s | s/req | req/h
+        self.assertEqual(cells[-6:], ["loop:content", "loop:content", "—", "1000", "loop:content", "loop:content"])
+
+    def test_t1_a_looped_multi_renders_the_verdict_not_a_grounding_failure(self):
+        s = self.looped("multi_3img", q1_right=False, q2_right=False, q4_bbox_hit=False,
+                        failure_mode="loop detected:thinking", loop_kind="thinking")
+        throughput = self.t1_rows(s)[1]
+        self.assertIn("| loop:thinking |", throughput)
+        self.assertNotIn("❌", throughput)
+
+    def test_t1_a_streamed_block_without_a_loop_renders_exactly_as_before(self):
+        stamped = json.loads(json.dumps(THINKOFF))
+        for blk in stamped.values():
+            blk.update(stream=True, loop_detect={"window": 400, "min_repeats": 3}, done_reason="stop")
+        plain = json.loads(json.dumps(THINKOFF))
+        for blk in plain.values():
+            blk["done_reason"] = "stop"
+        self.assertEqual(self.t1_rows(stamped), self.t1_rows(plain))
+
+    def test_t2_a_looped_scene_renders_the_verdict_with_its_window(self):
+        rundir = tempfile.mkdtemp()
+        with open(os.path.join(rundir, "scores_x.json"), "w") as fh:
+            json.dump(self.looped("scene_single"), fh)
+        argv = ["summarize_head_to_head.py", "--dir", rundir, "--tags", "x"]
+        out = io.StringIO()
+        with mock_argv(argv), contextlib.redirect_stdout(out):
+            shh.main()
+        r = {l.split("|")[2].strip(): l.split("|")[3].strip() for l in out.getvalue().splitlines()
+             if l.startswith("|")}
+        self.assertEqual(r["bbox IoU"], "loop:content (16384)")
+        self.assertEqual(r["labels / serial"], "loop:content (16384)")
+        self.assertEqual(r["s/req (unique image)"], "loop:content")
+        self.assertEqual(r["req/h (serial)"], "loop:content")
+        self.assertEqual(r["gen tok/s"], "—")
+
+    def test_contract_matrix_names_the_loop(self):
+        rundir = tempfile.mkdtemp()
+        scores = {"bbox_contract": dict(self.LOOP, contract_followed=False),
+                  "bbox_contract_multi": {"eval_count": 400, "num_predict": 2200, "done_reason": "stop",
+                                          "contract_followed": True, "num_ctx": 8192}}
+        with open(os.path.join(rundir, f"scores_{sec.tag_for('m:1b', 'false')}.json"), "w") as fh:
+            json.dump(scores, fh)
+        out = io.StringIO()
+        with mock.patch.object(scm, "DIR", rundir), \
+                mock_argv(["summarize_contract_matrix.py", "--think", "false", "m:1b"]), \
+                contextlib.redirect_stdout(out):
+            scm.main()
+        row = [l for l in out.getvalue().splitlines() if l.startswith("| m:1b |")][0]
+        cells = [c.strip() for c in row.split("|")[1:-1]]
+        self.assertEqual(cells[2:4], ["loop:content", "✅"])
+        self.assertIn("`loop:<kind>`", out.getvalue())
+
+    def test_reps_excludes_a_looped_rep_from_the_mean_and_says_so(self):
+        runs = [{"scene_single": dict(self.CLEAN)},
+                {"scene_single": dict(self.LOOP, bbox_mean_iou=0.1)}]
+        s, spread = reps.cell(runs, "scene_single", "bbox_mean_iou", "float")
+        self.assertEqual(s, "0.500 (1 loop)")
+        self.assertIsNone(spread, "a partial cell claims no spread")
+        s, _ = reps.cell([{"scene_single": dict(self.LOOP, bbox_mean_iou=0.1)}],
+                         "scene_single", "bbox_mean_iou", "float")
+        self.assertEqual(s, "loop")
+
+    def test_geometry_pools_no_loop_and_renders_it(self):
+        import summarize_geometry as sg
+        loop = dict(self.LOOP, gen_tps=None, iou_anchor=0.1, image_size=[1280, 720])
+        self.assertEqual(sg.pooled([dict(self.CLEAN, gen_tps=40.0), loop]), [dict(self.CLEAN, gen_tps=40.0)])
+        self.assertEqual(sg.cell(loop), "loop:content | loop:content | loop:content")
+
+    def test_matrix_means_exclude_loops_and_count_them(self):
+        import summarize_matrix as smx
+        d = tempfile.mkdtemp()
+        cell = {"bboxm_pin_anc_named": {"hits_declared": 6, "done_reason": "stop", "eval_count": 400,
+                                        "req_num_predict": 2200},
+                "bboxm_free_anc_named": dict(self.LOOP, hits_declared=0, req_num_predict=2200)}
+        with open(os.path.join(d, "scores_mx-hd-1_m_thinkfalse.json"), "w") as fh:
+            json.dump(cell, fh)
+        out = io.StringIO()
+        with mock_argv(["summarize_matrix.py", "mx", "--dir", d]), contextlib.redirect_stdout(out):
+            smx.main()
+        text = out.getvalue()
+        self.assertIn("loop verdicts (excluded from every mean): 1", text)
+        pin = [l for l in text.split("### factor: pin")[1].splitlines() if l.startswith("| m |")][0]
+        cells = [c.strip() for c in pin.split("|")[1:-1]]
+        # model | think | on | off | delta | capped (on·off) | spread
+        self.assertEqual(cells[2:4], ["6.00", "—"], "the looped off-arm is not a 0.00 mean")
+        self.assertEqual(cells[5], "0/1 · 0/1 (+1 loop)")
+
+    def test_cmp_scored_does_not_compare_a_loop(self):
+        import cmp_scored
+        a = {"t": dict(self.CLEAN, iou_declared=0.9)}
+        b = {"t": dict(self.LOOP, iou_declared=0.1)}
+        lines, fav_a, fav_b, labels = cmp_scored.compare(a, b)
+        self.assertEqual((fav_a, fav_b, labels), (0, 0, 0))
+        self.assertEqual(lines, ["t: finished only in A (B: loop:content)"])
 
 
 class TestCappedArms(unittest.TestCase):

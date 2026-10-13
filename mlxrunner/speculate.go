@@ -98,10 +98,14 @@ func newSpeculation(r *Runner, draft model.DraftModel, targets, draftKV []cache.
 type speculationSession struct {
 	spec    *speculation
 	drafter draftSession
-	enabled bool  // whether this request drafts; false parks (maintain-only)
-	limit   int   // current draft length
-	layout  []any // the request's per-row layout state, stamped on every target forward
-	stats   specStats
+	enabled bool // whether this request drafts; false parks (maintain-only)
+	limit   int  // current draft length
+	// maxLimit is the request's draft_num_predict, the deepest it drafts; -1
+	// leaves the depth to the controller. The controller keeps learning from
+	// a capped request's rounds and schedules for the next request uncapped.
+	maxLimit int
+	layout   []any // the request's per-row layout state, stamped on every target forward
+	stats    specStats
 
 	// Cost sampling: each round's wall time (start to next start, spanning the
 	// next emit's sync) is attributed to its draft depth only when the depth
@@ -150,6 +154,10 @@ func draftingEnabled(request Request) bool {
 		// Logprobs are not yet supported on the speculative path.
 		return false
 	}
+	if request.DraftLimit != nil && *request.DraftLimit == 0 {
+		// draft_num_predict 0: this request does not draft.
+		return false
+	}
 	return request.Grammar == nil || draftUnderGrammar
 }
 
@@ -166,9 +174,13 @@ func (s *speculation) open(request Request, layout []any) *speculationSession {
 	// turned OLLAMA_MLX_DRAFT_UNDER_GRAMMAR off.
 	enabled := draftingEnabled(request)
 
-	spec := &speculationSession{spec: s, drafter: d, layout: layout, enabled: enabled, prevDrafts: -1, roundDrafts: -1}
+	spec := &speculationSession{spec: s, drafter: d, layout: layout, enabled: enabled, prevDrafts: -1, roundDrafts: -1,
+		maxLimit: -1}
+	if request.DraftLimit != nil {
+		spec.maxLimit = *request.DraftLimit
+	}
 	if enabled {
-		spec.limit = s.depth.scheduled
+		spec.limit = spec.capped(s.depth.scheduled)
 	}
 	return spec
 }
@@ -206,8 +218,16 @@ func (s *speculationSession) endRound(drafted, accepted, observed int) {
 		if observed > 0 {
 			s.spec.depth.acc.observe(observed, accepted)
 		}
-		s.limit = s.spec.depth.next()
+		s.limit = s.capped(s.spec.depth.next())
 	}
+}
+
+// capped holds depth to the request's draft_num_predict, if it set one.
+func (s *speculationSession) capped(depth int) int {
+	if s.maxLimit >= 0 {
+		return min(depth, s.maxLimit)
+	}
+	return depth
 }
 
 func (s *speculationSession) committed(tokens, hiddens *mlx.Array, position int, media []batch.MediaItem) {

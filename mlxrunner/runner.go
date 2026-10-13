@@ -57,7 +57,11 @@ type Runner struct {
 	scoreCache    *prefixCache
 	scoreHidden   *cache.HiddenCache
 	contextLength int
-	mlxThread     *mlxthread.Thread
+	// numCtx is the explicit num_ctx the runner was started with (--ctx-size),
+	// 0 when none was given. It caps contextLength, the window Prepare holds
+	// prompts to and the KV cache can grow to (ADR 0050).
+	numCtx    int
+	mlxThread *mlxthread.Thread
 	// grammarEngine is the structured-output subsystem; nil when the grammar
 	// library or vocabulary failed to load.
 	grammarEngine *grammarEngine
@@ -147,7 +151,10 @@ func (r *Runner) loadModel(modelName string) (weights []*mlx.Array, err error) {
 
 		r.Model = m
 		r.Tokenizer = m.Tokenizer()
-		r.contextLength = m.MaxContextLength()
+		r.contextLength = servedContextLength(r.numCtx, m.MaxContextLength())
+		if r.numCtx > 0 {
+			slog.Info("enforcing explicit num_ctx", "num_ctx", r.numCtx, "model_max", m.MaxContextLength(), "context_length", r.contextLength)
+		}
 		caches := m.NewCaches()
 		draftCaches := newDraftCaches(draftModel)
 		r.cache = newPrefixCache(slices.Concat(caches, draftCaches))
@@ -160,6 +167,16 @@ func (r *Runner) loadModel(modelName string) (weights []*mlx.Array, err error) {
 		return w
 	})
 	return weights, err
+}
+
+// servedContextLength is the window a runner serves: an explicit num_ctx,
+// capped at the model's maximum the way llama.cpp caps n_ctx at the trained
+// context, or the maximum when no num_ctx was given.
+func servedContextLength(numCtx, maxContext int) int {
+	if numCtx <= 0 || (maxContext > 0 && numCtx > maxContext) {
+		return maxContext
+	}
+	return numCtx
 }
 
 func (r *Runner) Close() {

@@ -27,15 +27,25 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from summarize_engine_compare import was_capped  # noqa: E402  (SPEC H5)
+from summarize_engine_compare import loop_verdict, not_a_score, was_capped  # noqa: E402  (SPEC H5)
 
 
 def pooled(got):
     """Blocks eligible for a pooled mean. A capped cell is an unfinished
     measurement (ADR 0012 conv 9): its eval_count is the harness cap and any
     req/h or IoU derived from it is a setting, not a result. This file
-    published '**N req/h** mean serial' with no capped guard at all."""
-    return [s for s in got if s and not was_capped(s)]
+    published '**N req/h** mean serial' with no capped guard at all. A cell
+    ended on a loop verdict (ADR 0049) is excluded the same way: its counts
+    were read from output cut at the loop."""
+    return [s for s in got if s and not not_a_score(s)]
+
+
+def why_excluded(raw):
+    """"capped", or "capped or looped (k looped)" when any cell looped -- the
+    loop count is named only when there is one, so a table without loops
+    keeps its exact wording."""
+    n_loop = sum(1 for s in raw if loop_verdict(s))
+    return f"capped or looped ({n_loop} looped)" if n_loop else "capped"
 
 GEOMS = ["hd", "hd_al32", "hd_al48", "sq320", "vga", "portrait", "uhd", "uhd4k",
          "paste1", "paste2", "paste3", "paste4", "paste5", "paste6"]
@@ -64,6 +74,8 @@ def cell(s):
         return " — | — | — "
     # SPEC H13: a capped cell renders `capped` in every template — its
     # anchor/bestfit counts describe a truncated generation, not the model.
+    if loop_verdict(s):
+        return " | ".join([loop_verdict(s)] * 3)
     if was_capped(s):
         return "capped | capped | capped"
     sz, ref = s.get("image_size"), s.get("anchor_implied_ref")
@@ -110,9 +122,10 @@ def perf_table(rows, models):
             # included — guarding only the pooled bullet below reproduced
             # the named T1 defect (a capped cell published as a score while
             # the mean beneath it silently excluded the same row).
-            if was_capped(s):
+            if not_a_score(s):
+                state = loop_verdict(s) or "capped"
                 line += (f" {s.get('prompt_eval_count','—')} | "
-                         f"{s.get('eval_count','—')} | capped | capped |")
+                         f"{s.get('eval_count','—')} | {state} | {state} |")
                 continue
             iou = s.get("iou_anchor")
             line += (f" {s.get('prompt_eval_count','—')} | {s.get('eval_count','—')} | "
@@ -129,7 +142,7 @@ def perf_table(rows, models):
         if raw and not got:
             # ADR 0012 conv 3: a vanished summary line is indistinguishable
             # from "not run". All-capped is a finding; say it.
-            print(f"- **{k}** — all {len(raw)} geometries capped; no pooled "
+            print(f"- **{k}** — all {len(raw)} geometries {why_excluded(raw)}; no pooled "
                   f"throughput (ADR 0012 conv 9)")
             continue
         pe = [s["prompt_eval_count"] for s in got if s.get("prompt_eval_count")]
@@ -158,7 +171,7 @@ def perf_table(rows, models):
         # ADR 0012 conv 9: the count of exclusions is a first-class
         # diagnostic — a 14-geometry mean over 8 must say so.
         if n_capped:
-            seg.append(f"{n_capped} of {len(raw)} geometries capped, excluded")
+            seg.append(f"{n_capped} of {len(raw)} geometries {why_excluded(raw)}, excluded")
         print(f"- **{k}** ({len(got)} geometries) — " + ", ".join(seg))
 
 
@@ -200,7 +213,7 @@ def main():
             raw = [s for s in raw if s]
             got = pooled(raw)
             if len(raw) != len(got):
-                print(f"- **{k}** — {len(raw) - len(got)} capped geometries "
+                print(f"- **{k}** — {len(raw) - len(got)} {why_excluded(raw)} geometries "
                       f"excluded from the counts below (ADR 0012 conv 9)")
             silent = sum(1 for s in got
                          if s.get("self_check") and isinstance(s.get("hits_anchor"), int)

@@ -31,6 +31,7 @@ import time
 import urllib.error
 import urllib.request
 
+import loop_detect
 from sampling import sampling_for
 
 DIR = os.path.dirname(os.path.abspath(__file__))
@@ -146,7 +147,14 @@ def context_error(e, num_predict, num_ctx):
         body = e.read().decode()
     except Exception:
         body = ""
-    m = re.search(r"n_prompt_tokens\\?[\"']?:\s*(\d+).*?n_ctx\\?[\"']?:\s*(\d+)", body, re.S)
+    # llama-server's JSON names n_prompt_tokens and n_ctx; the MLX runner's
+    # refusal under an explicit num_ctx (ADR 0050) says the same in words:
+    # "input length (N tokens) exceeds the context length (L tokens) set by
+    # num_ctx". Its "model's maximum context length" refusal is deliberately
+    # NOT matched: no bigger rung can cure it, so the ladder must not climb.
+    m = (re.search(r"n_prompt_tokens\\?[\"']?:\s*(\d+).*?n_ctx\\?[\"']?:\s*(\d+)", body, re.S)
+         or re.search(r"input length \((\d+) tokens\) exceeds the context length "
+                      r"\((\d+) tokens\) set by num_ctx", body))
     if e.code == 400 and ("exceed_context_size" in body or m):
         if m:
             need, ctx = int(m.group(1)), int(m.group(2))
@@ -159,6 +167,107 @@ def context_error(e, num_predict, num_ctx):
         return RuntimeError(
             f"context overflow with num_predict={num_predict}, num_ctx={num_ctx}: {body[:200]}")
     return RuntimeError(f"HTTP {e.code}: {body[:200]}")
+
+
+def loop_detect_on():
+    """LOOP_DETECT=1 streams every request through loop_detect.LoopDetector (ADR 0049). Off by default: a stream
+    and a single response measure the same generation, but a campaign that turns detection on must say so (it is
+    stamped as _stream / _loop_detect on every block), and a cancelled loop is a different record from a capped one."""
+    return os.environ.get("LOOP_DETECT", "") in ("1", "true", "on", "yes")
+
+
+class StreamError(RuntimeError):
+    """An error the server wrote into a stream that had already started.
+
+    server/routes.go streamResponse cannot send a status once the first chunk
+    is written, so it ends the stream with one {"error": ...} line, at status
+    500 unless the error carries its own. With stream:false the same failure
+    is an HTTP 500 (context_error), so this reads as one: "HTTP 500
+    (streamed): <error>". It is NOT retried, as that 500 is not: the server
+    reached a verdict, and a retry pays for the whole generation again
+    (generate's transport retry would otherwise catch it as a RuntimeError)."""
+
+
+def stream_error(err):
+    """The StreamError for a streamed {"error": ...} line. The server's own
+    repeat guard (llm/llama_server.go: more than 100 identical tokens) is
+    named: under LOOP_DETECT the client's 64-chunk token-run check is meant
+    to end such a run first, but it counts the chunks that reach the client,
+    after the output parser, while the server counts the runner's raw
+    tokens -- so a parser that holds back or drops tokens lets the server's
+    abort land first, and that is the server's loop verdict, not a fault."""
+    msg = f"HTTP 500 (streamed): {err}"
+    if "token repeat limit" in str(err):
+        msg += (" -- the server's abort after 100 identical tokens "
+                "(llm/llama_server.go), before the client's 64-chunk "
+                "token-run check fired")
+    return StreamError(msg)
+
+
+def _read_stream(resp, ep, tmo):
+    """Read a streamed /api/chat or /api/generate response into the shape stream:false returns, feeding a
+    LoopDetector as it goes.
+
+    A loop is a VERDICT, not an error: the connection is closed (which cancels the generation server-side) and the
+    partial output comes back as a finished response with done_reason "loop" and failure_mode
+    "loop detected:<kind>", so the suite scores what was produced, as it scores a capped answer. Finished, it is
+    neither re-run on resume (arm_done) nor escalated (capped_arms): a greedy decode that repeats a block back to
+    back usually does so again at every rung, and the verdict says the cell was ended there (ADR 0049). The server never sent its final metrics, so eval_count is the number of streamed chunks (one per
+    token on both runners) and the durations are None. A whole generation that outlasts tmo raises the
+    blown-budget timeout, as a stream:false read did."""
+    det = loop_detect.LoopDetector()
+    thinking, content, final, chunks = [], [], None, 0
+    t0 = time.monotonic()
+    for raw in resp:
+        if not raw.strip():
+            continue
+        chunk = json.loads(raw)
+        if chunk.get("error"):
+            resp.close()
+            raise stream_error(chunk["error"])
+        if ep == "chat":
+            msg = chunk.get("message") or {}
+            th, co = msg.get("thinking") or "", msg.get("content") or ""
+        else:
+            th, co = chunk.get("thinking") or "", chunk.get("response") or ""
+        if th:
+            thinking.append(th)
+        if co:
+            content.append(co)
+        if chunk.get("done"):
+            final = chunk
+            # The final chunk can carry text the server held back -- glimmer's parser does for a reply with no
+            # message header, so nothing streamed before it. Judge it too; a loop in a reply the server cut at
+            # num_predict is the same verdict as one caught mid-stream, with the server's own metrics kept.
+            # A reply that FINISHED is not a loop, however repetitive.
+            loop = det.feed(thinking=th, content=co)
+            if loop and final.get("done_reason") == "length":
+                final["done_reason"] = "loop"
+                final["failure_mode"] = loop.failure_mode()
+                final["_loop"] = dict(loop.record(), loop_chunks=chunks + 1, server_done_reason="length")
+            break
+        chunks += 1
+        loop = det.feed(thinking=th, content=co)
+        if loop:
+            resp.close()
+            final = {"done": True, "done_reason": "loop", "failure_mode": loop.failure_mode(),
+                     "eval_count": chunks, "eval_duration": None, "prompt_eval_count": None,
+                     "prompt_eval_duration": None, "total_duration": None, "load_duration": None,
+                     "_loop": dict(loop.record(), loop_chunks=chunks)}
+            break
+        if time.monotonic() - t0 > tmo:
+            resp.close()
+            raise TimeoutError()
+    if final is None:
+        raise ConnectionError("stream ended without a final chunk")
+    th, co = "".join(thinking), "".join(content)
+    if ep == "chat":
+        final["message"] = dict(final.get("message") or {}, role="assistant", content=co, thinking=th)
+    else:
+        final["response"], final["thinking"] = co, th
+    final["_stream"] = True
+    final["_loop_detect"] = dict(det.params)
+    return final
 
 
 def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
@@ -229,8 +338,10 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
     # routes.go zeroes the option unless it was explicitly set, so "0" is the
     # only way to state "MTP off" rather than "unspecified", and an arm that
     # omitted it could not be distinguished from one that disabled it. Also a
-    # Runner option -- changing it reloads the model. Inert on the MLX runner,
-    # which never reads draft_num_predict and picks depth adaptively instead.
+    # Runner option on llama-server -- changing it reloads the model. On the MLX
+    # runner (since #465) it is read per request, no reload: 0 = no drafting for
+    # this request, N caps the adaptive depth, unset stays adaptive. So on MLX
+    # "unset" and "0" are different arms, and before #465 MLX ignored it.
     if use_env_opts and os.environ.get("DRAFT_NUM_PREDICT") not in (None, ""):
         opts["draft_num_predict"] = int(os.environ["DRAFT_NUM_PREDICT"])
     # llama-server's prompt cache, OFF unless PROMPT_CACHE_RAM says otherwise
@@ -244,7 +355,8 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
     if extra_opts:
         opts.update(extra_opts)
 
-    payload = {"model": model, "stream": False, "options": opts}
+    stream = loop_detect_on()
+    payload = {"model": model, "stream": stream, "options": opts}
     # raw skips the chat template on /api/generate. token_split.py's --server
     # mode counts prompt_eval_count of bare text, and a template wrapper would
     # add tokens that belong to the template, not the text. Inert unless set
@@ -328,8 +440,11 @@ def generate(host, model, prompt, images, num_predict=None, num_ctx=None,
         req = urllib.request.Request(url, data=body,
                                      headers={"Content-Type": "application/json"})
         try:
-            r = json.load(urllib.request.urlopen(req, timeout=tmo))
+            resp = urllib.request.urlopen(req, timeout=tmo)
+            r = _read_stream(resp, ep, tmo) if stream else json.load(resp)
             break
+        except StreamError:
+            raise                                   # the server's verdict, as an HTTP 500 is: not retried
         except urllib.error.HTTPError as e:
             if e.code in (502, 503, 504) and attempt < len(RETRY_BACKOFF):
                 last = f"HTTP {e.code}"
@@ -451,6 +566,21 @@ def capture_stamps(r, model, tag, powermode=None, cold_start=None):
     return st
 
 
+def loop_fields(r):
+    """Loop-detection capture for a block, identical for every producer (ADR 0049). A streamed request records that
+    detection ran and with which parameters, so a block measured with it is never mistaken for one without; a loop
+    adds its verdict (failure_mode "loop detected:<kind>") and the loop's own fields. A stream:false request adds
+    nothing, so older blocks and LOOP_DETECT-off campaigns keep their shape."""
+    f = {}
+    if r.get("_stream"):
+        f["stream"] = True
+        f["loop_detect"] = r.get("_loop_detect")
+    if r.get("failure_mode"):
+        f["failure_mode"] = r["failure_mode"]
+        f.update(r.get("_loop") or {})
+    return f
+
+
 def metrics_block(r):
     """Timing + throughput capture, identical for every producer.
 
@@ -460,11 +590,19 @@ def metrics_block(r):
     publishing different quantities for the same measurement. Durations are
     always present (None when the server omitted them, matching the suite's
     historical shape); tok/s are None when underivable.
+
+    A loop verdict (done_reason "loop", ADR 0049) has no decode rate. Cut
+    mid-stream it has no eval_duration anyway; held back by the server and
+    stopped at num_predict it does, and eval/eval_duration is then the rate
+    of a loop, not of a model finishing an answer. gen_tps is None for both,
+    explicitly, so no table or mean can quote it. Prefill ended before the
+    loop began, so prefill_tps is kept when the server reported it.
     """
     m = {k: r.get(k) for k in ("total_duration", "load_duration",
                                "prompt_eval_duration", "eval_duration")}
     m["gen_tps"] = (round(r["eval_count"] / (r["eval_duration"] / 1e9), 2)
-                    if r.get("eval_count") and r.get("eval_duration") else None)
+                    if r.get("eval_count") and r.get("eval_duration")
+                    and r.get("done_reason") != "loop" else None)
     m["prefill_tps"] = (round(r["prompt_eval_count"]
                               / (r["prompt_eval_duration"] / 1e9), 2)
                         if r.get("prompt_eval_count")

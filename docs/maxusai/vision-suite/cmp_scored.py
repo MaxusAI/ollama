@@ -6,15 +6,15 @@
 Counting every scalar field (the run directory's cmp_scores.py) is right for "are two runs identical", but a change
 that only moves thinking lengths then reads as hundreds of differing cells. This prints only the quality fields, with
 the side each move favours, for the tests that finished on both sides, then the tests that finished on one side
-only. A capped block (was_capped, SPEC H5) and an errored one are not scores. Numeric moves within tol (default
-0.005, the IoU band of ADR 0029) are not moves. Labels (declared type, bbox space ...) print when they change and
-favour neither side.
+only. A capped block (was_capped, SPEC H5), a loop verdict (loop_verdict, ADR 0049) and an errored one are not
+scores; a side that looped is named. Numeric moves within tol (default 0.005, the IoU band of ADR 0029) are not moves.
+Labels (declared type, bbox space ...) print when they change and favour neither side.
 """
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from summarize_engine_compare import load, was_capped  # noqa: E402  (H5: import, never redefine)
+from summarize_engine_compare import load, loop_verdict, not_a_score  # noqa: E402  (H5: import, never redefine)
 
 HIGHER = {"bbox_hits", "bbox_mean_iou", "name_bbox_hits", "name_bbox_mean_iou", "hits_anchor", "hits_bestfit",
           "hits_declared", "iou_anchor", "iou_declared", "iou_at_implied_scale", "labels_found", "items_found",
@@ -30,7 +30,7 @@ LABELS = {"declared_type", "declared_ref", "declared_order", "declaration_scope"
 
 
 def scored(block):
-    return isinstance(block, dict) and not block.get("error") and not was_capped(block)
+    return isinstance(block, dict) and not block.get("error") and not not_a_score(block)
 
 
 def _num(v):
@@ -46,7 +46,9 @@ def compare(a, b, tol=0.005):
         ba, bb = a.get(name), b.get(name)
         sa, sb = scored(ba), scored(bb)
         if sa != sb:
-            only.append(f"{name}: finished only in {'A' if sa else 'B'}")
+            other = loop_verdict(bb if sa else ba) if isinstance(bb if sa else ba, dict) else None
+            only.append(f"{name}: finished only in {'A' if sa else 'B'}"
+                        + (f" ({'B' if sa else 'A'}: {other})" if other else ""))
         if not (sa and sb):
             continue
         moves = []

@@ -139,7 +139,10 @@ cap (`eval == num_predict`, `done_reason "stop"`), and a thinking
 continuation that overshoots the recorded cap (eval 8290 against 8192,
 measured 2026-08-20 on qwen3.6 `bbox_contract_reasoning`). Blocks without the
 field keep the `eval_count >= num_predict` fallback, so historical files
-never change verdict by upgrading the summarizers.
+never change verdict by upgrading the summarizers. `"loop"` is not the
+server's: the client writes it when it ends a cell on a loop verdict
+(`LOOP_DETECT=1`, ADR 0049), and it is never capped, even at
+`eval == num_predict` (a loop the server held back and stopped at the cap).
 
 The value inventory, from this repo's server code (the serving build is this
 fork): the runner emits `stop` or `length` (`llm/llama_server.go`, from
@@ -211,6 +214,11 @@ a result.** `was_capped` is the one test (H5) and T2 applies it per block via
 renderings of cells that had merely hit `num_predict` 8192 and were never
 escalated. The owed number is the final-rung score (ADR 0012 rule 8): a
 campaign with `capped` cells below `CTX_MAX` has not finished running.
+
+A cell ended on a loop verdict (`LOOP_DETECT=1`, ADR 0049) renders
+`loop:<kind>` in the same cells, from `loop_verdict`, and enters no mean:
+`not_a_score` (capped or looped) is the pooling test. Unlike `capped` it is a
+result, not a to-do. It is finished (`arm_done`) and is not escalated.
 
 "Every template" means every CELL, not every table: T1 guarded only its
 scene-derived throughput cells until later the same day, and its first
@@ -639,7 +647,7 @@ record the machine, and the machine moves numbers that neither field explains
 | H7 | ADR 0012 rules 1 and 8; request examples via `emit_request.py` (payload captured from `client.py`, never re-derived). A campaign's tables re-render from its committed bundle with `summarize_engine_compare.py --bundle`, through the code a run directory goes through (`test_summarizers.py::TestBundleSource`) |
 | H7, H11, H13 (external benchmarks) | `extbench.py` runs render through `summarize_extbench.py`, never by hand; `extbench.py` persists the `host` / `server_version` that `client.generate()` already stamps on every response, collected as SETS so a mid-run container restart cannot let one build vouch for another's rows; `test_summarizers.py::TestExtbenchSummary` asserts the unrecorded-file, mixed-campaign and clean-footer cases, and that the paired test stays EXACT (at 3-vs-1 discordant the uncorrected chi-square reads p≈0.317 against the true 0.625). `extbench.py` also records the `prompt_cache_ram` it sent (`test_extbench.py`), and `summarize_extbench.py` names it in the footer and warns under `--timing` when arms differ, a file without it counting as the server's default (`test_summarizers.py::TestExtbenchArmsAndSlices`) |
 | H13 (footers) | `test_summarizers.py::TestProvenanceFooter` — clean / all-pre-H11 / mixed-recording / two-host cases against the rendered footer. `prompt_cache_stats.py ab` and `prompt_cache_probe.py compare` print the same footer through `summarize_extbench.provenance` (`test_prompt_cache_stats.py`, `test_prompt_cache_probe.py`) |
-| H13 (capped rendering) | `cap_or` in `summarize_head_to_head.py` importing `was_capped` (H5); `test_summarizers.py::TestT2CappedCells` asserts a capped scene hides score and latency but keeps tok/s; `q()`/`multi_cell` in `summarize_engine_compare.py` guard every T1 quality cell — `::TestT1CappedQualityCells` |
+| H13 (capped rendering) | `cap_or` in `summarize_head_to_head.py` importing `was_capped` (H5); `test_summarizers.py::TestT2CappedCells` asserts a capped scene hides score and latency but keeps tok/s; `q()`/`multi_cell` in `summarize_engine_compare.py` guard every T1 quality cell — `::TestT1CappedQualityCells`; a loop verdict renders and is excluded the same way in every template and mean — `::TestLoopVerdictReachesTheTables` |
 | H14 | `token_split.py`'s acceptance gate (`--write` refuses without it, and skips-by-name irreconcilable cells); `test_summarizers.py::TestT1ThinkTokColumn` asserts stamped-count-or-dash, never an estimate; `finetext_probe.py` persists as `finetext_probe` (one producer per persist name) |
 | H9 | `client.py` is the only module that builds a payload; `test_client.py` asserts the wire format (the test count grows with the contract — trust the suite, not this row), including the tri-state `send_think` and the `num_ctx=False` sentinel that a naive `== False` would have collapsed. `TestPromptCacheRAM` pins H4's one exception: `prompt_cache_ram: 0` on every request unless `PROMPT_CACHE_RAM` says otherwise, none from a calibrated caller (`use_env_opts=False`), and a value the server would ignore failing before the first request. CI runs the suite (`preflight-expectations.yaml`) |
 | H12 | `prompt_sha` / `images_sha` / `prompt_parts` on every score block, written by `client.generate()`; absence marks a pre-2026-08-20 cell |

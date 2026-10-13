@@ -30,8 +30,12 @@ VARIANT_LABEL = {
     "s448p":     "widest padded tile (#448 amended)",
     "p29953fix": "#29953 + amendment",
     "head29953": "#29953 head (`3070d927f`)",
+    "pr462":     "#462: #29953 as merged + guard, b11351",
+    "pr462jb":   "#462, src1 padded by J_best blocks (control)",
+    "pr462ids0": "#462, ids_dst unpadded (control)",
 }
-VARIANT_ORDER = ["ne11", "ne12", "p29953", "p27044", "successor", "s448p", "p29953fix", "head29953"]
+VARIANT_ORDER = ["ne11", "ne12", "p29953", "p27044", "successor", "s448p", "p29953fix", "head29953",
+                 "pr462", "pr462jb", "pr462ids0"]
 
 
 def main():

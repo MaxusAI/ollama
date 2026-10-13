@@ -28,11 +28,13 @@ func Execute(args []string) error {
 	var (
 		modelName string
 		port      int
+		ctxSize   int
 	)
 
 	flagSet := flag.NewFlagSet("mlxrunner", flag.ExitOnError)
 	flagSet.StringVar(&modelName, "model", "", "Model name")
 	flagSet.IntVar(&port, "port", 0, "Port to listen on")
+	flagSet.IntVar(&ctxSize, "ctx-size", 0, "Context length to enforce (an explicit num_ctx); 0 serves the model's maximum")
 	_ = flagSet.Bool("verbose", false, "Enable debug logging")
 	flagSet.Parse(args)
 
@@ -61,6 +63,7 @@ func Execute(args []string) error {
 		Requests:      make(chan Request),
 		EmbedRequests: make(chan EmbeddingRequest),
 		mlxThread:     worker,
+		numCtx:        ctxSize,
 	}
 
 	if err := worker.Do(context.Background(), func() error {

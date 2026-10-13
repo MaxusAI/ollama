@@ -52,27 +52,37 @@ import (
 	"github.com/ollama/ollama/ml"
 )
 
+// grammarJSON is format "json"'s grammar on the GGUF path. It has the shape of
+// llama.cpp's grammars/json.gbnf: whitespace follows "{", "[", ":", "," and
+// every value, and nothing puts it before "}" or "]", so no two ws rules are
+// ever adjacent and no run is longer than one ws allows. It differs from
+// json.gbnf in two places, both kept from the grammar before: the root object
+// ends at its "}" (no trailing whitespace, so the grammar completes there),
+// and there is no whitespace between a key and its ":".
 var grammarJSON = `
 root   ::= object
-value  ::= object | array | string | number | ("true" | "false" | "null") ws
+value  ::= (object | array | string | number | "true" | "false" | "null") ws
 object ::=
   "{" ws (
          string ":" ws value
     ("," ws string ":" ws value)*
-  )? ws "}"
+  )? "}"
 array  ::=
   "[" ws (
             value
     ("," ws value)*
-  )? ws "]"
+  )? "]"
 string ::=
   "\"" (
     [^"\\\x7F\x00-\x1F] |
     "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F]) # escapes
   )* "\""
 number ::= ("-"? ([0-9] | [1-9] [0-9]*)) ("." [0-9]+)? ([eE] [-+]? [0-9]+)?
-# Optional space: by convention, applied in this grammar after literal chars when allowed
-ws ::= ([ \t\n] ws)?
+# Optional space: by convention, applied in this grammar after literal chars when allowed.
+# Bounded as llama.cpp bounds it for a JSON schema (json-schema-to-grammar's SPACE_RULE): nothing,
+# one space, or one or two newlines and up to 20 spaces or tabs. Unbounded, a model that
+# degenerates into whitespace runs to num_predict or to llama-server's 100-repeat abort.
+ws ::= (" " | "\n"{1,2} [ \t]{0,20})?
 `
 
 // DefaultEmbeddingNumBatch is the default NumBatch used for embedding models
@@ -175,6 +185,7 @@ type llamaServerRunner struct {
 type llamaServerLaunchConfig struct {
 	modelPath            string
 	modelArch            string
+	visionArch           string
 	draftType            string
 	projectors           []string
 	mmprojMemory         uint64
@@ -385,7 +396,7 @@ func startLlamaServer(launch llamaServerLaunchConfig, out io.Writer) (cmd *exec.
 	params = appendMMProjArgs(params, launch)
 	params = appendDraftArgs(params, launch.draftType, launch.config.DraftModelPath, launch.opts)
 
-	params = append(params, visionServerArgs(launch.modelArch, launch.opts)...)
+	params = append(params, visionServerArgs(launch.visionArch, launch.opts)...)
 
 	for _, adapter := range launch.adapters {
 		slog.Warn("LoRA adapters are deprecated and will be removed in a future release", "adapter", adapter)
@@ -1001,6 +1012,7 @@ func NewLlamaServerRunner(
 	launch := llamaServerLaunchConfig{
 		modelPath:    splitModel.modelPath,
 		modelArch:    arch,
+		visionArch:   VisionBudgetArch(arch, externalProjectorType(modelPath, projectors)),
 		draftType:    draftType,
 		projectors:   slices.Clone(splitModel.projectors),
 		mmprojMemory: mmprojMemory,
@@ -1165,6 +1177,42 @@ func applyArchServerEnvs(serverEnvs map[string]string, modelArch string) {
 	}
 }
 
+// VisionBudgetArch returns the architecture whose image-token budget rules
+// apply to a model, given its text architecture and the projector type of a
+// separate projector file ("" when there is none, or when the vision tensors
+// are inline).
+//
+// It differs from modelArch in one case. v0.40.2 converts a legacy
+// nemotron_h_omni GGUF into a llamacpp child (compatmigrate/nemotron3.go): a
+// text model with general.architecture nemotron_h_moe (or nemotron_h) and a
+// separate clip projector of type nemotron_v2_vl. The payload's dynamic
+// resolution keys on that projector type (llama/compat/002), so the budget
+// flags stay live, but every switch here keyed on nemotron_h_omni and the
+// converted child launched without them (MaxusAI/ollama#480). A text-only
+// nemotron_h_moe has no projector and keeps its own architecture.
+func VisionBudgetArch(modelArch, projectorType string) string {
+	if projectorType == "nemotron_v2_vl" && (modelArch == "nemotron_h" || modelArch == "nemotron_h_moe") {
+		return "nemotron_h_omni"
+	}
+	return modelArch
+}
+
+// externalProjectorType reads clip.vision.projector_type from the first
+// projector when it is a separate file. An inline projector (the model file
+// itself) and an unreadable one both report "", which leaves VisionBudgetArch
+// on the text architecture.
+func externalProjectorType(modelPath string, projectors []string) string {
+	if len(projectors) == 0 || projectors[0] == modelPath {
+		return ""
+	}
+	projector, err := LoadModel(projectors[0], 1024)
+	if err != nil {
+		slog.Debug("read projector type", "projector", projectors[0], "error", err)
+		return ""
+	}
+	return projector.KV().String("vision.projector_type")
+}
+
 func visionServerArgs(modelArch string, opts api.Options) []string {
 	switch modelArch {
 	case "qwen2vl", "qwen25vl", "qwen3vl", "qwen3vlmoe", "qwen35", "qwen35moe":
@@ -1237,25 +1285,19 @@ const (
 )
 
 // nemotronImageTokenBudget resolves the nemotron_h_omni image-token budget
-// from opts. The shared ImageMinTokens/ImageMaxTokens options arrive carrying
-// the gemma4-shaped DefaultOptions values whenever the caller left them
-// alone; at this layer those are not distinguishable from an explicit request
-// (server/routes.go's hasOption pattern could tell them apart if that ever
-// matters), so treat them, like <= 0, as unset and substitute this arch's
-// native bounds. The sentinel is the api.Default* constants themselves, not
-// literals, so it tracks the gemma4 default as ADRs move it — currently
-// 70/1120 (ADR 0008; it was 40/1120 before ADR 0007). Consequence: an
-// explicit 70 or 1120 is not expressible for this arch — pick an adjacent
-// value. A client that explicitly sends 256/3328 no longer forces a reload
-// against an unset request: ResolvedImageTokenBudget normalizes both to the
-// flags they launch before the scheduler compares them. Min is clamped down
-// to max like gemma4's resolver.
+// from opts. Unset arrives as 0 (server/routes.go zeroes a budget neither the
+// request nor the Modelfile set), and <= 0 takes this arch's native bounds.
+// Any explicit value is honoured -- gemma4's 70/1120 included, which before
+// stood for "unset" here and could not be requested. A client that explicitly
+// sends 256/3328 does not force a reload against an unset request:
+// ResolvedImageTokenBudget normalizes both to the flags they launch before the
+// scheduler compares them. Min is clamped down to max like gemma4's resolver.
 func nemotronImageTokenBudget(opts api.Options) (minTok, maxTok int) {
 	minTok, maxTok = opts.ImageMinTokens, opts.ImageMaxTokens
-	if minTok <= 0 || minTok == api.DefaultImageMinTokens {
+	if minTok <= 0 {
 		minTok = defaultNemotronImageMinTokens
 	}
-	if maxTok <= 0 || maxTok == api.DefaultImageMaxTokens {
+	if maxTok <= 0 {
 		maxTok = defaultNemotronImageMaxTokens
 	}
 	// 3328 is the model's trained ceiling (13312 pre-merge patches); raising
@@ -1653,10 +1695,12 @@ func Gemma4ImageBudget(opts api.Options) (minTok, maxTok int) {
 // will actually pass for modelArch under opts, and whether those flags derive
 // from opts at all.
 //
-// The budget options are arch-agnostic but carry gemma4's defaults, so equal
-// flags do not imply equal options: on nemotron the unset sentinel and an
-// explicit 256/3328 launch the identical runner. Resolving before comparing
-// is what lets the scheduler tell "same launch" from "same request".
+// The budget options are arch-agnostic, and an unset one arrives as 0
+// (server/routes.go), which each arch resolves to its own bounds. So equal
+// flags do not imply equal options: on nemotron an unset budget and an
+// explicit 256/3328 launch the identical runner, as an unset budget and an
+// explicit 70/1120 do on gemma4. Resolving before comparing is what lets the
+// scheduler tell "same launch" from "same request".
 // derived is false for arches whose vision flags ignore the options (a fixed
 // floor, or none at all), where the bounds cannot affect the launch.
 func ResolvedImageTokenBudget(modelArch string, opts api.Options) (minTok, maxTok int, derived bool) {

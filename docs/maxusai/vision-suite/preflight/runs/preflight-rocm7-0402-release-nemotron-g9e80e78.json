@@ -1,0 +1,253 @@
+{
+  "meta": {
+    "host": "http://127.0.0.1:11498",
+    "platform": "rocm7",
+    "image_tag": "maxusai-ollama:0.40.2-dynres-1-g9e80e78-rocm7-gfx1151",
+    "started_utc": "20261013T023931",
+    "expectations_file": "expectations.toml",
+    "schema_version": 1,
+    "version": "0.40.2-dynres-1-g9e80e78",
+    "profile": "rocm7-0-40-2",
+    "patchset": [
+      "001",
+      "002",
+      "004",
+      "005",
+      "801",
+      "802",
+      "805",
+      "903",
+      "908"
+    ],
+    "container": "ollama-bench-0402",
+    "llama_cpp_build": "631109b34"
+  },
+  "results": [
+    {
+      "check": "version",
+      "arch": null,
+      "status": "PASS",
+      "summary": "0.40.2-dynres-1-g9e80e78 matches profile rocm7-0-40-2",
+      "expected": "^0\\.40\\.2-dynres(\\.\\d+)?-\\d+-g[0-9a-f]{7,40}$",
+      "actual": "0.40.2-dynres-1-g9e80e78"
+    },
+    {
+      "check": "payload_pin",
+      "arch": null,
+      "status": "PASS",
+      "summary": "llama.cpp build 631109b34 matches the measured payload (docker exec)",
+      "expected": "631109b34",
+      "actual": "631109b34"
+    },
+    {
+      "check": "toolchain_pin",
+      "arch": null,
+      "status": "PASS",
+      "summary": "GPU toolchain is rocm-7.2.4",
+      "expected": "rocm-7.2.4",
+      "actual": "rocm-7.2.4"
+    },
+    {
+      "check": "image_tag",
+      "arch": null,
+      "status": "PASS",
+      "summary": "ollama-bench-0402 runs maxusai-ollama:0.40.2-dynres-1-g9e80e78-rocm7-gfx1151",
+      "expected": "maxusai-ollama:0.40.2-dynres-1-g9e80e78-rocm7-gfx1151",
+      "actual": "maxusai-ollama:0.40.2-dynres-1-g9e80e78-rocm7-gfx1151"
+    },
+    {
+      "check": "go_patch_marker",
+      "arch": null,
+      "status": "PASS",
+      "summary": "--image-max-tokens present in binary (1)",
+      "expected": 1,
+      "actual": 1
+    },
+    {
+      "check": "metal_tensor_host",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "does not apply on rocm7"
+    },
+    {
+      "check": "metal_tensor_runtime",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "does not apply on rocm7"
+    },
+    {
+      "check": "poison_probe",
+      "arch": null,
+      "status": "PASS",
+      "summary": "1.06x-ceiling trigger decodes healthily (52 chars, done_reason='stop'); slot clean after; no node-level check (meter off \u2014 set OLLAMA_CLIP_NODE_STATS=ffn_down to enable)",
+      "actual": "The image is a black and white checkerboard pattern."
+    },
+    {
+      "check": "text_baseline",
+      "arch": "nemotron_h_omni",
+      "status": "PASS",
+      "summary": "in-image text prefix = 19 (calibrated on 256x144+512x288); text-only = 20; text-only is +1 and MUST NOT be used (B8)",
+      "actual": 19
+    },
+    {
+      "check": "token_ladder",
+      "arch": "nemotron_h_omni",
+      "status": "PASS",
+      "summary": "5/5 geometries within +/-2",
+      "expected": {
+        "256x144": 266,
+        "512x288": 266,
+        "1024x576": 578,
+        "2048x1152": 2306,
+        "3072x1728": 3270
+      },
+      "actual": {
+        "256x144": 266,
+        "512x288": 266,
+        "1024x576": 578,
+        "2048x1152": 2306,
+        "3072x1728": 3270
+      },
+      "rows": [
+        {
+          "size": "256x144",
+          "expected": 266,
+          "actual": 266,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "512x288",
+          "expected": 266,
+          "actual": 266,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "1024x576",
+          "expected": 578,
+          "actual": 578,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "2048x1152",
+          "expected": 2306,
+          "actual": 2306,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "3072x1728",
+          "expected": 3270,
+          "actual": 3270,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        }
+      ],
+      "shape": "scaling",
+      "expected_shape": "dynamic"
+    },
+    {
+      "check": "payload_proof",
+      "arch": "nemotron_h_omni",
+      "status": "FAIL",
+      "summary": "no load of this arch's model in the fresh log window",
+      "expected": "min 256*32^2=262144, max 3328*32^2=3407872",
+      "actual": "1 unrelated load(s), 0 matching",
+      "diagnosis": "1 load(s) of other models seen in the window; their pixel blocks must not be graded against this arch. Either this arch's model never loaded during this run, or its launch flags / patch stride no longer match the expectations block \u2014 which is a finding, not noise."
+    },
+    {
+      "check": "aspect_ladder",
+      "arch": "nemotron_h_omni",
+      "status": "PASS",
+      "summary": "3/3 aspect ratios within +/-2",
+      "expected": {
+        "1024x768": 770,
+        "1920x480": 902,
+        "768x768": 578
+      },
+      "actual": {
+        "1024x768": 770,
+        "1920x480": 902,
+        "768x768": 578
+      }
+    },
+    {
+      "check": "think_format",
+      "arch": "nemotron_h_omni",
+      "status": "PASS",
+      "summary": "valid JSON after thinking (840 tokens)",
+      "expected": "non-empty JSON response with think:true + format:json",
+      "actual": {
+        "response_chars": 296,
+        "thinking_chars": 2758,
+        "eval_count": 840
+      }
+    },
+    {
+      "check": "pinned_image_token_budget",
+      "arch": "nemotron_h_omni",
+      "status": "FAIL",
+      "summary": "pinned 3328 -> 2306 (ceiling 3328, +2 markers)",
+      "expected": 3270,
+      "actual": 2306,
+      "diagnosis": "Pinned cost moved (3270 -> 2306) but stays under the ceiling, so this is a behaviour change, not the 005 defect. Re-measure and update expectations.toml if intended.",
+      "arms": [
+        {
+          "arm": "pinned",
+          "pin": 3328,
+          "expected": 3270,
+          "actual": 2306,
+          "ok": false
+        },
+        {
+          "arm": "ceiling_invariant",
+          "expected": "grid <= 3328",
+          "actual": 2304,
+          "ok": true
+        },
+        {
+          "arm": "unpinned_control",
+          "expected": 2306,
+          "actual": 2306,
+          "ok": true
+        }
+      ]
+    },
+    {
+      "check": "metal_tensor_payload",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "does not apply on rocm7"
+    },
+    {
+      "check": "mlx_payload_pin",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "profile records no mlx_build to assert against",
+      "diagnosis": "Add mlx_build (the MLX_VERSION commit this profile was measured on) so an MLX bump fails loudly instead of inheriting stale expectations. Platforms with no MLX payload leave it unset and keep this skip."
+    },
+    {
+      "check": "endpoint_exclusive",
+      "arch": null,
+      "status": "PASS",
+      "summary": "no contention detected (worst queue wait 0.0s)",
+      "expected": "queue wait <= 10.0s",
+      "actual": "0.0s",
+      "models_loaded": [
+        "nemotron3:33b-q4_K_M"
+      ]
+    }
+  ],
+  "summary": {
+    "PASS": 11,
+    "SKIP": 4,
+    "FAIL": 2
+  }
+}

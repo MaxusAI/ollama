@@ -169,12 +169,18 @@ def was_capped(sec):
     eval_count >= num_predict fallback — as does a connection-closed final,
     which serializes with the field omitted (llm/server.go maps
     DoneReasonConnectionClosed to "" and the API field is omitempty).
+
+    done_reason "loop" is the client's loop verdict (ADR 0049) and is never
+    capped, even at eval == num_predict: a loop the server held back and
+    stopped at the cap keeps that eval_count, and the fallback re-ran it on
+    resume and climbed the ladder for it. A loop is a finished cell whose
+    result is the verdict, not a score.
     """
     sec = sec or {}
     dr = sec.get("done_reason")
     if dr == "length":
         return True
-    if dr == "stop":
+    if dr in ("stop", "loop"):
         return False
     # req_num_predict is the fallback cap spelling: legacy finetext blocks
     # recorded the suite default in num_predict while req_num_predict held
@@ -183,6 +189,38 @@ def was_capped(sec):
     cap = sec.get("num_predict") or sec.get("req_num_predict")
     ev = sec.get("eval_count")
     return bool(cap and ev and ev >= cap)
+
+
+def loop_verdict(sec):
+    """The block's loop verdict as a table cell renders it, or None.
+
+    LOOP_DETECT=1 ends a cell on a verbatim loop (ADR 0049): done_reason
+    "loop", failure_mode "loop detected:<kind>". The cell is finished
+    (arm_done; was_capped is False) but it holds no score: the client
+    scored the partial output, as it scores a capped answer, and that score
+    measures where the loop was cut, not the model. So every template
+    renders "loop:<kind>" where the score would go, and no mean pools it --
+    the capped discipline (ADR 0012 conv 9) applied to the third state.
+    Without this a looped multi_3img cell rendered "❌ q1_right, ..." and
+    entered every mean as a wrong answer (#469 review).
+
+    None for every block without the verdict, including one streamed with
+    detection on that did not loop, so no older table changes shape.
+    """
+    sec = sec or {}
+    fm = sec.get("failure_mode")
+    fm = fm if isinstance(fm, str) and fm.startswith("loop detected:") else None
+    if sec.get("done_reason") != "loop" and fm is None:
+        return None
+    kind = sec.get("loop_kind") or (fm.split(":", 1)[1] if fm else "")
+    return f"loop:{kind}" if kind else "loop"
+
+
+def not_a_score(sec):
+    """True when a block's scores may not be rendered or pooled: capped
+    (was_capped) or ended on a loop verdict (loop_verdict). The one test
+    every mean applies (SPEC H5)."""
+    return was_capped(sec) or loop_verdict(sec) is not None
 
 
 def save(path, data, end=""):
@@ -589,7 +627,7 @@ def main():
             # scores and must not read as ❌ either: it is "error".
             if "error" in block:
                 return "error"
-            return "capped" if was_capped(block) else text
+            return loop_verdict(block) or ("capped" if was_capped(block) else text)
 
         iou = sc.get("bbox_mean_iou")
         iou_cell = "—" if iou is None else (f"**{iou:.3f}**" if eng == "MLX" else f"{iou:.3f}")
@@ -618,6 +656,8 @@ def main():
             # as a clean sweep. Name the three that are actually gated.
             if "error" in block:
                 return "error"
+            if loop_verdict(block):
+                return loop_verdict(block)
             if was_capped(block):
                 return "capped"
             if block.get("q1_right") and block.get("q2_right") and block.get("q4_bbox_hit"):
@@ -651,7 +691,11 @@ def main():
         # char-proportional estimate (a 62-token response measured 21% control
         # tokens, so proportions lie). Think-off rows show a true 0.
         tt = sc.get("thinking_tokens")
-        if was_capped(sc):
+        if loop_verdict(sc):
+            # Ended on a loop (ADR 0049): eval_count is where the loop was
+            # cut, so no length or latency derived from it is the model's.
+            tok_cell = think_cell = s_cell = rh_cell = loop_verdict(sc)
+        elif was_capped(sc):
             # eval_count is the cap here, not a generated length; both it and
             # anything derived from it are meaningless as model results.
             tok_cell = f"≥{ev} ⚠"
