@@ -782,7 +782,10 @@ platform = "mlx-metal"
 # (631109b34), with MLX-C unchanged at ebc88f10. A new profile by the ADR 0011 rule
 # that created every predecessor: a payload move gets its own profile even when
 # the numbers turn out identical, because "identical" is a measurement.
-version_pattern = '^0\.40\.2-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
+# Widened 2026-10-14 to 0.40.3 for the v0.40.3 fold (#488), as ADR 0032 says for a Go-only fold: v0.40.3 moves no
+# native input (MLX a59cc231 and llama.cpp b11351 stay), so its builds share this payload and this profile. Its
+# head, 0.40.2-dynres.1-6-g9f3baaf, passed here (PASS=23 SKIP=16). 0.40.4 stays refused: its rc1 moves llama.cpp.
+version_pattern = '^0\.40\.[23]-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
 # Admits the v0.40.2-dynres tag's lineage and its .N point tags (v0.40.2-dynres.1
 # moves Go only on Metal; its one native change, #462's 903, is in ggml-cuda/mmq.cu,
 # which this build does not compile), and nothing else: not -dirty, not the legacy
@@ -874,8 +877,9 @@ platform = "metal"
 # the build production serves: --platform metal exited 2 on 0.40.2-dynres while
 # mlx-metal-0-40-2 resolved. Same binary, same host, one stack gated and the other
 # not. The payload is the one mlx-metal-0-40-2 pins, so its version pattern and
-# llama_cpp_build are the same, .N point tags included (#486).
-version_pattern = '^0\.40\.2-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
+# llama_cpp_build are the same, .N point tags included (#486), and the Go-only v0.40.3
+# fold with it (#488: its head passed here, PASS=6 SKIP=12).
+version_pattern = '^0\.40\.[23]-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
 llama_cpp_build = "631109b34"
 # The compat series as llama/compat applies it to b11351 (#460): every patch
 # applies to the source tree; 903 and 908 touch CUDA files only, which a Metal
