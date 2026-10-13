@@ -210,10 +210,10 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
       using the helper.
     - **Behaviour:** the retirement gate in
       `docs/maxusai/upstream-mmq-29953-material.md` ("For the fork") passes
-      wherever its control faults, on sm_120a and sm_75 and on gfx1151 (117/117
-      under guard pages), and #449's hand-routed gfx1151 shapes pass 96/96 under
-      a guard page, including the q2_K case the widest-tile rule was 5 blocks
-      short on.
+      wherever its control faults, on sm_120a and sm_75 and on gfx1151 (117/117,
+      78 of them under guard pages), and #449's hand-routed gfx1151 shapes pass
+      96/96, 48 of them under a guard page, including the q2_K case the
+      widest-tile rule was 5 blocks short on.
   - **At the next pin move.** From the first llama.cpp pin that contains
     #29953 (`fc9ce6b9d`), the backported hunks are upstream's own: drop them.
     - **Keep the guard** unless upstream has taken one: re-cut 903 as
