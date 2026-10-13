@@ -838,7 +838,11 @@ xgrammar 82505d0d source, same MLX a59cc231 and llama.cpp 631109b34 pins).
 MUSE-GLIMMER (added 2026-10-11, #463) is MEASURED, not carried: a new arch on this
 payload, its ladder taken by measure_ladder.py on production's own release build
 (0.40.2-dynres-0-g5623192) on :11437. It has no aspect_ladder and no pinned row:
-neither was measured, and both checks skip when the field is absent.
+neither was measured, and both checks skip when the field is absent. Re-run with
+--arch muse-glimmer --quality on the v0.40.2-dynres.1 release stage, 2026-10-13:
+PASS=10 SKIP=8 on muse-glimmer:30b-nvfp4 (think_format 438 tokens), and PASS=6
+SKIP=12 on metal-0-40-2's muse-glimmer:30b (434 tokens); every arch row as on
+0.40.2 (runs/preflight-{mlx-metal,metal}-0402-glimmer-dynres1-g3960244.json).
 """
 
 [profiles.metal-0-32-14]
