@@ -110,6 +110,11 @@ CARD_THINKING = {
     # no distinction between thinking and non-thinking, and specifies no
     # penalty; measured convergence needs none.
     "gemma4": {"temperature": THINK_TEMPERATURE, "top_p": 0.95, "top_k": 64},
+    # muse-glimmer: the ollama.com library's packaged params, the only published
+    # values (the library page states none): every tag carries temperature 1 /
+    # top_k 64 / top_p 0.95 (registry params blobs 56380ca2ab89, and 0b6cd7fba9a7
+    # and 2365fbb6d97b on the -dflash tags, which add draft_num_predict).
+    "muse-glimmer": {"temperature": THINK_TEMPERATURE, "top_p": 0.95, "top_k": 64},
     # nemotron3: the NVIDIA card is gated (HTTP 401), so no values are recorded
     # here. It is the one family that converges under greedy decoding anyway, so
     # the fallback below is not currently costing us a measurement.
