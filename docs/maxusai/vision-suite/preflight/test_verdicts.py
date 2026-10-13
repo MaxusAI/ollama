@@ -1902,7 +1902,8 @@ class TestMlxMetalProfileForTheV0402Fold(unittest.TestCase):
     """ADR 0011 on Apple Silicon. The v0.40.2 fold (#460) moves BOTH native inputs: MLX 59d600b5 -> a59cc231 and
     llama.cpp b11081 -> b11351. So it gets its own profile, mlx-metal-0-40-2, rather than a widened 0-34-4.
 
-    The new profile admits the v0.40.2-dynres tag's lineage only. 0-34-4 keeps production's 0.35.0 build and must not
+    The new profile admits the v0.40.2-dynres tag's lineage and its .N point tags (v0.40.2-dynres.1 moves Go only on
+    Metal; its one native change is in ggml-cuda), and nothing else. 0-34-4 keeps production's 0.35.0 build and must not
     admit 0.40.2: that payload is not its own. The fold's interim builds stamp 0.35.0-dynres-N, which 0-34-4 admits and
     whose pins they fail; they were validated with a campaign copy of this file, not by widening either pattern.
     """
@@ -1911,13 +1912,14 @@ class TestMlxMetalProfileForTheV0402Fold(unittest.TestCase):
     ADMIT = (
         "0.40.2-dynres-0-gabcdef0",    # the fold's tag stamp
         "0.40.2-dynres-5-g0123456",    # a build after that tag
+        "0.40.2-dynres.1-0-gabcdef0",  # the v0.40.2-dynres.1 point tag (Go-only on Metal)
     )
     REJECT = (
         "0.35.0-dynres-0-g043f441",          # production's build: mlx-metal-0-34-4's
         "0.35.0-dynres-27-g948ef3a",         # the fold's interim stamp: not admitted by widening
         "0.40.1-dynres-0-gabcdef0",          # an upstream release this fold passed through
         "0.40.2-dynres-0-gabcdef0-dirty",    # a dirty tree describes nothing
-        "0.40.2-dynres.1-0-gabcdef0",        # a point tag is a new deploy: widen deliberately
+        "0.40.2-dynres.1-0-gabcdef0-dirty",  # nor does a dirty point-tag tree
     )
 
     @classmethod
@@ -1942,8 +1944,9 @@ class TestMlxMetalProfileForTheV0402Fold(unittest.TestCase):
 
     def test_the_tag_stamp_resolves_to_this_profile_through_preflight(self):
         import preflight
-        pid, _ = preflight.resolve_profile(self.exp, "mlx-metal", "0.40.2-dynres-0-gabcdef0")
-        self.assertEqual(pid, self.PROFILE)
+        for stamp in ("0.40.2-dynres-0-gabcdef0", "0.40.2-dynres.1-0-gabcdef0"):
+            pid, _ = preflight.resolve_profile(self.exp, "mlx-metal", stamp)
+            self.assertEqual(pid, self.PROFILE, stamp)
 
     def test_the_pins_name_the_fold_payload(self):
         prof = self.exp["profiles"][self.PROFILE]
