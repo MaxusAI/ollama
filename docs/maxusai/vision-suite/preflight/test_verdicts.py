@@ -1744,11 +1744,15 @@ class TestCudaProfilesForTheV0402Fold(unittest.TestCase):
         "0.40.2-dynres-2-g19455c6",    # the release image with #483's binary
         "0.40.2-dynres-10-g601b8a6",   # main after the day's merges
         "0.40.2-dynres.1-0-gabcdef0",  # a point tag ADR 0032 cuts for a release build
+        "0.40.2-dynres.1-4-g377f9d1",  # production since 2026-10-13 23:39: the point tag + #487
+        "0.40.2-dynres.1-6-g9f3baaf",  # the v0.40.3 fold's head, measured here (#488)
+        "0.40.3-dynres-0-gabcdef0",    # the v0.40.3 fold: Go-only, the same payload (ADR 0032)
     )
     REJECT = (
         "0.35.0-dynres-0-g043f441",        # the previous payload: cuda-dynres-903 / mlx-cuda
         "0.40.2-dynres-0-g5623192-dirty",  # a dirty tree describes nothing
-        "0.40.3-dynres-0-gabcdef0",        # the next fold: measure first
+        "0.40.3-dynres-0-gabcdef0-dirty",  # nor does a dirty v0.40.3 tree
+        "0.40.4-dynres-0-gabcdef0",        # v0.40.4 moves llama.cpp to b11521: measure first
     )
 
     @classmethod
@@ -1771,7 +1775,8 @@ class TestCudaProfilesForTheV0402Fold(unittest.TestCase):
     def test_the_resolver_picks_these_profiles_and_keeps_0350_on_the_old_pair(self):
         import preflight
         for platform, new, old in (("cuda", "cuda-0-40-2", "cuda-dynres-903"), ("mlx-cuda", "mlx-cuda-0-40-2", "mlx-cuda")):
-            self.assertEqual(preflight.resolve_profile(self.exp, platform, "0.40.2-dynres-0-g5623192")[0], new)
+            for stamp in ("0.40.2-dynres-0-g5623192", "0.40.3-dynres-0-gabcdef0"):
+                self.assertEqual(preflight.resolve_profile(self.exp, platform, stamp)[0], new, stamp)
             self.assertEqual(preflight.resolve_profile(self.exp, platform, "0.35.0-dynres-0-g043f441")[0], old)
 
     def test_the_payload_pins(self):
