@@ -37,7 +37,7 @@
 >
 > | host | build | since | record |
 > |---|---|---|---|
-> | Apple Silicon, mlx-metal (`:11435`) | `0.40.2-dynres.1-0-g3960244`, both halves built at the point tag | 2026-10-13 22:01 | [#486](https://github.com/MaxusAI/ollama/pull/486) |
+> | Apple Silicon, mlx-metal (`:11435`) | `0.40.2-dynres.1-17-g75c6d35`, the same build as the CUDA host's: main `75c6d350`, a Go-only build on the point tag's payload | 2026-10-14 10:13 | [#486](https://github.com/MaxusAI/ollama/pull/486), this record |
 > | CUDA host, ai-server (`:11497`) | `0.40.2-dynres.1-17-g75c6d35`: the v0.40.3 fold ([#488](https://github.com/MaxusAI/ollama/pull/488)) on the point tag plus [#487](https://github.com/MaxusAI/ollama/pull/487), a Go-only build of main `75c6d350` (image `main-75c6d350`) | 2026-10-14 07:53 | [#487](https://github.com/MaxusAI/ollama/pull/487), [#488](https://github.com/MaxusAI/ollama/pull/488), [#492](https://github.com/MaxusAI/ollama/pull/492) |
 > | AMD gfx1151 | `v0.35.0-dynres`; the `v0.40.2-dynres.1` release build passes `rocm7-0-40-2`, and its deploy is scheduled after the [#477](https://github.com/MaxusAI/ollama/pull/477) campaign | 2026-10-01 | [#485](https://github.com/MaxusAI/ollama/pull/485) |
 > | H100 (CUDA) | `0.35.0-dynres-15-ga657392`, a build of `main` past the v0.35.0 tag | 2026-10-03 | [v0.35.0 record](docs/maxusai/tasks/upstream-sync-0.35.0.md) |
@@ -47,10 +47,12 @@
 > run the two-pass think+format flow (`OLLAMA_FORMAT_TWO_PASS=1`, [ADR 0045](docs/maxusai/adr/0045-think-format-single-pass-by-default-two-pass-in-production.md))
 > and set `OLLAMA_KV_CACHE_TYPE=f16` explicitly ([#387](https://github.com/MaxusAI/ollama/pull/387)). The ai-server
 > CUDA container and the Apple Silicon launchd agent also keep `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0` (ADR 0033). The
-> Apple Silicon agent still sets all three on v0.40.2-dynres.1, checked after the swap. The H100's settings are in its
+> Apple Silicon agent still sets all three on `0.40.2-dynres.1-17-g75c6d35`, checked after the swap. The H100's settings are in its
 > own record.
 >
-> On Apple Silicon, the point tag replaced `0.40.2-dynres-0-g5623192`. Before the swap, its build passed preflight, the
+> On Apple Silicon, `0.40.2-dynres.1-17-g75c6d35` replaced the point tag's build on 2026-10-14, binary only: its Go is
+> identical to #488's head, which passed the MLX tests and both Metal profiles, and it passed both profiles and the
+> deploy smoke again on the stage and on production. Before that, the point tag replaced `0.40.2-dynres-0-g5623192`. Before the swap, its build passed preflight, the
 > MLX tests with vision golden parity, and the two-pass, converted-GGUF and vision smoke, on a `:11437` stage serving
 > an APFS clone of production's store; preflight passed again on production after it. The v0.40.2 swap before it also
 > checked every GGUF model in the store, converted where v0.40.2 converts it, and a rollback to the outgoing build
@@ -75,13 +77,13 @@
 
      For v0.40.2-dynres.1 the table below is the verbatim output of
        release_matrix.py --version 0.40.2-dynres.1 \
-           runs/preflight-mlx-metal-0402-dynres1-prod-g3960244.json \
+           runs/preflight-mlx-metal-0403-prod-g75c6d35.json \
            runs/preflight-rocm7-0402-dynres1-release-g3960244.json \
            runs/preflight-cuda-0403-prod-g75c6d35.json \
            runs/preflight-mlx-cuda-0403-prod-g75c6d35.json
      The runs are listed by name because runs/ also holds #487's A/B runs and canaries, which are not release runs.
-     The CUDA host serves 0.40.2-dynres.1-17-g75c6d35 (main 75c6d350: the v0.40.3 fold on the point tag plus #487, Go
-     only); both of its rows are production's own runs on that build. The cuda row is the idle re-run
+     The CUDA and Apple Silicon hosts both serve 0.40.2-dynres.1-17-g75c6d35 (main 75c6d350: the v0.40.3 fold on the
+     point tag plus #487, Go only); their cuda, mlx-cuda and mlx-metal rows are production's own runs on that build. The cuda row is the idle re-run
      (preflight-cuda-0403-prod-g75c6d35.json); the first post-deploy run, -contended.json, failed gemma4's ladder and
      pinned budget by a constant +573 while a client's gemma4 q8 shared the GPU and capped image_max_tokens to n_ubatch. -->
 
@@ -89,7 +91,7 @@
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **cuda** | green | green | skipped | n/a | green | skipped | green | green | not run | skipped | green | `0.40.2-dynres.1-17-g75c6d35` |
 | **mlx-cuda** | skipped | green | skipped | n/a | green | skipped | skipped | skipped | not run | skipped | green | `0.40.2-dynres.1-17-g75c6d35` |
-| **mlx-metal** | skipped | green | skipped | green | green | green | skipped | green | skipped | skipped | green | `0.40.2-dynres.1-0-g3960244` |
+| **mlx-metal** | skipped | green | skipped | green | green | skipped | skipped | green | skipped | skipped | green | `0.40.2-dynres.1-17-g75c6d35` |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
 | **rocm7** | green | skipped | green | n/a | green | green | green | green | green | green | green | `0.40.2-dynres.1-0-g3960244` |
 | **rocm10** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
