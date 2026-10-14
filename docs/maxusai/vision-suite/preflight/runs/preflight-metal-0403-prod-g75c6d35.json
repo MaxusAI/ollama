@@ -1,0 +1,222 @@
+{
+  "meta": {
+    "host": "http://127.0.0.1:11435",
+    "platform": "metal",
+    "image_tag": null,
+    "started_utc": "20261014T001840",
+    "expectations_file": "expectations.toml",
+    "schema_version": 1,
+    "version": "0.40.2-dynres.1-17-g75c6d35",
+    "profile": "metal-0-40-2",
+    "patchset": [
+      "001",
+      "002",
+      "004",
+      "005",
+      "801",
+      "802",
+      "805",
+      "903",
+      "908"
+    ],
+    "container": null,
+    "llama_cpp_build": "631109b34"
+  },
+  "results": [
+    {
+      "check": "version",
+      "arch": null,
+      "status": "PASS",
+      "summary": "0.40.2-dynres.1-17-g75c6d35 matches profile metal-0-40-2",
+      "expected": "^0\\.40\\.[23]-dynres(\\.\\d+)?-\\d+-g[0-9a-f]{7,40}$",
+      "actual": "0.40.2-dynres.1-17-g75c6d35"
+    },
+    {
+      "check": "payload_pin",
+      "arch": null,
+      "status": "PASS",
+      "summary": "llama.cpp build 631109b34 matches the measured payload (resolved from the executable listening on :11435)",
+      "expected": "631109b34",
+      "actual": "631109b34"
+    },
+    {
+      "check": "toolchain_pin",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "profile records no toolchain_build to assert against",
+      "diagnosis": "Add toolchain_build (e.g. \"rocm-7.2.4\" or \"cuda-13.0\") so a ROCm/CUDA bump under an unchanged payload fails loudly instead of inheriting these expectations. Platforms with no such toolchain (metal, cpu) leave it unset and keep this skip; the MLX library is pinned separately by mlx_build."
+    },
+    {
+      "check": "image_tag",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "no container resolved (remote host?)"
+    },
+    {
+      "check": "go_patch_marker",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "no container resolved; cannot grep the binary",
+      "expected": 1
+    },
+    {
+      "check": "metal_tensor_host",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "profile records no expect_metal_tensor_api",
+      "diagnosis": "Add expect_metal_tensor_api to this profile so a host or payload that loses the M5 Neural Accelerators fails loudly instead of quietly serving at half the prefill. See docs/maxusai/m5-neural-accelerators.md."
+    },
+    {
+      "check": "metal_tensor_runtime",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "profile records no expect_metal_tensor_api",
+      "diagnosis": "Add expect_metal_tensor_api to this profile so a host or payload that loses the M5 Neural Accelerators fails loudly instead of quietly serving at half the prefill. See docs/maxusai/m5-neural-accelerators.md."
+    },
+    {
+      "check": "poison_probe",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "no poison-probe expectation recorded for this profile"
+    },
+    {
+      "check": "text_baseline",
+      "arch": "muse-glimmer",
+      "status": "PASS",
+      "summary": "in-image text prefix = 59 (calibrated on 256x144+512x288); text-only = 59",
+      "actual": 59
+    },
+    {
+      "check": "token_ladder",
+      "arch": "muse-glimmer",
+      "status": "PASS",
+      "summary": "5/5 geometries within +/-2",
+      "expected": {
+        "256x144": 47,
+        "512x288": 182,
+        "1024x576": 779,
+        "2048x1152": 2995,
+        "3072x1728": 4082
+      },
+      "actual": {
+        "256x144": 47,
+        "512x288": 182,
+        "1024x576": 779,
+        "2048x1152": 2995,
+        "3072x1728": 4082
+      },
+      "rows": [
+        {
+          "size": "256x144",
+          "expected": 47,
+          "actual": 47,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "512x288",
+          "expected": 182,
+          "actual": 182,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "1024x576",
+          "expected": 779,
+          "actual": 779,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "2048x1152",
+          "expected": 2995,
+          "actual": 2995,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        },
+        {
+          "size": "3072x1728",
+          "expected": 4082,
+          "actual": 4082,
+          "delta": 0,
+          "ok": true,
+          "queue_wait_s": 0.0
+        }
+      ],
+      "shape": "scaling",
+      "expected_shape": "dynamic"
+    },
+    {
+      "check": "payload_proof",
+      "arch": "muse-glimmer",
+      "status": "SKIP",
+      "summary": "no container resolved; cannot read the load log"
+    },
+    {
+      "check": "aspect_ladder",
+      "arch": "muse-glimmer",
+      "status": "SKIP",
+      "summary": "no aspect-ladder expectation recorded"
+    },
+    {
+      "check": "think_format",
+      "arch": "muse-glimmer",
+      "status": "PASS",
+      "summary": "valid JSON after thinking (507 tokens)",
+      "expected": "non-empty JSON response with think:true + format:json",
+      "actual": {
+        "response_chars": 449,
+        "thinking_chars": 1767,
+        "eval_count": 507
+      }
+    },
+    {
+      "check": "extraction_quality",
+      "arch": "muse-glimmer",
+      "status": "SKIP",
+      "summary": "no quality thresholds recorded for this arch"
+    },
+    {
+      "check": "pinned_image_token_budget",
+      "arch": "muse-glimmer",
+      "status": "SKIP",
+      "summary": "no pinned-budget expectation recorded for this arch",
+      "diagnosis": "Omitted deliberately: the 005 defect was found on nemotron and this arch's probe has not been measured. See README.md to add one."
+    },
+    {
+      "check": "metal_tensor_payload",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "profile records no expect_metal_tensor_api",
+      "diagnosis": "Add expect_metal_tensor_api to this profile so a host or payload that loses the M5 Neural Accelerators fails loudly instead of quietly serving at half the prefill. See docs/maxusai/m5-neural-accelerators.md."
+    },
+    {
+      "check": "mlx_payload_pin",
+      "arch": null,
+      "status": "SKIP",
+      "summary": "profile records no mlx_build to assert against",
+      "diagnosis": "Add mlx_build (the MLX_VERSION commit this profile was measured on) so an MLX bump fails loudly instead of inheriting stale expectations. Platforms with no MLX payload leave it unset and keep this skip."
+    },
+    {
+      "check": "endpoint_exclusive",
+      "arch": null,
+      "status": "PASS",
+      "summary": "no contention detected (worst queue wait 0.0s)",
+      "expected": "queue wait <= 10.0s",
+      "actual": "0.0s",
+      "models_loaded": [
+        "muse-glimmer:30b",
+        "muse-glimmer:30b-nvfp4",
+        "qwen3.8:27b-nvfp4"
+      ]
+    }
+  ],
+  "summary": {
+    "PASS": 6,
+    "SKIP": 12
+  }
+}
