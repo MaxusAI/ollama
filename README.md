@@ -39,7 +39,7 @@
 > |---|---|---|---|
 > | Apple Silicon, mlx-metal (`:11435`) | `0.40.2-dynres.1-17-g75c6d35`, the same build as the CUDA host's: main `75c6d350`, a Go-only build on the point tag's payload | 2026-10-14 10:13 | [#486](https://github.com/MaxusAI/ollama/pull/486), this record |
 > | CUDA host, ai-server (`:11497`) | `0.40.2-dynres.1-17-g75c6d35`: the v0.40.3 fold ([#488](https://github.com/MaxusAI/ollama/pull/488)) on the point tag plus [#487](https://github.com/MaxusAI/ollama/pull/487), a Go-only build of main `75c6d350` (image `main-75c6d350`) | 2026-10-14 07:53 | [#487](https://github.com/MaxusAI/ollama/pull/487), [#488](https://github.com/MaxusAI/ollama/pull/488), [#492](https://github.com/MaxusAI/ollama/pull/492) |
-> | AMD gfx1151 (`:11434`) | `0.40.2-dynres.1-0-g3960244`, a build at the point tag (image `0.40.2-dynres.1-rocm724-main-39602449`); preflight passes `rocm7-0-40-2` on the release image and on production | 2026-10-14 12:47 | [#485](https://github.com/MaxusAI/ollama/pull/485), [the 2026-10-14 decision](docs/maxusai/amd-upgrade-gate.md#decision-2026-10-14--0402-dynres1-promoted-the-payload-moves-to-b11351) |
+> | AMD gfx1151 (`:11434`) | `0.40.2-dynres.1-6-g9f3baaf`: the v0.40.3 fold ([#488](https://github.com/MaxusAI/ollama/pull/488)), a build of `9f3baafce`. Its Go equals main's, and it pauses v0.40.2's store migration. The point tag's build served 12:47–13:51. Preflight passes `rocm7-0-40-2` on production | 2026-10-14 13:51 | [#485](https://github.com/MaxusAI/ollama/pull/485), [the 2026-10-14 decision](docs/maxusai/amd-upgrade-gate.md#decision-2026-10-14--0402-dynres1-promoted-the-payload-moves-to-b11351) |
 > | H100 (CUDA) | `0.35.0-dynres-15-ga657392`, a build of `main` past the v0.35.0 tag | 2026-10-03 | [v0.35.0 record](docs/maxusai/tasks/upstream-sync-0.35.0.md) |
 >
 > The CUDA host serves [#487](https://github.com/MaxusAI/ollama/pull/487), merged after the point tag: without it, an MLX
@@ -78,7 +78,7 @@
      For v0.40.2-dynres.1 the table below is the verbatim output of
        release_matrix.py --version 0.40.2-dynres.1 \
            runs/preflight-mlx-metal-0403-prod-g75c6d35.json \
-           runs/preflight-rocm7-0402-dynres1-prod-g3960244.json \
+           runs/preflight-rocm7-0403-prod-g9f3baaf.json \
            runs/preflight-cuda-0403-prod-g75c6d35.json \
            runs/preflight-mlx-cuda-0403-prod-g75c6d35.json
      The runs are listed by name because runs/ also holds #487's A/B runs and canaries, which are not release runs.
@@ -86,8 +86,9 @@
      point tag plus #487, Go only); their cuda, mlx-cuda and mlx-metal rows are production's own runs on that build. The cuda row is the idle re-run
      (preflight-cuda-0403-prod-g75c6d35.json); the first post-deploy run, -contended.json, failed gemma4's ladder and
      pinned budget by a constant +573 while a client's gemma4 q8 shared the GPU and capped image_max_tokens to n_ubatch.
-     gfx1151 serves 0.40.2-dynres.1-0-g3960244 since 2026-10-14; its rocm7 row is production's own run on that build,
-     equal to the release image's run (-release-g3960244.json) in every row but the image tag. -->
+     gfx1151 serves 0.40.2-dynres.1-6-g9f3baaf (the #488 head, Go equal to main) since 2026-10-14 13:51; its rocm7 row
+     is production's own run on that build, equal in every measured value to the point tag's runs on production
+     (-prod-g3960244.json) and on the release image (-release-g3960244.json). -->
 
 | surface | Build identity | MLX build pin | Toolchain pin | M5 tensor path | Image size ladder | Aspect ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -95,7 +96,7 @@
 | **mlx-cuda** | skipped | green | skipped | n/a | green | skipped | skipped | skipped | not run | skipped | green | `0.40.2-dynres.1-17-g75c6d35` |
 | **mlx-metal** | skipped | green | skipped | green | green | skipped | skipped | green | skipped | skipped | green | `0.40.2-dynres.1-17-g75c6d35` |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
-| **rocm7** | green | skipped | green | n/a | green | green | green | green | green | green | green | `0.40.2-dynres.1-0-g3960244` |
+| **rocm7** | green | skipped | green | n/a | green | green | green | green | green | green | green | `0.40.2-dynres.1-6-g9f3baaf` |
 | **rocm10** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
 | **cpu** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
 
