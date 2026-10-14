@@ -810,7 +810,7 @@ of `main` at the point tag, tagged in production's naming.
 |---|---|
 | 1–2 | **As 2026-09-19.** Both overridden on evidence; nothing has changed upstream. |
 | 3. `--direct-io` | **Met by outcome, not re-run as an A/B.** The payload moved, so the 2026-09-28 dio-on/dio-off A/B (0/54 blocks differ) no longer carries over by identity. Every load used `--load-mode dio`: all 35 launches in #477's campaign and all 16 on the promoted container. Their outputs pass gate 5 and agree with CUDA's and Metal's in gate 6. A dio-off A/B on b11351 is open. |
-| 4. Vision A/B, ≥6 consecutive rows, 0 degenerate | **PASSED.** In #477's think-off cell, `qwen3.6:35b-a3b-q4_k_m` (`qwen35moe`) finishes all 27 tests with `stop` and valid JSON, and none is degenerate. Its prompt token counts match CUDA's and Metal's on every row. The run had a cold server per model. Across the nine models, the only rows that did not finish are glimmer's two `token repeat limit` stops. CUDA scores the same two rows 0. |
+| 4. Vision A/B, ≥6 consecutive rows, 0 degenerate | **PASSED.** In #477's think-off cell, `qwen3.6:35b-a3b-q4_k_m` (`qwen35moe`) finishes all 27 tests with `stop` and valid JSON, and none is degenerate. Its prompt token counts match CUDA's and Metal's on every row. The run had a cold server per model. Across the nine models, the only rows that did not finish are glimmer's two `token repeat limit` stops (`bboxm_free_noanc_pos`, `bbox_contract_box2d_1img`). CUDA does not loop on them: there both end with `stop` and score 0, 0 of 6 labels found. The score is the same and the way it fails is not. |
 | 5. `make proof` | **Waived — still does not exist.** |
 
 **How the host was confirmed idle.** As for 0.35.0: no model was loaded, and there was no POST request in the two
