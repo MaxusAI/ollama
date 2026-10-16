@@ -128,7 +128,15 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   `docs/maxusai/vision-suite/synthetic-triggers/README.md`.
 
 - `903-fix-mmq-ids-padding.patch` - **not a compatibility shim** (see "Number
-  bands" below). Since 2026-10-13 (MaxusAI/ollama#462) it is upstream's fix,
+  bands" below). **Guard-only since the v0.40.5 fold (b11669).** The pin now
+  contains llama.cpp#29953 itself (`fc9ce6b9d`), so the backported padding is
+  gone and 903 carries only the compile-time y-tile guard: the
+  `ggml_cuda_mmq_get_nbytes_y_tile()` helper, which sizes both the shared-memory
+  y tile and the src1 padding, and one `static_assert` per config table and type
+  that the helper covers the kernel's y load. Upstream has no such check. The
+  retirement gate's GPU half ("For the fork" in
+  `docs/maxusai/upstream-mmq-29953-material.md`) is still to run on b11669.
+  From 2026-10-13 (MaxusAI/ollama#462) to the v0.40.5 fold it was upstream's fix,
   llama.cpp#29953 as merged (`fc9ce6b9d`, 2026-10-08), backported to b11351, plus
   a compile-time y-tile guard. In `ggml/src/ggml-cuda/mmq.cu`, the tile is chosen
   once, at the launch's `prec_src1`, before allocating; `src1_q8_1` is then padded
