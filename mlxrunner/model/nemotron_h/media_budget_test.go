@@ -103,7 +103,10 @@ func TestPrepareMediaWithBudgetUnsetMatchesUpstream(t *testing.T) {
 		w, h := size[0], size[1]
 		data := pngOfSize(t, w, h)
 
-		gh, gw := nemotronImagePatchGrid(h, w, nemotronImagePatchBudget(cfg), cfg)
+		gh, gw, err := nemotronImagePatchGrid(h, w, nemotronImagePatchBudget(cfg), cfg)
+		if err != nil {
+			t.Fatalf("%dx%d: patch grid: %v", w, h, err)
+		}
 		want := []int{1, 3, gh * int(cfg.PatchSize), gw * int(cfg.PatchSize)}
 
 		// Unset is 0 (server/routes.go); gemma4's 70/1120 is an explicit request
@@ -157,7 +160,10 @@ func TestPrepareMediaWithBudgetHonoursTheRequest(t *testing.T) {
 	small := pngOfSize(t, 320, 240)
 	_, smallDefault := prepareOne(t, m, small, 0, 0)
 	raised, raisedTokens := prepareOne(t, m, small, 1024, 0)
-	gh, gw := nemotronImagePatchGrid(240, 320, nemotronImagePatchBudget(cfg), withMinNumPatches(cfg, 4096))
+	gh, gw, err := nemotronImagePatchGrid(240, 320, nemotronImagePatchBudget(cfg), withMinNumPatches(cfg, 4096))
+	if err != nil {
+		t.Fatalf("patch grid: %v", err)
+	}
 	if want := []int{1, 3, gh * 16, gw * 16}; !slices.Equal(raised.Dims, want) {
 		t.Fatalf("image_min_tokens=1024: dims %v, want %v", raised.Dims, want)
 	}

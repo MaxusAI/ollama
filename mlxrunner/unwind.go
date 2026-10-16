@@ -52,10 +52,7 @@ func guardClose(name string, close func()) {
 		close()
 		return
 	}
-	wrapped, ok := first.(*firstPanic)
-	if !ok {
-		wrapped = &firstPanic{value: first, stack: debug.Stack()}
-	}
+	wrapped := asFirstPanic(first)
 	func() {
 		defer func() {
 			if second := recover(); second != nil {
@@ -66,4 +63,14 @@ func guardClose(name string, close func()) {
 		close()
 	}()
 	panic(wrapped)
+}
+
+// asFirstPanic wraps a panic value once, capturing the stack while the frames of
+// the site that panicked are still live beneath the deferred caller. A value that
+// is already a *firstPanic passes through, so nested cleanups keep the first stack.
+func asFirstPanic(v any) *firstPanic {
+	if fp, ok := v.(*firstPanic); ok {
+		return fp
+	}
+	return &firstPanic{value: v, stack: debug.Stack()}
 }
