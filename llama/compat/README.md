@@ -134,8 +134,9 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   `ggml_cuda_mmq_get_nbytes_y_tile()` helper, which sizes both the shared-memory
   y tile and the src1 padding, and one `static_assert` per config table and type
   that the helper covers the kernel's y load. Upstream has no such check. The
-  retirement gate's GPU half ("For the fork" in
-  `docs/maxusai/upstream-mmq-29953-material.md`) is still to run on b11669.
+  padding's retirement gate ("For the fork" in
+  `docs/maxusai/upstream-mmq-29953-material.md`) passed on b11669 on sm_120a and
+  sm_75 (`docs/maxusai/tasks/upstream-sync-0.40.5.md`, "Gate 3").
   From 2026-10-13 (MaxusAI/ollama#462) to the v0.40.5 fold it was upstream's fix,
   llama.cpp#29953 as merged (`fc9ce6b9d`, 2026-10-08), backported to b11351, plus
   a compile-time y-tile guard. In `ggml/src/ggml-cuda/mmq.cu`, the tile is chosen

@@ -15,7 +15,7 @@ of `main` at `a4faff320` (#497), which carries the v0.40.3 fold (tag `v0.40.3-dy
 |---|---|
 | 1, the merge | **done**: `bd36fd015`, 5 conflicted files ("The conflicts and their resolution" below). `go build` and `go vet` are clean; `go test` passes 63 packages. The one failure, `cmd/launch` `TestCodexAppCountsOnlyOllamaRequestsInRegularProfile`, is an upstream flake: it also fails 1 of 3 runs on a clean v0.40.5 checkout |
 | 2, docs and paths | **clean**: `check_source_paths.py --changed-since origin/main` resolves every reference |
-| 3, the patch series | **done**: `8761533a6`. All nine patches apply in order to a clean b11669. 002 is re-anchored and 903 is cut to guard-only ("Gate 3" below) |
+| 3, the patch series | **done**: `8761533a6`. All nine patches apply in order to a clean b11669. 002 is re-anchored and 903 is cut to guard-only; 903's retirement gate passes on sm_120a and sm_75 ("Gate 3" below) |
 | no-GPU harness gates | **green**: `test_verdicts.py`, `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
 | 4, image | **building on CUDA**: `maxusai/ollama:sync-0.40.5-fold`, stamp `0.40.3-dynres-12-g8761533`. A full native build: all three pins move |
 | 5, preflight | not run. Every profile needs a new measurement, because the payloads move (ADR 0032) |
@@ -72,9 +72,19 @@ Applied in the applier's order to a clean b11669 with plain `git apply`:
 - **002 is still needed.** The compat layer, upstream's included (`llama-ollama-compat.cpp`), maps the
   `nemotron_h_omni` GGUFs that nemotron3 ships to the `nemotron_v2_vl` projector. b11669 still preprocesses that
   projector on a fixed canvas. Upstream's new `NEMOTRON_OMNI` path serves natively converted GGUFs.
-- **903's retirement gate is half done.** Step 1 (the series applies without the padding) passes. The guard's
-  `static_assert`s compile in the gate-4 image build (nvcc); hipcc is the ROCm host's. The GPU half (`ids16` and
-  `dense321` under guard pages, with the `J_best`-block positive control) is still to run on b11669.
+- **903's padding retires; the gate passes on CUDA.** The gate is "For the fork" in
+  `docs/maxusai/upstream-mmq-29953-material.md`:
+  - Step 1: the series applies without the padding.
+  - Step 3, on b11669 plus the fold's 805, 903 and 908 (`tasks/mmq-0405-gate.sh`, results in
+    `tasks/mmq-successor-results/gate-0405-sm*.tsv`):
+    - The tree passes every case in every mode on both GPUs: 3/3 under each guard page and on the stock pool, and 0
+      memcheck errors at exact allocation.
+    - The `J_best`-block src1 control faults 3/3 under `guard:src1` on `ids16` (sm_120a and sm_75) and on
+      `dense321` (sm_75).
+    - The no-padding `ids_dst` control faults 3/3 under `guard:ids_dst` on every MoE case.
+    - `j100_b0` and `j100_b1`'s src1 control faults 1 of 3 on sm_120a. That is a rate, so those rows are not
+      evidence there, as on #462.
+  - The guard's `static_assert`s compile in the gate-4 image build (nvcc); hipcc is the ROCm host's.
 - **Read, not yet measured:**
   - 908 applies around upstream's FA race fix (#30103) and whole-tile scheduling (#29435). Its loop-rate gate on
     gemma4:26b think-on must be re-measured.
@@ -85,5 +95,5 @@ Applied in the applier's order to a clean b11669 with plain `git apply`:
 ## Open
 
 - Gate 4 on CUDA, then gate 5 against new `-0-40-5` profiles on each platform, each host's own gate 6.
-- 903's GPU retirement gate, and 908's loop-rate gate, on b11669.
+- 908's loop-rate gate on b11669; hipcc for 903's guard (the ROCm host).
 - The Nemotron 3.5 models themselves: pull, load and a vision check on each engine they ship for.
