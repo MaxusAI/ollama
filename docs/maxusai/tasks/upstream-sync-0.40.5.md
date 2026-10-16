@@ -19,7 +19,7 @@ of `main` at `a4faff320` (#497), which carries the v0.40.3 fold (tag `v0.40.3-dy
 | no-GPU harness gates | **green**: `test_verdicts.py`, `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
 | 4, image | **built on CUDA**: `maxusai/ollama:sync-0.40.5-fold`, stamp `0.40.3-dynres-12-g8761533` (gate 3's commit), 4 h 07 min. A full native build: all three pins move |
 | 5, preflight | **CUDA: both pass** on the new `cuda-0-40-5` (PASS=20 SKIP=9) and `mlx-cuda-0-40-5` (PASS=11 SKIP=18), in a production-like canary (`--gpus all`): all six ladders byte-identical to the 0-40-2 rows, payload pins `620d2225c` and `bebd642`, 0 cudaMemcpy errors, 0 OOMs. Metal and ROCm: not run; each needs its own `-0-40-5` profile (ADR 0032) |
-| 6, campaigns | not run |
+| 6, campaigns | **CUDA:** 908's loop-rate gate and the gemma4 think-off cells ("908's loop-rate gate on b11669" below); Nemotron 3.5 smoke on both models (below). Metal and ROCm: each host's call |
 | tag and deploy | not cut, not deployed |
 
 ## Native inputs
@@ -92,6 +92,51 @@ Applied in the applier's order to a clean b11669 with plain `git apply`:
     `nemotron_v2_vl` graph passes a mask.
   - `mtmd-image.cpp`'s changes touch the llava-uhd and longest-edge preprocessors only, not `dyn_size`.
 
+## 908's loop-rate gate on b11669 (CUDA, 2026-10-17)
+
+The retirement register's gate, run by `tasks/loop908-0405.sh`. Two arms, one library apart: the fold image, and the
+same image with `libggml-cuda.so` built from the fold minus 908. Every other file in the `cuda_v13` payload was
+checked byte-identical before the swap. Each cell ran in a cold container on GPU0 with production's environment, and
+every launch, in both arms, used `-b 2048 -ub 2048`.
+
+| arm | gemma4:26b-a4b think-on, NOT CONVERGED at 131072 (of 27) |
+|---|---|
+| with 908 | 1: `bbox_contract_box2d_1img` |
+| without 908 (b11669's own tiling) | 2: `bboxm_pin_anc_pos`, `multi_3img_anchored` |
+
+- **908 stays.** The register retires it when the pin's own tiling matches 908's loop count, and 2 is not 1.
+- **The gap narrowed:** at b11081 it was 1 against 6. The arms loop on different tests, the familiar chaotic
+  greedy think-on, so read each arm as one draw.
+
+**Think off, against production's payload.** Production's cells are `c0402a_` from #477 (b11351, the payload
+`:11497` serves).
+- **gemma4:31b and 26b with 908:** all 27 rows identical to production's in every scored field, `eval_count`
+  included. Without 908, 15 and 14 rows differ.
+- **gemma4:e4b** moves in both arms: 24 of 27 rows differ from production with 908, 22 without.
+  - Every pass/fail check is unchanged.
+  - Scene IoU is 0.461 → 0.456 and 0.458.
+  - The document's `name_bbox` IoU rises from 0.419 to 0.697.
+- **`prompt_eval_count`** is identical on every row of all three models, so the image budgets did not move.
+- **Throughput was not measured.** These cells shared GPU0 with production's traffic, and the tok/s columns do not
+  follow the arm. 26b with 908 reproduces production's outputs byte for byte at 27 tok/s against 104. A quiet-GPU
+  run is needed before any throughput claim.
+
+## Nemotron 3.5 on the fold image (CUDA, 2026-10-17)
+
+`tasks/smoke-0405.sh`: the fold image, a production-like container, one text and one image request per model at
+`num_ctx` 8192, greedy, think off. The image is `preflight/ladderimgs/1024x576.png`, a 16x9 grid on a colour
+gradient.
+
+| model | weights | load | text | image request |
+|---|---|---|---|---|
+| `nemotron-3.5-bolt:74b-a9b` | IQ2_XXS GGUF, 24.8 GB | all 89 layers and the 6-layer projector on GPU | "ready" | 609 prompt tokens (24 text-only); the gradient grid and no text, but "10x10" and red in the wrong corner |
+| `nemotron-3.5-super:120b-a12b` | Q4_K_M GGUF, 90.2 GB | 84 GB of weights on GPU0 alone, KV 64 MiB at 8192 | "ready" | 609 prompt tokens; dark blue top-left and red top-right correct, no text |
+
+- **Both models load and see the image on this build.** Two requests are a smoke test, not a quality measurement;
+  the harness has no expectations for this architecture yet.
+- **The pulls went through upstream's stock v0.40.5 client** (`tasks/pull-0405-stock.sh`), for
+  the reason under "Open".
+
 ## Open
 
 - Gate 5 on Metal and gfx1151 against their own `-0-40-5` profiles; each host's own gate 6.
@@ -99,5 +144,6 @@ Applied in the applier's order to a clean b11669 with plain `git apply`:
   `checkPullRequires`, and the registry's User-Agent check), and `0.40.3-dynres-N` is below v0.40.5. Neither runs at
   load, so the CUDA host pulled with upstream's stock v0.40.5 client into the same store. A `v0.40.5-dynres` tag
   makes a fork build pull them itself.
-- 908's loop-rate gate on b11669; hipcc for 903's guard (the ROCm host).
+- hipcc for 903's guard (the ROCm host).
+- A quiet-GPU throughput run on CUDA, and vision-suite cells for the Nemotron 3.5 models.
 - The Nemotron 3.5 models themselves: pull, load and a vision check on each engine they ship for.
