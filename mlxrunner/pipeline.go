@@ -160,6 +160,18 @@ func (w promptWindow) fit(tokens []int32, media bool, req CompletionRequest) ([]
 // The runner serializes requests today so we just use a fixed slot ID.
 const pipelineSlot = 0
 
+// skipCleanupOnPanic keeps a backend failure from being replaced by cleanup
+// that evaluates or saves partially updated cache state.
+//
+// Fork: the re-raised panic is wrapped once as a *firstPanic (unwind.go), so the
+// log and the client error still carry the stack of the site that failed.
+func skipCleanupOnPanic(cleanup func()) {
+	if failure := recover(); failure != nil {
+		panic(asFirstPanic(failure))
+	}
+	cleanup()
+}
+
 func (r *Runner) TextGenerationPipeline(ctx context.Context, request Request) (err error) {
 	mlx.ResetPeakMemory()
 	mlx.Scoped(func() { err = r.generate(ctx, request) })
@@ -182,16 +194,16 @@ func (r *Runner) generate(ctx context.Context, request Request) error {
 	inputs := request.Tokens
 
 	session := r.cache.begin(inputs, request.MediaItems)
-	defer guardClose("prefix-cache session", session.close)
+	defer skipCleanupOnPanic(session.close)
 	caches := session.caches
 
 	media := r.openMedia(request)
-	defer guardClose("request media", media.close)
+	defer skipCleanupOnPanic(media.close)
 
 	// Built before prefill so a drafter with draft caches follows the prompt
 	// through prefill alongside the target.
 	spec := r.spec.open(request, media.rowLayout())
-	defer guardClose("speculation session", spec.close)
+	defer skipCleanupOnPanic(spec.close)
 
 	seed, position, promptEval, err := r.prefill(ctx, session, spec, media)
 	if err != nil {
@@ -213,7 +225,7 @@ func (r *Runner) generate(ctx context.Context, request Request) error {
 	} else {
 		d = r.pipelinedDecoder(nil, caches, seed.ExpandDims(-1), position, media.rowLayout(), grammar)
 	}
-	defer guardClose("decoder", d.close)
+	defer skipCleanupOnPanic(d.close)
 	return r.decode(ctx, request, session, d, promptEval)
 }
 
@@ -330,12 +342,12 @@ type decoder interface {
 // not streamed or counted.
 func (r *Runner) decode(ctx context.Context, request Request, session *cacheSession, d decoder, promptEval time.Duration) error {
 	// A sampled-but-undelivered result is still a produced token; record it.
-	defer func() {
+	defer skipCleanupOnPanic(func() {
 		results, _, _ := d.drain()
 		for _, res := range results {
 			session.outputs = append(session.outputs, res.Token.Int())
 		}
-	}()
+	})
 
 	detok := detokenizer{
 		tokenizer:       r.Tokenizer,
