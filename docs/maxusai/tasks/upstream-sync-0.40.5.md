@@ -17,8 +17,8 @@ of `main` at `a4faff320` (#497), which carries the v0.40.3 fold (tag `v0.40.3-dy
 | 2, docs and paths | **clean**: `check_source_paths.py --changed-since origin/main` resolves every reference |
 | 3, the patch series | **done**: `8761533a6`. All nine patches apply in order to a clean b11669. 002 is re-anchored and 903 is cut to guard-only; 903's retirement gate passes on sm_120a and sm_75 ("Gate 3" below) |
 | no-GPU harness gates | **green**: `test_verdicts.py`, `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
-| 4, image | **building on CUDA**: `maxusai/ollama:sync-0.40.5-fold`, stamp `0.40.3-dynres-12-g8761533`. A full native build: all three pins move |
-| 5, preflight | not run. Every profile needs a new measurement, because the payloads move (ADR 0032) |
+| 4, image | **built on CUDA**: `maxusai/ollama:sync-0.40.5-fold`, stamp `0.40.3-dynres-12-g8761533` (gate 3's commit), 4 h 07 min. A full native build: all three pins move |
+| 5, preflight | **CUDA: both pass** on the new `cuda-0-40-5` (PASS=20 SKIP=9) and `mlx-cuda-0-40-5` (PASS=11 SKIP=18), in a production-like canary (`--gpus all`): all six ladders byte-identical to the 0-40-2 rows, payload pins `620d2225c` and `bebd642`, 0 cudaMemcpy errors, 0 OOMs. Metal and ROCm: not run; each needs its own `-0-40-5` profile (ADR 0032) |
 | 6, campaigns | not run |
 | tag and deploy | not cut, not deployed |
 
@@ -94,6 +94,10 @@ Applied in the applier's order to a clean b11669 with plain `git apply`:
 
 ## Open
 
-- Gate 4 on CUDA, then gate 5 against new `-0-40-5` profiles on each platform, each host's own gate 6.
+- Gate 5 on Metal and gfx1151 against their own `-0-40-5` profiles; each host's own gate 6.
+- **The interim stamp cannot pull Nemotron 3.5.** Both library gates read the version string (`server/images.go`
+  `checkPullRequires`, and the registry's User-Agent check), and `0.40.3-dynres-N` is below v0.40.5. Neither runs at
+  load, so the CUDA host pulled with upstream's stock v0.40.5 client into the same store. A `v0.40.5-dynres` tag
+  makes a fork build pull them itself.
 - 908's loop-rate gate on b11669; hipcc for 903's guard (the ROCm host).
 - The Nemotron 3.5 models themselves: pull, load and a vision check on each engine they ship for.

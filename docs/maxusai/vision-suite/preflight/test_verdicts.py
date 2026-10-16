@@ -1796,6 +1796,70 @@ class TestCudaProfilesForTheV0402Fold(unittest.TestCase):
                 self.assertEqual(new[arch]["ladder"], old[arch]["ladder"], f"{pid} {arch}")
 
 
+class TestCudaProfilesForTheV0405Fold(unittest.TestCase):
+    """ADR 0011 and ADR 0032 on the CUDA host. The v0.40.5 fold (#498) moves llama.cpp b11351 -> b11669 and MLX
+    a59cc231 -> bebd6422, so CUDA builds of the v0.40.5-dynres lineage get cuda-0-40-5 and mlx-cuda-0-40-5, measured
+    on the fold image 0.40.3-dynres-12-g8761533 (sm_120a) through a run-local expectations copy.
+
+    The fold's interim stamps (0.40.3-dynres-N) cannot be told from v0.40.3 builds by version alone, so the 0-40-2
+    pair keeps them; payload_pin is what stops a b11669 build from passing there.
+    """
+
+    PROFILES = ("cuda-0-40-5", "mlx-cuda-0-40-5")
+    PREDECESSOR = {"cuda-0-40-5": "cuda-0-40-2", "mlx-cuda-0-40-5": "mlx-cuda-0-40-2"}
+    ADMIT = (
+        "0.40.5-dynres-0-gabcdef0",    # a v0.40.5-dynres tag
+        "0.40.5-dynres-3-g1234567",    # main past it
+        "0.40.5-dynres.1-0-gabcdef0",  # a point tag (ADR 0032)
+    )
+    REJECT = (
+        "0.40.3-dynres-12-g8761533",       # the fold's interim build: cuda-0-40-2 claims it
+        "0.40.2-dynres.1-17-g75c6d35",     # production on the v0.40.3 fold: the b11351 payload
+        "0.40.5-dynres-0-gabcdef0-dirty",  # a dirty tree describes nothing
+        "0.40.6-dynres-0-gabcdef0",        # the next upstream release: measure first
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_pattern(self):
+        for pid in self.PROFILES:
+            pat = re.compile(self.exp["profiles"][pid]["version_pattern"])
+            for stamp in self.ADMIT:
+                self.assertRegex(stamp, pat, f"{pid} must admit {stamp}")
+            for stamp in self.REJECT:
+                self.assertNotRegex(stamp, pat, f"{pid} must reject {stamp}")
+
+    def test_the_pair_shares_one_pattern(self):
+        pats = {pid: self.exp["profiles"][pid]["version_pattern"] for pid in self.PROFILES}
+        self.assertEqual(len(set(pats.values())), 1, f"the 0.40.5 CUDA pair drifted: {pats}")
+
+    def test_the_resolver_picks_these_profiles_and_keeps_0403_on_the_old_pair(self):
+        import preflight
+        for platform, new, old in (("cuda", "cuda-0-40-5", "cuda-0-40-2"), ("mlx-cuda", "mlx-cuda-0-40-5", "mlx-cuda-0-40-2")):
+            self.assertEqual(preflight.resolve_profile(self.exp, platform, "0.40.5-dynres-0-gabcdef0")[0], new)
+            for stamp in ("0.40.3-dynres-12-g8761533", "0.40.2-dynres.1-17-g75c6d35"):
+                self.assertEqual(preflight.resolve_profile(self.exp, platform, stamp)[0], old, stamp)
+
+    def test_the_payload_pins(self):
+        self.assertEqual(self.exp["profiles"]["cuda-0-40-5"]["llama_cpp_build"], "620d2225c")
+        for pid in self.PROFILES:
+            self.assertEqual(self.exp["profiles"][pid]["mlx_build"], "bebd6422f8db88d56e6220520a35bcd146f823f8")
+
+    def test_nemotron_keeps_no_custom_bounds(self):
+        self.assertNotIn("custom_bounds", self.exp["expect"]["cuda-0-40-5"]["nemotron_h_omni"])
+
+    def test_ladders_equal_the_previous_payloads(self):
+        """Measured, and byte-identical to the predecessors': a split is a finding, not a typo to align."""
+        for pid in self.PROFILES:
+            new, old = self.exp["expect"][pid], self.exp["expect"][self.PREDECESSOR[pid]]
+            self.assertEqual(sorted(new), sorted(old), pid)
+            for arch in new:
+                self.assertEqual(new[arch]["ladder"], old[arch]["ladder"], f"{pid} {arch}")
+                self.assertEqual(new[arch]["measured_on"], "2026-10-16", f"{pid} {arch}")
+
 class TestRocm7ProfileForTheV0402Fold(unittest.TestCase):
     """ADR 0011 and ADR 0032 on gfx1151. The v0.40.2 fold (#460) moves llama.cpp b11081 -> b11351, so its builds get
     their own profile, rocm7-0-40-2, measured on 0.40.2-dynres-1-g9e80e78 (the tag plus #475, which ROCm needs to
