@@ -289,6 +289,40 @@ class TestMainLoop(ImageTest):
             self.run_main([item("q0", FRESH)], lambda *a, **k: sent.append(a), self.image)
         self.assertEqual(sent, [])
 
+    def _profile(self, doc):
+        path = os.path.join(self.tmp.name, "host-profile_t.json")
+        with open(path, "w") as f:
+            json.dump(doc, f)
+        return path
+
+    def test_the_summary_records_the_machine_from_its_host_profile(self):
+        # H26: `host` is the URL the client called; only the profile names the machine,
+        # and the machine moves seconds per item.
+        path = self._profile({
+            "schema": "host-profile/1", "label": "gcp-a3-highgpu-1g/cuda",
+            "cloud": {"provider": "gcp", "machine_type": "a3-highgpu-1g"},
+            "gpus": [{"name": "NVIDIA H100 80GB HBM3", "memory_total_mib": 81559}]})
+        rows = [item("q0", FRESH)]
+        with mock.patch.dict(os.environ, {"HOST_PROFILE": path}):
+            self.run_main(rows, lambda *a, **k: {"response": "a"}, self.image)
+        self.assertEqual(self.results("ext_t_ocrbench.json")["summary"]["hardware"], {
+            "host_profile": "host-profile_t.json", "label": "gcp-a3-highgpu-1g/cuda",
+            "gpus": ["NVIDIA H100 80GB HBM3"], "gpu_memory_mib": [81559],
+            "cloud_machine_type": "a3-highgpu-1g"})
+        with mock.patch.dict(os.environ):
+            os.environ.pop("HOST_PROFILE", None)
+            self.run_main(rows, lambda *a, **k: {"response": "a"}, self.image)
+        self.assertIsNone(self.results("ext_t_ocrbench.json")["summary"]["hardware"])
+
+    def test_a_host_profile_it_cannot_read_stops_the_arm_before_a_request(self):
+        sent = []
+        for path in (self._profile({"schema": "something-else"}),
+                     os.path.join(self.tmp.name, "no-such-profile.json")):
+            with self.subTest(path=os.path.basename(path)), \
+                 mock.patch.dict(os.environ, {"HOST_PROFILE": path}), self.assertRaises(SystemExit):
+                self.run_main([item("q0", FRESH)], lambda *a, **k: sent.append(a), self.image)
+        self.assertEqual(sent, [])
+
     def test_sigterm_ends_the_arm_like_an_interrupt(self):
         with self.assertRaises(SystemExit) as stop:
             extbench.stop_on_sigterm(15, None)
