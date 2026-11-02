@@ -11,6 +11,9 @@ const (
 	gemma4RendererLegacy = "gemma4"
 	gemma4RendererSmall  = "gemma4-small"
 	gemma4RendererLarge  = "gemma4-large"
+	// gemma4RendererNemotron is upstream's opt-in variant (RENDERER gemma4-nemotron, f52b9e742): assistant content
+	// before its tool calls. Auto-detection never picks it, but it is still a gemma4 model on the fork's media path.
+	gemma4RendererNemotron = "gemma4-nemotron"
 
 	// Gemma 4 small templates cover the e2b/e4b family, while 12b/26b/31b use
 	// the large template. Default to the small prompt unless the model is
@@ -107,7 +110,7 @@ func parseHumanParameterCount(s string) (uint64, bool) {
 // server/model_list.go still needs it.
 func isGemma4Renderer(renderer string) bool {
 	switch renderer {
-	case gemma4RendererLegacy, gemma4RendererSmall, gemma4RendererLarge:
+	case gemma4RendererLegacy, gemma4RendererSmall, gemma4RendererLarge, gemma4RendererNemotron:
 		return true
 	default:
 		return false

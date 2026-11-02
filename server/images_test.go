@@ -1107,6 +1107,18 @@ func TestModelCapabilities(t *testing.T) {
 			expectedCaps: []model.Capability{model.CapabilityVision},
 		},
 		{
+			name: "gemma4-nemotron safetensors keeps vision, suppresses audio",
+			model: Model{
+				Config: model.ConfigV2{
+					ModelFormat:  "safetensors",
+					Renderer:     gemma4RendererNemotron,
+					Capabilities: []string{"vision", "audio"},
+				},
+				Template: chatTemplate,
+			},
+			expectedCaps: []model.Capability{model.CapabilityVision},
+		},
+		{
 			name: "default gemma4 safetensors keeps vision, suppresses audio",
 			model: Model{
 				Config: model.ConfigV2{
