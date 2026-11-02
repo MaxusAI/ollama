@@ -282,14 +282,18 @@ func (m *Model) PrepareMedia(segments []model.Segment) (*model.PreparedRequest, 
 func (m *Model) pixelBudget(minTokens, maxTokens int) (minPixels, maxPixels float64) {
 	perToken := float64(m.Vision.PatchSize*m.Vision.SpatialMergeSize) * float64(m.Vision.PatchSize*m.Vision.SpatialMergeSize)
 	minPixels, maxPixels = float64(visionMinPixels), float64(visionMaxPixels)
-	if m.VisionMaxPixels > 0 {
-		maxPixels = float64(m.VisionMaxPixels)
-	}
 	if minTokens > 0 {
 		minPixels = float64(minTokens) * perToken
 	}
 	if maxTokens > 0 {
 		maxPixels = float64(maxTokens) * perToken
+	}
+	// A checkpoint's own cap (VisionMaxPixels, upstream 8be580ad0: the decision models, trained at 1.64 MP) is a
+	// ceiling, not a default: a request budget can lower it but never raise it, and min_tokens cannot push the
+	// floor above it.
+	if m.VisionMaxPixels > 0 {
+		maxPixels = min(maxPixels, float64(m.VisionMaxPixels))
+		minPixels = min(minPixels, maxPixels)
 	}
 	return minPixels, maxPixels
 }

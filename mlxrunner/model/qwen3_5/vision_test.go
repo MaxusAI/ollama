@@ -50,6 +50,32 @@ func TestSmartResize(t *testing.T) {
 	}
 }
 
+func TestPixelBudgetKeepsTheCheckpointCap(t *testing.T) {
+	// 16x16 patches merged 2x2: 1,024 pixels per token.
+	vision := &VisionConfig{PatchSize: 16, SpatialMergeSize: 2}
+	decider := &Model{Vision: vision, VisionMaxPixels: 1638400}
+	family := &Model{Vision: vision}
+	cases := []struct {
+		name              string
+		m                 *Model
+		minTokens, maxTok int
+		wantMin, wantMax  float64
+	}{
+		{"decider, no budget: the checkpoint cap", decider, 0, 0, visionMinPixels, 1638400},
+		{"decider, a larger request budget cannot raise it", decider, 0, 16384, visionMinPixels, 1638400},
+		{"decider, a smaller request budget lowers it", decider, 0, 1024, visionMinPixels, 1024 * 1024},
+		{"decider, min_tokens cannot push the floor over the cap", decider, 4096, 16384, 1638400, 1638400},
+		{"family, no budget: the family default", family, 0, 0, visionMinPixels, visionMaxPixels},
+		{"family, a request budget replaces the default", family, 0, 16384, visionMinPixels, 16384 * 1024},
+	}
+	for _, c := range cases {
+		gotMin, gotMax := c.m.pixelBudget(c.minTokens, c.maxTok)
+		if gotMin != c.wantMin || gotMax != c.wantMax {
+			t.Errorf("%s: pixelBudget(%d, %d) = (%v, %v), want (%v, %v)", c.name, c.minTokens, c.maxTok, gotMin, gotMax, c.wantMin, c.wantMax)
+		}
+	}
+}
+
 func TestParseMultimodalConfig(t *testing.T) {
 	mm, err := parseMultimodalConfig([]byte(`{
 		"image_token_id": 248056, "vision_start_token_id": 248053, "vision_end_token_id": 248054,

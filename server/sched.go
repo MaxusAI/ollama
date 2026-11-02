@@ -826,8 +826,11 @@ iGPUScan:
 			// answers its status probe, which is after the load; refresh the
 			// recorded rung now so needsReload compares against what is served
 			// (refMu is still held by this goroutine).
+			// Under logMu too: LogValue reads Options under logMu alone.
 			if served := llama.ContextLength(); served > 0 {
+				runner.logMu.Lock()
 				runner.Options.NumCtx = served
+				runner.logMu.Unlock()
 			}
 		}
 		runner.refCount++
@@ -1691,8 +1694,8 @@ func (s *Scheduler) waitForVRAMRecovery(runner *runnerRef, runners []ml.Filtered
 }
 
 // LogValue may run from goroutines that already hold refMu (see the scheduler
-// debug logs), so the unload-mutable fields are read only under TryLock and
-// omitted when the lock is contended.
+// debug logs), so the unload-mutable fields are read under logMu, the leaf lock
+// unload clears them under, never under refMu.
 func (runner *runnerRef) LogValue() slog.Value {
 	if runner == nil {
 		return slog.StringValue("nil")

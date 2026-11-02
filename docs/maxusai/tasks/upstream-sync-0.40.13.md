@@ -24,9 +24,9 @@ fold, #498, at `529db8646`. #498 was unmerged when this fold started, and its he
 |---|---|
 | 1, the merge | **done**: `88529ea2e`, 11 conflicted files, 18 hunks (below). `go build`, `go vet` and `go test ./...` pass in `golang:1.26` (go1.26.10). The MLX tests skip without libmlx, so they say nothing about MLX |
 | 2, docs and paths | **clean**: `check_source_paths.py --changed-since 529db8646` resolves every reference |
-| 3, the patch series | **done**: `c32183d9d`. All ten patches, upstream's `002-metal` included, apply in order to a clean b11963. 004 and 903 are re-cut. 903 compiles for sm_75 and sm_120a, and its guard fires on a mutation in all 10 tables. The GPU half of 903's gate (guard pages) has not been run on b11963 |
+| 3, the patch series | **done**: `c32183d9d`. All ten patches, upstream's `002-metal` included, apply in order to a clean b11963. 004 and 903 are re-cut. 903 compiles for sm_75 and sm_120a, and its guard fires on a mutation in all 10 tables; on gfx1151 (hipcc, ROCm 7.2.4) the same mutation fails in all 10 tables, `rdna3_5` included (#501). The GPU half of 903's gate (guard pages) has not been run on b11963 |
 | no-GPU harness gates | **green**: `test_verdicts.py` (269), `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
-| 4, image | **building** on CUDA: `maxusai/ollama:sync-0.40.13-fold`, stamp `0.40.3-dynres-20-g81dda7d`. A full native build: all three pins move |
+| 4, image | **building** on CUDA: `maxusai/ollama:sync-0.40.13-fold`, stamp `0.40.3-dynres-20-g81dda7d`. A full native build: all three pins move. It predates the review fixes below (Go only: the qwen3_5 cap, a `logMu` write) |
 | 5, preflight | not run; needs `cuda-0-40-13` and `mlx-cuda-0-40-13` profiles (ADR 0032) |
 | 6, campaigns | not run. See "What the gates must re-measure" |
 | tag and deploy | not cut, not deployed |
@@ -65,7 +65,7 @@ fold, #498, at `529db8646`. #498 was unmerged when this fold started, and its he
 | `mlxrunner/model/gemma4/process_image.go` | d44c25819 (modify/delete) | stays deleted: D1-A sizes through `llm.BudgetFillSize` (ADR 0021). Upstream's round-up for the compact towers (E2B, E4B) is not taken; it applies to neither 12b, 26b nor 31b |
 | gemma4 `media_test.go` (3), `vision_test.go` (1) | d44c25819 | the fork's |
 | gemma4 `vision.go` | 66ab8482e (SDPA gains a window) | the fork's attention, passing `mlx.FastSDPANoWindow` |
-| `mlxrunner/model/qwen3_5/process_image.go` (3) | 8be580ad0 (config `VisionMaxPixels`) | the fork's `smartResizeBounded`; `smartResize(..., maxPixels)` wraps it; `pixelBudget` defaults to `VisionMaxPixels` when set. Without that default, pplx-decider, d1 and d3 would get the 16.7 MP default with no conflict marker |
+| `mlxrunner/model/qwen3_5/process_image.go` (3) | 8be580ad0 (config `VisionMaxPixels`) | the fork's `smartResizeBounded`; `smartResize(..., maxPixels)` wraps it. `pixelBudget` treats `VisionMaxPixels` as a ceiling: a request budget can lower it, never raise it, and `min_tokens` cannot push the floor over it (`TestPixelBudgetKeepsTheCheckpointCap`). Without that, pplx-decider and d3 would get the 16.7 MP default with no conflict marker; d1 is not qwen3_5 and caps itself (`lfm3.CapImagePixels`) |
 | `mlxrunner/speculate.go` | 2506f851e (DFlash2 fixed depth) | both: `limit = capped(scheduled)`, and for a BlockSelector `limit = capped(dflash2Depth)` with `fixedDepth`. Whether DFlash2 tolerates a `draft_num_predict` below 7 is not verified |
 | `server/sched.go` (3) | 52f168120 (`runnerRef.model` is an `atomic.Pointer`) | `unload` stores nil under `logMu`. `needsReload` reads `loaded := runner.model.Load()` and keeps the fork's two MLX num_ctx clauses on it. `LogValue` keeps the fork's `logMu` read. The fork-only post-load MLX refresh uses `Load()` |
 | `server/sched_test.go` | 52f168120 | upstream's, with the fork's `runnerRef{model: …}` literals converted (and one in `routes_mlx_numctx_test.go`) |
@@ -79,6 +79,19 @@ Merged without a marker, and checked:
   `-b/-ub` launch (ADR 0036).
 - ROCm: upstream changed nothing in its ROCm stages, CMake presets or `envconfig`, so `Dockerfile.rocm` (ADR 0042)
   needs nothing beyond #500.
+
+## Review of the merge
+
+Two reviews, one on this host and one on the ROCm host (#501), found no bug introduced by the merge:
+- `sched.go`: every `runner.model` access is a `Load()`/`Store()`, nil is handled, and upstream's other changes in 52f168120 are kept.
+- `speculate.go`: a cap below 7 on a DFlash2 draft is safe. Upstream already drafts shorter blocks near the end of `num_predict`, and every shape follows the block length.
+- gemma4: the DFlash taps are reachable after the fork's `Forward`.
+
+Fixed after review (`server/sched.go`, `mlxrunner/model/qwen3_5/vision.go`):
+- The qwen3_5 cap above, which a request budget could bypass. It is latent today, because the decision models score through `PrepareMedia` with no budget.
+- A pre-existing fork race: the post-load MLX served-context write to `Options.NumCtx` held `refMu` only, while `LogValue` reads `Options` under `logMu`. It now takes `logMu`.
+
+Not covered by a test: a capped request on a selector draft (`maxLimit=3` should give `limit 3` with `fixedDepth`). The natural home is next to upstream's `TestSelectorDraftKeepsFixedDepth`, which is mlxtest and skips without libmlx.
 
 ## Gate 3: the patch series at b11963
 
