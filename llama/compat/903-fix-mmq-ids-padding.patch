@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
-index 46efdfe0f..df4d2357f 100644
+index 4af4f36e8..cb841378e 100644
 --- a/ggml/src/ggml-cuda/mmq.cu
 +++ b/ggml/src/ggml-cuda/mmq.cu
 @@ -4,6 +4,7 @@
@@ -10,7 +10,27 @@ index 46efdfe0f..df4d2357f 100644
  
  static void ggml_cuda_mul_mat_q_switch_type(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream, const ggml_prec prec_src1) {
      switch (args.type_x) {
-@@ -186,8 +187,8 @@ void ggml_cuda_mul_mat_q(
+@@ -134,7 +135,7 @@ static ggml_prec ggml_cuda_mmq_get_prec_src1(const ggml_tensor * src0, const ggm
+ // Tile width in ne11 (dense) / ne12 (MoE) direction with the fewest tiles that fits into shared memory, 0 if there is none.
+ static int ggml_cuda_mmq_get_J_best(
+         const ggml_type type, const int64_t ncols, const bool fallback, const int cc, const size_t smpbo, const ggml_prec prec_src1,
+-        int * nthreads_best = nullptr) {
++        size_t * nbytes_y_tile_best = nullptr) {
+     int J_best        = 0;
+     int ntiles_J_best = INT_MAX;
+ 
+@@ -152,8 +153,8 @@ static int ggml_cuda_mmq_get_J_best(
+ 
+         if (ntiles_x < ntiles_J_best) {
+             J_best = J;
+-            if (nthreads_best) {
+-                *nthreads_best = config.nthreads;
++            if (nbytes_y_tile_best) {
++                *nbytes_y_tile_best = ggml_cuda_mmq_get_nbytes_y_tile(config);
+             }
+             ntiles_J_best = ntiles_x;
+         }
+@@ -232,8 +233,8 @@ void ggml_cuda_mul_mat_q(
      const size_t y_block_size       = use_native_fp4 ? sizeof(block_fp4_mmq) : sizeof(block_q8_1_mmq);
      const size_t y_values_per_block = use_native_fp4 ? QK_FP4_MMQ            : QK8_1_MMQ;
  
@@ -21,16 +41,13 @@ index 46efdfe0f..df4d2357f 100644
      {
          int64_t ncols_opt = ne11;
          if (ids) {
-@@ -217,7 +218,7 @@ void ggml_cuda_mul_mat_q(
- 
-             if (ntiles_x < ntiles_J_best) {
-                 J_best = J;
--                nthreads_best = config.nthreads;
-+                nbytes_y_tile_best = ggml_cuda_mmq_get_nbytes_y_tile(config);
-                 ntiles_J_best = ntiles_x;
+@@ -247,15 +248,15 @@ void ggml_cuda_mul_mat_q(
              }
          }
-@@ -225,10 +226,9 @@ void ggml_cuda_mul_mat_q(
+ 
+-        J_best = ggml_cuda_mmq_get_J_best(src0->type, ncols_opt, fallback, cc, smpbo, prec_src1, &nthreads_best);
++        J_best = ggml_cuda_mmq_get_J_best(src0->type, ncols_opt, fallback, cc, smpbo, prec_src1, &nbytes_y_tile_best);
+     }
      GGML_ASSERT(J_best > 0);
  
      // A tile of size J can read in at most J - 1 extra columns.
@@ -39,14 +56,15 @@ index 46efdfe0f..df4d2357f 100644
 -    const size_t src1_q8_1_padding = ((J_best * sizeof(block_q8_1_mmq) + src1_load_chunk_size - 1) / src1_load_chunk_size)
 -        * src1_load_chunk_size;
 +    // Its y load copies the whole padded shared-memory y tile, so pad by that tile: the same helper sizes it in
-+    // mmq_get_nbytes_shared(), so the padding cannot drift from what the kernel reads.
++    // mmq_get_nbytes_shared(), so the padding cannot drift from what the kernel reads. The dense, MoE and fused
++    // gate/up paths all allocate src1 with this padding.
 +    const size_t src1_q8_1_padding = nbytes_y_tile_best;
  
      if (!ids) {
          const size_t nbytes_src1_q8_1 = ne13*ne12 * ne11*ne10_padded * y_block_size/y_values_per_block + src1_q8_1_padding;
-@@ -485,3 +485,58 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t
- 
-     return (!GGML_CUDA_CC_IS_CDNA(cc)) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;
+@@ -531,3 +532,58 @@ bool ggml_cuda_mmq_fusion_is_efficient(const ggml_type type, const int64_t nrows
+     const int64_t tiles_efficiency_percent = 100 * ntiles / (nsm*tiles_nwaves);
+     return tiles_efficiency_percent >= 90;
  }
 +
 +// Compile-time guard on the y tile: for every config table and type, ggml_cuda_mmq_get_nbytes_y_tile() -- which
@@ -104,11 +122,11 @@ index 46efdfe0f..df4d2357f 100644
 +#undef GGML_CUDA_MMQ_Y_TILE_GUARD_ON
 +#endif // GGML_CUDA_MMQ_Y_TILE_GUARD_ON
 diff --git a/ggml/src/ggml-cuda/mmq.cuh b/ggml/src/ggml-cuda/mmq.cuh
-index 33449f905..db898cc3b 100644
+index 565ed1481..be82709ac 100644
 --- a/ggml/src/ggml-cuda/mmq.cuh
 +++ b/ggml/src/ggml-cuda/mmq.cuh
-@@ -1385,11 +1385,17 @@ struct mmq_args {
-     int J_best; // Tile width in ne11(dense)/ne12(MoE) direction to use for optimal performance.
+@@ -1437,11 +1437,17 @@ struct mmq_args {
+     ggml_cuda_mm_fusion_args_device fusion = {}; // gate != nullptr selects the fused gate/up/GLU path
  };
  
 +// The bytes of src1 that one tile's y load copies, starting at the tile's first column. The load in
@@ -126,4 +144,4 @@ index 33449f905..db898cc3b 100644
 +    return nbs_ids + nbs_x + ggml_cuda_mmq_get_nbytes_y_tile(config);
  }
  
- template <ggml_type type, int J, bool fallback, ggml_prec prec_src1>
+ template <ggml_type type, int J, bool fallback, ggml_prec prec_src1, bool has_fusion>

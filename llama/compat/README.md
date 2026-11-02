@@ -38,6 +38,14 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   `docs/maxusai/gemma4-bbox-investigation-findings.md`. Makes
   `--image-min-tokens` a no-op for gemma4.
 
+  **Re-cut for b11963 (the v0.40.13 fold).** llama.cpp `f711c8f30` (#30736)
+  moved the dyn_size sizing into the static
+  `mtmd_image_preprocessor_dyn_size::get_target_size()`, behind a virtual
+  `target_size()`, and added `image_round_half_even` next to 004's field. The
+  budget-fill branch now sits in `get_target_size()`, so every caller of the
+  dyn_size target size, not only `preprocess`, sees the gemma4 grid. The
+  changed lines are otherwise those of the b11669 cut.
+
   **Upstream converging on 70/1120 is not redundancy (checked 2026-09-18, at
   b10864).** llama.cpp moved its own gemma4 defaults from
   `set_limit_image_tokens(40, 280)` to `(70, 1120)` at b10864 — exactly the
@@ -137,6 +145,13 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
   padding's retirement gate ("For the fork" in
   `docs/maxusai/upstream-mmq-29953-material.md`) passed on b11669 on sm_120a and
   sm_75 (`docs/maxusai/tasks/upstream-sync-0.40.5.md`, "Gate 3").
+  **Re-cut for b11963 (the v0.40.13 fold).** llama.cpp `c49edf096` (#29948)
+  moved the tile choice into `ggml_cuda_mmq_get_J_best()`, which reported
+  `nthreads` through an out-parameter. That parameter now reports the chosen
+  config's `ggml_cuda_mmq_get_nbytes_y_tile()` instead, and `src1_q8_1_padding`
+  is that value. It equals upstream's `GGML_PAD(J*sizeof(block_q8_1_mmq),
+  nthreads*sizeof(int))`, so the allocation is unchanged. The dense, MoE and
+  fused gate/up paths all pad src1 with it. Upstream still has no guard.
   From 2026-10-13 (MaxusAI/ollama#462) to the v0.40.5 fold it was upstream's fix,
   llama.cpp#29953 as merged (`fc9ce6b9d`, 2026-10-08), backported to b11351, plus
   a compile-time y-tile guard. In `ggml/src/ggml-cuda/mmq.cu`, the tile is chosen
@@ -398,8 +413,9 @@ fixed set of files:
 | `002-llama-cpp-nemotron-dynres.patch` | `tools/mtmd/clip.cpp`, `tools/mtmd/models/nemotron-v2-vl.cpp`, `tools/mtmd/mtmd.cpp` |
 | `models/003-llama-cpp-laguna-metal.patch` | `src/models/laguna.cpp` |
 | `004-llama-cpp-gemma4-budget-fill.patch` | `tools/mtmd/clip-model.h`, `tools/mtmd/clip.cpp`, `tools/mtmd/mtmd-image.cpp` |
+| `002-metal-unary-cast-constexpr.patch` (upstream's, 04088e7c9; sorts after the fork's 002) | `ggml/src/ggml-metal/kernels/unary.metal` |
 | `005-llama-cpp-dynres-pinned-overshoot.patch` | `tools/mtmd/mtmd-image.cpp` |
-| `903-fix-mmq-ids-padding.patch` | `ggml/src/ggml-cuda/mmq.cu` |
+| `903-fix-mmq-ids-padding.patch` | `ggml/src/ggml-cuda/mmq.cu`, `ggml/src/ggml-cuda/mmq.cuh` |
 
 Clone at the pinned tag **with history** — `git apply --3way` needs the
 pre-image blobs, and against a `--depth 1` clone it fails with "repository
