@@ -38,8 +38,8 @@ func (p preparedImage) numTokens(merge int32) int32 {
 
 // smartResize ports the reference resize rule: round each side to the patch
 // factor, then scale into the pixel budget, preserving aspect ratio.
-func smartResize(height, width, factor int32) (int32, int32, error) {
-	return smartResizeBounded(height, width, factor, visionMinPixels, visionMaxPixels)
+func smartResize(height, width, factor, maxPixels int32) (int32, int32, error) {
+	return smartResizeBounded(height, width, factor, visionMinPixels, float64(maxPixels))
 }
 
 // smartResizeBounded is smartResize with the pixel bounds supplied, so a

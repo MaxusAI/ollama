@@ -175,13 +175,12 @@ func TestSchedNeedsReloadMLXExplicitNumCtxOverAutomatic(t *testing.T) {
 	opts := api.DefaultOptions()
 	opts.NumCtx = 32768
 	mlxModel := &Model{Config: model.ConfigV2{ModelFormat: "safetensors"}}
-	runner := &runnerRef{
-		model:       mlxModel,
+	runner := withModel(&runnerRef{
 		Options:     &opts,
 		llama:       &mockLlm{vramByGPU: map[ml.DeviceID]uint64{}},
 		numParallel: 1,
 		numCtxAuto:  true,
-	}
+	}, mlxModel)
 	req := &LlmRequest{model: mlxModel, opts: api.DefaultOptions()}
 	req.opts.NumCtx = 32768
 

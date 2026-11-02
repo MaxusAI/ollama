@@ -282,6 +282,9 @@ func (m *Model) PrepareMedia(segments []model.Segment) (*model.PreparedRequest, 
 func (m *Model) pixelBudget(minTokens, maxTokens int) (minPixels, maxPixels float64) {
 	perToken := float64(m.Vision.PatchSize*m.Vision.SpatialMergeSize) * float64(m.Vision.PatchSize*m.Vision.SpatialMergeSize)
 	minPixels, maxPixels = float64(visionMinPixels), float64(visionMaxPixels)
+	if m.VisionMaxPixels > 0 {
+		maxPixels = float64(m.VisionMaxPixels)
+	}
 	if minTokens > 0 {
 		minPixels = float64(minTokens) * perToken
 	}
@@ -420,7 +423,7 @@ func (m *Model) EncodeMedia(item *model.PreparedItem, data *mlx.Array) *mlx.Arra
 		k = applyVisionRoPE(k, cos, sin)
 
 		// Fully bidirectional over the single image.
-		out := mlx.FastScaledDotProductAttention(q, k, val, scale, "", nil)
+		out := mlx.FastScaledDotProductAttention(q, k, val, scale, mlx.FastSDPANoWindow, "", nil)
 		out = mlx.Reshape(mlx.Transpose(out, 0, 2, 1, 3), 1, n, v.HiddenSize)
 		h = mlx.Add(h, blk.Proj.Forward(out))
 
