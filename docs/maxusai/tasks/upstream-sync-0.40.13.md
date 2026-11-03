@@ -24,7 +24,7 @@ fold, #498, at `529db8646`. #498 was unmerged when this fold started, and its he
 |---|---|
 | 1, the merge | **done**: `88529ea2e`, 11 conflicted files, 18 hunks (below). `go build`, `go vet` and `go test ./...` pass in `golang:1.26` (go1.26.10). The MLX tests skip without libmlx, so they say nothing about MLX |
 | 2, docs and paths | **clean**: `check_source_paths.py --changed-since 529db8646` resolves every reference |
-| 3, the patch series | **done**: `c32183d9d`. All ten patches, upstream's `002-metal` included, apply in order to a clean b11963. 004 and 903 are re-cut. 903 compiles for sm_75 and sm_120a, and its guard fires on a mutation in all 10 tables; on gfx1151 (hipcc, ROCm 7.2.4) the same mutation fails in all 10 tables, `rdna3_5` included (#501). The GPU half of 903's gate (guard pages) has not been run on b11963 |
+| 3, the patch series | **done**: `c32183d9d`. All ten patches, upstream's `002-metal` included, apply in order to a clean b11963. 004 and 903 are re-cut. 903 compiles for sm_75 and sm_120a, and its guard fires on a mutation in all 10 tables; on gfx1151 (hipcc, ROCm 7.2.4) the same mutation fails in all 10 tables, `rdna3_5` included (#501). 903's guard-page gate (`tasks/mmq-0413-gate.sh`) **passes on sm_75**: every pass is backed by a faulting control. b11963's fused gate/up MMQ path is covered by three new cases, and its ids_dst control faults there. sm_120 waits for GPU0 (below) |
 | no-GPU harness gates | **green**: `test_verdicts.py` (269), `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
 | 4, image | **building** on CUDA: `maxusai/ollama:sync-0.40.13-fold`, stamp `0.40.3-dynres-20-g81dda7d`. A full native build: all three pins move. It predates the review fixes below (Go only: the qwen3_5 cap, a `logMu` write) |
 | 5, preflight | not run; needs `cuda-0-40-13` and `mlx-cuda-0-40-13` profiles (ADR 0032) |
@@ -115,6 +115,21 @@ The tree from the re-cuts and the tree from applying the committed patches are b
 |---|---|---|
 | sm_75 | compiles | fails on the guard's `static_assert`, all 10 tables named, 0 syntax errors |
 | sm_120a | compiles | the same |
+
+**903's guard-page gate on b11963, sm_75** (GPU1, RTX 2080 Ti; `tasks/mmq-0413-gate.sh`, results
+`tasks/mmq-successor-results/gate-0413-sm75.tsv`):
+- Variants: `pr462` (the branch), `pr462jb` (src1 padded by J_best blocks) and `pr462ids0` (no ids_dst padding). Each mutation applies exactly once, and the build asserts it. The debug-allocator rewrite is re-anchored on c49edf096's `prec_src1 = gate ? ...` line.
+- New cases: three of b11963's own `MUL_MAT_VEC_FUSION` cases (`fu_dense17`, `fu_id17b`, `fu_id2048`). An `MMQ_FUSED` debug print confirms each reaches the fused MMQ kernel.
+
+| case | pr462, all modes (3 runs each; exact 1, memcheck 0 errors) | jb control, guard:src1 | ids0 control, guard:ids_dst |
+|---|---|---|---|
+| dense321 | pass | **faults 3/3** | n/a (no ids_dst) |
+| ids16 | pass | **faults 3/3** | **faults 3/3** |
+| fu_dense17 | pass | passes (J_best padding already covers it) | n/a |
+| fu_id17b | pass | passes (this routing does not reach the worst case) | **faults 3/3** |
+| fu_id2048 | pass | passes (128 blocks vs 127 needed) | **faults 3/3** |
+
+Evidence: src1 on dense321 and ids16; ids_dst on ids16, fu_id17b and fu_id2048. That matches the v0.40.5 result. The fused src1 rows are not evidence, because their control passes too. sm_120 (GPU0) is not run yet: it shares GPU0 with production and the canary, and runs after the canary with `SM=120 GPU=0 JOBS=4 nice -n 15 ./mmq-0413-gate.sh`.
 
 Still open upstream, so carried: the qwen2/2.5-VL fp16 overflow (ollama#18070), and the image chunk vs ubatch
 assert (llama.cpp #28954 capped `image_max_tokens` to `n_ubatch` before b11669, but the assert remains, so ADR 0036's
