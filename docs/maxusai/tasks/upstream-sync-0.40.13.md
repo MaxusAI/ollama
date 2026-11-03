@@ -26,9 +26,9 @@ fold, #498, at `529db8646`. #498 was unmerged when this fold started, and its he
 | 2, docs and paths | **clean**: `check_source_paths.py --changed-since 529db8646` resolves every reference |
 | 3, the patch series | **done**: `c32183d9d`. All ten patches, upstream's `002-metal` included, apply in order to a clean b11963. 004 and 903 are re-cut. 903 compiles for sm_75 and sm_120a, and its guard fires on a mutation in all 10 tables; on gfx1151 (hipcc, ROCm 7.2.4) the same mutation fails in all 10 tables, `rdna3_5` included (#501). 903's guard-page gate (`tasks/mmq-0413-gate.sh`) **passes on sm_75**: every pass is backed by a faulting control. b11963's fused gate/up MMQ path is covered by three new cases, and its ids_dst control faults there. sm_120 waits for GPU0 (below) |
 | no-GPU harness gates | **green**: `test_verdicts.py` (269), `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
-| 4, image | **building** on CUDA: `maxusai/ollama:sync-0.40.13-fold`, stamp `0.40.3-dynres-20-g81dda7d`. A full native build: all three pins move. It predates the review fixes below (Go only: the qwen3_5 cap, a `logMu` write) |
-| 5, preflight | not run; needs `cuda-0-40-13` and `mlx-cuda-0-40-13` profiles (ADR 0032) |
-| 6, campaigns | not run. See "What the gates must re-measure" |
+| 4, image | **building** on CUDA: `maxusai/ollama:sync-0.40.13-fold`, stamp `0.40.3-dynres-20-g81dda7d`. A full native build: all three pins move. It predates the review fixes below (Go only: the qwen3_5 cap, a `logMu` write). **gfx1151: built**, `maxusai-ollama:0.40.3-dynres-21-g833a5d2-rocm7-gfx1151`, llama-server `39febd2ad` |
+| 5, preflight | CUDA: not run; needs `cuda-0-40-13` and `mlx-cuda-0-40-13` profiles (ADR 0032). **gfx1151: passes** on the new `rocm7-0-40-13` (PASS=27 SKIP=5); all 24 ladder values equal the b11669 and b11351 rows ("gfx1151" below) |
+| 6, campaigns | CUDA: not run. See "What the gates must re-measure". **gfx1151:** think-off on four models against b11669; nemotron3's move is the payload's, split by two hybrid images ("gfx1151" below) |
 | tag and deploy | not cut, not deployed |
 
 ## Native inputs
@@ -168,9 +168,50 @@ All still carried; none of the retirement conditions is met:
 
 The fork's RPATH/quadmath hunk in `cmake/mlx/CMakeLists.txt` is the one that converged.
 
+## gfx1151 (ROCm host, 2026-11-03)
+
+The image is `maxusai-ollama:0.40.3-dynres-21-g833a5d2-rocm7-gfx1151`: #501 at `833a5d25f`, built with
+`Dockerfile.rocm` on `rocm/dev-ubuntu-24.04:7.2.4-complete`, llama-server `39febd2ad`. Later commits change Go on the
+MLX and scheduler paths and docs only. The method is the v0.40.5 record's "gfx1151" section: a canary in production's
+environment, on a hard-linked clone of production's store, with each model as production serves it.
+
+- **Gate 5, `rocm7-0-40-13`.** `measure_ladder.py` and `aspect_measure.py` give all 24 values and the three prefixes
+  identical to `rocm7-0-40-5`'s, so to b11351's too.
+  - f711c8f30 moves no qwen35 token count at these geometries.
+  - 004, re-cut into `get_target_size()`, still fills gemma4 to the budget.
+  - Preflight `--quality`: VERDICT PASS, PASS=27 SKIP=5 (`preflight/runs/preflight-rocm7-0413-canary-g833a5d2.json`),
+    with `payload_pin` `39febd2ad`, the pinned budgets, `think_format`, the quality floors at 1.00 and the poison canary.
+- **903 under hipcc.** See gate 3 above: the mutation fails on the guard's `static_assert` in all six AMD tables.
+- **Gate 6, think-off against b11669** (`r0405a_`, #502), with the same suite tree and settings. The fold's cells are
+  `r0413a_`, all at `-b 2048`. Prompt token counts are identical in every cell, and every arm finishes all 27 cases
+  with `stop`.
+
+| model | cells moving, b11669 -> b11963 | quality moves (favour b11963 : b11669 : neutral) |
+|---|---|---|
+| nemotron3:33b-q4_K_M | 84 of 1010 | **8 : 32 : 17** |
+| gemma4:26b-a4b-it-q4_K_M | 44 of 1007 | 2 : 4 : 1 |
+| gemma4:31b-it-q4_K_M | 38 of 1013 | 7 : 0 : 1 |
+| qwen3.8:27b-q4_K_M | 78 of 1005 | 29 : 9 : 10 |
+
+- **qwen3.8 gains** (29:9), as f711c8f30's Qwen-VL geometry would predict. gemma4:31b gains too (7:0), and its
+  `bbox_contract_pinned` now follows the contract. gemma4:26b moves both ways; that row flips back to `yxyx` there.
+- **nemotron3 loses most of its moves (8:32).** 45 of its 84 cells are three free-format arms (`bboxm_free_anc_named`,
+  `bboxm_free_anc_pos` and `bboxm_free_noanc_named`). On b11963 these answer with each box nested under a `bbox_2d`
+  object. The coordinates are close to b11669's, but the scorer finds 0 of 6 boxes where it found 6. The rest are
+  small IoU moves on anchored and scene cases, some up and some down.
+- **The nemotron move is the payload's, not the fold's Go.** Two hybrid images were built from the two fold images,
+  and each ran the same nemotron cell:
+  - this fold's Go on the b11669 payload (`r0413hA_`): **0 of 1009 cells** differ from b11669's;
+  - the v0.40.5 fold's Go on the b11963 payload (`r0413hB_`): **0 of 1010 cells** differ from this fold's.
+- **Not yet bisected inside b11669..b11963.** The candidates are the grammar rewrite (48c9f08b7), which the
+  structured-output arms pass through, and the mtmd changes nemotron_v2_vl shares (`build_inp_attn_mask`, the
+  f16-mask assert in `build_attn`). A cell is not a verdict on the model: nemotron3's boxes are right in the nested
+  answers, and the loss is how the answer is laid out. Think-on was not run.
+
 ## Open
 
-- Gates 4-6 on CUDA; Metal and ROCm each on their own host, with their own `-0-40-13` profiles.
+- Gates 4-6 on CUDA and Metal, each with its own `-0-40-13` profiles. gfx1151's are above.
+- nemotron3's structured-output move on b11963 (gfx1151 section): bisect within b11669..b11963, and check it on CUDA.
 - 903's guard-page gate (GPU) on b11963.
 - Tag: `v0.40.13-dynres` after the gates. Until it is cut, the build stamps `0.40.3-dynres-N`, and models that
   require v0.40.5 or newer refuse to pull (pull with the stock upstream client; see the v0.40.5 record).
