@@ -170,6 +170,32 @@ batch sizing stays).
   tail estimator.
 - **908's loop-rate gate** again on b11963: gemma4:26b-a4b think-on on the full ladder, with and without 908.
 
+## nemotron3's structured-output move on CUDA (2026-11-03)
+
+gfx1151's gate 6 found nemotron3 think-off moving 8:32 against b11669 (#503). Its hybrid images put the move on the
+payload, and its format bisect found the three free-frame `bboxm_free_*` arms shape-unstable. One cell closed early
+under `json` on b11963: `bboxm_free_anc_pos`, 83 tokens.
+
+The same probe on CUDA (`tasks/fmtprobe-0413.py`, `tasks/fmtprobe-0413.sh`):
+- the v0.40.5 fold's Go on both payloads: `sync-0.40.5-fold` (b11669) and the v0.40.13 image with that Go binary (b11963);
+- a fresh container each, GPU0 only, production's env, `-b 1024`;
+- the suite's own requests, greedy, think off, `num_ctx` 8192, `json` then no format.
+
+| arm | `json`: b11669 | `json`: b11963 | no format: b11669 | no format: b11963 |
+|---|---|---|---|---|
+| `bboxm_pin_anc_named` (control) | 462, flat | 462, flat | 463, flat | 463, flat |
+| `bboxm_free_anc_named` | 786, flat | 651, **nested** | 652, **nested** | 652, nested (byte-identical) |
+| `bboxm_free_anc_pos` | 553, flat | **553, flat** | 554, flat | 554, flat |
+| `bboxm_free_noanc_named` | 514, flat | 514, flat | 515, flat | 515, flat |
+
+- **No early close on CUDA.** `bboxm_free_anc_pos` under `json` on b11963 answers in full (553 tokens, as on b11669). So
+  gfx1151's 83-token close is not a backend-independent effect of the grammar rewrite (48c9f08b7).
+- **b11669 nests too.** On CUDA, b11669 with no format produces the nested `bbox_2d` shape that gfx1151's b11963 suite
+  cell showed. The nested-vs-flat choice on `bboxm_free_anc_named` flips with backend, payload and format. It is the
+  arm's instability, as gfx1151 concluded, not a regression of b11963.
+- Token counts agree across payloads in 7 of 8 cells. The texts differ in all but one, so the payloads are close
+  numerically and not identical.
+
 ## Fork rows checked against v0.40.13 (retirement register)
 
 All still carried; none of the retirement conditions is met:
