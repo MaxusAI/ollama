@@ -28,7 +28,7 @@ fold, #498, at `529db8646`. #498 was unmerged when this fold started, and its he
 | no-GPU harness gates | **green**: `test_verdicts.py` (269), `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
 | 4, image | **built on CUDA**: `maxusai/ollama:sync-0.40.13-fold`, stamp `0.40.3-dynres-20-g81dda7d`, 4 h 16 min (a full native build: all three pins move; host load 30-116 from other jobs); llama-server `39febd2ad`. It predates the review fixes below (Go only: the qwen3_5 cap, a `logMu` write). **gfx1151: built**, `maxusai-ollama:0.40.3-dynres-21-g833a5d2-rocm7-gfx1151`, llama-server `39febd2ad` |
 | 5, preflight | **CUDA: both pass** on the new `cuda-0-40-13` (PASS=20 SKIP=9) and `mlx-cuda-0-40-13` (PASS=11 SKIP=18), in a production-like canary (`--gpus all`): all six ladders byte-identical to the 0-40-5 rows, payload pins `39febd2ad` and `065ec46`, 0 cudaMemcpy errors, 0 OOMs (`runs/preflight-*-0413-canary-g81dda7d.json`). **gfx1151: passes** on the new `rocm7-0-40-13` (PASS=27 SKIP=5); all 24 ladder values equal the b11669 and b11351 rows ("gfx1151" below) |
-| 6, campaigns | CUDA: not run. See "What the gates must re-measure". **gfx1151:** think-off on four models against b11669; nemotron3's move is the payload's, split by two hybrid images ("gfx1151" below) |
+| 6, campaigns | **CUDA: 908's loop-rate gate** on b11963: 3 vs 3 loops with and without 908, and think-off no longer favours 908 ("908's loop-rate gate on b11963" below); nemotron3's format probe (below). The other think-off cells are not run. **gfx1151:** think-off on four models against b11669; nemotron3's move is the payload's, split by two hybrid images ("gfx1151" below) |
 | tag and deploy | not cut, not deployed |
 
 ## Native inputs
@@ -169,6 +169,37 @@ batch sizing stays).
 - **MLX on CUDA:** gemma4 decode (head_dim 256 vector SDPA) and sliding-window prefill. Pin `num_ctx` and use a
   tail estimator.
 - **908's loop-rate gate** again on b11963: gemma4:26b-a4b think-on on the full ladder, with and without 908.
+
+## 908's loop-rate gate on b11963 (CUDA, 2026-11-03/04)
+
+`tasks/loop908-0413.sh`, on the maintainer's word ("go ahead with the 908 gate"):
+- **The arms:** the fold image (with 908) against the same image with `libggml-cuda.so` rebuilt from `81dda7d30` minus 908. That library is the only file in `cuda_v13` that differs; the new shared-library layout changed nothing there.
+- **Setup:** a cold container per model on GPU0, production's env, `-b 2048 -ub 2048` throughout.
+
+**Think-on, gemma4:26b-a4b, the full ladder to 131072.** Every capped test is a repetition loop (`loop_detect`: the deduplicated trace is 2-4% of the raw one):
+
+| arm | not converged at 131072 |
+|---|---|
+| with 908 (`l0413w_`) | `scene_single_anchored`, `multi_3img_anchored`, `bbox_contract_adv_norm1` |
+| without 908 (`l0413n_`) | `multi_3img_anchored`, `bbox_contract_adv_real`, `bbox_contract_adv_norm1` |
+
+**3 against 3.** The history of the gate: b11081 1 vs 6 (sm_120), b11669 1 vs 2, b11963 3 vs 3. The script's summary
+line counts NOT CONVERGED lines (one per ladder), not tests, and printed "1 / 1"; the table above counts tests.
+
+**Think-off, `cmp_scored.py`,** quality moves read as favouring with 908 : without 908. Each cell is a single greedy run, so treat these as moves along one numerical path, not as rates:
+
+| model | with vs without 908, b11963 | with 908, b11669 vs b11963 |
+|---|---|---|
+| gemma4:31b | 5 : 5 | b11669 6 : 3 |
+| gemma4:26b-a4b | 0 : 6 (all in `bbox_contract_perobject`: with 908 it switches to y-first and drops the contract, IoU 0.05 vs 0.97) | b11669 8 : 3 |
+| gemma4:e4b | 11 : 29, across 16 tests | b11669 21 : 10 |
+
+**Reading.**
+- 908's retirement condition is met on b11963: the pin's own tiling loops no more often than 908's.
+- On think-off, 908 is neutral on 31b and behind on 26b and e4b.
+- At b11669, 908 kept the 31b and 26b think-off cells byte-identical to production. On b11963 they move even with 908, so the payload moves gemma4 regardless (fused MMQ gate/up, the GELU switch).
+- The think-on loop count rose with the payload: 1 to 3 with 908.
+- Greedy GGUF on CUDA repeats byte for byte (the H100 campaign), so a plain repeat would reproduce these numbers. A sampled think-on rate (`THINK_TEMPERATURE`, n >= 3 on the five looping tests) is the check that would add evidence.
 
 ## nemotron3's structured-output move on CUDA (2026-11-03)
 
