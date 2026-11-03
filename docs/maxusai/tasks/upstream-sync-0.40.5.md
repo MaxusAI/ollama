@@ -17,9 +17,9 @@ of `main` at `a4faff320` (#497), which carries the v0.40.3 fold (tag `v0.40.3-dy
 | 2, docs and paths | **clean**: `check_source_paths.py --changed-since origin/main` resolves every reference |
 | 3, the patch series | **done**: `8761533a6`. All nine patches apply in order to a clean b11669. 002 is re-anchored and 903 is cut to guard-only; 903's retirement gate passes on sm_120a and sm_75 ("Gate 3" below) |
 | no-GPU harness gates | **green**: `test_verdicts.py`, `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
-| 4, image | **built on CUDA**: `maxusai/ollama:sync-0.40.5-fold`, stamp `0.40.3-dynres-12-g8761533` (gate 3's commit), 4 h 07 min. A full native build: all three pins move |
-| 5, preflight | **CUDA: both pass** on the new `cuda-0-40-5` (PASS=20 SKIP=9) and `mlx-cuda-0-40-5` (PASS=11 SKIP=18), in a production-like canary (`--gpus all`): all six ladders byte-identical to the 0-40-2 rows, payload pins `620d2225c` and `bebd642`, 0 cudaMemcpy errors, 0 OOMs. Metal and ROCm: not run; each needs its own `-0-40-5` profile (ADR 0032) |
-| 6, campaigns | **CUDA:** 908's loop-rate gate and the gemma4 think-off cells ("908's loop-rate gate on b11669" below); Nemotron 3.5 smoke on both models (below). Metal and ROCm: each host's call |
+| 4, image | **built on CUDA**: `maxusai/ollama:sync-0.40.5-fold`, stamp `0.40.3-dynres-12-g8761533` (gate 3's commit), 4 h 07 min. A full native build: all three pins move. **gfx1151**: `maxusai-ollama:0.40.3-dynres-17-g3a80cc3-rocm7-gfx1151`, after #500 (`Dockerfile.rocm` without the `llama/clef` copies); llama-server `620d2225c`, hipcc compiles 903's guard |
+| 5, preflight | **CUDA: both pass** on the new `cuda-0-40-5` (PASS=20 SKIP=9) and `mlx-cuda-0-40-5` (PASS=11 SKIP=18), in a production-like canary (`--gpus all`): all six ladders byte-identical to the 0-40-2 rows, payload pins `620d2225c` and `bebd642`, 0 cudaMemcpy errors, 0 OOMs. **gfx1151: passes** on the new `rocm7-0-40-5` (PASS=27 SKIP=5, the release run's shape), all 24 ladder values byte-identical to `rocm7-0-40-2`'s ("gfx1151" below). Metal: not run; it needs its own `-0-40-5` profiles (ADR 0032) |
+| 6, campaigns | **CUDA:** 908's loop-rate gate and the gemma4 think-off cells ("908's loop-rate gate on b11669" below); Nemotron 3.5 smoke on both models (below). **gfx1151:** think-off cells on four models against b11351, with a same-day b11351 control ("gfx1151" below). Metal: the host's call |
 | tag and deploy | not cut, not deployed |
 
 ## Native inputs
@@ -137,13 +137,53 @@ gradient.
 - **The pulls went through upstream's stock v0.40.5 client** (`tasks/pull-0405-stock.sh`), for
   the reason under "Open".
 
+## gfx1151 (ROCm host, 2026-11-03)
+
+The image is `maxusai-ollama:0.40.3-dynres-17-g3a80cc3-rocm7-gfx1151`: #498's head plus #500, built with
+`Dockerfile.rocm` on `rocm/dev-ubuntu-24.04:7.2.4-complete`, llama-server `620d2225c`. Every run used a canary in
+production's environment (f16 KV, flash attention on, two-pass, two slots) on a hard-linked clone of production's
+store. v0.40.5 keeps the migration paused, so each model ran as production serves it: gemma4:31b, nemotron3 q4 and
+qwen2.5vl as the llamacpp children the 0.40.2-dynres.1 deploy converted, qwen3.8 as it is, and gemma4:26b as a child
+converted in the clone by the 0.40.2-dynres.1 image, as in the baseline.
+
+- **Gate 5, `rocm7-0-40-5`.** `measure_ladder.py` and `aspect_measure.py`: all 24 values and the three prefixes equal
+  `rocm7-0-40-2`'s, so 002 (re-anchored) and 004 behave as on b11351. Preflight `--quality`: VERDICT PASS, PASS=27
+  SKIP=5 (`preflight/runs/preflight-rocm7-0405-canary-g3a80cc3.json`). That includes nemotron pinned 3328 -> 3270,
+  gemma4 pinned 560 -> 529, think_format on all three arches, the quality floors at 1.00 and the poison canary. The
+  run read a run-local copy of `expectations.toml` that retires `rocm7-0-40-2`'s claim on the interim stamp, as the
+  CUDA canary did.
+- **903 under hipcc.** The guard compiles into `libggml-hip.so`. On #501's b11963 re-cut, the mutation control (the
+  helper without its `nthreads` padding) fails on the guard's `static_assert` in all six AMD tables, `rdna3_5`
+  included, with no syntax errors. So the guard runs in the host pass on HIP.
+- **Gate 6, think-off.** The suite tree and settings are the #477 campaign's (`r0402a_`, b11351, 2026-10-13):
+  `CTX_START=8192`, a cold server per model, automatic batch. The fold's cells are `r0405a_`. The baseline's gemma4
+  launches had run at mixed `-b 512/1024/2048`, and gemma4's greedy output moves with the batch, so a control
+  re-ran the three moving models on production's b11351 image the same day under the fold's conditions (`r0403c_`,
+  all at `-b 2048`).
+
+| model | b11351 then vs b11351 today | b11351 today vs b11669 | quality moves (favour b11669 : b11351 : neutral) | done_reason |
+|---|---|---|---|---|
+| nemotron3:33b-q4_K_M | (not re-run) | **0 of 1009 cells** (against the 10-13 cells) | 0 : 0 : 0 | 27/27 stop in both |
+| gemma4:26b-a4b-it-q4_K_M | 0 of 1007 | 58 of 1007 | 12 : 2 : 6 | 27/27 stop in both |
+| gemma4:31b-it-q4_K_M | 1 of 1013 (a `bboxm_pin` arm the 10-13 run scored before a restart) | 38 of 1013 | 4 : 4 : 2 | 27/27 stop in both |
+| qwen3.8:27b-q4_K_M | 0 of 1003 | 42 of 1003 | 6 : 4 : 3 | 27/27 stop in both |
+
+- **The moves are the payload's.** The same-day b11351 control reproduces the 10-13 cells, so neither the batch nor
+  the run's history explains them. Nemotron does not move at all.
+- **No direction against the fold.** gemma4:26b's moves are mostly the box-declaration contract
+  (`bbox_contract_box2d_1img` and `bbox_contract_pinned` now follow it). One `bboxm_free_noanc_pos` cell flips its
+  dialect the other way. 31b and qwen3.8 split both ways. No case stops finishing.
+- On CUDA, gemma4:31b and 26b were byte-identical with 908 ("908's loop-rate gate" above). gfx1151 runs gemma4 on
+  TILE, where 908 does not apply, so a numerical move there is expected.
+- **Think-on was not run** on this payload here. The v0.40.13 fold (#501) moves llama.cpp again, to b11963, and its
+  gfx1151 gates follow on #501.
+
 ## Open
 
-- Gate 5 on Metal and gfx1151 against their own `-0-40-5` profiles; each host's own gate 6.
+- Gate 5 on Metal against its own `-0-40-5` profiles, and Metal's gate 6. gfx1151's are above.
 - **The interim stamp cannot pull Nemotron 3.5.** Both library gates read the version string (`server/images.go`
   `checkPullRequires`, and the registry's User-Agent check), and `0.40.3-dynres-N` is below v0.40.5. Neither runs at
   load, so the CUDA host pulled with upstream's stock v0.40.5 client into the same store. A `v0.40.5-dynres` tag
   makes a fork build pull them itself.
-- hipcc for 903's guard (the ROCm host).
 - A quiet-GPU throughput run on CUDA, and vision-suite cells for the Nemotron 3.5 models.
 - The Nemotron 3.5 models themselves: pull, load and a vision check on each engine they ship for.
