@@ -23,13 +23,13 @@ back to `0.32.1-gemma4budget-85ebcb79`.
 
 | | |
 |---|---|
-| Deployed image | `maxusai-ollama:0.40.2-dynres.1-6-rocm724-main-9f3baafc` (promoted 2026-10-14 13:51), the v0.40.3 fold |
-| Deployed version | `0.40.2-dynres.1-6-g9f3baaf`, a build of #488's head `9f3baafce`, the v0.40.3 fold. Its Go is identical to `main` at `4d3387af3`. It replaced `0.40.2-dynres.1-0-g3960244` after 64 minutes, because v0.40.3 pauses the store migration; see the [2026-10-14 decision](#decision-2026-10-14--0402-dynres1-promoted-the-payload-moves-to-b11351) |
+| Deployed image | `maxusai-ollama:0.40.13-dynres-rocm724-main-85d63681` (promoted 2026-11-04 08:57), the `v0.40.13-dynres` tag |
+| Deployed version | `0.40.13-dynres-0-g85d6368`, a build of the tag `v0.40.13-dynres` (`85d636818`, #501 on #498). Its native libraries are byte-identical to the #501 image that passed this host's gates; see the [2026-11-04 decision](#decision-2026-11-04--v04013-dynres-promoted-the-payload-moves-to-b11963) |
 | Build type | `Dockerfile.rocm` through `scripts/build_rocm.sh` (`ROCM_TOOLCHAIN=rocm7 AMDGPU_TARGETS=gfx1151`), on `rocm/dev-ubuntu-24.04:7.2.4-complete` ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md)), as every production image since 0.34.3. It is gfx1151 only. Compat **001 + 002 + 004 + 005 + 801 + 802 + 805 + 903 + 908**: 908 reverts the device half of `ce8caa6e6`, a CUDA flash-attention tiling, and changes no gfx1151 kernel. 805 ([ADR 0041](adr/0041-gfx1151-vision-prefill-is-bandwidth-bound.md)) is a diagnostic switch, `GGML_CUDA_FATTN_FORCE_TILE`, inert unless set; on gfx1151 it adds 64 bytes of host code and no GPU code. 802, the LM-graph node meter, is inert unless `OLLAMA_LM_NODE_STATS` is set |
 | KV cache | **f16** since 2026-09-26 07:23 ([ADR 0005](adr/0005-per-model-kv-cache-type.md)). From the 2026-08-08 cutover until then it was `q8_0` by accident; see the [2026-09-26 decision](#decision-2026-09-26--productions-kv-cache-back-to-f16) |
 | Think+format flow | **two-pass** (`OLLAMA_FORMAT_TWO_PASS=1`) since 2026-09-28, the maintainer's choice at the 0.34.4 deploy, kept at the 0.35.0 and 0.40.2-dynres.1 deploys. The default is the single pass; see the [2026-09-28 decision](#decision-2026-09-28--0344-promoted-with-the-two-pass-flow) |
-| Payload | **b11351** (`631109b34`) since 2026-10-14; b11081 (`161755f29`) from 2026-09-28 for 0.34.4 and 0.35.0; b10969 (`391fac164`) for 0.34.2 and 0.34.3. Compat 906 stays **retired**: upstream ships its own HIP `prop.integrated` revert |
-| Previous image | `maxusai-ollama:0.40.2-dynres.1-rocm724-main-39602449` (`0.40.2-dynres.1-0-g3960244`, b11351) — **retained for rollback** as the stopped container `ollama-rocm-0.40.2-dynres.1-39602449`. Before it, `0.35.0-rocm724-main-043f441a` (b11081; the stopped container `ollama-rocm-0.35.0-043f441a`, f16 and two-pass), `0.34.4-rocm724-main-b43ee8e3` (b11081 + 908; the stopped container `ollama-rocm-0.34.4-b43ee8e3`, f16 and two-pass), `0.34.3-rocm724-main-650f8fda` (b10969; the stopped container `ollama-rocm-0.34.3-650f8fda`, f16), `0.34.2-rocm724-main-f67b1aef` (the stopped container `ollama-rocm-0.34.2-f67b1aef`, recreated with f16 on 2026-09-28), `0.34.1-rocm724-main-16649e8c` (b10864 + 906) and `0.32.1-rocm-dynres-5d5b7a72` (b9888) |
+| Payload | **b11963** (`39febd2ad`) since 2026-11-04; b11351 (`631109b34`) from 2026-10-14; b11081 (`161755f29`) from 2026-09-28 for 0.34.4 and 0.35.0; b10969 (`391fac164`) for 0.34.2 and 0.34.3. Compat 906 stays **retired**: upstream ships its own HIP `prop.integrated` revert |
+| Previous image | `maxusai-ollama:0.40.2-dynres.1-6-rocm724-main-9f3baafc` (`0.40.2-dynres.1-6-g9f3baaf`, the v0.40.3 fold, b11351) — **retained for rollback** as the stopped container `ollama-rocm-0403fold-9f3baafc`. Before it, `0.40.2-dynres.1-rocm724-main-39602449` (`0.40.2-dynres.1-0-g3960244`, b11351; the stopped container `ollama-rocm-0.40.2-dynres.1-39602449`), `0.35.0-rocm724-main-043f441a` (b11081; the stopped container `ollama-rocm-0.35.0-043f441a`, f16 and two-pass), `0.34.4-rocm724-main-b43ee8e3` (b11081 + 908; the stopped container `ollama-rocm-0.34.4-b43ee8e3`, f16 and two-pass), `0.34.3-rocm724-main-650f8fda` (b10969; the stopped container `ollama-rocm-0.34.3-650f8fda`, f16), `0.34.2-rocm724-main-f67b1aef` (the stopped container `ollama-rocm-0.34.2-f67b1aef`, recreated with f16 on 2026-09-28), `0.34.1-rocm724-main-16649e8c` (b10864 + 906) and `0.32.1-rocm-dynres-5d5b7a72` (b9888) |
 | Superseded pin | `0.32.1-dynres-296eb020` recorded here until 2026-09-19; the host was in fact running `5d5b7a72`, so this row had drifted from the host it describes |
 | Blocked target | `0.32.5-gemma4budget-4259c191` (built, verified, **rolled back** 2026-07-31) — never unblocked; superseded, not cleared |
 | Host | Ryzen AI Max+ 395 / Radeon 8060S, **gfx1151**, ROCm, Linux |
@@ -849,6 +849,47 @@ line should now name `0.40.2-dynres.1-6-rocm724-main-9f3baafc`.
 **How the host was confirmed idle.** As for 0.35.0: no model was loaded, and there was no POST request in the two
 minutes before the swap. `deploy-04021.sh` refuses to swap otherwise. The swap ran unattended from `after-campaign.sh`,
 once the campaign had finished and its store clone had been removed.
+
+## Decision 2026-11-04 — v0.40.13-dynres promoted, the payload moves to b11963
+
+**Outcome: promoted.** `ollama-rocm` moved from `0.40.2-dynres.1-6-g9f3baaf` (the v0.40.3 fold) to
+**`0.40.13-dynres-0-g85d6368`** at 08:57 on 2026-11-04, at the maintainer's word ("deploy the v0.40.13 release image
+to production"). The swap waited for an idle host (no POST in two minutes, no model loaded) and was down for about
+one second.
+- **Two folds at once.** The tag carries upstream v0.40.4 → v0.40.13, folded by the CUDA host in #498 (v0.40.5,
+  tagged `v0.40.5-dynres`) and #501 (v0.40.13), with this host's PRs into them: #500 (`Dockerfile.rocm` without the
+  `llama/clef` copies), #502 and #503 (the `rocm7-0-40-5` and `rocm7-0-40-13` profiles and gates).
+- **The payload moved twice.** b11351 → b11669 → **b11963** (`39febd2ad`). The compat set is the same ten patches:
+  004 re-cut into `get_target_size()`, 903 a guard only, its mutation control firing in all six AMD tables under
+  hipcc, and 908 still carried (it changes no gfx1151 kernel).
+- **The settings are unchanged:** f16 KV, flash attention on, the two-pass flow, two slots. All 10 loads in the
+  post-deploy preflight launched `--cache-type-k f16 --cache-type-v f16 --flash-attn on`.
+- **The store migration stays paused.** The smoke loaded a converted child and a legacy GGUF (`qwen2.5vl:3b-q4_K_M`,
+  `qwen2.5vl:3b-q8_0`, both "Okay." / stop) and logged no migration line; `/opt` held at 502–505 GB free.
+
+**Evidence.**
+- **Gate 5:** `rocm7-0-40-13` passes, PASS=27 SKIP=5, on the release image in a canary
+  (`runs/preflight-rocm7-0413-release-g85d6368.json`) and on production (`runs/preflight-rocm7-0413-prod-g85d6368.json`).
+  All 24 ladder values are unchanged across b11351, b11669 and b11963. The release image's native libraries are
+  byte-identical to the gated #501 image's.
+- **Gate 6, think-off** (#502, #503): b11669 moves gemma4 and qwen3.8 cells, the payload's by a same-day b11351
+  control; b11963 gains on qwen3.8 (29:9) and gemma4:31b (7:0). nemotron3's 8:32 on b11963 is the free-frame
+  `bboxm_free_*` arms' layout instability, not a capability loss: hybrid images put it on the payload, and the format
+  probes on both hosts showed b11669 nesting the same way (#501).
+- **Gate 6, think-on** (#501): nothing new stops converging. gemma4:26b's unconverged count goes 1 → 1 → 0;
+  nemotron3's (sampled) 1 → 0 → 0. Two greedy gemma4:26b losses on b11963 do not recur under the card's sampling
+  (n=5 per payload: `multi_3img` 5/5 everywhere; `scene_single` 3/5, 4/5, 4/5).
+- **Not run:** Metal's gates, for either fold. Both tag messages say so.
+
+**Rollback.**
+```
+docker stop ollama-rocm && docker rename ollama-rocm ollama-rocm-0413-rolledback &&
+docker rename ollama-rocm-0403fold-9f3baafc ollama-rocm &&
+docker update --restart unless-stopped ollama-rocm && docker start ollama-rocm
+```
+
+**The compose `.env` still names 0.34.4's image.** Do not redeploy through compose until its image line names
+`maxusai-ollama:0.40.13-dynres-rocm724-main-85d63681` (MaxusAI/ollama-deployments).
 
 ## Decision 2026-09-21 — 0.34.2 promoted, ROCm 10.0.0 declined on measurement
 
