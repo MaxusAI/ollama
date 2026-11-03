@@ -24,7 +24,7 @@ fold, #498, at `529db8646`. #498 was unmerged when this fold started, and its he
 |---|---|
 | 1, the merge | **done**: `88529ea2e`, 11 conflicted files, 18 hunks (below). `go build`, `go vet` and `go test ./...` pass in `golang:1.26` (go1.26.10). The MLX tests skip without libmlx, so they say nothing about MLX |
 | 2, docs and paths | **clean**: `check_source_paths.py --changed-since 529db8646` resolves every reference |
-| 3, the patch series | **done**: `c32183d9d`. All ten patches, upstream's `002-metal` included, apply in order to a clean b11963. 004 and 903 are re-cut. 903 compiles for sm_75 and sm_120a, and its guard fires on a mutation in all 10 tables; on gfx1151 (hipcc, ROCm 7.2.4) the same mutation fails in all 10 tables, `rdna3_5` included (#501). 903's guard-page gate (`tasks/mmq-0413-gate.sh`) **passes on sm_75**: every pass is backed by a faulting control. b11963's fused gate/up MMQ path is covered by three new cases, and its ids_dst control faults there. sm_120 waits for GPU0 (below) |
+| 3, the patch series | **done**: `c32183d9d`. All ten patches, upstream's `002-metal` included, apply in order to a clean b11963. 004 and 903 are re-cut. 903 compiles for sm_75 and sm_120a, and its guard fires on a mutation in all 10 tables; on gfx1151 (hipcc, ROCm 7.2.4) the same mutation fails in all 10 tables, `rdna3_5` included (#501). 903's guard-page gate (`tasks/mmq-0413-gate.sh`) **passes on sm_75 and sm_120a**: every pass is backed by a faulting control. b11963's fused gate/up MMQ path is covered by three new cases, and its ids_dst control faults there (below) |
 | no-GPU harness gates | **green**: `test_verdicts.py` (269), `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
 | 4, image | **built on CUDA**: `maxusai/ollama:sync-0.40.13-fold`, stamp `0.40.3-dynres-20-g81dda7d`, 4 h 16 min (a full native build: all three pins move; host load 30-116 from other jobs); llama-server `39febd2ad`. It predates the review fixes below (Go only: the qwen3_5 cap, a `logMu` write). **gfx1151: built**, `maxusai-ollama:0.40.3-dynres-21-g833a5d2-rocm7-gfx1151`, llama-server `39febd2ad` |
 | 5, preflight | **CUDA: both pass** on the new `cuda-0-40-13` (PASS=20 SKIP=9) and `mlx-cuda-0-40-13` (PASS=11 SKIP=18), in a production-like canary (`--gpus all`): all six ladders byte-identical to the 0-40-5 rows, payload pins `39febd2ad` and `065ec46`, 0 cudaMemcpy errors, 0 OOMs (`runs/preflight-*-0413-canary-g81dda7d.json`). **gfx1151: passes** on the new `rocm7-0-40-13` (PASS=27 SKIP=5); all 24 ladder values equal the b11669 and b11351 rows ("gfx1151" below) |
@@ -129,7 +129,22 @@ The tree from the re-cuts and the tree from applying the committed patches are b
 | fu_id17b | pass | passes (this routing does not reach the worst case) | **faults 3/3** |
 | fu_id2048 | pass | passes (128 blocks vs 127 needed) | **faults 3/3** |
 
-Evidence: src1 on dense321 and ids16; ids_dst on ids16, fu_id17b and fu_id2048. That matches the v0.40.5 result. The fused src1 rows are not evidence, because their control passes too. sm_120 (GPU0) is not run yet: it shares GPU0 with production and the canary, and runs after the canary with `SM=120 GPU=0 JOBS=4 nice -n 15 ./mmq-0413-gate.sh`.
+Evidence: src1 on dense321 and ids16; ids_dst on ids16, fu_id17b and fu_id2048. That matches the v0.40.5 result. The fused src1 rows are not evidence, because their control passes too.
+
+**sm_120a** (GPU0, after the canary, 2026-11-03 15:47-16:44; `gate-0413-sm120.tsv`):
+
+| case | pr462, all modes | jb control, guard:src1 | ids0 control, guard:ids_dst |
+|---|---|---|---|
+| ids16 | pass | **faults 3/3** | **faults 3/3** |
+| j100_b0 | pass | faults 1/3 | **faults 3/3** |
+| j100_b1 | pass | faults 2/3 | **faults 3/3** |
+| fu_dense17 | pass | passes | n/a (no ids_dst) |
+| fu_id17b | pass | passes | **faults 3/3** |
+| fu_id2048 | pass | passes | **faults 3/3** |
+
+`pr462` passes 3/3 under both guards and on the stock pool in every case, and 1/1 at exact allocation with 0 memcheck
+errors. The j100 controls fault at a rate, as at v0.40.5, so ids16 carries the src1 evidence there. No GPU process was
+left behind.
 
 Still open upstream, so carried: the qwen2/2.5-VL fp16 overflow (ollama#18070), and the image chunk vs ubatch
 assert (llama.cpp #28954 capped `image_max_tokens` to `n_ubatch` before b11669, but the assert remains, so ADR 0036's
