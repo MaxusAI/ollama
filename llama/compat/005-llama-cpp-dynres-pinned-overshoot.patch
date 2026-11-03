@@ -1,8 +1,8 @@
 diff --git a/tools/mtmd/mtmd-image.cpp b/tools/mtmd/mtmd-image.cpp
-index 7a1c4dd..ef43be6 100644
+index 268b52b..160d4f9 100644
 --- a/tools/mtmd/mtmd-image.cpp
 +++ b/tools/mtmd/mtmd-image.cpp
-@@ -181,6 +181,15 @@ struct img_tool {
+@@ -155,6 +155,15 @@ struct img_tool {
              const auto beta = std::sqrt(static_cast<float>(opts.min_pixels) / (static_cast<float>(height) * width));
              h_bar = ceil_by_factor(height * beta);
              w_bar = ceil_by_factor(width * beta);

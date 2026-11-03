@@ -288,6 +288,13 @@ func (m *Model) pixelBudget(minTokens, maxTokens int) (minPixels, maxPixels floa
 	if maxTokens > 0 {
 		maxPixels = float64(maxTokens) * perToken
 	}
+	// A checkpoint's own cap (VisionMaxPixels, upstream 8be580ad0: the decision models, trained at 1.64 MP) is a
+	// ceiling, not a default: a request budget can lower it but never raise it, and min_tokens cannot push the
+	// floor above it.
+	if m.VisionMaxPixels > 0 {
+		maxPixels = min(maxPixels, float64(m.VisionMaxPixels))
+		minPixels = min(minPixels, maxPixels)
+	}
 	return minPixels, maxPixels
 }
 
@@ -420,7 +427,7 @@ func (m *Model) EncodeMedia(item *model.PreparedItem, data *mlx.Array) *mlx.Arra
 		k = applyVisionRoPE(k, cos, sin)
 
 		// Fully bidirectional over the single image.
-		out := mlx.FastScaledDotProductAttention(q, k, val, scale, "", nil)
+		out := mlx.FastScaledDotProductAttention(q, k, val, scale, mlx.FastSDPANoWindow, "", nil)
 		out = mlx.Reshape(mlx.Transpose(out, 0, 2, 1, 3), 1, n, v.HiddenSize)
 		h = mlx.Add(h, blk.Proj.Forward(out))
 

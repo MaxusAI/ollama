@@ -33,7 +33,7 @@ func TestSmartResize(t *testing.T) {
 		{37, 5000, 32, 4992},
 	}
 	for _, c := range cases {
-		h, w, err := smartResize(c.h, c.w, 32)
+		h, w, err := smartResize(c.h, c.w, 32, visionMaxPixels)
 		if err != nil {
 			t.Fatalf("smartResize(%d, %d): %v", c.h, c.w, err)
 		}
@@ -41,8 +41,38 @@ func TestSmartResize(t *testing.T) {
 			t.Errorf("smartResize(%d, %d) = (%d, %d), want (%d, %d)", c.h, c.w, h, w, c.wantH, c.wantW)
 		}
 	}
-	if _, _, err := smartResize(10, 5000, 32); err == nil {
+	if _, _, err := smartResize(10, 5000, 32, visionMaxPixels); err == nil {
 		t.Error("aspect ratio over 200 should error")
+	}
+	h, w, err := smartResize(3024, 4032, 32, 2048*2048)
+	if err != nil || h*w > 2048*2048 || h*w >= 3008*4032 {
+		t.Fatalf("decision pixel cap: size=%dx%d error=%v", h, w, err)
+	}
+}
+
+func TestPixelBudgetKeepsTheCheckpointCap(t *testing.T) {
+	// 16x16 patches merged 2x2: 1,024 pixels per token.
+	vision := &VisionConfig{PatchSize: 16, SpatialMergeSize: 2}
+	decider := &Model{Vision: vision, VisionMaxPixels: 1638400}
+	family := &Model{Vision: vision}
+	cases := []struct {
+		name              string
+		m                 *Model
+		minTokens, maxTok int
+		wantMin, wantMax  float64
+	}{
+		{"decider, no budget: the checkpoint cap", decider, 0, 0, visionMinPixels, 1638400},
+		{"decider, a larger request budget cannot raise it", decider, 0, 16384, visionMinPixels, 1638400},
+		{"decider, a smaller request budget lowers it", decider, 0, 1024, visionMinPixels, 1024 * 1024},
+		{"decider, min_tokens cannot push the floor over the cap", decider, 4096, 16384, 1638400, 1638400},
+		{"family, no budget: the family default", family, 0, 0, visionMinPixels, visionMaxPixels},
+		{"family, a request budget replaces the default", family, 0, 16384, visionMinPixels, 16384 * 1024},
+	}
+	for _, c := range cases {
+		gotMin, gotMax := c.m.pixelBudget(c.minTokens, c.maxTok)
+		if gotMin != c.wantMin || gotMax != c.wantMax {
+			t.Errorf("%s: pixelBudget(%d, %d) = (%v, %v), want (%v, %v)", c.name, c.minTokens, c.maxTok, gotMin, gotMax, c.wantMin, c.wantMax)
+		}
 	}
 }
 

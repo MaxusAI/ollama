@@ -367,7 +367,7 @@ func (a *VisionAttention) Forward(x, cosX, sinX, cosY, sinY *mlx.Array, cfg *Vis
 	q = mlx.Transpose(q, 0, 2, 1, 3)
 	k = mlx.Transpose(k, 0, 2, 1, 3)
 	v = mlx.Transpose(v, 0, 2, 1, 3)
-	out := mlx.FastScaledDotProductAttention(q, k, v, 1.0, "", nil)
+	out := mlx.FastScaledDotProductAttention(q, k, v, 1.0, mlx.FastSDPANoWindow, "", nil)
 	out = mlx.Reshape(mlx.Transpose(out, 0, 2, 1, 3), B, L, H*D)
 	if !mlx.MetalIsAvailable() {
 		out = mlx.Contiguous(out, false)

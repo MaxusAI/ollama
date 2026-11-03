@@ -107,6 +107,9 @@ type speculationSession struct {
 	layout   []any // the request's per-row layout state, stamped on every target forward
 	stats    specStats
 
+	// fixedDepth holds limit for the whole request, bypassing the depth controller.
+	fixedDepth bool
+
 	// Cost sampling: each round's wall time (start to next start, spanning the
 	// next emit's sync) is attributed to its draft depth only when the depth
 	// matches the previous round's, since batch-shape transitions inflate it.
@@ -181,6 +184,9 @@ func (s *speculation) open(request Request, layout []any) *speculationSession {
 	}
 	if enabled {
 		spec.limit = spec.capped(s.depth.scheduled)
+		if _, ok := s.draft.(model.BlockSelector); ok {
+			spec.limit, spec.fixedDepth = spec.capped(dflash2Depth), true
+		}
 	}
 	return spec
 }
@@ -190,7 +196,7 @@ func (s *speculation) open(request Request, layout []any) *speculationSession {
 // draft records nothing: its parked rounds carry logprobs work that would
 // skew the shared depth-0 cost.
 func (s *speculationSession) beginRound() {
-	if !s.enabled {
+	if !s.enabled || s.fixedDepth {
 		return
 	}
 	now := time.Now()
@@ -214,7 +220,7 @@ func (s *speculationSession) endRound(drafted, accepted, observed int) {
 	s.stats.iterations++
 	s.stats.drafted += drafted
 	s.stats.accepted += accepted
-	if s.enabled {
+	if s.enabled && !s.fixedDepth {
 		if observed > 0 {
 			s.spec.depth.acc.observe(observed, accepted)
 		}

@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ollama/ollama/api"
@@ -95,14 +96,7 @@ func (s *Scheduler) loadedModelsForName(name model.Name, requestedRunner string)
 
 	var models []*Model
 	for _, runner := range runners {
-		// A loading runner holds refMu until it is ready. Do not make lookup
-		// for another model wait for that startup; a miss falls back to a
-		// verified manifest lookup. Keep refMu separate from loadedMu.
-		if !runner.refMu.TryLock() {
-			continue
-		}
-		m := runner.model
-		runner.refMu.Unlock()
+		m := runner.model.Load()
 		if m == nil || !model.ParseName(m.Name).EqualFold(name) {
 			continue
 		}
@@ -220,7 +214,7 @@ func (s *Scheduler) getRunner(c context.Context, m *Model, opts api.Options, ses
 		opts.NumCtx = 4
 	}
 
-	if m.CheckCapabilities(model.CapabilityVision) == nil {
+	if m.CheckCapabilities(model.CapabilityVision) == nil || len(m.ProjectorPaths) > 0 {
 		// multimodal models require at least 2048 context
 		opts.NumCtx = max(opts.NumCtx, 2048)
 	}
@@ -779,7 +773,6 @@ iGPUScan:
 		runnerName = manifest.RunnerLlamaCPP
 	}
 	runner := &runnerRef{
-		model:           req.model,
 		modelPath:       req.model.ModelPath,
 		modelKey:        schedulerModelKey(req.model),
 		llama:           llama,
@@ -798,6 +791,7 @@ iGPUScan:
 		contextShift:    req.contextShift,
 		trainContext:    trainContext,
 	}
+	runner.model.Store(req.model)
 	runner.numParallel = numParallel
 	runner.refMu.Lock() // hold lock until running or aborted
 
@@ -827,13 +821,16 @@ iGPUScan:
 		if runner.pid < 0 {
 			runner.pid = llama.Pid()
 		}
-		if runner.model.IsMLX() {
+		if runner.model.Load().IsMLX() {
 			// The MLX client only learns the served context once the runner
 			// answers its status probe, which is after the load; refresh the
 			// recorded rung now so needsReload compares against what is served
 			// (refMu is still held by this goroutine).
+			// Under logMu too: LogValue reads Options under logMu alone.
 			if served := llama.ContextLength(); served > 0 {
+				runner.logMu.Lock()
 				runner.Options.NumCtx = served
+				runner.logMu.Unlock()
 			}
 		}
 		runner.refCount++
@@ -1431,7 +1428,7 @@ func (s *Scheduler) loadedMmapModelSizeLocked() uint64 {
 		if !runnerUsesMmap(r) {
 			continue
 		}
-		if size := modelFileSize(r.model.modelPaths()...); size > 0 {
+		if size := modelFileSize(r.model.Load().modelPaths()...); size > 0 {
 			total += size
 		} else {
 			total += r.totalSize
@@ -1514,7 +1511,8 @@ type runnerRef struct {
 	expireTimer     *time.Timer
 	expiresAt       time.Time
 
-	model        *Model
+	// model is atomic so lookups can read it without contending on refMu.
+	model        atomic.Pointer[Model]
 	modelPath    string
 	modelKey     string
 	numParallel  int
@@ -1536,7 +1534,7 @@ func (runner *runnerRef) unload() {
 		runner.llama.Close()
 	}
 	runner.logMu.Lock()
-	runner.model = nil
+	runner.model.Store(nil)
 	runner.Options = nil
 	runner.gpus = nil
 	runner.contextShift = false
@@ -1601,9 +1599,11 @@ func (runner *runnerRef) needsReload(ctx context.Context, req *LlmRequest) bool 
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	if !reflect.DeepEqual(runner.model.AdapterPaths, req.model.AdapterPaths) || // have the adapters changed?
-		!reflect.DeepEqual(runner.model.ProjectorPaths, req.model.ProjectorPaths) || // have the projectors changed?
-		(!runner.model.IsMLX() && !reflect.DeepEqual(optsExisting, optsNew)) || // have the runner options changed?
+	loaded := runner.model.Load()
+	if loaded == nil ||
+		!reflect.DeepEqual(loaded.AdapterPaths, req.model.AdapterPaths) || // have the adapters changed?
+		!reflect.DeepEqual(loaded.ProjectorPaths, req.model.ProjectorPaths) || // have the projectors changed?
+		(!loaded.IsMLX() && !reflect.DeepEqual(optsExisting, optsNew)) || // have the runner options changed?
 		// An MLX runner ignores the other runner options, but num_ctx is the
 		// rung admission priced the load at (mlxrunner/client.go admit) and
 		// the window the runner serves. A different rung is a different load:
@@ -1612,12 +1612,12 @@ func (runner *runnerRef) needsReload(ctx context.Context, req *LlmRequest) bool 
 		// the runner hogging the bigger window. GGML reaches the same outcome
 		// through the option comparison above. Two automatic rungs were
 		// equalised earlier, so unpinned clients do not churn.
-		(runner.model.IsMLX() && optsExisting.NumCtx != optsNew.NumCtx) ||
+		(loaded.IsMLX() && optsExisting.NumCtx != optsNew.NumCtx) ||
 		// A runner loaded on the automatic rung was started without a limit
 		// (mlxrunner/client.go runnerArgs), so an explicit num_ctx of the same
 		// size would go unenforced there. The reverse needs no reload: an
 		// enforcing runner serves the automatic rung (ADR 0050).
-		(runner.model.IsMLX() && runner.numCtxAuto && !req.numCtxAuto) ||
+		(loaded.IsMLX() && runner.numCtxAuto && !req.numCtxAuto) ||
 		runner.llama.Ping(ctx) != nil {
 		return true
 	}
@@ -1694,8 +1694,8 @@ func (s *Scheduler) waitForVRAMRecovery(runner *runnerRef, runners []ml.Filtered
 }
 
 // LogValue may run from goroutines that already hold refMu (see the scheduler
-// debug logs), so the unload-mutable fields are read only under TryLock and
-// omitted when the lock is contended.
+// debug logs), so the unload-mutable fields are read under logMu, the leaf lock
+// unload clears them under, never under refMu.
 func (runner *runnerRef) LogValue() slog.Value {
 	if runner == nil {
 		return slog.StringValue("nil")
@@ -1707,9 +1707,10 @@ func (runner *runnerRef) LogValue() slog.Value {
 	// Read the fields unload clears under logMu, not refMu: slog resolves
 	// this value lazily and most log sites already hold refMu.
 	runner.logMu.RLock()
-	name, hasModel := "", runner.model != nil
+	loaded := runner.model.Load()
+	name, hasModel := "", loaded != nil
 	if hasModel {
-		name = runner.model.Name
+		name = loaded.Name
 	}
 	gpus := slices.Clone(runner.gpus)
 	numCtx, hasOptions := 0, runner.Options != nil
@@ -1956,7 +1957,7 @@ func (s *Scheduler) expireRunner(model *Model) {
 		runners = append(runners, runner)
 	} else if model != nil && model.Name != "" {
 		for _, runner := range s.loaded {
-			if runner.model != nil && runner.model.Name == model.Name {
+			if m := runner.model.Load(); m != nil && m.Name == model.Name {
 				runners = append(runners, runner)
 			}
 		}
@@ -2004,13 +2005,14 @@ func (s *Scheduler) loadedModels() []loadedModel {
 	models := make([]loadedModel, 0, len(runners))
 	for _, r := range runners {
 		r.refMu.Lock()
-		if r.model == nil {
+		m := r.model.Load()
+		if m == nil {
 			// Unloaded after the snapshot above was taken
 			r.refMu.Unlock()
 			continue
 		}
 		lm := loadedModel{
-			model:     r.model,
+			model:     m,
 			runner:    r.runner,
 			size:      int64(r.totalSize),
 			sizeVRAM:  int64(r.vramSize),
