@@ -82,6 +82,45 @@ type Scheduler struct {
 	waitForRecovery time.Duration
 }
 
+// loadedModelsForName returns models still owned by loaded runners. The models
+// are read-only after resolution, so callers may use them after releasing
+// loadedMu even if a runner unloads in the meantime.
+func (s *Scheduler) loadedModelsForName(name model.Name, requestedRunner string) []*Model {
+	s.loadedMu.Lock()
+	runners := make([]*runnerRef, 0, len(s.loaded))
+	for _, runner := range s.loaded {
+		runners = append(runners, runner)
+	}
+	s.loadedMu.Unlock()
+
+	var models []*Model
+	for _, runner := range runners {
+		// A loading runner holds refMu until it is ready. Do not make lookup
+		// for another model wait for that startup; a miss falls back to a
+		// verified manifest lookup. Keep refMu separate from loadedMu.
+		if !runner.refMu.TryLock() {
+			continue
+		}
+		m := runner.model
+		runner.refMu.Unlock()
+		if m == nil || !model.ParseName(m.Name).EqualFold(name) {
+			continue
+		}
+		if requestedRunner == "" {
+			// A single manifest has no alternate runner to select. For a list,
+			// an explicit lower-preference runner may differ from the default.
+			singleManifest := m.Digest != "" && m.ManifestDigest == m.Digest
+			if m.runnerSelection != "" && !singleManifest && !manifest.IsTopRunnerPreference(m.Runner) {
+				continue
+			}
+		} else if m.Runner != requestedRunner && m.runnerSelection != requestedRunner {
+			continue
+		}
+		models = append(models, m)
+	}
+	return models
+}
+
 // Default automatic value for number of models we allow per GPU
 // Model will still need to fit in VRAM, but loading many small models
 // on a large GPU can cause stalling
@@ -570,7 +609,9 @@ func (s *Scheduler) load(req *LlmRequest, systemInfo ml.SystemInfo, gpus []ml.De
 			flashAttention := llm.LlamaServerFlashAttention(loadGpus)
 			req.applyAutomaticGenerationBatch(completion, predictedCtx, predicted, availableForBatch, flashAttention, loadGpus)
 			launchOpts.NumBatch = req.opts.NumBatch
-			predictedForLoad := predicted + generationBatchSurchargeForCompletion(completion, launchOpts.NumBatch)
+			var batchMemory uint64
+			launchOpts.NumBatch, batchMemory = llm.LlamaServerBatch(f, launchOpts, completion)
+			predictedForLoad := predicted + batchMemory
 
 			// Pre-flight check: estimate whether the model fits in remaining memory.
 			// llama-server auto-detects layers based on available VRAM, so if
@@ -909,13 +950,6 @@ func imageChunkGenerationBatch(modelFamily string, hasVision bool, opts api.Opti
 	return llamaServerGenerationBatchLarge
 }
 
-func generationBatchSurchargeForCompletion(completion bool, batch int) uint64 {
-	if !completion {
-		return 0
-	}
-	return generationBatchSurcharge(batch)
-}
-
 // automaticGenerationBatch derives the generation batch from the context rung,
 // raised to floor (an image chunk's batch, see imageChunkGenerationBatch) when
 // that is larger, and steps down rung by rung while the batch does not fit the
@@ -982,7 +1016,7 @@ func generationBatchFits(batch int, predictedVRAM, availableMemory uint64) bool 
 		return false
 	}
 
-	return generationBatchSurcharge(batch) <= threshold-predictedVRAM
+	return llm.LlamaServerBatchMemory(batch) <= threshold-predictedVRAM
 }
 
 func generationBatchHasHeadroom(batch int, predictedVRAM, availableMemory uint64) bool {
@@ -1002,17 +1036,6 @@ func nextLowerGenerationBatch(batch int) int {
 		return llamaServerGenerationBatchMedium
 	default:
 		return llamaServerGenerationBatchDefault
-	}
-}
-
-func generationBatchSurcharge(batch int) uint64 {
-	switch {
-	case batch >= llamaServerGenerationBatchLarge:
-		return 2 * format.GibiByte
-	case batch >= llamaServerGenerationBatchMedium:
-		return 768 * format.MebiByte
-	default:
-		return 0
 	}
 }
 
