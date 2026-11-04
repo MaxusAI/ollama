@@ -25,7 +25,7 @@ back to `0.32.1-gemma4budget-85ebcb79`.
 |---|---|
 | Deployed image | `maxusai-ollama:0.40.13-dynres-rocm724-main-85d63681` (promoted 2026-11-04 08:57), the `v0.40.13-dynres` tag |
 | Deployed version | `0.40.13-dynres-0-g85d6368`, a build of the tag `v0.40.13-dynres` (`85d636818`, #501 on #498). Its native libraries are byte-identical to the #501 image that passed this host's gates; see the [2026-11-04 decision](#decision-2026-11-04--v04013-dynres-promoted-the-payload-moves-to-b11963) |
-| Build type | `Dockerfile.rocm` through `scripts/build_rocm.sh` (`ROCM_TOOLCHAIN=rocm7 AMDGPU_TARGETS=gfx1151`), on `rocm/dev-ubuntu-24.04:7.2.4-complete` ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md)), as every production image since 0.34.3. It is gfx1151 only. Compat **001 + 002 + 004 + 005 + 801 + 802 + 805 + 903 + 908**: 908 reverts the device half of `ce8caa6e6`, a CUDA flash-attention tiling, and changes no gfx1151 kernel. 805 ([ADR 0041](adr/0041-gfx1151-vision-prefill-is-bandwidth-bound.md)) is a diagnostic switch, `GGML_CUDA_FATTN_FORCE_TILE`, inert unless set; on gfx1151 it adds 64 bytes of host code and no GPU code. 802, the LM-graph node meter, is inert unless `OLLAMA_LM_NODE_STATS` is set |
+| Build type | `Dockerfile.rocm` through `scripts/build_rocm.sh` (`ROCM_TOOLCHAIN=rocm7 AMDGPU_TARGETS=gfx1151`), on `rocm/dev-ubuntu-24.04:7.2.4-complete` ([ADR 0042](adr/0042-rocm-images-build-on-ubuntu-rocm-images.md)), as every production image since 0.34.3. It is gfx1151 only. Compat **001 + 002 + 004 + 005 + 801 + 802 + 805 + 903 + 908**: 908 reverts the device half of `ce8caa6e6`, a CUDA flash-attention tiling. On gfx1151 it changes only the MMA flash-attention kernels' code, which no served model dispatches (byte-identical think-off with and without it, 2026-11-04); it is retired on `main` after `v0.40.13-dynres`. 805 ([ADR 0041](adr/0041-gfx1151-vision-prefill-is-bandwidth-bound.md)) is a diagnostic switch, `GGML_CUDA_FATTN_FORCE_TILE`, inert unless set; on gfx1151 it adds 64 bytes of host code and no GPU code. 802, the LM-graph node meter, is inert unless `OLLAMA_LM_NODE_STATS` is set |
 | KV cache | **f16** since 2026-09-26 07:23 ([ADR 0005](adr/0005-per-model-kv-cache-type.md)). From the 2026-08-08 cutover until then it was `q8_0` by accident; see the [2026-09-26 decision](#decision-2026-09-26--productions-kv-cache-back-to-f16) |
 | Think+format flow | **two-pass** (`OLLAMA_FORMAT_TWO_PASS=1`) since 2026-09-28, the maintainer's choice at the 0.34.4 deploy, kept at the 0.35.0 and 0.40.2-dynres.1 deploys. The default is the single pass; see the [2026-09-28 decision](#decision-2026-09-28--0344-promoted-with-the-two-pass-flow) |
 | Payload | **b11963** (`39febd2ad`) since 2026-11-04; b11351 (`631109b34`) from 2026-10-14; b11081 (`161755f29`) from 2026-09-28 for 0.34.4 and 0.35.0; b10969 (`391fac164`) for 0.34.2 and 0.34.3. Compat 906 stays **retired**: upstream ships its own HIP `prop.integrated` revert |
@@ -888,8 +888,10 @@ docker rename ollama-rocm-0403fold-9f3baafc ollama-rocm &&
 docker update --restart unless-stopped ollama-rocm && docker start ollama-rocm
 ```
 
-**The compose `.env` still names 0.34.4's image.** Do not redeploy through compose until its image line names
-`maxusai-ollama:0.40.13-dynres-rocm724-main-85d63681` (MaxusAI/ollama-deployments).
+**The compose `.env` names the deployed image.** At the maintainer's word ("yes, do it", 2026-11-04),
+MaxusAI/ollama-deployments `8a4ecc86c` points `OLLAMA_IMAGE` at `maxusai-ollama:0.40.13-dynres-rocm724-main-85d63681`;
+it had named the v0.40.3 fold's image since `dfde30ca4` (2026-10-14), not 0.34.4's as the sections below assumed. Only
+that line changed. The compose file already sets f16 KV, flash attention, the two-pass flow and two slots.
 
 ## Decision 2026-09-21 — 0.34.2 promoted, ROCm 10.0.0 declined on measurement
 

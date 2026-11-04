@@ -252,27 +252,26 @@ intentionally skipped so a developer can iterate on a local llama.cpp tree.
       must not be backported to a lineage pinned at or below b9990. There is
       nothing to fix there, and the patch will not apply.
     - `docs/maxusai/upstream-mmq-ids-padding-issue.md`: the upstream report.
-- `908-revert-fattn-mma-gemma4-tiling.patch` - **not a compatibility shim**
-  (see "Number bands" below). Reverts the device half of llama.cpp
-  `ce8caa6e6` ("CUDA: tune FA for Gemma 4 on Ampere or newer", in b11081):
-  the MMA configuration table entries and `mma_tile_sizes` for head
-  dimensions 256 and 512 in `ggml/src/ggml-cuda/fattn-mma-f16.cuh`, back to
-  b10969's. With the retuned tiling, gemma4:26b-a4b think-on on CUDA left 6 of
-  27 suite cases in loops that never converge at the 131072 rung; with this
-  revert it leaves 1, the same count gfx1151 shows on the same b11081, where
-  RDNA's own table means the tuning never applies. With 908, the GGUF think-off
-  cells b11081 moved on gemma4:31b, 26b and e4b and one OCRBench q4 item return
-  to production's b10969 values exactly. gemma4:e2b moves with both halves, so
-  with 908 it still differs from production (62 of 866 cells, its scene IoU
-  higher). The
-  commit's host half (the Ada decode-kernel selection in `fattn.cu`) is **not**
-  reverted: it moves qwen3.6's think-off cells in both directions and causes no
-  loop. Measurements and the one-commit and split-half attribution:
-  `docs/maxusai/tasks/upstream-sync-0.34.4.md`, "Gates 4–6 on CUDA". Measured
-  on CUDA only; the file also compiles for HIP, and the check that 908 leaves
-  gfx1151's kernels unchanged is the ROCm host's. Drop it when upstream retunes
-  these configs without the gemma4:26b loops, as measured by the loop-rate gate
-  in `docs/maxusai/retirement-register.md`.
+- `908-revert-fattn-mma-gemma4-tiling.patch` - **retired 2026-11-04**, after
+  `v0.40.13-dynres` (the last tag that carries it), on the maintainer's word.
+  It reverted the device half of llama.cpp `ce8caa6e6` ("CUDA: tune FA for
+  Gemma 4 on Ampere or newer", in b11081): the MMA configuration entries and
+  `mma_tile_sizes` for head dimensions 256 and 512 in
+  `ggml/src/ggml-cuda/fattn-mma-f16.cuh`, back to b10969's, because the retuned
+  tiling left gemma4:26b-a4b think-on in more never-converging loops on CUDA
+  (b11081: 6 of 27 against 1). Its retirement gate is met at b11963: the pin's
+  own tiling loops no more often than 908's (3 against 3), and think-off no
+  longer favours 908 (the v0.40.13 fold record, "908's loop-rate gate on
+  b11963"). The history is in `docs/maxusai/retirement-register.md`.
+
+  **908 did reach gfx1151's code.** The file also compiles for HIP, and at
+  b11963 a gfx1151 build without 908 differs from the tag's in
+  `libggml-hip.so` only: 184 device functions, every one an MMA flash-attention
+  kernel (`flash_attn_ext_f16`, head dimensions 64 to 576). The TILE and vec
+  kernels and all other device code are byte-identical. No model this fork
+  serves dispatches them on gfx1151: think-off with and without 908 is
+  byte-identical on nemotron3, qwen3.8, gemma4:31b and gemma4:26b-a4b (4,035
+  cells, 2026-11-04). The retirement changes CUDA builds only.
 - `compat.cmake` - CMake glue, included by `llama/server/CMakeLists.txt` (and
   `cmake/local.cmake`) before `FetchContent_Declare(llama_cpp ...)`. It sets
   `OLLAMA_LLAMA_CPP_COMPAT_PATCH_COMMAND`, which FetchContent runs as its
