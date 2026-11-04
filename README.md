@@ -33,16 +33,16 @@
 > Its one native change, 903, is in `ggml-cuda`, so on Metal it moves Go only. `main` moves ahead of the tags between
 > folds; a tag is the fixed point to build and roll back to.
 >
-> **Deployed** (versions read from each server's `/api/version` on 2026-10-13):
+> **Deployed** (versions read from each server's `/api/version` when its row was last updated; the CUDA host's on 2026-11-04):
 >
 > | host | build | since | record |
 > |---|---|---|---|
-> | Apple Silicon, mlx-metal (`:11435`) | `0.40.2-dynres.1-17-g75c6d35`, the same build as the CUDA host's: main `75c6d350`, a Go-only build on the point tag's payload | 2026-10-14 10:13 | [#486](https://github.com/MaxusAI/ollama/pull/486), this record |
-> | CUDA host, ai-server (`:11497`) | `0.40.2-dynres.1-17-g75c6d35`: the v0.40.3 fold ([#488](https://github.com/MaxusAI/ollama/pull/488)) on the point tag plus [#487](https://github.com/MaxusAI/ollama/pull/487), a Go-only build of main `75c6d350` (image `main-75c6d350`) | 2026-10-14 07:53 | [#487](https://github.com/MaxusAI/ollama/pull/487), [#488](https://github.com/MaxusAI/ollama/pull/488), [#492](https://github.com/MaxusAI/ollama/pull/492) |
+> | Apple Silicon, mlx-metal (`:11435`) | `0.40.2-dynres.1-17-g75c6d35`, the build the CUDA host served until 2026-11-04: main `75c6d350`, a Go-only build on the point tag's payload | 2026-10-14 10:13 | [#486](https://github.com/MaxusAI/ollama/pull/486), this record |
+> | CUDA host, ai-server (`:11497`) | `0.40.13-dynres-0-g85d6368`: the `v0.40.13-dynres` tag ([#501](https://github.com/MaxusAI/ollama/pull/501) on [#498](https://github.com/MaxusAI/ollama/pull/498)), llama.cpp b11963, MLX `065ec468`, still with 908. A Go-only build: the tag's binary on the payload that passed `cuda-0-40-13` and `mlx-cuda-0-40-13` in a canary (image `v0.40.13-dynres`). The post-deploy preflight did not run; a one-model smoke did | 2026-11-04 10:09 | [v0.40.13 record](docs/maxusai/tasks/upstream-sync-0.40.13.md#deploy-on-cuda-2026-11-04), [#501](https://github.com/MaxusAI/ollama/pull/501) |
 > | AMD gfx1151 (`:11434`) | `0.40.13-dynres-0-g85d6368`: the `v0.40.13-dynres` tag ([#501](https://github.com/MaxusAI/ollama/pull/501) on [#498](https://github.com/MaxusAI/ollama/pull/498)), llama.cpp b11963. The store migration stays paused. Preflight passes `rocm7-0-40-13` on the release image and on production | 2026-11-04 08:57 | [#502](https://github.com/MaxusAI/ollama/pull/502), [#503](https://github.com/MaxusAI/ollama/pull/503), [the 2026-11-04 decision](docs/maxusai/amd-upgrade-gate.md#decision-2026-11-04--v04013-dynres-promoted-the-payload-moves-to-b11963) |
 > | H100 (CUDA) | `0.35.0-dynres-15-ga657392`, a build of `main` past the v0.35.0 tag | 2026-10-03 | [v0.35.0 record](docs/maxusai/tasks/upstream-sync-0.35.0.md) |
 >
-> The CUDA host serves [#487](https://github.com/MaxusAI/ollama/pull/487), merged after the point tag: without it, an MLX
+> The CUDA host's build carries [#487](https://github.com/MaxusAI/ollama/pull/487): without it, an MLX
 > runner that can see the host's second GPU fails requests with `cudaMemcpy … invalid argument`. The hosts deployed since v0.34.4
 > run the two-pass think+format flow (`OLLAMA_FORMAT_TWO_PASS=1`, [ADR 0045](docs/maxusai/adr/0045-think-format-single-pass-by-default-two-pass-in-production.md))
 > and set `OLLAMA_KV_CACHE_TYPE=f16` explicitly ([#387](https://github.com/MaxusAI/ollama/pull/387)). The ai-server
@@ -79,6 +79,9 @@
        release_matrix.py --version 0.40.13-dynres runs/preflight-rocm7-0413-prod-g85d6368.json
      gfx1151 is the first host on the tag: its rocm7 row is production's own run on 0.40.13-dynres-0-g85d6368
      (since 2026-11-04 08:57), equal in every check to the release image's run in a canary (-release-g85d6368.json).
+     The CUDA host serves the tag since 2026-11-04 10:09, but its cuda and mlx-cuda rows read "not run": production's own
+     preflight did not run, because another workload held GPU0's memory. Their evidence on the same native payload is
+     the canary's, on the fold's interim stamp: runs/preflight-{cuda,mlx-cuda}-0413-canary-g81dda7d.json.
      The other surfaces read "not run" until their hosts serve the tag. Their last release table, v0.40.2-dynres.1,
      was generated from runs/preflight-{mlx-metal,cuda,mlx-cuda}-0403-prod-g75c6d35.json and
      runs/preflight-rocm7-0403-prod-g9f3baaf.json, and is in this file's history (#496). -->
