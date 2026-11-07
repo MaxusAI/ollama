@@ -5007,3 +5007,277 @@ ladder = [68, 146, 578, 2306, 5186]
 # ------------------------------------------------------- metal / 0.32.14 --
 # Measured 2026-08-17, native macOS serve (:11436), server
 # 0.32.14-maxusai-9594f81e, probes.Ollama.image_prefix + visual_tokens.
+
+# ---- Apple Silicon at v0.40.13-dynres (#507): MLX 065ec468, MLX-C 57731b00, llama.cpp b11963 ----
+
+[profiles.mlx-metal-0-40-13]
+# The v0.40.13 fold on Apple Silicon (#501, the Metal leg #507): MLX a59cc231 -> 065ec468 and MLX-C ebc88f10 ->
+# 57731b00, llama.cpp b11351 -> b11963 (39febd2ad), through v0.40.5's bebd6422 / b11669, which Apple Silicon never
+# served, so there is no Metal -0-40-5 pair. A new profile, not a widened 0-40-2 (ADR 0011, ADR 0032). Every row is
+# 0-40-2's, re-measured with measure_ladder.py on the tag's native build (0.40.13-dynres-0-g85d6368) and
+# byte-identical: gemma4, gemma4_unified [1102 x 5] at prefix 19, qwen35moe and qwen35 [68, 146, 578, 2306, 5186] at
+# prefix 13, muse-glimmer [47, 182, 779, 2995, 4082] at prefix 59. The budget/pixel fields stay carried
+# (budgets_observed = false): the native MLX path emits no load_hparams line, and the Go sizing model they describe
+# (llm.ImageTokensForSize, llm.BudgetFillSize) is unchanged by the folds.
+platform = "mlx-metal"
+version_pattern = '^0\.40\.13-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
+mlx_build = "065ec4683cce3c4d3d1d846b4759ad59c13a4ffd"
+llama_cpp_build = "39febd2ad"
+patchset = []
+reference_image = "native macOS build — no container"
+expect_patch_marker = 1
+expect_metal_tensor_api = true
+arches = ["gemma4", "gemma4_unified", "qwen35moe", "qwen35", "muse-glimmer"]
+notes = """
+Measured 2026-11-08 on 0.40.13-dynres-0-g85d6368 (the Metal leg, #507). Preflight --quality on the tag's
+:11437 stage against an APFS clone of production's store: VERDICT PASS (runs/preflight-*-0413-release-g85d6368.json).
+"""
+
+[expect.mlx-metal-0-40-13.gemma4]
+status = "measured"
+measured_on = "2026-11-08"   # re-measured on v0.40.13-dynres, byte-identical
+model = "gemma4:31b-mlx-bf16"
+patch_stride = 48
+# Carried from mlx-metal-0-34-4, not re-observed: the native MLX path emits no
+# load_hparams line. These four fields are the Go sizing model's, which the
+# v0.40.2 fold does not touch, and the ladder below re-measured byte-identical on
+# the moved payload (MLX a59cc231). The stride arithmetic still catches a
+# hand-edit typo (test_pixel_budgets_equal_tokens_times_stride_squared).
+budgets_observed = false
+budget_min_tokens = 70   # carried, see note above
+budget_max_tokens = 1120   # carried, see note above
+image_min_pixels = 161280   # carried, see note above
+image_max_pixels = 2580480   # carried, see note above
+scaling = "flat"
+# Aspect axis, carried from 0-34-4. Not a silent carry: check_aspect_ladder runs
+# these three live on every preflight.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.mlx-metal-0-40-13.gemma4_unified]
+status = "measured"
+measured_on = "2026-11-08"   # re-measured on v0.40.13-dynres, byte-identical
+model = "gemma4:12b-nvfp4"
+patch_stride = 48
+# Carried from mlx-metal-0-34-4, not re-observed: the native MLX path emits no
+# load_hparams line. These four fields are the Go sizing model's, which the
+# v0.40.2 fold does not touch, and the ladder below re-measured byte-identical on
+# the moved payload (MLX a59cc231). The stride arithmetic still catches a
+# hand-edit typo (test_pixel_budgets_equal_tokens_times_stride_squared).
+budgets_observed = false
+budget_min_tokens = 70   # carried, see note above
+budget_max_tokens = 1120   # carried, see note above
+image_min_pixels = 161280   # carried, see note above
+image_max_pixels = 2580480   # carried, see note above
+scaling = "flat"
+# Aspect axis, carried from 0-34-4. Not a silent carry: check_aspect_ladder runs
+# these three live on every preflight.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.mlx-metal-0-40-13.qwen35moe]
+status = "measured"
+measured_on = "2026-11-08"   # re-measured on v0.40.13-dynres, byte-identical
+model = "qwen3.6:35b-a3b-nvfp4"
+patch_stride = 32
+# Carried from mlx-metal-0-34-4, not re-observed: the native MLX path emits no
+# load_hparams line. These four fields are the Go sizing model's, which the
+# v0.40.2 fold does not touch, and the ladder below re-measured byte-identical on
+# the moved payload (MLX a59cc231). The stride arithmetic still catches a
+# hand-edit typo (test_pixel_budgets_equal_tokens_times_stride_squared).
+budgets_observed = false
+budget_min_tokens = 64   # carried, see note above
+budget_max_tokens = 16384   # carried, see note above
+image_min_pixels = 65536   # carried, see note above
+image_max_pixels = 16777216   # carried, see note above
+scaling = "dynamic"
+# Aspect axis, carried from 0-34-4. Not a silent carry: check_aspect_ladder runs
+# these three live on every preflight.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
+
+[expect.mlx-metal-0-40-13.qwen35]
+status = "measured"
+measured_on = "2026-11-08"   # re-measured on v0.40.13-dynres, byte-identical
+model = "qwen3.8:27b-nvfp4"
+patch_stride = 32
+# Carried from mlx-metal-0-34-4, not re-observed: the native MLX path emits no
+# load_hparams line. These four fields are the Go sizing model's, which the
+# v0.40.2 fold does not touch, and the ladder below re-measured byte-identical on
+# the moved payload (MLX a59cc231). The stride arithmetic still catches a
+# hand-edit typo (test_pixel_budgets_equal_tokens_times_stride_squared).
+budgets_observed = false
+budget_min_tokens = 64   # carried, see note above
+budget_max_tokens = 16384   # carried, see note above
+image_min_pixels = 65536   # carried, see note above
+image_max_pixels = 16777216   # carried, see note above
+scaling = "dynamic"
+# Aspect axis, carried from 0-34-4. Not a silent carry: check_aspect_ladder runs
+# these three live on every preflight.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [68, 146, 578, 2306, 5186]
+
+[expect.mlx-metal-0-40-13.gemma4.think_format]
+# Carried from mlx-metal-0-34-4 unchanged, and run live against the fold's
+# default flow (single pass; OLLAMA_FORMAT_TWO_PASS=1 restores two-pass).
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.mlx-metal-0-40-13.gemma4_unified.think_format]
+# Carried from mlx-metal-0-34-4 unchanged, and run live against the fold's
+# default flow (single pass; OLLAMA_FORMAT_TWO_PASS=1 restores two-pass).
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.mlx-metal-0-40-13.qwen35moe.think_format]
+# Carried from mlx-metal-0-34-4 unchanged, and run live against the fold's
+# default flow (single pass; OLLAMA_FORMAT_TWO_PASS=1 restores two-pass).
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.mlx-metal-0-40-13.qwen35.think_format]
+# Carried from mlx-metal-0-34-4 unchanged, and run live against the fold's
+# default flow (single pass; OLLAMA_FORMAT_TWO_PASS=1 restores two-pass).
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.mlx-metal-0-40-13.muse-glimmer]
+status = "measured"
+measured_on = "2026-11-08"   # re-measured on v0.40.13-dynres, byte-identical
+model = "muse-glimmer:30b-nvfp4"
+patch_stride = 28
+# Not observable: the native MLX path emits no load_hparams line. These are the Go
+# sizing constants the ladder exercises -- mlxrunner/model/glimmer/media.go:
+# maxImageTokens = 4096, and computeImageSize never upscales, so one token is the
+# floor -- and they equal what llama.cpp logs for the same model's GGUF
+# (metal-0-40-2). patch_stride = vision_patch_size 14 x vision_downsample_factor 2.
+budgets_observed = false
+budget_min_tokens = 1
+budget_max_tokens = 4096
+image_min_pixels = 784
+image_max_pixels = 3211264
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 59, text_only == 59; measured with image_prefix (B8), not text_baseline
+ladder = [47, 182, 779, 2995, 4082]
+
+[expect.mlx-metal-0-40-13.muse-glimmer.think_format]
+# The family's schema and allowance. glimmer's default level is "high"; measured
+# 2026-10-11 it closes its thinking well inside 4000 (about 1100 chars of thinking
+# on the smoke's schema), under production's OLLAMA_FORMAT_TWO_PASS=1 and in
+# single pass alike.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[profiles.metal-0-40-13]
+# The llama.cpp half of Apple Silicon at b11963 (39febd2ad), beside mlx-metal-0-40-13; same version pattern. Its
+# muse-glimmer row is 0-40-2's, re-measured byte-identical. gemma4 (gemma4:31b-it-q4_K_M) and qwen35
+# (qwen3.8:27b-q4_K_M) are NEW Metal GGUF rows, measured on the tag's build, so the budget-filling patch 004 (re-cut
+# for b11963) and the gemma4 tower's GELU switch (5ba3b9fd3) are gated on Apple Silicon too; both equal the CUDA
+# host's cuda-0-40-13 rows, budgets included.
+platform = "metal"
+version_pattern = '^0\.40\.13-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
+llama_cpp_build = "39febd2ad"
+patchset = ["001", "002", "004", "005", "801", "802", "805", "903", "908"]
+reference_image = "native macOS build — no container"
+expect_patch_marker = 1
+arches = ["muse-glimmer", "gemma4", "qwen35"]
+notes = """
+Measured 2026-11-08 on 0.40.13-dynres-0-g85d6368 (the Metal leg, #507). Preflight --quality on the tag's
+:11437 stage against an APFS clone of production's store: VERDICT PASS (runs/preflight-*-0413-release-g85d6368.json).
+"""
+
+[expect.metal-0-40-13.muse-glimmer]
+status = "measured"
+measured_on = "2026-11-08"   # re-measured on v0.40.13-dynres, byte-identical
+model = "muse-glimmer:30b"
+patch_stride = 28
+budget_min_tokens = 1
+budget_max_tokens = 4096
+image_min_pixels = 784
+image_max_pixels = 3211264
+custom_bounds = []   # only these are set by our flags
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 59, text_only == 59; measured with image_prefix (B8), not text_baseline
+ladder = [47, 182, 779, 2995, 4082]
+
+[expect.metal-0-40-13.muse-glimmer.think_format]
+# As the MLX row's. Think on, so this path is not the one #464 fixes (format with
+# thinking OFF leaked <|eot|> on GGUF); with thinking on both builds return clean
+# JSON.
+schema.type = "object"
+schema.required = ["facts"]
+schema.properties.facts.type = "array"
+schema.properties.facts.items.type = "string"
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.metal-0-40-13.gemma4]
+status = "measured"
+measured_on = "2026-11-08"
+model = "gemma4:31b-it-q4_K_M"
+patch_stride = 48
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280
+image_max_pixels = 2580480
+scaling = "flat"   # verify: flat is correct under 004, wrong for a dynres arch
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.metal-0-40-13.qwen35]
+status = "measured"
+measured_on = "2026-11-08"
+model = "qwen3.8:27b-q4_K_M"
+patch_stride = 32
+budget_min_tokens = 1024
+budget_max_tokens = 4096
+image_min_pixels = 1048576
+image_max_pixels = 4194304
+custom_bounds = ["min"]   # only these are set by our flags
+scaling = "dynamic"
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [1034, 1034, 1034, 2306, 4082]

@@ -1924,6 +1924,79 @@ class TestCudaProfilesForTheV0413Fold(unittest.TestCase):
                 self.assertEqual(new[arch]["measured_on"], "2026-11-03", f"{pid} {arch}")
 
 
+class TestMetalProfilesForTheV0413Fold(unittest.TestCase):
+    """ADR 0011 and ADR 0032 on Apple Silicon. The v0.40.13 fold moves MLX a59cc231 -> 065ec468 and llama.cpp
+    b11351 -> b11963 on Metal (through v0.40.5's pins, which Apple Silicon never served: no Metal -0-40-5 pair), so
+    the tag's lineage gets mlx-metal-0-40-13 and metal-0-40-13, measured on its native build (#507).
+
+    The 0-40-2 pair keeps 0.40.2/0.40.3 stamps; 0.40.5 stamps resolve to no Metal profile at all, by design.
+    """
+
+    PROFILES = ("mlx-metal-0-40-13", "metal-0-40-13")
+    PREDECESSOR = {"mlx-metal-0-40-13": "mlx-metal-0-40-2", "metal-0-40-13": "metal-0-40-2"}
+    NEW_ROWS = {"metal-0-40-13": {"gemma4", "qwen35"}}   # new Metal GGUF rows: no predecessor to equal
+    ADMIT = (
+        "0.40.13-dynres-0-g85d6368",    # the tag, measured here
+        "0.40.13-dynres-3-g1234567",    # main past it
+        "0.40.13-dynres.1-0-gabcdef0",  # a point tag (ADR 0032)
+    )
+    REJECT = (
+        "0.40.2-dynres.1-17-g75c6d35",      # production's outgoing build: the 0-40-2 pair's
+        "0.40.5-dynres-0-gabcdef0",         # the v0.40.5 fold: no Metal profile
+        "0.40.1-dynres-0-gabcdef0",         # 0.40.1 is not 0.40.13 with the 3 cut off
+        "0.40.13-dynres-0-gabcdef0-dirty",  # a dirty tree describes nothing
+        "0.40.14-dynres-0-gabcdef0",        # the next upstream release: measure first
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_pattern(self):
+        for pid in self.PROFILES:
+            pat = re.compile(self.exp["profiles"][pid]["version_pattern"])
+            for stamp in self.ADMIT:
+                self.assertRegex(stamp, pat, f"{pid} must admit {stamp}")
+            for stamp in self.REJECT:
+                self.assertNotRegex(stamp, pat, f"{pid} must reject {stamp}")
+
+    def test_the_pair_shares_one_pattern(self):
+        pats = {pid: self.exp["profiles"][pid]["version_pattern"] for pid in self.PROFILES}
+        self.assertEqual(len(set(pats.values())), 1, f"the 0.40.13 Metal pair drifted: {pats}")
+
+    def test_the_resolver_picks_each_folds_pair(self):
+        import preflight
+        for platform, p13, p2 in (("mlx-metal", "mlx-metal-0-40-13", "mlx-metal-0-40-2"),
+                                  ("metal", "metal-0-40-13", "metal-0-40-2")):
+            self.assertEqual(preflight.resolve_profile(self.exp, platform, "0.40.13-dynres-0-g85d6368")[0], p13)
+            self.assertEqual(preflight.resolve_profile(self.exp, platform, "0.40.2-dynres.1-17-g75c6d35")[0], p2)
+
+    def test_the_payload_pins(self):
+        for pid in self.PROFILES:
+            self.assertEqual(self.exp["profiles"][pid]["llama_cpp_build"], "39febd2ad")
+        self.assertEqual(self.exp["profiles"]["mlx-metal-0-40-13"]["mlx_build"],
+                         "065ec4683cce3c4d3d1d846b4759ad59c13a4ffd")
+
+    def test_ladders_equal_the_previous_payloads(self):
+        """Re-measured on the tag, and byte-identical to 0-40-2's: a split is a finding, not a typo to align."""
+        for pid in self.PROFILES:
+            new, old = self.exp["expect"][pid], self.exp["expect"][self.PREDECESSOR[pid]]
+            fresh = self.NEW_ROWS.get(pid, set())
+            self.assertEqual(sorted(set(new) - fresh), sorted(old), pid)
+            for arch in new:
+                self.assertEqual(new[arch]["measured_on"], "2026-11-08", f"{pid} {arch}")
+                if arch not in fresh:
+                    self.assertEqual(new[arch]["ladder"], old[arch]["ladder"], f"{pid} {arch}")
+
+    def test_the_new_gguf_rows_equal_the_cuda_hosts(self):
+        """llama.cpp sizes an image the same on every backend: Metal's new GGUF rows equal cuda-0-40-13's."""
+        for arch in self.NEW_ROWS["metal-0-40-13"]:
+            m, c = self.exp["expect"]["metal-0-40-13"][arch], self.exp["expect"]["cuda-0-40-13"][arch]
+            for k in ("model", "ladder", "budget_min_tokens", "budget_max_tokens", "patch_stride"):
+                self.assertEqual(m[k], c[k], f"{arch} {k}")
+
+
 class TestRocm7ProfilesForTheV0405AndV0413Folds(unittest.TestCase):
     """ADR 0011 and ADR 0032 on gfx1151. The v0.40.5 fold (#498) moves llama.cpp b11351 -> b11669 and the v0.40.13
     fold (#501) moves it on to b11963, so each lineage gets its own profile: rocm7-0-40-5, measured on
