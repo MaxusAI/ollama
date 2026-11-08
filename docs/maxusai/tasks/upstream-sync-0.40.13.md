@@ -18,7 +18,7 @@ fold, #498, at `529db8646`. #498 was unmerged when this fold started, and its he
   - the CUDA runtime payloads are deduplicated (2cd63f7a1);
   - Go 1.26.10.
 
-## Status (2026-11-03)
+## Status (2026-11-04)
 
 | gate | state |
 |---|---|
@@ -29,7 +29,7 @@ fold, #498, at `529db8646`. #498 was unmerged when this fold started, and its he
 | 4, image | **built on CUDA**: `maxusai/ollama:sync-0.40.13-fold`, stamp `0.40.3-dynres-20-g81dda7d`, 4 h 16 min (a full native build: all three pins move; host load 30-116 from other jobs); llama-server `39febd2ad`. It predates the review fixes below (Go only: the qwen3_5 cap, a `logMu` write). **gfx1151: built**, `maxusai-ollama:0.40.3-dynres-21-g833a5d2-rocm7-gfx1151`, llama-server `39febd2ad` |
 | 5, preflight | **CUDA: both pass** on the new `cuda-0-40-13` (PASS=20 SKIP=9) and `mlx-cuda-0-40-13` (PASS=11 SKIP=18), in a production-like canary (`--gpus all`): all six ladders byte-identical to the 0-40-5 rows, payload pins `39febd2ad` and `065ec46`, 0 cudaMemcpy errors, 0 OOMs (`runs/preflight-*-0413-canary-g81dda7d.json`). **gfx1151: passes** on the new `rocm7-0-40-13` (PASS=27 SKIP=5); all 24 ladder values equal the b11669 and b11351 rows ("gfx1151" below) |
 | 6, campaigns | **CUDA: 908's loop-rate gate** on b11963: 3 vs 3 loops with and without 908, and think-off no longer favours 908 ("908's loop-rate gate on b11963" below); nemotron3's format probe (below). The other think-off cells are not run. **gfx1151:** think-off on four models against b11669; nemotron3's move is the payload's, split by two hybrid images ("gfx1151" below) |
-| tag and deploy | not cut, not deployed |
+| tag and deploy | **tagged** `v0.40.13-dynres` on `85d636818` (#501's merge). **Deployed:** gfx1151 2026-11-04 08:57 (#504), CUDA 2026-11-04 10:09 ("Deploy on CUDA" below). 908 ships in this tag and is retired on `main` after it (#505). Metal: not run, not deployed |
 
 ## Native inputs
 
@@ -227,6 +227,35 @@ The same probe on CUDA (`tasks/fmtprobe-0413.py`, `tasks/fmtprobe-0413.sh`):
 - Token counts agree across payloads in 7 of 8 cells. The texts differ in all but one, so the payloads are close
   numerically and not identical.
 
+## Deploy on CUDA (2026-11-04)
+
+Production `:11497` serves `0.40.13-dynres-0-g85d6368` since 10:09, at the maintainer's word.
+
+**The image is a Go-only build, not a full build of the tag.** A full build started first:
+- Its first attempt failed after 28 minutes on a transient `proxy.golang.org` stream error in `go mod download`.
+- The second was stopped after 40 minutes, when the maintainer chose the swap. The native stages were not reusing the fold image's cache, so it faced about 3.5 more hours.
+
+`tasks/swap-v0413.sh` puts the tag's binary on `sync-0.40.13-fold`:
+- No native input changed between `81dda7d30` and the tag, checked before the build.
+- The image `maxusai/ollama:v0.40.13-dynres` stamps the release version, and its binary hash matches the build.
+- All 5,316 payload files are hash-identical to the gated fold image. llama-server reports `39febd2ad`.
+- So a full build would differ in `/usr/bin/ollama`, as the v0.40.3 deploy's swap did. Its binary is sha256 `8b6938826a9d...`.
+
+**The swap** (`tasks/chain-v0413-swap.sh`, with `deploy-v0402-point.sh`, the point-swap script of the last CUDA deploys, kept on the host) mirrored the live container, waited for five idle minutes and kept the old one stopped. Health checks passed: the right version, 63 tags before and after, `OLLAMA_KV_CACHE_TYPE=f16`, `OLLAMA_FORMAT_TWO_PASS=1`.
+
+Rollback: `docker rm -f ollama-0.40.13-dynres-0-g85d6368 && docker start ollama-0.40.3-dynres-12-g8761533`.
+
+**Production's own preflight did not run.** It needs about 56 GB free on GPU0 for its largest model and the reserve, and another workload left 30-36 GB for the whole 6.8 hours it waited. It was stopped at 17:00, so the README's `cuda` and `mlx-cuda` rows read "not run". The evidence on this payload is the fold image's canary (gate 5), whose Go is older: it lacks the review fixes and the later merges.
+
+**The smoke** (`tasks/smoke-v0413.py`, 17:00) was the first inference on this binary, on the llama.cpp runner, `gemma4:e4b-it-q4_K_M`, then unloaded:
+
+| request | wall | result |
+|---|---|---|
+| text | 302 s (cold load and kernel compile) | `stop`, "ready" |
+| image | 57 s | `stop`, prompt 1,123 tokens, 54 generated, naming all six of the fixture's labels with their colours, unscored |
+
+The runner launched with `-b 2048 -ub 2048` and f16 KV. The log shows no out-of-memory or `cudaMemcpy` error. It shows that one model serves text and images. It did not load an MLX model, so the tag's Go is unexercised on that engine on this host.
+
 ## Fork rows checked against v0.40.13 (retirement register)
 
 All still carried; none of the retirement conditions is met:
@@ -282,8 +311,6 @@ environment, on a hard-linked clone of production's store, with each model as pr
 
 ## Open
 
-- Gates 4-6 on CUDA and Metal, each with its own `-0-40-13` profiles. gfx1151's are above.
-- nemotron3's structured-output move on b11963 (gfx1151 section): bisect within b11669..b11963, and check it on CUDA.
-- 903's guard-page gate (GPU) on b11963.
-- Tag: `v0.40.13-dynres` after the gates. Until it is cut, the build stamps `0.40.3-dynres-N`, and models that
-  require v0.40.5 or newer refuse to pull (pull with the stock upstream client; see the v0.40.5 record).
+- **Metal:** gates and deploy for this fold and the v0.40.5 one.
+- **CUDA, production's own preflight on the tag:** `cuda-0-40-13` and `mlx-cuda-0-40-13` when GPU0 has about 56 GB free. It fills the README's two rows.
+- **CUDA, before the next deploy of `main`:** the same two profiles on a no-908 build (#505). `sync-0.40.13-fold-no908` is that payload, and `IMG=maxusai/ollama:sync-0.40.13-fold-no908 RUN=canary-no908-g81dda7d tasks/canary-0413.sh` runs it. Queued once and stopped unrun.
