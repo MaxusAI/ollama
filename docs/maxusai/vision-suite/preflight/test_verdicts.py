@@ -1924,6 +1924,64 @@ class TestCudaProfilesForTheV0413Fold(unittest.TestCase):
                 self.assertEqual(new[arch]["measured_on"], "2026-11-03", f"{pid} {arch}")
 
 
+class TestMetalProfilesForTheV0416Fold(unittest.TestCase):
+    """ADR 0011 and ADR 0032 on Apple Silicon at the v0.40.16 fold (#508): MLX 065ec468 -> 54a70511 and llama.cpp
+    b11963 -> b12177, so the v0.40.16-dynres lineage gets mlx-metal-0-40-16 and metal-0-40-16, measured on the fold
+    head's native build through a run-local expectations copy (the interim stamp 0.40.13-dynres-N is 0-40-13's).
+    """
+
+    PROFILES = ("mlx-metal-0-40-16", "metal-0-40-16")
+    PREDECESSOR = {"mlx-metal-0-40-16": "mlx-metal-0-40-13", "metal-0-40-16": "metal-0-40-13"}
+    ADMIT = (
+        "0.40.16-dynres-0-gabcdef0",    # a v0.40.16-dynres tag
+        "0.40.16-dynres-3-g1234567",    # main past it
+        "0.40.16-dynres.1-0-gabcdef0",  # a point tag (ADR 0032)
+    )
+    REJECT = (
+        "0.40.13-dynres-11-gdbbdc0f",       # the fold's interim build: the 0-40-13 pair claims it
+        "0.40.13-dynres-0-g85d6368",        # v0.40.13-dynres, production's build
+        "0.40.1-dynres-0-gabcdef0",         # 0.40.1 is not 0.40.16 with the 6 cut off
+        "0.40.16-dynres-0-gabcdef0-dirty",  # a dirty tree describes nothing
+        "0.40.17-dynres-0-gabcdef0",        # the next upstream release: measure first
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        with open(pathlib.Path(__file__).parent / "expectations.toml", "rb") as fh:
+            cls.exp = tomllib.load(fh)
+
+    def test_pattern(self):
+        for pid in self.PROFILES:
+            pat = re.compile(self.exp["profiles"][pid]["version_pattern"])
+            for stamp in self.ADMIT:
+                self.assertRegex(stamp, pat, f"{pid} must admit {stamp}")
+            for stamp in self.REJECT:
+                self.assertNotRegex(stamp, pat, f"{pid} must reject {stamp}")
+
+    def test_the_resolver_picks_each_folds_pair(self):
+        import preflight
+        for platform, p16, p13 in (("mlx-metal", "mlx-metal-0-40-16", "mlx-metal-0-40-13"),
+                                   ("metal", "metal-0-40-16", "metal-0-40-13")):
+            self.assertEqual(preflight.resolve_profile(self.exp, platform, "0.40.16-dynres-0-gabcdef0")[0], p16)
+            self.assertEqual(preflight.resolve_profile(self.exp, platform, "0.40.13-dynres-0-g85d6368")[0], p13)
+
+    def test_the_payload_pins(self):
+        for pid in self.PROFILES:
+            self.assertEqual(self.exp["profiles"][pid]["llama_cpp_build"], "6c01da627")
+            self.assertNotIn("908", self.exp["profiles"][pid]["patchset"], f"{pid}: 908 is retired (#505)")
+        self.assertEqual(self.exp["profiles"]["mlx-metal-0-40-16"]["mlx_build"],
+                         "54a70511f4ea151378d03b657a4fdd823386ea38")
+
+    def test_ladders_equal_the_previous_payloads(self):
+        """Re-measured on the fold head, and byte-identical to 0-40-13's: a split is a finding, not a typo."""
+        for pid in self.PROFILES:
+            new, old = self.exp["expect"][pid], self.exp["expect"][self.PREDECESSOR[pid]]
+            self.assertEqual(sorted(new), sorted(old), pid)
+            for arch in new:
+                self.assertEqual(new[arch]["ladder"], old[arch]["ladder"], f"{pid} {arch}")
+                self.assertEqual(new[arch]["measured_on"], "2026-11-14", f"{pid} {arch}")
+
+
 class TestMetalProfilesForTheV0413Fold(unittest.TestCase):
     """ADR 0011 and ADR 0032 on Apple Silicon. The v0.40.13 fold moves MLX a59cc231 -> 065ec468 and llama.cpp
     b11351 -> b11963 on Metal (through v0.40.5's pins, which Apple Silicon never served: no Metal -0-40-5 pair), so
