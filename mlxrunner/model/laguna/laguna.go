@@ -728,7 +728,8 @@ func applyDenseGlobalScale(x, globalScale *mlx.Array) *mlx.Array {
 	if globalScale == nil {
 		return x
 	}
-	return mlx.Mul(x, mlx.DivScalar(globalScale, mlx.Nvfp4MaxProduct)).AsType(x.DType())
+	// A stored scale is the checkpoint's own multiplier (ADR 0039): apply it as given.
+	return mlx.Mul(x, globalScale).AsType(x.DType())
 }
 
 func splitLastDim(x *mlx.Array, first int32) (*mlx.Array, *mlx.Array) {

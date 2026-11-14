@@ -467,9 +467,8 @@ func applyExpertWeightGlobalScale(weight, scale *mlx.Array) *mlx.Array {
 	if scale == nil {
 		return weight
 	}
-	// Divide out MLX's representation while still in float32: these multipliers
-	// are ~1e-3, so narrowing first would cost most of the mantissa.
-	scale = mlx.DivScalar(scale, mlx.Nvfp4MaxProduct)
+	// A stored scale is the checkpoint's own multiplier (ADR 0039), so it is
+	// applied as given; there is no MLX representation to divide out here.
 	if scale.DType() != weight.DType() {
 		scale = scale.AsType(weight.DType())
 	}
