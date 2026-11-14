@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/mmq.cu b/ggml/src/ggml-cuda/mmq.cu
-index 4af4f36e8..cb841378e 100644
+index 3676575..15c8949 100644
 --- a/ggml/src/ggml-cuda/mmq.cu
 +++ b/ggml/src/ggml-cuda/mmq.cu
 @@ -4,6 +4,7 @@
@@ -10,7 +10,7 @@ index 4af4f36e8..cb841378e 100644
  
  static void ggml_cuda_mul_mat_q_switch_type(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream, const ggml_prec prec_src1) {
      switch (args.type_x) {
-@@ -134,7 +135,7 @@ static ggml_prec ggml_cuda_mmq_get_prec_src1(const ggml_tensor * src0, const ggm
+@@ -134,7 +135,7 @@ static ggml_prec ggml_cuda_mmq_get_prec_src1(const ggml_type type, const ggml_pr
  // Tile width in ne11 (dense) / ne12 (MoE) direction with the fewest tiles that fits into shared memory, 0 if there is none.
  static int ggml_cuda_mmq_get_J_best(
          const ggml_type type, const int64_t ncols, const bool fallback, const int cc, const size_t smpbo, const ggml_prec prec_src1,
@@ -30,7 +30,7 @@ index 4af4f36e8..cb841378e 100644
              }
              ntiles_J_best = ntiles_x;
          }
-@@ -232,8 +233,8 @@ void ggml_cuda_mul_mat_q(
+@@ -238,8 +239,8 @@ void ggml_cuda_mul_mat_q(
      const size_t y_block_size       = use_native_fp4 ? sizeof(block_fp4_mmq) : sizeof(block_q8_1_mmq);
      const size_t y_values_per_block = use_native_fp4 ? QK_FP4_MMQ            : QK8_1_MMQ;
  
@@ -41,8 +41,8 @@ index 4af4f36e8..cb841378e 100644
      {
          int64_t ncols_opt = ne11;
          if (ids) {
-@@ -247,15 +248,15 @@ void ggml_cuda_mul_mat_q(
-             }
+@@ -250,15 +251,15 @@ void ggml_cuda_mul_mat_q(
+             ncols_opt = (ne12*n_expert_used + ne02 - 1) / ne02;
          }
  
 -        J_best = ggml_cuda_mmq_get_J_best(src0->type, ncols_opt, fallback, cc, smpbo, prec_src1, &nthreads_best);
@@ -61,8 +61,8 @@ index 4af4f36e8..cb841378e 100644
 +    const size_t src1_q8_1_padding = nbytes_y_tile_best;
  
      if (!ids) {
-         const size_t nbytes_src1_q8_1 = ne13*ne12 * ne11*ne10_padded * y_block_size/y_values_per_block + src1_q8_1_padding;
-@@ -531,3 +532,58 @@ bool ggml_cuda_mmq_fusion_is_efficient(const ggml_type type, const int64_t nrows
+         const int ntj = (ne1 + J_best - 1) / J_best;
+@@ -540,3 +541,58 @@ bool ggml_cuda_mmq_fusion_is_efficient(
      const int64_t tiles_efficiency_percent = 100 * ntiles / (nsm*tiles_nwaves);
      return tiles_efficiency_percent >= 90;
  }
@@ -122,10 +122,10 @@ index 4af4f36e8..cb841378e 100644
 +#undef GGML_CUDA_MMQ_Y_TILE_GUARD_ON
 +#endif // GGML_CUDA_MMQ_Y_TILE_GUARD_ON
 diff --git a/ggml/src/ggml-cuda/mmq.cuh b/ggml/src/ggml-cuda/mmq.cuh
-index 565ed1481..be82709ac 100644
+index 4d67555..c297791 100644
 --- a/ggml/src/ggml-cuda/mmq.cuh
 +++ b/ggml/src/ggml-cuda/mmq.cuh
-@@ -1437,11 +1437,17 @@ struct mmq_args {
+@@ -1432,11 +1432,17 @@ struct mmq_args {
      ggml_cuda_mm_fusion_args_device fusion = {}; // gate != nullptr selects the fused gate/up/GLU path
  };
  
