@@ -27,7 +27,7 @@ type hostPLEShard struct {
 	rows          int
 	weightColumns int
 	scaleColumns  int
-	globalScale   float32 // MLX representation; zero means no scale was stored.
+	globalScale   float32 // the checkpoint's own multiplier (ADR 0039); zero means no scale was stored.
 }
 
 type hostPLETable struct {
@@ -178,7 +178,9 @@ func readHostGlobalScale(extractor *safetensors.TensorExtractor, name string) (f
 	if _, err := io.ReadFull(entry.Reader(), data[:]); err != nil {
 		return 0, err
 	}
-	value := math.Float32frombits(binary.LittleEndian.Uint32(data[:])) * mlx.Nvfp4MaxProduct
+	// Stored as the checkpoint's own multiplier, not MLX's m*Nvfp4MaxProduct form: the fork's
+	// mlx.Dequantize applies the scale itself and wants the multiplier as given (ADR 0039).
+	value := math.Float32frombits(binary.LittleEndian.Uint32(data[:]))
 	if !(value > 0) || math.IsInf(float64(value), 0) {
 		return 0, fmt.Errorf("global scale is not finite and positive")
 	}
@@ -266,7 +268,7 @@ func (t *hostPLETable) lookup(globalIDs *mlx.Array) *mlx.Array {
 		for i, id := range ids {
 			values[i] = t.shards[int(id)/t.rows].globalScale
 			if values[i] == 0 {
-				values[i] = mlx.Nvfp4MaxProduct
+				values[i] = 1 // an unscaled shard: the identity in the stored convention (ADR 0039)
 			}
 		}
 		globalScale = mlx.FromValues(values, shape...)
