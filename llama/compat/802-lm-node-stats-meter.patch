@@ -1,9 +1,9 @@
 diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index 6334f3c..ad0f74e 100644
+index ea20062..11c9123 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
-@@ -15,7 +15,9 @@
- 
+@@ -17,7 +17,9 @@
+ #include <algorithm>
  #include <cinttypes>
  #include <cmath>
 +#include <cstdlib>
@@ -12,7 +12,7 @@ index 6334f3c..ad0f74e 100644
  #include <limits>
  #include <stdexcept>
  #include <string>
-@@ -1362,7 +1364,66 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+@@ -1704,7 +1706,66 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
          res->reset();
  
          ggml_backend_sched_reset(sched.get());
