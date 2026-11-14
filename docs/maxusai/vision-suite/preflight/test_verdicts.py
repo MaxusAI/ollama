@@ -1998,28 +1998,31 @@ class TestMetalProfilesForTheV0413Fold(unittest.TestCase):
 
 
 class TestRocm7ProfilesForTheV0405AndV0413Folds(unittest.TestCase):
-    """ADR 0011 and ADR 0032 on gfx1151. The v0.40.5 fold (#498) moves llama.cpp b11351 -> b11669 and the v0.40.13
-    fold (#501) moves it on to b11963, so each lineage gets its own profile: rocm7-0-40-5, measured on
-    0.40.3-dynres-17-g3a80cc3, and rocm7-0-40-13, measured on 0.40.3-dynres-21-g833a5d2, both through run-local
-    expectations copies (#502, and the v0.40.13 fold record).
+    """ADR 0011 and ADR 0032 on gfx1151. The v0.40.5 fold (#498) moves llama.cpp b11351 -> b11669, the v0.40.13
+    fold (#501) moves it on to b11963 and the v0.40.16 fold (#508) to b12177, so each lineage gets its own profile:
+    rocm7-0-40-5 (measured on 0.40.3-dynres-17-g3a80cc3), rocm7-0-40-13 (0.40.3-dynres-21-g833a5d2) and rocm7-0-40-16
+    (0.40.13-dynres-8-ga774f7a), all through run-local expectations copies.
 
     The folds' interim stamps (0.40.3-dynres-N) cannot be told from v0.40.3 builds by version alone, so rocm7-0-40-2
     keeps them; payload_pin is what stops a newer payload from passing there. The CUDA host's sibling is
     TestCudaProfilesForTheV0405Fold.
     """
 
-    PIN = {"rocm7-0-40-5": "620d2225c", "rocm7-0-40-13": "39febd2ad"}
-    PREDECESSOR = {"rocm7-0-40-5": "rocm7-0-40-2", "rocm7-0-40-13": "rocm7-0-40-5"}
+    PIN = {"rocm7-0-40-5": "620d2225c", "rocm7-0-40-13": "39febd2ad", "rocm7-0-40-16": "6c01da627"}
+    PREDECESSOR = {"rocm7-0-40-5": "rocm7-0-40-2", "rocm7-0-40-13": "rocm7-0-40-5", "rocm7-0-40-16": "rocm7-0-40-13"}
+    MEASURED_ON = {"rocm7-0-40-5": "2026-11-03", "rocm7-0-40-13": "2026-11-03", "rocm7-0-40-16": "2026-11-14"}
     ADMIT = {
         "rocm7-0-40-5": ("0.40.5-dynres-0-gabcdef0", "0.40.5-dynres-3-g1234567", "0.40.5-dynres.1-0-gabcdef0"),
         "rocm7-0-40-13": ("0.40.13-dynres-0-gabcdef0", "0.40.13-dynres-3-g1234567", "0.40.13-dynres.1-0-gabcdef0"),
+        "rocm7-0-40-16": ("0.40.16-dynres-0-gabcdef0", "0.40.16-dynres-3-g1234567", "0.40.16-dynres.1-0-gabcdef0"),
     }
     REJECT = (
         "0.40.3-dynres-17-g3a80cc3",       # the v0.40.5 fold's interim build: rocm7-0-40-2 claims it
         "0.40.3-dynres-21-g833a5d2",       # the v0.40.13 fold's interim build: the same
         "0.40.2-dynres.1-6-g9f3baaf",      # production on the v0.40.3 fold: the b11351 payload
         "0.40.5-dynres-0-gabcdef0-dirty",  # a dirty tree describes nothing
-        "0.40.14-dynres-0-gabcdef0",       # the next upstream release: measure first
+        "0.40.14-dynres-0-gabcdef0",       # an upstream release no fold of ours took: measure first
+        "0.40.17-dynres-0-gabcdef0",       # the next upstream release: measure first
     )
 
     @classmethod
@@ -2042,6 +2045,8 @@ class TestRocm7ProfilesForTheV0405AndV0413Folds(unittest.TestCase):
             self.assertEqual(preflight.resolve_profile(self.exp, "rocm7", admit[0])[0], pid)
         for stamp in ("0.40.3-dynres-17-g3a80cc3", "0.40.3-dynres-21-g833a5d2", "0.40.2-dynres.1-6-g9f3baaf"):
             self.assertEqual(preflight.resolve_profile(self.exp, "rocm7", stamp)[0], "rocm7-0-40-2", stamp)
+        # the v0.40.16 fold's interim stamp sits on the v0.40.13 lineage, so rocm7-0-40-13 keeps it
+        self.assertEqual(preflight.resolve_profile(self.exp, "rocm7", "0.40.13-dynres-8-ga774f7a")[0], "rocm7-0-40-13")
 
     def test_the_payload_pins(self):
         for pid, pin in self.PIN.items():
@@ -2060,7 +2065,7 @@ class TestRocm7ProfilesForTheV0405AndV0413Folds(unittest.TestCase):
             for arch in new:
                 for key in ("ladder", "aspect_ladder", "budget_min_tokens", "budget_max_tokens", "scaling"):
                     self.assertEqual(new[arch][key], old[arch][key], f"{pid} {arch} {key}")
-                self.assertEqual(new[arch]["measured_on"], "2026-11-03", f"{pid} {arch}")
+                self.assertEqual(new[arch]["measured_on"], self.MEASURED_ON[pid], f"{pid} {arch}")
             self.assertEqual(self.exp["quality"][pid], self.exp["quality"][prev], pid)
             self.assertEqual(self.exp["poison"][pid]["model"], self.exp["poison"][prev]["model"], pid)
 

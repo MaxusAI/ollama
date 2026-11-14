@@ -32,9 +32,9 @@ Upstream [v0.40.16](https://github.com/ollama/ollama/releases/tag/v0.40.16) (202
 | 2, docs and paths | **clean**: `check_source_paths.py --changed-since 63542f063` resolves every reference |
 | 3, the patch series | **done**: `d96be0a54`. All eight patches apply in order to a fresh b12177 with plain `git apply`. 802, 805 and 903 are re-cut; their changed lines are byte-identical to the v0.40.13 cut (below). 903 compiles for sm_75 and sm_120a, and its guard fires on a mutation in all 10 config tables, which are all of b12177's (`tasks/mmq-compile-0416.sh`). 903's guard-page gate (`tasks/mmq-0416-gate.sh`) **passes on sm_75 and sm_120a**: every pass is backed by a faulting control, and the ids_dst control faults in both new fused-NVFP4 cases (below) |
 | no-GPU harness gates | **green**: `test_verdicts.py`, `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
-| 4, image | **building** (`build-0416.sh`, from 2026-11-14 18:11 at `a774f7af5`, stamp `0.40.13-dynres-8-ga774f7a`). Old scratch was deleted first, which took the 8TB array from 36 GB to 66 GB free |
-| 5, preflight | not run. The canary reads a run-local expectations copy (`tasks/exp-0416.py`, below) |
-| 6, campaigns | not run |
+| 4, image | **gfx1151: built**, `maxusai-ollama:0.40.13-dynres-8-ga774f7a-rocm7-gfx1151` at `a774f7af5`, llama-server `6c01da627`; hipcc compiles 903's guard and its mutation fires in all six AMD tables ("gfx1151" below). CUDA: **building** (`build-0416.sh`, from 2026-11-14 18:11 at `a774f7af5`, stamp `0.40.13-dynres-8-ga774f7a`). Old scratch was deleted first, which took the 8TB array from 36 GB to 66 GB free |
+| 5, preflight | **gfx1151: passes** on the new `rocm7-0-40-16` (PASS=27 SKIP=5); all 24 ladder values unchanged. CUDA: not run. The canary reads a run-local expectations copy (`tasks/exp-0416.py`, below) |
+| 6, campaigns | **gfx1151:** think-off on four models against b11963, and 84dc81db1's slot change split from the payload on qwen3.8 and nemotron3 ("gfx1151" below). CUDA, Metal: not run |
 | tag and deploy | not tagged, not deployed |
 
 ## Native inputs
@@ -132,8 +132,58 @@ and `pr462ids0` (no ids_dst padding).
   check on the deduplicated payload (`mlx_cuda_v13` + `cuda_v13`).
 - **`/v1` sampling** (c1db5f9ef): clients that send no temperature or top_p now get the model's defaults instead of
   1.0/1.0. The harness uses `/api/generate` and does not see it; `/v1` consumers will.
-- **num_parallel** (84dc81db1): production leaves `OLLAMA_NUM_PARALLEL` at 1, so the removed override changes
-  nothing there.
+- **num_parallel** (84dc81db1): CUDA production leaves `OLLAMA_NUM_PARALLEL` at 1, so the removed override changes
+  nothing there. **gfx1151 production runs `OLLAMA_NUM_PARALLEL=2`**, so there qwen3.8 and nemotron3 go from one slot to
+  two; measured below.
+
+## gfx1151 (ROCm host, 2026-11-14)
+
+The image is `maxusai-ollama:0.40.13-dynres-8-ga774f7a-rocm7-gfx1151`: #508 at `a774f7af5`, built with
+`Dockerfile.rocm` on `rocm/dev-ubuntu-24.04:7.2.4-complete`, llama-server `6c01da627`. Later commits on #508 are docs
+and task records. Every run used a canary in production's environment (f16 KV, flash attention on, two-pass,
+`OLLAMA_NUM_PARALLEL=2`) on a hard-linked clone of production's store, with each model as production serves it
+(gemma4:26b converted in the clone, as in every baseline).
+
+- **903 under hipcc** (the toolchain stage of `Dockerfile.rocm`, `GPU_TARGETS=gfx1151`): a clean compile; the padding
+  mutation fails on the guard's `static_assert` in all six AMD tables (`gcn`, `cdna`, `rdna2`, `rdna3`, `rdna3_5`,
+  `rdna4`), with no syntax errors; restored, it compiles. b12177's new `RDNA4_M` family (eb4e244be) reuses the
+  `rdna3_5` table in both `ggml_cuda_mmq_get_config` overloads, so it is covered.
+- **Gate 5, `rocm7-0-40-16`.** `measure_ladder.py` and `aspect_measure.py`: all 24 values and the three prefixes equal
+  `rocm7-0-40-13`'s, unchanged since b11351. 7bd180830 moves no gemma4 token count (004 already resizes directly).
+  Preflight `--quality`: VERDICT PASS, PASS=27 SKIP=5 (`preflight/runs/preflight-rocm7-0416-canary-ga774f7a.json`),
+  run-local copy as for the earlier folds.
+- **Gate 6, think-off against b11963** (`r0413a_`), the same suite tree and settings, tag `r0416a_`. Every arm finishes
+  all 27 cases.
+
+| model | cells moving | quality moves (b12177 : b11963 : neutral) | what moved |
+|---|---|---|---|
+| nemotron3:33b-q4_K_M | 90 of 1010 | 24 : 17 : 21 | spread, both ways |
+| gemma4:26b-a4b-it-q4_K_M | 40 of 1007 | 0 : 5 : 1 | `bbox_contract_perobject` flips to y-first (drops the contract) |
+| gemma4:31b-it-q4_K_M | 39 of 1013 | 1 : 4 : 1 | `bbox_contract_pinned` flips back to y-first, as it had before b11963 |
+| qwen3.8:27b-q4_K_M | 39 of 1005 | 0 : 7 : 5 | small IoU drops (0.01–0.03; `bbox_contract_real_1img` 0.995 → 0.965) |
+
+  The gemma4 rows are the dialect flips these two cases have made at every payload move, both ways (the v0.40.5 and
+  v0.40.13 records). No case loses JSON validity.
+
+- **84dc81db1 on gfx1151, the slot change split from the payload.** qwen3.8 and nemotron3 re-ran at
+  `OLLAMA_NUM_PARALLEL=1` on the same build (`r0416p1_`):
+
+| model | slots 1 → 2, same build | b11963 → b12177, both at 1 slot |
+|---|---|---|
+| nemotron3:33b-q4_K_M | 3 of 1009 cells (one IoU ±0.002, one answer 11 tokens shorter); 0 quality moves | 89 cells, 24 : 17 |
+| qwen3.8:27b-q4_K_M | 20 of 1005 cells; 2 : 2 | 41 cells, 1 : 9 (the IoU drops above, plus one `scene_single_pinned` draw, 0.964 → 0.731, fine at 2 slots) |
+
+  So the moves are the payload's; the second slot is close to neutral.
+
+| at `num_ctx` 8192 | loaded size, 1 slot → 2 | KV (f16) | recurrent state | llama-server |
+|---|---|---|---|---|
+| nemotron3:33b-q4_K_M | 25.40 → 25.50 GB | 48 → 96 MiB | 48 → 95 MiB | `-c 8192 -np 1` → `-c 16384 -np 2` |
+| qwen3.8:27b-q4_K_M | 17.09 → 17.78 GB | 512 → 1024 MiB | 150 → 299 MiB | same |
+
+  The KV half scales with `num_ctx`: at qwen3.8's 65536 rung the second slot costs about 4 GiB of KV more. A
+  concurrent pair of requests (greedy, 160 tokens) finishes `stop` on both with identical text on each model: 2.8 s
+  for nemotron3, 13.7 s for qwen3.8.
+- **Not run here:** think-on.
 
 ## Canary expectations
 
@@ -148,5 +198,5 @@ copy that moves the 0-40-13 CUDA pair to `cuda-0-40-16` and `mlx-cuda-0-40-16`, 
 - **Disk.** The `bigdisk` buildkit cache was 82.9 GB before this build: 44.6 GB from the v0.40.13 fold's builds
   (2026-11-03), 32.8 GB from 2026-10-13, and 5.4 GB older. A full build at a new llama.cpp and MLX pin adds roughly
   what the last fold's did, so the next fold needs space again.
-- Gates 4-6 on CUDA. The canary (`tasks/canary-0416.sh`) is chained to the image. gfx1151 and Metal are the other
-  hosts'.
+- Gates 4-6 on CUDA. The canary (`tasks/canary-0416.sh`) is chained to the image. Metal's are its own; gfx1151's are
+  above.
