@@ -34,7 +34,7 @@ Upstream [v0.40.16](https://github.com/ollama/ollama/releases/tag/v0.40.16) (202
 | no-GPU harness gates | **green**: `test_verdicts.py`, `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
 | 4, image | **CUDA: built**: `maxusai/ollama:sync-0.40.16-fold` (`1cf98993f095`), 2026-11-14 18:11-21:55 at `a774f7af5`, stamp `0.40.13-dynres-8-ga774f7a`. Old scratch was deleted first, which took the 8TB array from 36 GB to 66 GB free; 62 GB were left after the build. **gfx1151: built**, `maxusai-ollama:0.40.13-dynres-8-ga774f7a-rocm7-gfx1151` at `a774f7af5`, llama-server `6c01da627`; hipcc compiles 903's guard and its mutation fires in all six AMD tables ("gfx1151" below) |
 | 5, preflight | **CUDA: passes** (canary, 2026-11-14 22:07 to 11-15 00:07): all six ladders measure field for field what v0.40.13's canary did, so the carried rows hold. Preflight CUDA PASS=20 SKIP=9, `mlx-cuda` PASS=11 SKIP=18, both rc=0 and as at v0.40.13. 0 `cudaMemcpy` errors, 0 OOMs ("Gate 5" below). **gfx1151: passes** on the new `rocm7-0-40-16` (PASS=27 SKIP=5); all 24 ladder values unchanged |
-| 6, campaigns | **CUDA, think-off done** (`tasks/gate6-0416.sh`): against production's image, gemma4:31b 5 : 5, 26b-a4b 4 : 4, e4b 34 : 15 (fold : production). Against b11963 without 908, which isolates the payload: 31b no quality move, 26b 2 : 7, e4b 22 : 23. Think-on on the full ladder (26b-a4b, 31b): running ("Gate 6" below). **gfx1151:** think-off on four models against b11963, and 84dc81db1's slot change split from the payload on qwen3.8 and nemotron3 ("gfx1151" below) |
+| 6, campaigns | **CUDA, think-off done** (`tasks/gate6-0416.sh`): against production's image, gemma4:31b 5 : 5, 26b-a4b 4 : 4, e4b 34 : 15 (fold : production). Against b11963 without 908, which isolates the payload: 31b no quality move, 26b 2 : 7, e4b 22 : 23. **CUDA, think-on done**: the loop gate passes, 26b-a4b not converged in 2 tests against production's 3 and b11963-without-908's 3; 31b converges at 16384 in both arms. 26b's think-on boxes are behind (3 : 9 against production, dialect flips) ("Gate 6" below). **gfx1151:** think-off on four models against b11963, and 84dc81db1's slot change split from the payload on qwen3.8 and nemotron3 ("gfx1151" below) |
 | tag and deploy | not tagged, not deployed |
 
 ## Native inputs
@@ -226,6 +226,52 @@ fold : other side.
 - 7bd180830 (no letterbox) shows no aggregate gemma4 cost. The y-first switch is the class to watch: it is a
   dialect flip on a single greedy path, and it now appears in one more 26b test.
 
+## Gate 6: gemma4 think-on (CUDA, 2026-11-15)
+
+The same script, cell and arms (`l0416f_` fold, `l0416p_` production), on the full ladder 16384 → 131072:
+26b-a4b 01:46-06:08, 31b 06:12-06:52.
+
+- **The control reproduces.** `l0416p_` capped the same three 26b tests as v0.40.13's `l0413w_` and has no quality
+  move against it (`cmp_scored.py`). Its `multi_3img_anchored` trace is byte-identical to `l0413w_`'s.
+- **26b-a4b, not converged at 131072.** Every capped test is a repetition loop: the deduplicated trace is 2.0-3.3% of
+  the raw one.
+  - `loop_detect.LoopDetector` calls four of them within the first 7-10k characters of thinking: one block of
+    269-499 characters, repeated back to back.
+  - Production's `multi_3img_anchored` repeats with drifting indentation, so the back-to-back check misses it.
+    `thinking_is_looping` is true for it, and `dedup_thinking` keeps 2.8%.
+
+| arm | not converged at 131072 |
+|---|---|
+| fold, b12177 (`l0416f_`) | `multi_3img_anchored`, `bbox_contract_adv_real` |
+| production, b11963 with 908 (`l0416p_`, = `l0413w_`) | `scene_single_anchored`, `multi_3img_anchored`, `bbox_contract_adv_norm1` |
+| b11963 without 908 (`l0413n_`) | `multi_3img_anchored`, `bbox_contract_adv_real`, `bbox_contract_adv_norm1` |
+
+**2 against 3, and 2 against 3.** The fold's set is b11963-without-908's minus `bbox_contract_adv_norm1`, so
+1b6935b22 adds no loop. The gate's history: b11081 1 vs 6 (sm_120), b11669 1 vs 2, b11963 3 vs 3, b12177 2 vs 3. The
+script's summary line printed "1 / 1": it counts NOT CONVERGED lines (one per ladder), not tests.
+
+**26b-a4b quality**, on the tests both sides finished (`cmp_scored.py`, fold : other side): **3 : 9** against
+production, **2 : 7** against b11963 without 908. The losses are bounding-box dialect flips, the think-off class:
+- `bbox_contract`: the fold goes y-first (`norm1000/yxyx`) and drops the contract, IoU 0.04 against 0.97 on both
+  other arms. This is new in this fold.
+- `scene_single`: the fold answers in pixel space, IoU 0.69 against 0.97 on both other arms.
+- `scene_single_pinned`: 1 hit and IoU 0.04, as production; b11963 without 908 hit 6, IoU 0.97.
+- `bbox_contract_multi`: y-first against production. b11963 without 908 did the same, so this is 908's retirement.
+- The fold's wins are small: `bbox_contract_positional_1img` IoU 0.976 against 0.970, and `finetext` recall_7px 3
+  against 2 (against production only).
+
+**31b** converged at the first rung (16384) in both arms, with nothing capped. Fold : production is 1 : 0
+(`document_single` name_bbox IoU 0.751 against 0.707) plus 2 label changes. There is no b11963-without-908 31b
+think-on cell to isolate the payload against.
+
+**Reading.**
+- The loop gate passes: the fold loops in fewer 26b tests than either b11963 arm.
+- 26b's bounding boxes are worse in both think modes, all by dialect flips on single greedy paths: y-first in
+  `bboxm_free_noanc_pos` (think-off) and `bbox_contract` (think-on), and pixel space in `scene_single` (think-on).
+  31b and e4b show no such cost.
+- Greedy GGUF on CUDA repeats byte for byte, so a repeat would only reproduce these cells. A sampled run
+  (`THINK_TEMPERATURE`, n >= 3 on the moved tests) is what would turn them into rates.
+
 ## Canary expectations
 
 The fold's interim builds stamp `0.40.13-dynres-N` (`main`'s last tag is `v0.40.13-dynres`), which `cuda-0-40-13` and
@@ -239,5 +285,7 @@ copy that moves the 0-40-13 CUDA pair to `cuda-0-40-16` and `mlx-cuda-0-40-16`, 
 - **Disk.** The `bigdisk` buildkit cache was 82.9 GB before this build: 44.6 GB from the v0.40.13 fold's builds
   (2026-11-03), 32.8 GB from 2026-10-13, and 5.4 GB older. A full build at a new llama.cpp and MLX pin adds roughly
   what the last fold's did, so the next fold needs space again.
-- Gate 6 think-on (26b-a4b, then 31b), both arms, the full ladder: running on CUDA. Metal's gates are its own; gfx1151's
-  are above.
+- Gate 6 on CUDA is done. Before a deploy: the checked-in `cuda-0-40-16` / `mlx-cuda-0-40-16` profiles, and an image
+  carrying #510 (Go-only; the tested image predates it). Metal's gates are its own; gfx1151's are above.
+- The maintainer's call: whether 26b-a4b's bounding-box dialect flips (y-first in two tests, pixel space in one) block
+  the fold, or want a sampled rate first.
