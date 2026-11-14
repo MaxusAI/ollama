@@ -23,29 +23,23 @@
 > - An experimental MLX runtime for Apple Silicon and CUDA — see the caveats
 >   below before using it for anything that matters.
 >
-> **Current fold:** [`v0.40.13-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.40.13-dynres)
-> (`85d636818`, [#501](https://github.com/MaxusAI/ollama/pull/501) on [#498](https://github.com/MaxusAI/ollama/pull/498)):
-> upstream v0.40.13, llama.cpp `b11963` (`39febd2ad`) with compat patches 001, 002, upstream's 002-metal, 004, 005,
-> 801, 802, 805, 903 and 908 (004 and 903 re-cut for b11963), MLX `065ec468`, MLX-C `57731b00`.
-> Since `v0.40.2-dynres.1` it folds three upstream releases, each tagged: v0.40.3 ([#488](https://github.com/MaxusAI/ollama/pull/488),
-> `v0.40.3-dynres`: the local GGUF migration pauses), v0.40.5 ([#498](https://github.com/MaxusAI/ollama/pull/498),
-> `v0.40.5-dynres`: Nemotron 3.5 Super and Bolt, llama.cpp b11669, MLX `bebd6422`) and v0.40.13
-> ([#501](https://github.com/MaxusAI/ollama/pull/501)). The fork's own changes in that span: the MLX runner pinned to
-> the GPU its admission priced ([#487](https://github.com/MaxusAI/ollama/pull/487)), `Dockerfile.rocm` without the
-> clef copies ([#500](https://github.com/MaxusAI/ollama/pull/500)), and two fixes from #501's review, qwen3.5's
-> checkpoint pixel cap kept under a request budget and a `logMu` race in the scheduler. 903 is guard-only since
-> b11669, which contains llama.cpp#29953 itself. 908 is in the tag and retired on `main` after it
-> ([#505](https://github.com/MaxusAI/ollama/pull/505)): at b11963 its loop-rate gate is met. 903 and 908 are in
-> `ggml-cuda` and 002-metal is Metal-only. `main` moves ahead of the tags between folds; a tag is the fixed point to
-> build and roll back to.
+> **Current fold:** [`v0.40.16-dynres`](https://github.com/MaxusAI/ollama/releases/tag/v0.40.16-dynres)
+> (`d50a283a7`, [#508](https://github.com/MaxusAI/ollama/pull/508)): upstream v0.40.16, llama.cpp `b12177` (`6c01da627`)
+> with compat patches 001, 002, 004, 005, 801, 802, 805 and 903 (802, 805 and 903 re-cut for b12177; upstream's
+> 002-metal is gone, fixed upstream; 908 retired in [#505](https://github.com/MaxusAI/ollama/pull/505)), MLX `54a70511`,
+> MLX-C `57731b00`. Upstream now runs recurrent and vision models with parallel slots (84dc81db1). The fork's own
+> change in the fold: qwen4_exp's host PLE lookup keeps the checkpoint's global-scale multiplier (ADR 0039,
+> [#510](https://github.com/MaxusAI/ollama/pull/510)). The previous fold, `v0.40.13-dynres` (#501 on #498), is the
+> tag the CUDA and Apple Silicon hosts serve until they deploy this one. `main` moves ahead of the tags between
+> folds; a tag is the fixed point to build and roll back to.
 >
-> **Deployed** (versions read from each server's `/api/version` when its row was last updated; the CUDA host's on 2026-11-04, Apple Silicon's on 2026-11-08):
+> **Deployed** (versions read from each server's `/api/version` when its row was last updated; the CUDA host's on 2026-11-04, Apple Silicon's on 2026-11-08, gfx1151's on 2026-11-15):
 >
 > | host | build | since | record |
 > |---|---|---|---|
 > | Apple Silicon, mlx-metal (`:11435`) | `0.40.13-dynres-0-g85d6368`: the `v0.40.13-dynres` tag ([#501](https://github.com/MaxusAI/ollama/pull/501) on [#498](https://github.com/MaxusAI/ollama/pull/498)), llama.cpp b11963, MLX `065ec468`, MLX-C `57731b00`. Both halves built at the tag. 908 is in its payload, and changes nothing on Metal | 2026-11-08 11:16 | [#507](https://github.com/MaxusAI/ollama/pull/507) |
 > | CUDA host, ai-server (`:11497`) | `0.40.13-dynres-0-g85d6368`: the `v0.40.13-dynres` tag ([#501](https://github.com/MaxusAI/ollama/pull/501) on [#498](https://github.com/MaxusAI/ollama/pull/498)), llama.cpp b11963, MLX `065ec468`, still with 908. A Go-only build: the tag's binary on the payload that passed `cuda-0-40-13` and `mlx-cuda-0-40-13` in a canary (image `v0.40.13-dynres`). The post-deploy preflight did not run; a one-model smoke did | 2026-11-04 10:09 | [v0.40.13 record](docs/maxusai/tasks/upstream-sync-0.40.13.md#deploy-on-cuda-2026-11-04), [#501](https://github.com/MaxusAI/ollama/pull/501) |
-> | AMD gfx1151 (`:11434`) | `0.40.13-dynres-0-g85d6368`: the `v0.40.13-dynres` tag ([#501](https://github.com/MaxusAI/ollama/pull/501) on [#498](https://github.com/MaxusAI/ollama/pull/498)), llama.cpp b11963. The store migration stays paused. Preflight passes `rocm7-0-40-13` on the release image and on production | 2026-11-04 08:57 | [#502](https://github.com/MaxusAI/ollama/pull/502), [#503](https://github.com/MaxusAI/ollama/pull/503), [the 2026-11-04 decision](docs/maxusai/amd-upgrade-gate.md#decision-2026-11-04--v04013-dynres-promoted-the-payload-moves-to-b11963) |
+> | AMD gfx1151 (`:11434`) | `0.40.16-dynres-0-gd50a283`: the `v0.40.16-dynres` tag ([#508](https://github.com/MaxusAI/ollama/pull/508)), llama.cpp b12177. Two llama-server slots per model now on every arch (upstream 84dc81db1), measured near-neutral on output. The store migration stays paused. Preflight passes `rocm7-0-40-16` on the release image and on production | 2026-11-15 05:57 | [#509](https://github.com/MaxusAI/ollama/pull/509), [the 2026-11-15 decision](docs/maxusai/amd-upgrade-gate.md#decision-2026-11-15--v04016-dynres-promoted-the-payload-moves-to-b12177) |
 > | H100 (CUDA) | `0.35.0-dynres-15-ga657392`, a build of `main` past the v0.35.0 tag | 2026-10-03 | [v0.35.0 record](docs/maxusai/tasks/upstream-sync-0.35.0.md) |
 >
 > The CUDA host's build carries [#487](https://github.com/MaxusAI/ollama/pull/487): without it, an MLX
@@ -92,40 +86,27 @@
      cells with "skipped". The release notes carry the same generated matrix.
      runs/ is gitignored; a run meant for this table is committed with `git add -f`.
 
-     For v0.40.13-dynres the table below is the verbatim output of
-       release_matrix.py --version 0.40.13-dynres \
-           runs/preflight-rocm7-0413-prod-g85d6368.json \
-           runs/preflight-mlx-metal-0413-prod-g85d6368.json \
-           runs/preflight-metal-0413-prod-g85d6368.json
-     The runs are listed by name because runs/ also holds the folds' canaries, which are not release runs.
-     gfx1151 is the first host on the tag: its rocm7 row is production's own run on 0.40.13-dynres-0-g85d6368
-     (since 2026-11-04 08:57), equal in every check to the release image's run in a canary (-release-g85d6368.json).
-     Apple Silicon's mlx-metal and metal rows are production's own runs on 0.40.13-dynres-0-g85d6368 (2026-11-08,
-     after the 11:16 swap), equal in their counts to the tag's stage runs before it (-release-g85d6368.json). metal is
-     the GGUF profile metal-0-40-13; the generator lists a surface outside its fixed list after cpu.
-     The CUDA host serves the tag since 2026-11-04 10:09, but its cuda and mlx-cuda rows read "not run": production's own
-     preflight did not run, because another workload held GPU0's memory. Their evidence on the same native payload is
-     the canary's, on the fold's interim stamp: runs/preflight-{cuda,mlx-cuda}-0413-canary-g81dda7d.json.
-     The other surfaces read "not run" until their hosts serve the tag. Their last release table, v0.40.2-dynres.1,
-     was generated from runs/preflight-{mlx-metal,cuda,mlx-cuda}-0403-prod-g75c6d35.json and
-     runs/preflight-rocm7-0403-prod-g9f3baaf.json, and is in this file's history (#496). -->
+     For v0.40.16-dynres the table below is the verbatim output of
+       release_matrix.py --version 0.40.16-dynres runs/preflight-rocm7-0416-prod-gd50a283.json
+     gfx1151 is the first host on the tag: its rocm7 row is production's own run on 0.40.16-dynres-0-gd50a283
+     (since 2026-11-15 05:57), equal in every check to the release image's canary run (-release-gd50a283.json).
+     The other surfaces read "not run" until their hosts serve the tag; their v0.40.13-dynres rows are in this
+     file's history (#507, #506). -->
 
 | surface | Build identity | MLX build pin | Toolchain pin | M5 tensor path | Image size ladder | Aspect ladder | Pinned image budget | thinking on/off | Output quality | fp16 overflow canary | Runner isolation | measured on |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **cuda** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
 | **mlx-cuda** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
-| **mlx-metal** | skipped | green | skipped | green | green | skipped | skipped | green | skipped | skipped | green | `0.40.13-dynres-0-g85d6368` |
+| **mlx-metal** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
 | **apple-silicon-mlx** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
-| **rocm7** | green | skipped | green | n/a | green | green | green | green | green | green | green | `0.40.13-dynres-0-g85d6368` |
+| **rocm7** | green | skipped | green | n/a | green | green | green | green | green | green | green | `0.40.16-dynres-0-gd50a283` |
 | **rocm10** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
 | **cpu** | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | not run | — |
-| **metal** | skipped | skipped | skipped | skipped | green | skipped | skipped | skipped | skipped | skipped | green | `0.40.13-dynres-0-g85d6368` |
 
 Generated by `release_matrix.py` from recorded preflight runs. A surface with no run for this release reads *not run* — absence is shown, never assumed green. A group is reported at its weakest check, so one skipped probe does not read as a pass.
 
-`rocm7` here is the deployed serving surface, measured on production itself. `mlx-metal` and `metal` are the release
-build's runs on Apple Silicon's stage before its swap; `cuda` and `mlx-cuda` fill in when production's own preflight
-runs on the CUDA host. `apple-silicon-mlx` is the
+`rocm7` here is the deployed serving surface, measured on production itself. The other surfaces fill in as their hosts
+build and deploy the tag; `cuda` and `mlx-cuda` also need their `-0-40-16` profiles committed first. `apple-silicon-mlx` is the
 deprecated alias for `mlx-metal` and will disappear from the generator with it.
 
 
