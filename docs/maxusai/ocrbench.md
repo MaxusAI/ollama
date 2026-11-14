@@ -24,8 +24,14 @@ handwritten-maths case), think off, temperature 0 with `apply_sampling=False`,
 
 ```bash
 LIMIT=200 OFFSET=0 THINK=false NUM_CTX=8192 NUM_PREDICT=512 SLEEP=1 TIMEOUT=1800 \
+  HOST_PROFILE=bench-runs/ocrbench/host-profile_<run>.json \
   python3 docs/maxusai/vision-suite/extbench.py http://127.0.0.1:<port> <tag> <model> ocrbench
 ```
+
+`HOST_PROFILE` is the profile captured on the serving machine for this run (SPEC H26,
+`tools/host_profile.py`). The arm records the machine's label, GPUs and machine type as
+`summary.hardware`, and `summarize_extbench.py` names it in the footer: seconds per item
+compare only on one machine, and `host` is just the URL the client called.
 
 The row slice is cached under `extimgs/ocrbench/rows_<offset>_<limit>.json` and the
 images beside it, so a re-run answers the same questions and a transient DNS failure

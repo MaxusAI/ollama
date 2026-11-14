@@ -25,6 +25,11 @@ recorded)** rather than silently inheriting a sibling's provenance, and a mix of
 hosts, builds or recording states renders the MIXED banner that ADR 0012
 convention 10 makes non-publishable.
 
+H26: once a file records `hardware` (extbench's HOST_PROFILE), the footer names the
+machine, and `--timing` warns when the arms ran on different machines or one of them
+recorded none: seconds per item compare only on one machine. Files without the field
+render as they always have.
+
 The footer also names the `prompt_cache_ram` the arms sent, once a file records it
 (extbench has since 2026-10-03). It moves seconds per item, not accuracy, so
 `--timing` warns when the arms differ. A file without the field sent none, so it reads
@@ -93,6 +98,16 @@ def provenance(summary):
             return NOT_RECORDED
         return ", ".join(v) if isinstance(v, list) else str(v)
     return one("host"), one("server_version")
+
+
+def hardware(summary):
+    """The machine an arm ran on, as text (H26); None when the file records none."""
+    hw = summary.get("hardware")
+    if not hw:
+        return None
+    gpus = ", ".join(g for g in (hw.get("gpus") or []) if g) or "no GPU recorded"
+    machine = f", {hw['cloud_machine_type']}" if hw.get("cloud_machine_type") else ""
+    return f"{hw.get('label') or 'unlabelled'} ({gpus}{machine})"
 
 
 def prompt_cache(summary):
@@ -168,6 +183,10 @@ def main():
     caches = {label: prompt_cache(got[0][1]) for label, got in runs.items()}
     cache_note = (" · prompt_cache_ram: " + ", ".join(sorted(set(caches.values())))
                   if any("prompt_cache_ram" in got[0][1] for got in runs.values()) else "")
+    machines = {label: hardware(got[0][1]) for label, got in runs.items()}
+    if any(machines.values()):
+        cache_note += " · hardware: " + "; ".join(sorted({m or "not recorded (pre-H26 run)"
+                                                          for m in machines.values()}))
     if len(hosts) > 1 or len(builds) > 1:
         print("\n⚠ **MIXED — rows are not one campaign** "
               f"(hosts: {sorted(hosts)}; builds: {sorted(builds)})" + cache_note)
@@ -205,6 +224,11 @@ def main():
             print("\n⚠ **Seconds per item are not comparable across these arms:** they sent "
                   "different `prompt_cache_ram` ("
                   + "; ".join(f"{label}: {v}" for label, v in caches.items()) + ").")
+        if any(machines.values()) and (len(set(machines.values())) > 1 or None in machines.values()):
+            print("\n⚠ **Seconds per item are not comparable across these arms:** they ran on "
+                  "different machines, or one records none (H26: "
+                  + "; ".join(f"{label}: {m or 'not recorded'}" for label, m in machines.items())
+                  + ").")
         print("\n| arm | accuracy | ±1 s.e. | mean s/item | median | mean prompt_eval |")
         print("|---|---|---|---|---|---|")
         for label, got in runs.items():

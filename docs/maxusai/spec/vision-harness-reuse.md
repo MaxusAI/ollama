@@ -624,8 +624,9 @@ record the machine, and the machine moves numbers that neither field explains
 - **Commit the JSON beside the results it describes, named for them.** Beside a
   campaign bundle it is `<bundle stem>.host-profile.json`. In a directory of arms,
   such as `bench-runs/ocrbench/`, it is `host-profile_<run>.json`.
-- **Point to it from the results.** A bundle names it in `meta.host_profile`, and
-  the results document links it.
+- **Point to it from the results.** A bundle names it in `meta.host_profile`. An
+  `extbench.py` arm is given it as `HOST_PROFILE` and records its file name, label,
+  GPUs and machine type as `summary.hardware`. The results document links it.
 - **Capture it again for the next run.** A cloud machine type, a collab label and
   a hostname can each come back on different hardware.
 
@@ -666,4 +667,4 @@ record the machine, and the machine moves numbers that neither field explains
 | H23 | **Nothing enforces this.** The worked example is the flash-attention measurement in `rocblas-on-gfx1151.md` ("What flash attention is worth: 51%"), which ran the KV-cache change as its own arm |
 | H24 | `gemm_ceiling_bench.cpp` prints both counts, WGPs and CUs (two per WGP on RDNA: 20 and 40 on gfx1151, as `rocminfo` reports), so a halved denominator shows in its own output. **Nothing checks another bench's ceiling** |
 | H25 | `kvloop.sh`'s default `ARMS` is `f16:1 f16:0 f32:0`, and every capture logs the runner's `--cache-type-k/v` and `--flash-attn` flags. **Nothing checks a new llama.cpp pin.** After a bump, re-take one `ARMS="f16:1 f32:1"` pair and compare it byte for byte (ADR 0044, decision 4) |
-| H26 | `host_profile.py` reads and writes no identifier, and a probe with nothing to report leaves its field null. `test_host_profile.py` asserts both on output captured from a GCP H100 VM and an Apple Silicon Mac, and on a fake sysfs tree for an AMD APU, and `.github/workflows/host-profile.yaml` profiles its own runner. `bundle_campaign.py` warns when a campaign bundle's meta names no `host_profile`, and refuses one that is not beside the bundle (`test_bundle_campaign.py`). It warns rather than refuses because campaigns from before 2026-09-30 have no profile. **Nothing checks an OCRBench run,** which has no bundle |
+| H26 | `host_profile.py` reads and writes no identifier, and a probe with nothing to report leaves its field null. `test_host_profile.py` asserts both on output captured from a GCP H100 VM and an Apple Silicon Mac, and on a fake sysfs tree for an AMD APU, and `.github/workflows/host-profile.yaml` profiles its own runner. `bundle_campaign.py` warns when a campaign bundle's meta names no `host_profile`, and refuses one that is not beside the bundle (`test_bundle_campaign.py`). It warns rather than refuses because campaigns from before 2026-09-30 have no profile. An `extbench.py` arm records the profile it is given (`HOST_PROFILE`) as `summary.hardware`, and stops before its first request on a path that is not a host profile (`test_extbench.py::TestMainLoop`); `summarize_extbench.py` names the machine in the footer once a file records it, and warns under `--timing` when the arms ran on different machines or one names none (`test_summarizers.py::TestExtbenchArmsAndSlices`). It warns rather than refuses, because OCRBench arms from before this field name none |
