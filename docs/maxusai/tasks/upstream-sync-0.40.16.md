@@ -32,9 +32,9 @@ Upstream [v0.40.16](https://github.com/ollama/ollama/releases/tag/v0.40.16) (202
 | 2, docs and paths | **clean**: `check_source_paths.py --changed-since 63542f063` resolves every reference |
 | 3, the patch series | **done**: `d96be0a54`. All eight patches apply in order to a fresh b12177 with plain `git apply`. 802, 805 and 903 are re-cut; their changed lines are byte-identical to the v0.40.13 cut (below). 903 compiles for sm_75 and sm_120a, and its guard fires on a mutation in all 10 config tables, which are all of b12177's (`tasks/mmq-compile-0416.sh`). 903's guard-page gate (`tasks/mmq-0416-gate.sh`) **passes on sm_75 and sm_120a**: every pass is backed by a faulting control, and the ids_dst control faults in both new fused-NVFP4 cases (below) |
 | no-GPU harness gates | **green**: `test_verdicts.py`, `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
-| 4, image | **gfx1151: built**, `maxusai-ollama:0.40.13-dynres-8-ga774f7a-rocm7-gfx1151` at `a774f7af5`, llama-server `6c01da627`; hipcc compiles 903's guard and its mutation fires in all six AMD tables ("gfx1151" below). CUDA: **building** (`build-0416.sh`, from 2026-11-14 18:11 at `a774f7af5`, stamp `0.40.13-dynres-8-ga774f7a`). Old scratch was deleted first, which took the 8TB array from 36 GB to 66 GB free |
-| 5, preflight | **gfx1151: passes** on the new `rocm7-0-40-16` (PASS=27 SKIP=5); all 24 ladder values unchanged. CUDA: not run. The canary reads a run-local expectations copy (`tasks/exp-0416.py`, below) |
-| 6, campaigns | **gfx1151:** think-off on four models against b11963, and 84dc81db1's slot change split from the payload on qwen3.8 and nemotron3 ("gfx1151" below). CUDA, Metal: not run |
+| 4, image | **CUDA: built**: `maxusai/ollama:sync-0.40.16-fold` (`1cf98993f095`), 2026-11-14 18:11-21:55 at `a774f7af5`, stamp `0.40.13-dynres-8-ga774f7a`. Old scratch was deleted first, which took the 8TB array from 36 GB to 66 GB free; 62 GB were left after the build. **gfx1151: built**, `maxusai-ollama:0.40.13-dynres-8-ga774f7a-rocm7-gfx1151` at `a774f7af5`, llama-server `6c01da627`; hipcc compiles 903's guard and its mutation fires in all six AMD tables ("gfx1151" below) |
+| 5, preflight | **CUDA: passes** (canary, 2026-11-14 22:07 to 11-15 00:07): all six ladders measure field for field what v0.40.13's canary did, so the carried rows hold. Preflight CUDA PASS=20 SKIP=9, `mlx-cuda` PASS=11 SKIP=18, both rc=0 and as at v0.40.13. 0 `cudaMemcpy` errors, 0 OOMs ("Gate 5" below). **gfx1151: passes** on the new `rocm7-0-40-16` (PASS=27 SKIP=5); all 24 ladder values unchanged |
+| 6, campaigns | **CUDA, think-off done** (`tasks/gate6-0416.sh`): against production's image, gemma4:31b 5 : 5, 26b-a4b 4 : 4, e4b 34 : 15 (fold : production). Against b11963 without 908, which isolates the payload: 31b no quality move, 26b 2 : 7, e4b 22 : 23. Think-on on the full ladder (26b-a4b, 31b): running ("Gate 6" below). **gfx1151:** think-off on four models against b11963, and 84dc81db1's slot change split from the payload on qwen3.8 and nemotron3 ("gfx1151" below) |
 | tag and deploy | not tagged, not deployed |
 
 ## Native inputs
@@ -185,6 +185,47 @@ and task records. Every run used a canary in production's environment (f16 KV, f
   for nemotron3, 13.7 s for qwen3.8.
 - **Not run here:** think-on.
 
+## Gate 5: the canary (CUDA, 2026-11-14/15)
+
+`tasks/canary-0416.sh` ran on the fold image, production-like (`--gpus all`, production's env), on port 11533.
+- **Ladders.** `measure_ladder.py` ran on all six arches: CUDA nemotron_h_omni, gemma4 and qwen35; `mlx-cuda` gemma4,
+  qwen35moe and qwen35. Each run's JSON matches the v0.40.13 canary's in every field except the profile name.
+- **Preflight.** It ran against the run-local expectations: CUDA PASS=20 SKIP=9, `mlx-cuda` PASS=11 SKIP=18, no ERR or
+  FAIL. These counts are v0.40.13's.
+- **Runtime.** The first MLX load ran on 2e7b870fb's device check and ddf22489b's path preload with no error.
+  0 `cudaMemcpy` errors, 0 OOMs. The run left no ollama process on GPU0.
+
+## Gate 6: gemma4 think-off (CUDA, 2026-11-15)
+
+`tasks/gate6-0416.sh` runs the fold image (`t0416f_`) against production's image `v0.40.13-dynres` (`t0416p_`,
+serving `0.40.13-dynres-0-g85d6368`). Each arm gets the same cold container per model on GPU0, with production's env.
+Each cell is one greedy run, with `CTX_START=8192 CTX_MAX=65536`. Moves come from `cmp_scored.py` and read
+fold : other side.
+- **The control reproduces.** `t0416p_` has no quality move against v0.40.13's `t0413w_` cells (the fold candidate
+  with 908) on any of the three models. So these single runs repeat on this host, and every move below is a move of
+  the payload, not run-to-run noise. It is still one numerical path per cell, not a rate.
+- **Against b11963 without 908 (`t0413n_`).** This is `main`'s payload since 908's retirement, never deployed. It
+  isolates b11963 → b12177.
+
+| model | fold vs production (b11963 with 908) | fold vs b11963 without 908 |
+|---|---|---|
+| gemma4:31b | 5 : 5 | **no quality move** (1 label) |
+| gemma4:26b-a4b | 4 : 4 | 2 : 7 |
+| gemma4:e4b | 34 : 15, in 16 of 27 tests | 22 : 23 |
+
+- **31b:** b12177 moves nothing scored. Its whole difference from production is 908's retirement, already on `main`.
+  - Production keeps `bbox_contract_perobject`: 5 declared hits against 1, IoU 0.69 against 0.08.
+  - In that test the fold switches to y-first (`norm1000/yxyx`), with 908 out.
+- **26b-a4b:** the two moves b12177 makes are y-first switches.
+  - `bbox_contract_perobject`: the fold drops the contract, IoU 0.04 against 0.98 at b11963 without 908.
+    Production, with 908, had already done this at v0.40.13.
+  - `bboxm_free_noanc_pos`: new in this fold. IoU 0.04 against 0.68 on production and on b11963 without 908.
+- **e4b:** its gain over production is 908's retirement, which v0.40.13 measured at 29 : 11. b12177 itself is even
+  (22 : 23).
+- No test finished on one side only, and no cell capped, errored or looped.
+- 7bd180830 (no letterbox) shows no aggregate gemma4 cost. The y-first switch is the class to watch: it is a
+  dialect flip on a single greedy path, and it now appears in one more 26b test.
+
 ## Canary expectations
 
 The fold's interim builds stamp `0.40.13-dynres-N` (`main`'s last tag is `v0.40.13-dynres`), which `cuda-0-40-13` and
@@ -198,5 +239,5 @@ copy that moves the 0-40-13 CUDA pair to `cuda-0-40-16` and `mlx-cuda-0-40-16`, 
 - **Disk.** The `bigdisk` buildkit cache was 82.9 GB before this build: 44.6 GB from the v0.40.13 fold's builds
   (2026-11-03), 32.8 GB from 2026-10-13, and 5.4 GB older. A full build at a new llama.cpp and MLX pin adds roughly
   what the last fold's did, so the next fold needs space again.
-- Gates 4-6 on CUDA. The canary (`tasks/canary-0416.sh`) is chained to the image. Metal's are its own; gfx1151's are
-  above.
+- Gate 6 think-on (26b-a4b, then 31b), both arms, the full ladder: running on CUDA. Metal's gates are its own; gfx1151's
+  are above.
