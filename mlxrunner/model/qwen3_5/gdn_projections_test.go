@@ -140,3 +140,33 @@ func TestConcatProjectionPairMixedFallsBackToDense(t *testing.T) {
 		assertBitEqual(t, "weight", dense.Weight, want.AsType(dense.Weight.DType()))
 	})
 }
+
+// A stored global scale is the checkpoint's own multiplier, so an unscaled half
+// of a concatenated pair is 1, not Nvfp4MaxProduct (ADR 0039). The reference is
+// built by hand, never through the wrappers: a reference in the wrong convention
+// would pass while the model is wrong.
+func TestConcatGlobalScalesUnscaledHalfIsIdentity(t *testing.T) {
+	mlxtest.Run(t, func(t *mlxtest.T) {
+		hiRows, loRows := mlx.Zeros(mlx.DTypeFloat32, 3), mlx.Zeros(mlx.DTypeFloat32, 2)
+		for _, tc := range []struct {
+			name   string
+			hi, lo *mlx.Array
+			want   []float32
+		}{
+			{"hi unscaled", nil, mlx.FromValues([]float32{0.25}, 1), []float32{1, 1, 1, 0.25, 0.25}},
+			{"lo unscaled", mlx.FromValue(float32(0.5)), nil, []float32{0.5, 0.5, 0.5, 1, 1}},
+		} {
+			got := concatGlobalScales(tc.hi, tc.lo, hiRows, loRows)
+			mlx.Eval(got)
+			if vals := got.Floats(); len(vals) != len(tc.want) {
+				t.Fatalf("%s: %v, want %v", tc.name, vals, tc.want)
+			} else {
+				for i := range tc.want {
+					if vals[i] != tc.want[i] {
+						t.Fatalf("%s: %v, want %v", tc.name, vals, tc.want)
+					}
+				}
+			}
+		}
+	})
+}

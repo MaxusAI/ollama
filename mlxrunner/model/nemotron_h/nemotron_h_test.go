@@ -421,8 +421,8 @@ func TestApplyExpertWeightGlobalScale(t *testing.T) {
 			5, 6,
 			7, 8,
 		}, 2, 2, 2)
-		// Scales reach this function already in MLX's representation.
-		scale := mlx.FromValues([]float32{2 * mlx.Nvfp4MaxProduct, 3 * mlx.Nvfp4MaxProduct}, 2)
+		// Scales reach this function as the checkpoint's own multiplier (ADR 0039).
+		scale := mlx.FromValues([]float32{2, 3}, 2)
 
 		got := applyExpertWeightGlobalScale(weight, scale)
 		mlx.Eval(got)
