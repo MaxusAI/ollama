@@ -30,9 +30,9 @@ Upstream [v0.40.16](https://github.com/ollama/ollama/releases/tag/v0.40.16) (202
 |---|---|
 | 1, the merge | **done**: `7c25e6053`, **no conflicts**. `go build`, `go vet` and `go test ./...` pass in `golang:1.26` (go1.26.10, 77 packages ok). The MLX tests skip without libmlx, so they say nothing about MLX |
 | 2, docs and paths | **clean**: `check_source_paths.py --changed-since 63542f063` resolves every reference |
-| 3, the patch series | **done**: `d96be0a54`. All eight patches apply in order to a fresh b12177 with plain `git apply`. 802, 805 and 903 are re-cut; their changed lines are byte-identical to the v0.40.13 cut (below). 903 compiles for sm_75 and sm_120a, and its guard fires on a mutation in all 10 config tables, which are all of b12177's (`tasks/mmq-compile-0416.sh`). 903's guard-page gate (`tasks/mmq-0416-gate.sh`): running |
+| 3, the patch series | **done**: `d96be0a54`. All eight patches apply in order to a fresh b12177 with plain `git apply`. 802, 805 and 903 are re-cut; their changed lines are byte-identical to the v0.40.13 cut (below). 903 compiles for sm_75 and sm_120a, and its guard fires on a mutation in all 10 config tables, which are all of b12177's (`tasks/mmq-compile-0416.sh`). 903's guard-page gate (`tasks/mmq-0416-gate.sh`) **passes on sm_75 and sm_120a**: every pass is backed by a faulting control, and the ids_dst control faults in both new fused-NVFP4 cases (below) |
 | no-GPU harness gates | **green**: `test_verdicts.py`, `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
-| 4, image | **not built**: the 8TB array has 36 GB free, and the v0.40.13 fold's builds added 44.6 GB to the `bigdisk` buildkit cache ("Open" below) |
+| 4, image | **building** (`build-0416.sh`, from 2026-11-14 18:11 at `a774f7af5`, stamp `0.40.13-dynres-8-ga774f7a`). Old scratch was deleted first, which took the 8TB array from 36 GB to 66 GB free |
 | 5, preflight | not run. The canary reads a run-local expectations copy (`tasks/exp-0416.py`, below) |
 | 6, campaigns | not run |
 | tag and deploy | not tagged, not deployed |
@@ -91,6 +91,36 @@ branch returns before it, so the MMQ y load never reads it.
   5ce06fc71's fused NVFP4 path: the plain op, which takes the native FP4 y block, and its W4A8 twin, which forces q8_1
   y.
 
+**903's guard-page gate on b12177** (`tasks/mmq-0416-gate.sh`, run by one driver on 2026-11-14: sm_75 on GPU1, RTX
+2080 Ti, 18:03-18:42; sm_120a on GPU0 18:42-19:34; results `tasks/mmq-successor-results/gate-0416-sm75.tsv` and
+`gate-0416-sm120.tsv`). The variants are v0.40.13's: `pr462` (the branch), `pr462jb` (src1 padded by J_best blocks)
+and `pr462ids0` (no ids_dst padding).
+
+| case | pr462, all modes | jb control, guard:src1 | ids0 control, guard:ids_dst |
+|---|---|---|---|
+| dense321 (sm_75) | pass | **faults 3/3** | n/a (no ids_dst) |
+| ids16 (both) | pass | **faults 3/3** | **faults 3/3** |
+| j100_b0 (sm_120a) | pass | **faults 3/3** | **faults 3/3** |
+| j100_b1 (sm_120a) | pass | **faults 3/3** | **faults 3/3** |
+| fu_dense17 (both) | pass | passes | n/a (no ids_dst) |
+| fu_id17b (both) | pass | passes | **faults 3/3** |
+| fu_id2048 (both) | pass | passes | **faults 3/3** |
+| fu_nvfp4_id150 (sm_120a, new) | pass | faults 1/3 | **faults 3/3** |
+| fu_nvfp4_w4a8_id150 (sm_120a, new) | pass | passes | **faults 3/3** |
+
+- **`pr462` passes in every case on both GPUs:** 3/3 under the src1 guard, 3/3 under the ids_dst guard and 3/3 on
+  the stock pool, plus 1/1 at exact allocation with 0 memcheck errors. That is 20 case-mode rows on sm_75 and 32 on
+  sm_120a. No GPU process was left behind.
+- **Evidence for src1:** dense321, ids16 and the j100 cases. **Evidence for ids_dst:** every MUL_MAT_ID case,
+  including both new NVFP4 cases.
+- The fused src1 rows are not evidence, because their control passes too, as at v0.40.13. Neither is the fused NVFP4
+  src1 row, whose control faults only 1/3.
+- The `MMQ_FUSED` debug print confirms that every `fu_` case (three on sm_75, five on sm_120a) reaches the fused MMQ kernel, and that ids16 and the
+  j100 cases do not.
+- **Changed since v0.40.13:** the j100 src1 controls fault 3/3 here, against 1/3 and 2/3 at b11963.
+- The gate's summary tables label the first column with v0.40.13's tree name (b11351). That label is a carried
+  string: each run's start line records the tree it actually ran (`6c01da627`).
+
 ## What the gates must re-measure
 
 - **gemma4 GGUF vision** (7bd180830, 6cb3e672e): ladders should hold, since the token counts do not change. Scores and
@@ -115,8 +145,8 @@ copy that moves the 0-40-13 CUDA pair to `cuda-0-40-16` and `mlx-cuda-0-40-16`, 
 
 ## Open
 
-- **Disk for the image build.** The array has 36 GB free. The `bigdisk` buildkit cache is 82.9 GB: 44.6 GB from the
-  v0.40.13 fold's builds (2026-11-03), 32.8 GB from 2026-10-13, and 5.4 GB older. A full build at a new llama.cpp
-  and MLX pin adds roughly what the last fold's did.
-- 903's guard-page gate on sm_75 and sm_120a.
-- Gates 4-6 on CUDA. gfx1151 and Metal are the other hosts'.
+- **Disk.** The `bigdisk` buildkit cache was 82.9 GB before this build: 44.6 GB from the v0.40.13 fold's builds
+  (2026-11-03), 32.8 GB from 2026-10-13, and 5.4 GB older. A full build at a new llama.cpp and MLX pin adds roughly
+  what the last fold's did, so the next fold needs space again.
+- Gates 4-6 on CUDA. The canary (`tasks/canary-0416.sh`) is chained to the image. gfx1151 and Metal are the other
+  hosts'.
