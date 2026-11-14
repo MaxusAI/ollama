@@ -485,6 +485,46 @@ control (the y-tile helper without its nthreads padding) fails on the guard's
 static_assert in all six AMD tables, rdna3_5 included, with no syntax errors.
 """
 
+[profiles.rocm7-0-40-16]
+platform = "rocm7"
+# The v0.40.16 fold (#508) moves llama.cpp b11963 -> b12177 (6c01da627). A payload move gets its own profile even when
+# the numbers turn out identical (ADR 0011, ADR 0032). The rows below are rocm7-0-40-13's, carried after measurement on
+# this payload, not before.
+# version_pattern admits the v0.40.16-dynres lineage only. The fold's interim builds stamp 0.40.13-dynres-N, which
+# rocm7-0-40-13 claims, so the canary measured them against a run-local copy of this file without that claim, as for
+# rocm7-0-40-5 and rocm7-0-40-13; payload_pin keeps every run on the llama.cpp build named here.
+version_pattern = '^0\.40\.16-dynres(\.\d+)?-\d+-g[0-9a-f]{7,40}$'
+# 908 is retired (#505); 802, 805 and 903 are re-cut for b12177, context only (the fold record, "Gate 3").
+patchset = ["001", "002", "004", "005", "801", "802", "805", "903"]
+reference_image = "0.40.13-dynres-8-ga774f7a"
+llama_cpp_build = "6c01da627"   # b12177, the v0.40.16 fold
+toolchain_build = "rocm-7.2.4"
+expect_patch_marker = 1
+arches = ["nemotron_h_omni", "gemma4", "qwen35"]
+notes = """
+gfx1151 (Radeon 8060S), the v0.40.16 fold (#508 at a774f7af5), built with
+Dockerfile.rocm on rocm/dev-ubuntu-24.04:7.2.4-complete (ADR 0042):
+maxusai-ollama:0.40.13-dynres-8-ga774f7a-rocm7-gfx1151, llama-server commit
+6c01da627. Later commits on #508 to the measurement are docs and task records.
+
+MEASURED 2026-11-14 in production's environment (f16 KV, flash attention on,
+two-pass, two slots) on a hard-linked clone of production's store, the models
+as production serves them (rocm7-0-40-5's notes). measure_ladder.py and
+aspect_measure.py: all 24 values and the three prefixes are byte-identical to
+rocm7-0-40-13's, as they have been since b11351. llama.cpp 7bd180830 (gemma4
+resized without letterbox padding) moves no gemma4 token count: 004 already
+resizes directly to the filled grid.
+
+PREFLIGHT: VERDICT PASS, PASS=27 SKIP=5
+(runs/preflight-rocm7-0416-canary-ga774f7a.json): payload_pin 6c01da627,
+nemotron pinned 3328 -> 3270, gemma4 pinned 560 -> 529, think_format on all
+three arches, the quality floors at 1.00, and the poison canary.
+
+903 under hipcc at b12177: clean compile; the padding mutation fails on the
+guard's static_assert in all six AMD tables, rdna3_5 included, with no syntax
+errors. b12177's new RDNA4_M family reuses the rdna3_5 table, so it is covered.
+"""
+
 [profiles.cpu]
 platform = "cpu"
 version_pattern = '^0\.32\.5-dynres-[0-9a-f]{7,40}$'
@@ -1937,6 +1977,103 @@ require_nonempty_response = true
 require_valid_json = true
 require_nonempty_thinking = true
 
+
+[expect.rocm7-0-40-16.nemotron_h_omni]
+status = "measured"
+measured_on = "2026-11-14"
+model = "nemotron3:33b-q4_K_M"
+patch_stride = 32
+budget_min_tokens = 256
+budget_max_tokens = 3328
+image_min_pixels = 262144
+image_max_pixels = 3407872
+# No custom_bounds line, as on rocm7-0-40-2: the fork launches nemotron with both bounds as flags (#483), and
+# measure_ladder.py printed no custom_bounds line on the fold image either.
+scaling = "dynamic"
+# Re-measured 2026-11-14 on 0.40.13-dynres-8-ga774f7a (b12177) by aspect_measure.py (the calls check_aspect_ladder
+# makes), pasted whole; identical to rocm7-0-40-13's.
+aspect_ladder = { "1024x768" = 770, "1920x480" = 902, "768x768" = 578 }
+ladder_tolerance = 2
+# prefix == 19, text_only == 20; measured with image_prefix (B8), not text_baseline
+ladder = [266, 266, 578, 2306, 3270]
+
+[expect.rocm7-0-40-16.nemotron_h_omni.pinned]
+size = "2048x1152"
+pin_tokens = 3328
+expect_tokens = 3270
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 2306
+control_tolerance = 4
+
+[expect.rocm7-0-40-16.nemotron_h_omni.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.rocm7-0-40-16.gemma4]
+status = "measured"
+measured_on = "2026-11-14"
+model = "gemma4:31b-it-q4_K_M"
+patch_stride = 48
+budget_min_tokens = 70
+budget_max_tokens = 1120
+image_min_pixels = 161280
+image_max_pixels = 2580480
+scaling = "flat"   # verified: 004 fills every image to the budget, so the ladder is flat
+# Re-measured 2026-11-14 on 0.40.13-dynres-8-ga774f7a (b12177) by aspect_measure.py, pasted whole; identical to
+# rocm7-0-40-13's and to mlx-metal's gemma4 row.
+aspect_ladder = { "1024x768" = 1066, "1920x480" = 1058, "768x768" = 1091 }
+ladder_tolerance = 2
+# prefix == 19, text_only == 19; measured with image_prefix (B8), not text_baseline
+ladder = [1102, 1102, 1102, 1102, 1102]
+
+[expect.rocm7-0-40-16.gemma4.pinned]
+# Pinned below the ceiling, as on rocm7-0-34-4-dynres: 004 fills every image to the budget max.
+size = "2048x1152"
+pin_tokens = 560
+expect_tokens = 529
+tolerance = 4
+enforce_ceiling_invariant = true
+control_expect_tokens = 1102
+control_tolerance = 4
+
+[expect.rocm7-0-40-16.gemma4.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
+[expect.rocm7-0-40-16.qwen35]
+status = "measured"
+measured_on = "2026-11-14"
+model = "qwen3.8:27b-q4_K_M"
+patch_stride = 32
+budget_min_tokens = 1024
+budget_max_tokens = 4096
+image_min_pixels = 1048576
+image_max_pixels = 4194304
+custom_bounds = ["min"]   # only these are set by our flags
+scaling = "dynamic"
+# Re-measured 2026-11-14 on 0.40.13-dynres-8-ga774f7a (b12177) by aspect_measure.py, pasted whole; identical to
+# rocm7-0-40-13's.
+aspect_ladder = { "1024x768" = 1038, "1920x480" = 1026, "768x768" = 1026 }
+ladder_tolerance = 2
+# prefix == 13, text_only == 13; measured with image_prefix (B8), not text_baseline
+ladder = [1034, 1034, 1034, 2306, 4082]
+
+# Structurally unpinnable, as on rocm7-0-34-4-dynres: visionServerArgs gates image_min/max_tokens to gemma4 and
+# nemotron_h_omni.
+pinned_not_applicable = """image_min_tokens/image_max_tokens are arch-gated to \
+gemma4 and nemotron_h_omni; qwen35's visionServerArgs branch ignores them."""
+
+[expect.rocm7-0-40-16.qwen35.think_format]
+num_predict = 4000
+require_nonempty_response = true
+require_valid_json = true
+require_nonempty_thinking = true
+
 [expect.cpu.nemotron_h_omni]
 status = "unmeasured"
 model = "nemotron3:33b-q8"
@@ -2478,6 +2615,43 @@ min_label_recall = 0.70
 min_qty_price_exact = 0.70
 
 [quality.rocm7-0-40-13.qwen35]
+status = "measured"
+tests = ["scene_single", "document_single"]
+min_json_valid = 1.0
+min_label_recall = 0.70
+min_qty_price_exact = 0.70
+
+# --- apple-silicon-mlx-0-32-14 -------------------------------------------
+# Measured 2026-08-17 on the native macOS MLX serve (:11436), server
+# 0.32.14-maxusai-9594f81e, via probes.Ollama.image_prefix + visual_tokens (the
+# B8 prefix trick). Ladder geometries 256x144 / 512x288 / 1024x576 / 2048x1152 /
+# 3072x1728.
+#
+# EVERY VALUE HERE WAS TAKEN FRESH. ADR 0011 forbids copying a row forward
+# across a payload change, and the whole point of the re-baseline is that
+# agreement has to be demonstrated, not assumed. It was demonstrated: all four
+# arches reproduce their 0.32.5 numbers exactly.
+
+
+
+# --- rocm7-0-40-16: output quality -------------------------------------------
+# Carried from rocm7-0-40-13. Checked live on the v0.40.16 fold image (2026-11-14): 1.00 on every measure.
+
+[quality.rocm7-0-40-16.nemotron_h_omni]
+status = "measured"
+tests = ["scene_single", "document_single"]
+min_json_valid = 1.0
+min_label_recall = 0.70
+min_qty_price_exact = 0.70
+
+[quality.rocm7-0-40-16.gemma4]
+status = "measured"
+tests = ["scene_single", "document_single"]
+min_json_valid = 1.0
+min_label_recall = 0.70
+min_qty_price_exact = 0.70
+
+[quality.rocm7-0-40-16.qwen35]
 status = "measured"
 tests = ["scene_single", "document_single"]
 min_json_valid = 1.0
@@ -3909,6 +4083,10 @@ model = "qwen2.5vl:3b-q4_K_M"
 model = "qwen2.5vl:3b-q4_K_M"
 # Carried from rocm7-0-40-5. Checked live on the v0.40.13 fold image (2026-11-03): the 1.06x-ceiling trigger decodes
 # healthily, slot clean after.
+
+[poison.rocm7-0-40-16]
+model = "qwen2.5vl:3b-q4_K_M"
+# Carried from rocm7-0-40-13. Checked live on the v0.40.16 fold image (2026-11-14): healthy, slot clean after.
 
 [profiles.cuda-0-40-2]
 # The v0.40.2 fold (#460) moved both payload pins: llama.cpp b11081 -> b11351 (631109b34) and MLX
