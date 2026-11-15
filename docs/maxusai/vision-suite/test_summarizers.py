@@ -2417,6 +2417,53 @@ class TestExtbenchArmsAndSlices(unittest.TestCase):
         self.assertIn("off: 0; old: server default", out)
         self.assertNotIn("not comparable", self._timing({"new": None, "old": self.MISSING}))
 
+    H100 = {"host_profile": "host-profile_a.json", "label": "gcp-a3-highgpu-1g/cuda",
+            "gpus": ["NVIDIA H100 80GB HBM3"], "gpu_memory_mib": [81559],
+            "cloud_machine_type": "a3-highgpu-1g"}
+    BLACKWELL = {"host_profile": "host-profile_b.json", "label": "cuda-host/sm120",
+                 "gpus": ["NVIDIA RTX PRO 6000 Blackwell"], "gpu_memory_mib": [97887],
+                 "cloud_machine_type": None}
+
+    def _machines(self, machines, timing=True):
+        """Render one arm per {tag: summary hardware, or MISSING}, with or without --timing."""
+        with tempfile.TemporaryDirectory() as d:
+            for tag, hw in machines.items():
+                self._write(d, tag, [1, 0])
+                if hw is not self.MISSING:
+                    path = os.path.join(d, f"ext_{tag}_ocrbench.json")
+                    with open(path) as f:
+                        doc = json.load(f)
+                    doc["summary"]["hardware"] = hw
+                    with open(path, "w") as f:
+                        json.dump(doc, f)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                sys.argv = ["x", "--dir", d, *(["--timing"] if timing else []), "ocrbench", *machines]
+                sxb.main()
+            return out.getvalue()
+
+    def test_the_footer_names_the_machine_once_a_file_records_it(self):
+        out = self._machines({"a": self.H100, "b": self.H100}, timing=False)
+        self.assertIn("· hardware: gcp-a3-highgpu-1g/cuda (NVIDIA H100 80GB HBM3, a3-highgpu-1g)\n", out)
+        self.assertNotIn("not comparable", self._machines({"a": self.H100, "b": self.H100}))
+
+    def test_files_without_hardware_render_as_before(self):
+        for hw in (self.MISSING, None):
+            out = self._machines({"a": hw, "b": hw})
+            self.assertNotIn("hardware", out)
+            self.assertNotIn("not comparable", out)
+
+    def test_timing_warns_when_the_arms_ran_on_different_machines(self):
+        out = self._machines({"h100": self.H100, "sm120": self.BLACKWELL})
+        self.assertIn("not comparable", out)
+        self.assertIn("sm120: cuda-host/sm120 (NVIDIA RTX PRO 6000 Blackwell)", out)
+
+    def test_an_arm_that_names_no_machine_cannot_vouch_for_its_seconds(self):
+        out = self._machines({"h100": self.H100, "old": self.MISSING})
+        self.assertIn("old: not recorded", out)
+        self.assertIn("not recorded (pre-H26 run)", out)
+        self.assertIn("not comparable", out)
+
     def test_a_missing_row_slice_is_a_comment_not_a_crash(self):
         with tempfile.TemporaryDirectory() as d:
             self._write(d, "a", [1, 0])

@@ -17,7 +17,12 @@ slice), THINK=on|false (false), ENDPOINT=generate|chat
 (generate), NUM_PREDICT, NUM_CTX (16384), TIMEOUT (900), SLEEP (0 — seconds between
 requests, to yield the GPU on a shared host), PROMPT_CACHE_RAM (0, llama-server's prompt
 cache off; `server` sends none — see client.prompt_cache_ram()). The summary records it
-as `prompt_cache_ram`, because it moves seconds per item.
+as `prompt_cache_ram`, because it moves seconds per item. HOST_PROFILE (unset): the
+host-profile JSON captured on the serving machine for this run (H26,
+tools/host_profile.py). The summary records its file name and the machine's label,
+GPUs and cloud machine type as `hardware`, because the machine moves seconds per item
+too and `host` is only the URL the client called. A path that cannot be read as a host
+profile stops the run before its first request; unset, `hardware` is null.
 
 Writes ext_<tag>_<bench>.json (per-item records + summary) beside the script and
 caches images and the row slice under extimgs/<bench>/.
@@ -445,7 +450,7 @@ def build_prompt(row):
 
 
 def main():
-    global HOST, TAG, MODEL, BENCH
+    global HOST, TAG, MODEL, BENCH, HARDWARE
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     HOST = sys.argv[1].rstrip("/")
@@ -459,6 +464,7 @@ def main():
     offset = int(os.environ.get("OFFSET", "0"))
     sleep_s = float(os.environ.get("SLEEP", "0"))
     think = os.environ.get("THINK", "false")
+    HARDWARE = load_hardware(os.environ.get("HOST_PROFILE"))
 
     print(f"# {BENCH}: {BENCHES[BENCH]['dataset']} [{BENCHES[BENCH]['split']}] "
           f"rows {offset}..{offset + limit}")
@@ -562,6 +568,37 @@ def main():
 # Items between checkpoints of a running arm to ext_<tag>_<bench>.partial.json.
 CHECKPOINT_EVERY = 50
 
+# The `hardware` summary field (H26); set by main() from HOST_PROFILE.
+HARDWARE = None
+
+
+def load_hardware(path):
+    """The `hardware` summary field from a host-profile JSON (H26), or None when unset.
+
+    Only what a reader needs to compare seconds per item: the profile's file name (the
+    full profile is committed beside the arms), its collab label, each GPU's name and
+    memory, and the cloud machine type. Raises SystemExit on a path that is not a
+    host profile, so a typo cannot publish a run as if it named its machine.
+    """
+    if not path:
+        return None
+    try:
+        with open(path) as f:
+            prof = json.load(f)
+    except (OSError, ValueError) as e:
+        sys.exit(f"HOST_PROFILE={path}: cannot read it as JSON ({e})")
+    if not str(prof.get("schema", "")).startswith("host-profile/"):
+        sys.exit(f"HOST_PROFILE={path}: not a host profile (schema {prof.get('schema')!r}); "
+                 "capture one with tools/host_profile.py --out DIR on the serving machine")
+    gpus = prof.get("gpus") or []
+    return {
+        "host_profile": os.path.basename(path),
+        "label": prof.get("label"),
+        "gpus": [g.get("name") for g in gpus],
+        "gpu_memory_mib": [g.get("memory_total_mib") for g in gpus],
+        "cloud_machine_type": (prof.get("cloud") or {}).get("machine_type"),
+    }
+
 
 def build_summary(offset, limit, think, records, correct, empty, hosts, builds, ious, dialects):
     n = len([r for r in records if "error" not in r])
@@ -583,6 +620,8 @@ def build_summary(offset, limit, think, records, correct, empty, hosts, builds, 
         # What gen() sent on every request; None means none, so the server's
         # default (the cache on), as in every summary written before this field.
         "prompt_cache_ram": client.prompt_cache_ram(),
+        # H26: the machine that served the run, from HOST_PROFILE; None when unset.
+        "hardware": HARDWARE,
         "correct": correct, "accuracy": round(correct / n, 4) if n else None,
     }
     if BENCH == "refcoco":
