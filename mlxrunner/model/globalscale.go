@@ -10,8 +10,8 @@ var globalScaleSuffixes = []string{".global_scale", "_scale_2"}
 // them with the weight's companions; weight-only inference does not use them.
 var activationScaleSuffixes = []string{".input_global_scale", ".input_scale"}
 
-// ReadGlobalScale returns a weight's NVFP4 global scale in MLX's
-// representation, and the companion keys the caller should release. Candidate
+// ReadGlobalScale returns a weight's NVFP4 global scale as the checkpoint's own
+// multiplier (ADR 0039), and the companion keys the caller should release. Candidate
 // keys are tried in order, so pass the resolved tensor key before any model.
 func ReadGlobalScale(tensors map[string]*mlx.Array, weightKeys ...string) (*mlx.Array, []string) {
 	var found *mlx.Array

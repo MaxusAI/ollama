@@ -859,3 +859,24 @@ func ones(n int) *mlx.Array {
 	}
 	return mlx.FromValues(vals, n)
 }
+
+// A fused dense MLP's gate and up halves carry the checkpoint's own multiplier
+// (ADR 0039), so applying it multiplies by m as given. Dividing by
+// Nvfp4MaxProduct first shrank every fused dense MLP and shared expert 2688-fold.
+func TestApplyDenseGlobalScaleIsTheCheckpointMultiplier(t *testing.T) {
+	mlxtest.Run(t, func(t *mlxtest.T) {
+		x := mlx.FromValues([]float32{1, -2, 0.5, 4}, 1, 4)
+		got := applyDenseGlobalScale(x, mlx.FromValue(float32(0.25)))
+		mlx.Eval(got)
+		want := []float32{0.25, -0.5, 0.125, 1}
+		vals := got.Floats()
+		for i := range want {
+			if vals[i] != want[i] {
+				t.Fatalf("applyDenseGlobalScale = %v, want %v (x * m, m applied as given)", vals, want)
+			}
+		}
+		if applyDenseGlobalScale(x, nil) != x {
+			t.Fatal("a nil scale must leave x untouched")
+		}
+	})
+}
