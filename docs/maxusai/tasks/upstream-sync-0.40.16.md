@@ -33,9 +33,9 @@ Upstream [v0.40.16](https://github.com/ollama/ollama/releases/tag/v0.40.16) (202
 | 3, the patch series | **done**: `d96be0a54`. All eight patches apply in order to a fresh b12177 with plain `git apply`. 802, 805 and 903 are re-cut; their changed lines are byte-identical to the v0.40.13 cut (below). 903 compiles for sm_75 and sm_120a, and its guard fires on a mutation in all 10 config tables, which are all of b12177's (`tasks/mmq-compile-0416.sh`). 903's guard-page gate (`tasks/mmq-0416-gate.sh`) **passes on sm_75 and sm_120a**: every pass is backed by a faulting control, and the ids_dst control faults in both new fused-NVFP4 cases (below) |
 | no-GPU harness gates | **green**: `test_verdicts.py`, `test_summarizers.py`, `test_rescore.py` (1 skipped, as in CI), `test_mlx_test_gate.py` |
 | 4, image | **CUDA: built**: `maxusai/ollama:sync-0.40.16-fold` (`1cf98993f095`), 2026-11-14 18:11-21:55 at `a774f7af5`, stamp `0.40.13-dynres-8-ga774f7a`. Old scratch was deleted first, which took the 8TB array from 36 GB to 66 GB free; 62 GB were left after the build. **gfx1151: built**, `maxusai-ollama:0.40.13-dynres-8-ga774f7a-rocm7-gfx1151` at `a774f7af5`, llama-server `6c01da627`; hipcc compiles 903's guard and its mutation fires in all six AMD tables ("gfx1151" below) |
-| 5, preflight | **CUDA: passes** (canary, 2026-11-14 22:07 to 11-15 00:07): all six ladders measure field for field what v0.40.13's canary did, so the carried rows hold. Preflight CUDA PASS=20 SKIP=9, `mlx-cuda` PASS=11 SKIP=18, both rc=0 and as at v0.40.13. 0 `cudaMemcpy` errors, 0 OOMs ("Gate 5" below). **gfx1151: passes** on the new `rocm7-0-40-16` (PASS=27 SKIP=5); all 24 ladder values unchanged |
+| 5, preflight | **CUDA: passes** (canary, 2026-11-14 22:07 to 11-15 00:07): all six ladders measure field for field what v0.40.13's canary did, so the carried rows hold. Preflight CUDA PASS=20 SKIP=9, `mlx-cuda` PASS=11 SKIP=18, both rc=0 and as at v0.40.13. 0 `cudaMemcpy` errors, 0 OOMs ("Gate 5" below). **gfx1151: passes** on the new `rocm7-0-40-16` (PASS=27 SKIP=5); all 24 ladder values unchanged. **Metal: passes** on the new `mlx-metal-0-40-16` (PASS=26 SKIP=20) and `metal-0-40-16` (PASS=10 SKIP=22), every ladder byte-identical ([#512](https://github.com/MaxusAI/ollama/pull/512)) |
 | 6, campaigns | **CUDA, think-off done** (`tasks/gate6-0416.sh`): against production's image, gemma4:31b 5 : 5, 26b-a4b 4 : 4, e4b 34 : 15 (fold : production). Against b11963 without 908, which isolates the payload: 31b no quality move, 26b 2 : 7, e4b 22 : 23. Think-on on the full ladder (26b-a4b, 31b): running ("Gate 6" below). **gfx1151:** think-off on four models against b11963, and 84dc81db1's slot change split from the payload on qwen3.8 and nemotron3 ("gfx1151" below) |
-| tag and deploy | not tagged, not deployed |
+| tag and deploy | **tagged** `v0.40.16-dynres` (`d50a283a7`, #508's merge) on 2026-11-15. **Deployed:** gfx1151 05:57 ([#513](https://github.com/MaxusAI/ollama/pull/513)), Apple Silicon 06:05 ("Apple Silicon" below). The CUDA host still serves v0.40.13-dynres |
 
 ## Native inputs
 
@@ -184,6 +184,25 @@ and task records. Every run used a canary in production's environment (f16 KV, f
   concurrent pair of requests (greedy, 160 tokens) finishes `stop` on both with identical text on each model: 2.8 s
   for nemotron3, 13.7 s for qwen3.8.
 - **Not run here:** think-on.
+
+## Apple Silicon (Metal host, 2026-11-14/15)
+
+Both halves built natively on the M5 Max (`build-macos.sh`, `CLEAN_DEPS=1`): first #508's head `dbbdc0f6f` (stamp
+`0.40.13-dynres-11-gdbbdc0f`) for the gates, then the tag (`0.40.16-dynres-0-gd50a283`) for the deploy. MLX
+`54a70511`, MLX-C `57731b00`, llama.cpp b12177. Every GPU step ran on a `:11437` stage serving an APFS clone of
+production's store, in production's environment (two-pass, KV f16, `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`), and only after
+production had been idle 15 minutes, in powermode 2.
+
+| gate | result |
+|---|---|
+| MLX Go tests on a real libmlx (`go test ./mlx/... ./mlxrunner/... -p 1`, `OLLAMA_VISION_E2E=1`) | 2003 passed, **4 failed**, 11 skipped. All four in qwen4_exp: its host PLE lookup still stored MLX's m×2688 global-scale form, which ADR 0039 retired. Fixed in [#510](https://github.com/MaxusAI/ollama/pull/510) (into #508), and the package re-run passes. The same mistake in laguna, nemotron_h and qwen3_5's GDN projections is [#511](https://github.com/MaxusAI/ollama/pull/511), against `main` |
+| ladders | every `mlx-metal-0-40-13` and `metal-0-40-13` row re-measured byte-identical, so the 0-40-16 profiles carry them ([#512](https://github.com/MaxusAI/ollama/pull/512)) |
+| preflight `--quality`, #508's head | `mlx-metal-0-40-16` PASS=26 SKIP=20, `metal-0-40-16` PASS=10 SKIP=22 |
+| think-off A/B, seven cells (A production's `0.40.13-dynres-0-g85d6368`, B #508's head; same clone, same suite tree, powermode 2) | valid JSON 189/189 on both; box contract 111/140 on both; label hits 680 → 679 of 840. The five MLX cells answered byte-identically (28/28 each). The GGUF cells moved (gemma4:31b-it-q4_K_M 23/28 identical, qwen3.6:35b-a3b-q4_K_M 5/28) and gemma4's scores held; qwen3.6 q4_K_M lost one hit in `bbox_contract_reasoning`, deterministic over three cold runs per build, and both builds fail that case the same way |
+| OCRBench v1 rows 0–199 | gemma4:31b-nvfp4 174/200 and gemma4:31b-it-q4_K_M 171/200 on both builds, the same items right and wrong (McNemar p = 1.000) |
+| think-on | **not run**, at the maintainer's word |
+| the tag's stage | the tag differs from `dbbdc0f6f` only by #510 and docs. Preflight on the committed profiles: the same counts on both. Deploy smoke 4/4: two-pass on gemma4:26b-nvfp4 drafts in pass one and answers JSON; two-pass and an image on the converted gemma4:31b-it-q4_K_M; System One on qwen3.6 q4_K_M answers upstream's 400 |
+| deploy | stopped swap of both halves on `:11435`, 2026-11-15 06:05; the plist unchanged (`OLLAMA_FORMAT_TWO_PASS=1`, `OLLAMA_KV_CACHE_TYPE=f16`, `OLLAMA_MLX_DRAFT_UNDER_GRAMMAR=0`, read from the running process). Production preflight: `mlx-metal-0-40-16` 26/20, `metal-0-40-16` 10/22 (`runs/preflight-{mlx-metal,metal}-0416-{release,prod}-gd50a283.json`). Rollback: the `0.40.13-dynres-0-g85d6368` binary and payload together ([BINARIES.md](../vision-suite/BINARIES.md)) |
 
 ## Gate 5: the canary (CUDA, 2026-11-14/15)
 
